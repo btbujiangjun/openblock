@@ -16,7 +16,7 @@ import { FxLayer } from './effects/FxLayer';
 import { AmbientFx } from './effects/AmbientFx';
 import { OverlayFx } from './effects/OverlayFx';
 import { SeasonalBorder } from './effects/SeasonalBorder';
-import { PerfMonitor } from './effects/PerfMonitor';
+import { PerfMonitor, setFrozenRecoverHandler } from './effects/PerfMonitor';
 import { GameController } from './GameController';
 import { SkillBar } from './skills/SkillBar';
 import { MetaPanel } from './ui/MetaPanel';
@@ -337,6 +337,18 @@ export class Bootstrap extends Component {
 
         // 性能 / 泄漏监控：每 5s 打一行 fps/堆内存/节点数（诊断「越玩越卡 → 黑屏」）。挂在根节点随场景存活。
         if (PerfMonitor.ENABLED && !this.node.getComponent(PerfMonitor)) this.node.addComponent(PerfMonitor);
+        // 冻屏自愈：PerfMonitor 检测到连续 30s "fps 正常但 touches=0" → 调本回调强制重排+重发 draw command。
+        // 与 onAppShow 的延迟兜底重画走同一组节点，但触发时机是「冻屏检测」而非「前后台切换」，
+        // 覆盖 Activity 没切但 EGL surface 半失效的灰色地带（华为 EMUI / 沉浸式过渡常见）。
+        setFrozenRecoverHandler(() => {
+            console.warn('[OpenBlock] frozen recover: relayout + safeRedraw + drag cancel');
+            try { this._ctrl?.cancelActiveDrag(); } catch { /* ignore */ }
+            try { this.relayout(); } catch (e) { console.warn('[OpenBlock] frozen recover relayout', e); }
+            try { FrameRate.poke(5000); } catch { /* ignore */ }
+            // 紧跟 0.35s/1.0s 延迟重画，与 onAppShow 同思路覆盖 surface 重建时序。
+            try { this.scheduleOnce(this._resumeRedraw, 0.35); } catch { /* ignore */ }
+            try { this.scheduleOnce(this._resumeRedraw, 1.0); } catch { /* ignore */ }
+        });
         // 启动期维持高帧覆盖启动屏 / 字标淡入等动画；之后 GameController.tick() 接管，空闲降 30fps 散热。
         FrameRate.poke(5000);
 
@@ -442,6 +454,35 @@ export class Bootstrap extends Component {
         // GL/Metal 表面被系统回收后不会自动重画 → 回前台黑屏。这里在 EVENT_SHOW 强制重排+重绘恢复。
         game.on(Game.EVENT_HIDE, this.onAppHide, this);
         game.on(Game.EVENT_SHOW, this.onAppShow, this);
+        // 内存压力（系统通过 Game.EVENT_LOW_MEMORY 通知 = Android APP_CMD_LOW_MEMORY / iOS didReceiveMemoryWarning）：
+        // 主动释放 ambient 粒子 + 环境装饰这类「可重生」的视觉资源，避免被系统抢着挂起 app。
+        // ⚠️ 必修：实测华为机型 LOW_MEMORY → APP_CMD_PAUSE → APP_CMD_STOP 链路出现后，回前台
+        //   原生 touch 通道半失效（PerfMonitor 报 [Frozen?] touches=0 持续几十秒），玩家表现为
+        //   「候选块完全点不动」。这条监听是从源头降低被挂起概率，比事后自愈更根本。
+        game.on(Game.EVENT_LOW_MEMORY, this.onAppLowMemory, this);
+    }
+
+    /**
+     * 系统内存预警处理：释放可重生的纯视觉资源（粒子/氛围/特效缓存），不动用户偏好与游戏状态。
+     *
+     * 释放清单（按"对玩家可感知度从低到高"排）：
+     *   - AmbientFx 粒子（cherry/aurora 等环境装饰）—— 0 玩法影响，下次 applySkin 会自动重生
+     *   - FxLayer.ambience —— 同上
+     *   - 进行中拖拽兜底 cancel —— 系统即将挂起，提前清干净避免 surface 重建后残留
+     * 不动：
+     *   - VisualFx.set(false) —— 那是用户偏好，会被持久化
+     *   - Motion.reduced —— 同上
+     *   - GameModel / 进度 / 钱包 —— 任何状态丢失都不能接受
+     */
+    private onAppLowMemory(): void {
+        console.warn('[OpenBlock] EVENT_LOW_MEMORY → trimming ambient particles + drag state');
+        try {
+            // 仅清粒子 buffer，保留 _preset：系统压力解除后下一帧 update() 自动 spawn 回来，
+            // 玩家不会察觉环境氛围"丢了"。比 applySkin('') 更友好。
+            this._ambientFx?.trimForLowMemory();
+        } catch (e) { console.warn('[OpenBlock] low-mem ambientFx trim', e); }
+        try { this._fx?.stopAmbience(); } catch (e) { console.warn('[OpenBlock] low-mem fx trim', e); }
+        try { this._ctrl?.cancelActiveDrag(); } catch (e) { console.warn('[OpenBlock] low-mem cancelDrag', e); }
     }
 
     /** 防抖后的视口重排：连续 resize 事件停稳后只跑一次，避免过渡期反复重建 GPU swapchain。 */
@@ -526,6 +567,8 @@ export class Bootstrap extends Component {
         try { screen.off('orientation-change', this.onViewportChanged, this); } catch { /* ignore */ }
         try { game.off(Game.EVENT_HIDE, this.onAppHide, this); } catch { /* ignore */ }
         try { game.off(Game.EVENT_SHOW, this.onAppShow, this); } catch { /* ignore */ }
+        try { game.off(Game.EVENT_LOW_MEMORY, this.onAppLowMemory, this); } catch { /* ignore */ }
+        try { setFrozenRecoverHandler(null); } catch { /* ignore */ }
         try { this.unschedule(this._debouncedRelayout); } catch { /* ignore */ }
         try { this.unschedule(this._resumeRedraw); } catch { /* ignore */ }
     }

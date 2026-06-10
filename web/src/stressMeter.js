@@ -145,8 +145,16 @@ export const SIGNAL_LABELS = {
     comboAdjust:           { label: '连击',       hint: 'combo 活跃时的小幅加压' },
     nearMissAdjust:        { label: '近失',       hint: '差一点就消行的局面，给予救济' },
     feedbackBias:          { label: '闭环反馈',   hint: '出块后实际表现与预期的偏差' },
+    feedbackBiasDampingAdjust: {
+        label: '反馈阻尼',
+        hint: 'feedbackBias 在玩家明显挫败时的反向阻尼（负值，adaptiveSpawn.js L1312-1323）。\n触发：feedbackBias > 0（出块比预期紧）且 feedbackDistress > 0（preFrustration/boardFrustration/decisionLoad/frust≥3 任一活跃）。\n公式：-min(maxDamping=0.08, feedbackBias × factor=0.5 × feedbackDistress)。\n作用：玩家正在被打挫败时，主动抹掉 feedbackBias 这一路的额外加压，避免雪上加霜。',
+    },
+    reactionAdjust: {
+        label: '反应微调',
+        hint: '基于玩家反应速度（思考时长 / cognitiveLoad）的小幅 stress 微调（adaptiveSpawn.js L1525-1540），|v| ≤ 0.05。\n  · 反应快、决策从容 → 略加压（正值）\n  · 反应慢、明显犹豫 → 略减压（负值）\n  · 中等区间 → 0\n用作 stress 的高频微调，幅度小但能提升"算法在跟着我反应"的体感。',
+    },
     trendAdjust:           { label: '趋势',       hint: '近期消行率上升/下降的连续偏移' },
-    sessionArcAdjust:      { label: '会话弧线',   hint: '热身/巅峰/收官三段的整体节奏' },
+    /* sessionArcAdjust 的详细 label/hint 见本表末尾的"末段会话压力"段（避免重复 key） */
     holeReliefAdjust:      { label: '空洞救济',   hint: '盘面空洞过多时减压' },
     boardRiskReliefAdjust: { label: '盘面风险',   hint: '高填充 + 空洞 + 玩家风险的综合救济' },
     abilityRiskAdjust:     { label: '能力风险',   hint: '玩家能力风险偏高时降难度护栏' },
@@ -178,7 +186,146 @@ export const SIGNAL_LABELS = {
      * 命中。summarizeContributors 通过 skip 集合把它从「贡献者列表」里排除。 */
     orderRigor:            { label: '顺序刚性',   hint: '高压且具承受力时，要求三连块 6 种排列里仅 ≤N 种可解，强制玩家做摆放顺序规划（v1.32 新增）' },
     /* v1.57.1 P2：D4 段强顺序锁死分量（开发者调试可见，玩家侧不暴露策略名）。 */
-    pbOvershootOrderBoost: { label: 'D4 强顺序锁', hint: 'v1.57.1 P2：D4 段（pbOvershootActive=true）+ stress ≥ orderHighStressMin（默认 0.85）时给 orderRigor 注入额外 +0.25，把 maxValidPerms 压到 tight=2，与 D4 高压 stress 形成"数值压 + 顺序压"双锁死。仅作开发者调试可见。' }
+    pbOvershootOrderBoost: { label: 'D4 强顺序锁', hint: 'v1.57.1 P2：D4 段（pbOvershootActive=true）+ stress ≥ orderHighStressMin（默认 0.85）时给 orderRigor 注入额外 +0.25，把 maxValidPerms 压到 tight=2，与 D4 高压 stress 形成"数值压 + 顺序压"双锁死。仅作开发者调试可见。' },
+
+    /* ── v1.62+ 实时态救济通道（adaptiveSpawn.js L1264-1316）── */
+    preFrustrationRelief: {
+        label: '前置救济',
+        hint: '低消行率 + 中高板面填充时，提前注入的减压量（负值）。\n触发：clearRate < 阈值 且 fill > 阈值 → 在挫败链路真正升级成 frustrationLevel ≥ 4 之前抢先减压，避免连环卡顿。\n负值越大 = 救济越强。',
+    },
+    boardFrustrationRelief: {
+        label: '盘面救济',
+        hint: '高板面 + frustrationLevel ≥ 3 的死局感合流减压（负值）。\n触发：fillPressure × 0.45 + frustPressure × 0.55 加权过阈 → 同时叠加"盘面挤"和"心理挫"两路因子，给出比单一 frustrationRelief 更强力的减压。\n通常和 preFrustrationRelief / decisionLoadRelief 一起出现在末段救济组合中。',
+    },
+    decisionLoadRelief: {
+        label: '决策负荷救济',
+        hint: 'anxious 心流 + 高认知负荷（cognitiveLoad）时的复杂度救济（负值）。\n触发：flowState=anxious 且 cognitiveLoad ≥ 阈值 → 走 decisionLoadRelief 通道，不只降 stress，还会同步压低 sizePreference / orderRigor / multiClearBonus，让本帧出块"简单一点"。\n是 v1.62 把"挫败救济"从单点降压扩展为"挫败 + 认知"双轴救济的关键分量。',
+    },
+    /* boardRisk 是原始观测（被 SKIP 排除），下面是它派生出的真实贡献分量 */
+    boardFrustrationReliefBypass: {
+        label: '盘面救济豁免',
+        hint: '诊断字段：本帧 boardFrustrationRelief 被绕过的原因（如 challengeBoost 主导 / onboarding / warmup）。非数值贡献分量，不进 stress 求和。',
+    },
+    /* ── v1.61 PB 曲线观测量（开发者调试可见，仅展示当前 PB 状态，不进 stress 求和）── */
+    pbRatio: {
+        label: 'PB 进度比',
+        hint: 'pbRatio = score / bestScore（首局或 PB=0 时记 1.0）。\n是 PB 曲线（pbTension/pbBrake/pbRelease）的输入：\n  · ratio < 0.78（D0/D1）远 PB 段，主动加多消、放宽友好出块\n  · 0.82 ≤ ratio ≤ 1.05（D2/D3）临近 PB，pbTension 按 S 曲线抬升加压\n  · ratio > 1.05（D4）破纪录段，pbBrake 快速上扬抑制分数膨胀\n本字段是观测量，不直接进 stress 求和；它驱动 pbTension/pbBrake/pbRelease 三档曲线。',
+    },
+    pbTension: {
+        label: 'PB 前张力',
+        hint: 'PB 前 sigmoid 张力 = sigmoid((pbRatio - 0.82) / 0.08)，范围 [0,1]。\n含义：分数越接近 PB，张力越大，下游会主动加 orderRigor / sizePreference / 减小消行机会，让"冲 PB"更有仪式感。\n仅在 ratio ≥ 0.5 才有显著值；ratio < 0.78（远 PB）此项接近 0。',
+    },
+    pbBrake: {
+        label: 'PB 后刹车',
+        hint: 'PB 后 sigmoid 刹车 = sigmoid((pbRatio - 1.05) / 0.06)，范围 [0,1]。\n含义：分数 > PB 后，刹车快速上扬到 1，抑制 multiClearBonus、抬大块、增 orderRigor，防 "破 PB 后分数膨胀失控"。\n仅 ratio > 0.95 才有显著值。',
+    },
+    pbRelease: {
+        label: 'PB 突破释放',
+        hint: 'postPbReleaseActive 激活时的释放因子（0/1 标志）。\n含义：刚刚刷新 PB 的 3 个 spawn 内，主动下调 stress × 0.7、放宽友好出块，让玩家有"我赢了"的庆祝窗口，避免立刻又被刹车锁死。\n与 pbBrake 互补：先释放（pbRelease），再刹车（pbBrake）。',
+    },
+    pbPhase: {
+        label: 'PB 阶段',
+        hint: '由 pbRatio 离散化得到的枚举：D0 远 PB / D1 中远 / D2 临近 / D3 破纪录 / D4 持续超越。\n是 farFromPBBoost / pbExtremeOrderBoost / pbOvershootBoost 等 PB 系列分量的门控字段；不直接进 stress 求和。',
+    },
+    pbChasePressureActive: {
+        label: 'PB 追击加压态',
+        hint: '诊断标志：pbChasePressureActive=true 时本帧出块意图被切到 pressure（intentResolver 优先级 102，高于 relief 100）。\n触发：临 PB 段（fill < 0.72 且非 onboarding）且没有 forceReliefIntent → 主动加压激发玩家斗志，避免临 PB 段用减压块导致分数快速膨胀。\n本字段是布尔标志，不进 stress 求和。',
+    },
+
+    /* ── v1.60+ 跨局节奏弧线（runOverRun）—— retention/runOverRunArc.js）── */
+    runOverRunArc: {
+        label: '跨局弧线',
+        hint: 'runOverRunArc：本局相对上一局表现的弧线信号，常见取值 {-1, -0.5, 0, +0.5, +1}（负=本局走低、正=本局走高）。\n用法：作为驱动量进入 runOverRunArcCapScale（压力上限缩放）和 runOverRunArcAdjustDelta（额外正/负偏移），让"连败"局自动降压、"翻盘"局自动恢复加压。\n本字段是观测信号，不直接进 stress 求和；它派生出的两个 Adjust 分量才进求和。',
+    },
+    runOverRunArcAdjustDelta: {
+        label: '跨局偏移',
+        hint: 'runOverRunArc 的真正进 stress 求和的分量：\n  · arc 为负（本局相对上局走低）→ delta 为负，叠加减压\n  · arc 为正 → delta 为正，叠加加压\n幅度通常 ≤ 0.10，是"跨局"节奏（局间记忆）的体现，与"局内"节奏（rhythmPhase / sessionArc）互补。',
+    },
+    runOverRunArcCapScale: {
+        label: '跨局上限缩放',
+        hint: '由 runOverRunArc 派生的 stressCap 缩放因子（默认 1.0）。\n  · arc 为负 → capScale < 1，主动压低本帧 stress 上限（保护连败玩家）\n  · arc 为正 → capScale ≥ 1，放开上限（让连胜玩家继续紧张）\n本字段是缩放系数，不直接进 stress 求和；它通过抬/降 stressCap 间接影响最终 stress。',
+    },
+    lifecycleStressAdjust: {
+        label: '生命周期累计偏移',
+        hint: '生命周期阶段（warmup/peak/cooldown/late）+ 成熟度（rookie/pro/expert）共同产生的"本帧 stress 总偏移"快照（lifecycleCapAdjust + lifecycleBandAdjust）。\n用于诊断/上报时一次性看到生命周期对 stress 的总作用，避免分别加两项；不直接进 stress 求和（cap/band 已分别进过）。',
+    },
+
+    /* ── 末段会话压力（adaptiveSpawn.js L1374-1381）──
+     * 代码事实：仅 sessionPhase==='late' && momentum<=-0.30 触发；frust≥4 再叠 -0.06；下限 -0.25 */
+    endSessionDistress: {
+        label: '末段会话压力',
+        hint: 'sessionPhase=late 且 momentum ≤ -0.30 时输出的独立减压脉冲（负值）。\n触发与公式（adaptiveSpawn.js L1374-1381）：\n  · base = -(0.05 + min(0.30, |momentum| - 0.30) × 0.5)\n  · frustrationLevel ≥ 4 时再叠加 -0.06\n  · 最终下限 -0.25（防止过度救济）\n用法：本字段直接进 stress 求和（负值减压），并参与 playerDistress 通道触发 relief.endgame 文案。\n与 sessionArcAdjust 互补：sessionArcAdjust 看 cooldown 弧线档位，本信号看"玩家自己的崩盘强度"，两者同时为负但语义独立。',
+    },
+    sessionArcAdjust: {
+        label: '会话弧线偏移',
+        hint: '由 sessionArc（warmup / peak / cooldown）+ 当前 momentum 派生的整体 stress 偏移（adaptiveSpawn.js L1335-1342）：\n  · warmup → 固定 -0.08（开局降压，让玩家熟悉手感）\n  · peak → 默认 0（v1.62.5 起若启用自适应模板，可正向加压）\n  · cooldown 且 momentum < -0.2 → 按 |momentum| 线性放大到 [-0.05, -0.20]\n注意：late 阶段不写本字段，late 崩盘的减压走独立的 endSessionDistress 分量。',
+    },
+
+    /* ── 其他 v1.55+ 标志 / 反馈分量补齐 ── */
+    farFromPBBoostBypass: {
+        label: 'PB 远段豁免',
+        hint: '诊断标志：本帧 farFromPBBoost 触发条件满足但被绕过的原因（如 challengeBoost 已激活 / warmup / forceRelief 主导）。非数值贡献分量。',
+    },
+    challengeBoostBypass: {
+        label: 'B 类挑战豁免',
+        hint: '诊断字段：本帧 challengeBoost 触发条件满足但被绕过的原因枚举（如 reliefActive / bottleneckTrough / frustrationLevel≥4 / warmup / postPbRelease）。非数值贡献分量。',
+    },
+    expertEarlyBoostActive: {
+        label: '高手早段加压态',
+        hint: '诊断标志：高手（skill ≥ expertSkill）+ 早段（rounds < expertEarlyRounds）+ pbRatio 未过门 → 早段主动加压，避免高手对早段感到无聊。非数值贡献分量。',
+    },
+    expertEarlyBoostBypass: {
+        label: '高手早段豁免',
+        hint: '诊断字段：本帧 expertEarlyBoost 触发条件满足但被绕过的原因。非数值贡献分量。',
+    },
+    occupancyDampingBypassed: {
+        label: '占用衰减豁免',
+        hint: '诊断标志：本帧本应触发 occupancyDamping（盘面占用率 < 50% → 衰减正向 stress），但因 PB 后段 / 强信号主导被绕过。非数值贡献分量。',
+    },
+    smoothingDynamicMaxStepUp: {
+        label: '平滑动态上限',
+        hint: '本帧 stressSmoothing 允许的最大单步抬升量（动态值）。用于诊断"为什么本帧 stress 抬不上去"——平滑器把它限住了。非数值贡献分量。',
+    },
+    flowPayoffCapBypassed: {
+        label: '心流封顶豁免',
+        hint: '诊断标志：本帧 flow + payoff 场景本应触发 flowPayoffCap 软封顶，但因强加压信号（如 pbChasePressureActive / challengeBoost 上限）被绕过。非数值贡献分量。',
+    },
+    postPbReleaseActive: {
+        label: '破纪录释放态',
+        hint: '诊断标志：本帧处于刚破 PB 后的 3 个 spawn 释放窗口期，stress 已被 × 0.7 降压。非数值贡献分量；具体降压量见 postPbReleaseStressAdjust。',
+    },
+
+    /* ── pbCurveParams：v1.61 PB 曲线本帧生效的 4 个 θ 参数快照 ── */
+    pbCurveParams: {
+        label: 'PB 曲线参数',
+        hint: 'v1.61 PB 曲线本帧生效的 4 个 θ 参数对象（开发者调试用）：\n  · θ_tension：临 PB 张力斜率\n  · θ_brake：破 PB 刹车斜率\n  · θ_release：突破释放因子\n  · θ_extreme：极远段加成\n字段是 object，不进 stress 求和；让"为什么本帧 PB 这么紧"可被显式审计。',
+    },
+    /* ── 诊断快照：tuningV2Source ── */
+    tuningV2Source: {
+        label: '调参来源',
+        hint: '诊断字段：本帧 stress 调参参数（θ 套件）来自 default / experiment / RL 模型 的哪一档。非数值贡献分量。',
+    },
+    /* ── 生命周期阶段/带：诊断快照 ── */
+    lifecycleStage: {
+        label: '生命周期阶段',
+        hint: '诊断字段：本帧玩家所处的生命周期阶段（onboarding / growing / steady / mature / fading 等枚举）。非数值贡献分量；驱动 lifecycleCapAdjust / lifecycleBandAdjust 两路实际进求和的分量。',
+    },
+    lifecycleBand: {
+        label: '生命周期成熟带',
+        hint: '诊断字段：本帧玩家在生命周期内的成熟度细带（rookie / proficient / expert 等），用作 lifecycleBandAdjust 偏移表的查找键。非数值贡献分量。',
+    },
+    winbackStressCap: {
+        label: '回流压力上限',
+        hint: '诊断字段：回流保护预设的 stressCap 数值（cap 本身，不是 delta）。本帧 stress 被这个 cap 钳住时，winbackStressCapAdjust 会出现负值。非数值贡献分量。',
+    },
+    bottleneckTrough: {
+        label: '瓶颈观测值',
+        hint: '诊断字段：上个 dock 周期候选块最少落子数的观测值（如 1 / 2）。本字段是原始观测，不进 stress 求和；驱动 bottleneckRelief 这条真实救济分量。',
+    },
+    bottleneckSamples: {
+        label: '瓶颈样本数',
+        hint: '诊断字段：bottleneckTrough 累计的样本数量，用于稳定性判断。非数值贡献分量。',
+    },
 };
 
 /**

@@ -69,7 +69,7 @@ OpenBlock 内部存在**五个有边界的算法子系统**：
 | 变量 | 唯一数据源 | 变更需要同步 |
 |------|----------|-------------|
 | 形状定义（28 个多连块） | `shared/shapes.json` | 浏览器 `shapes.js`、Python `simulator.py` |
-| 状态特征维度 (187) / 动作维度 (15) / φ 维度 (202) | `shared/game_rules.json` `featureEncoding` | `features.js` + `features.py` 同步；checkpoint **失效**需重训 |
+| 状态特征维度 (201) / 动作维度 (15) / φ 维度 (216) | `shared/game_rules.json` `featureEncoding` | `features.js` + `features.py` 同步；arc/intent 词表顺序变更需重训 |
 | 计分公式（`baseUnit · c²`） | `shared/game_rules.json` `scoring` | `clearScoring.js` + `simulator.py` `_clear_score_gain` |
 | 自适应出块 10 档 profile | `shared/game_rules.json` `adaptiveSpawn` | 仅 `adaptiveSpawn.js` 读取 |
 | AbilityVector 权重/分档/护栏 | `shared/game_rules.json` `playerAbilityModel` | `playerAbilityModel.js` + `adaptiveSpawn.js` 消费；回放 snapshot 字段同步 |
@@ -118,13 +118,24 @@ OpenBlock 内部存在**五个有边界的算法子系统**：
           - CNN(32) + 2×ResConv 编码 8×8 棋盘
           - DockBoardAttention：dock(3 槽) 对 grid 特征做交叉注意力
           - 三段拼合 → trunk(128) → policy / value / 多个辅助监督头
-状态：    s ∈ ℝ¹⁸¹ (42 标量 + 64 grid + 75 dock)
+状态：    s ∈ ℝ²⁰¹ (62 标量 + 64 grid + 75 dock)
+          标量 62 = 25 结构（含 2 维客观几何）+ 19 颜色 + 4 单步出块难度
+                 + 3 strategy one-hot + 5 arc one-hot + 6 intent one-hot   ← v12 新增 11 维风格条件
 动作：    每步合法落子 (block_idx, gx, gy)，长度可变
-奖励：    r = ΔScore + 0.8 · ΔΦ(holes/transitions/wells/...) + winBonus(35)
+奖励：    r = ΔScore + 0.8 · ΔΦ_topology + 0.6 · r_eval + winBonus(35)
+          r_eval = w_reg·(-regret_clip) + w_opt·optim + w_fb·(-forced_bad) + w_sv·salvage
+                   ← v12 评估反馈瞬时塑形（非势差，避免势函数随时间步漂移）
           stuckPenalty = -8（终局未赢加在最后一步）
-价值目标：V_target = (1 - mix) · GAE_return + mix · clip(score/threshold, 0, 2)
+辅助监督：board_quality / feasibility / survival / hole_aux / clear_pred
+          + topology_aux 10 维（v12 ：+contiguous_regions / +concave_corners）
+          + spawn_diff_aux 4 维（v12：trunk 显式预测当前 dock 的 spawn_step_difficulty 子向量）
+价值目标：V_target = (1 - mix) · GAE_return + mix · clip(log1p(score)/log1p(thr), 0, 3)
           mix = 0.5
 探索：    softmax(logits/T) 与 Dirichlet(α=0.28, ε=0.08) 混合采样
+课程：    胜利门槛 quantile/adaptive/linear 三选一
+          + difficultyBucket（v12）：训练时按 episode 渐进放宽允许的 spawn scd 上限
+风格族：  condition token（v12）—— 训练时按 samplingProb=0.6 注入 (arc, intent) 让 Bot 学一族策略，
+          推理时显式指定；自博弈侧不依赖未来 dock，不构成出块算法→Bot 的数据泄漏
 推理：    POST /api/rl/select_action；侧栏可选 1-step lookahead → POST /api/rl/eval_values（默认关）
 训练：    python -m rl_pytorch.train（Python 自博弈）
            或浏览器 → /api/rl/train_episode（在线 PPO；轨迹可含 q_teacher，见 ALGORITHMS_RL.md（§21））
@@ -328,6 +339,7 @@ Bonus 线：   iconBonus = baseUnit · c · min(b, c) · (5 - 1)
 | v5 | 当前 | **ConvShared + DockBoardAttention + 三辅助监督头 + outcome/GAE 混合价值** | — | — |
 | v6 | 当前 | 拓扑辅助监督 / fillable-aware 指标 | **AbilityVector 统一能力输出** | **CommercialModelVector 模型化动作门控** |
 | v7/v8 (实验) | 路线图 | + Q 蒸馏 / 2-ply Beam / 评估门控 | — | — |
+| **v12** | 当前 | **state 187→201（+11 维风格 condition token）/ topology_aux 8→10（+客观几何）/ +spawn_diff_aux 头 / +评估反馈瞬时塑形（regret/optim/forced_bad/salvage）/ +difficultyBucket 课程（含 online spawn 兼容）** | — | — |
 
 详见各分册末尾的"演进与开放问题"。
 

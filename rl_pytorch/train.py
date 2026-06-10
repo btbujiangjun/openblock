@@ -335,6 +335,18 @@ def _bonus_clear_aux_coef() -> float:
     return 0.0
 
 
+def _spawn_diff_aux_coef() -> float:
+    """v12 单步出块难度辅助监督系数。"""
+    if (raw := os.environ.get("RL_SPAWN_DIFF_AUX_COEF", "").strip()) != "":
+        return float(raw)
+    cfg = RL_REWARD_SHAPING.get("spawnDiffAux") or {}
+    if isinstance(cfg, dict):
+        if not cfg.get("enabled", False):
+            return 0.0
+        return float(cfg.get("coef", 0.05))
+    return 0.0
+
+
 def _scheduled_coef(cfg: dict, base: float, global_ep: int) -> float:
     """线性退火辅助系数；默认不退火。"""
     end = float(cfg.get("annealEndCoef", base))
@@ -721,11 +733,12 @@ def _lookahead_q_values(
     rewards = np.empty(n_actions, dtype=np.float32)
     next_states = np.empty((n_actions, STATE_FEATURE_DIM), dtype=np.float32)
 
-    for i, a in enumerate(legal):
-        r = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
-        rewards[i] = r
-        next_states[i] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
-        sim.restore_state(saved)
+    with sim.search_mode():
+        for i, a in enumerate(legal):
+            r = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
+            rewards[i] = r
+            next_states[i] = sim.extract_state()
+            sim.restore_state(saved)
 
     with torch.no_grad():
         ns_t = tensor_to_device(torch.from_numpy(next_states), device)
@@ -768,49 +781,50 @@ def _beam_2ply_q_values(
 
     saved = sim.save_state()
 
-    # ——— 第一层：计算所有动作的 r1 + V(s') ———
-    r1_arr = np.empty(n_actions, dtype=np.float32)
-    next_states = np.empty((n_actions, STATE_FEATURE_DIM), dtype=np.float32)
-    for i, a in enumerate(legal):
-        r1_arr[i] = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
-        next_states[i] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
-        sim.restore_state(saved)
-
-    with torch.no_grad():
-        ns_t = tensor_to_device(torch.from_numpy(next_states), device)
-        v1 = net.forward_value(ns_t).cpu().numpy().flatten()
-
-    q1 = r1_arr + gamma * v1
-    q2ply = q1.copy()
-
-    # ——— 第二层：对 top-k 批量收集所有 s'' 再统一推理 ———
-    top_k_actual = min(top_k, n_actions)
-    top_k_idxs = np.argsort(q1)[-top_k_actual:]
-
-    # 结构：(action_index, r1, r2_arr, ns2_states)
-    ply2_batches: list[tuple[int, float, np.ndarray, np.ndarray]] = []
-
-    for i in top_k_idxs:
-        a1 = legal[int(i)]
-        r1 = float(sim.step(a1["block_idx"], a1["gx"], a1["gy"]))
-        legal2 = sim.get_legal_actions()
-
-        if not legal2:
-            q2ply[i] = r1  # 第一步后已终局，V=0
+    with sim.search_mode():
+        # ——— 第一层：计算所有动作的 r1 + V(s') ———
+        r1_arr = np.empty(n_actions, dtype=np.float32)
+        next_states = np.empty((n_actions, STATE_FEATURE_DIM), dtype=np.float32)
+        for i, a in enumerate(legal):
+            r1_arr[i] = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
+            next_states[i] = sim.extract_state()
             sim.restore_state(saved)
-            continue
 
-        n2 = len(legal2)
-        saved2 = sim.save_state()
-        r2_arr = np.empty(n2, dtype=np.float32)
-        ns2 = np.empty((n2, STATE_FEATURE_DIM), dtype=np.float32)
-        for j, a2 in enumerate(legal2):
-            r2_arr[j] = float(sim.step(a2["block_idx"], a2["gx"], a2["gy"]))
-            ns2[j] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
-            sim.restore_state(saved2)
+        with torch.no_grad():
+            ns_t = tensor_to_device(torch.from_numpy(next_states), device)
+            v1 = net.forward_value(ns_t).cpu().numpy().flatten()
 
-        ply2_batches.append((int(i), r1, r2_arr, ns2))
-        sim.restore_state(saved)
+        q1 = r1_arr + gamma * v1
+        q2ply = q1.copy()
+
+        # ——— 第二层：对 top-k 批量收集所有 s'' 再统一推理 ———
+        top_k_actual = min(top_k, n_actions)
+        top_k_idxs = np.argsort(q1)[-top_k_actual:]
+
+        # 结构：(action_index, r1, r2_arr, ns2_states)
+        ply2_batches: list[tuple[int, float, np.ndarray, np.ndarray]] = []
+
+        for i in top_k_idxs:
+            a1 = legal[int(i)]
+            r1 = float(sim.step(a1["block_idx"], a1["gx"], a1["gy"]))
+            legal2 = sim.get_legal_actions()
+
+            if not legal2:
+                q2ply[i] = r1  # 第一步后已终局，V=0
+                sim.restore_state(saved)
+                continue
+
+            n2 = len(legal2)
+            saved2 = sim.save_state()
+            r2_arr = np.empty(n2, dtype=np.float32)
+            ns2 = np.empty((n2, STATE_FEATURE_DIM), dtype=np.float32)
+            for j, a2 in enumerate(legal2):
+                r2_arr[j] = float(sim.step(a2["block_idx"], a2["gx"], a2["gy"]))
+                ns2[j] = sim.extract_state()
+                sim.restore_state(saved2)
+
+            ply2_batches.append((int(i), r1, r2_arr, ns2))
+            sim.restore_state(saved)
 
     if ply2_batches:
         # 合并所有 s'' 做一次批量 V 推理
@@ -860,49 +874,49 @@ def _beam_3ply_q_values(
 
     saved = sim.save_state()
 
-    # ——— 第一层：计算所有动作的 r1 + V(s') ———
-    r1_arr = np.empty(n_actions, dtype=np.float32)
-    next_states = np.empty((n_actions, STATE_FEATURE_DIM), dtype=np.float32)
-    for i, a in enumerate(legal):
-        r1_arr[i] = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
-        next_states[i] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
-        sim.restore_state(saved)
-
-    with torch.no_grad():
-        ns_t = tensor_to_device(torch.from_numpy(next_states), device)
-        v1 = net.forward_value(ns_t).cpu().numpy().flatten()
-
-    q1 = r1_arr + gamma * v1
-    q3ply = q1.copy()
-
-    top_k_actual = min(top_k, n_actions)
-    top_k_idxs = np.argsort(q1)[-top_k_actual:]
-
-    # ——— 第二 / 三层批量收集 ———
-    # ply3_items: (a1_idx, r1, a2_idx_local, r2, ns3_states_2d)
-    ply2_best: dict[int, tuple[float, np.ndarray, np.ndarray]] = {}  # a1→(r1, r2_arr, ns2)
-
-    for i in top_k_idxs:
-        a1 = legal[int(i)]
-        r1 = float(sim.step(a1["block_idx"], a1["gx"], a1["gy"]))
-        legal2 = sim.get_legal_actions()
-
-        if not legal2 or len(legal2) > max_actions2:
-            q3ply[i] = r1
+    with sim.search_mode():
+        # ——— 第一层：计算所有动作的 r1 + V(s') ———
+        r1_arr = np.empty(n_actions, dtype=np.float32)
+        next_states = np.empty((n_actions, STATE_FEATURE_DIM), dtype=np.float32)
+        for i, a in enumerate(legal):
+            r1_arr[i] = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
+            next_states[i] = sim.extract_state()
             sim.restore_state(saved)
-            continue
 
-        n2 = len(legal2)
-        saved2 = sim.save_state()
-        r2_arr = np.empty(n2, dtype=np.float32)
-        ns2 = np.empty((n2, STATE_FEATURE_DIM), dtype=np.float32)
-        for j, a2 in enumerate(legal2):
-            r2_arr[j] = float(sim.step(a2["block_idx"], a2["gx"], a2["gy"]))
-            ns2[j] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
-            sim.restore_state(saved2)
+        with torch.no_grad():
+            ns_t = tensor_to_device(torch.from_numpy(next_states), device)
+            v1 = net.forward_value(ns_t).cpu().numpy().flatten()
 
-        ply2_best[int(i)] = (r1, r2_arr, ns2)
-        sim.restore_state(saved)
+        q1 = r1_arr + gamma * v1
+        q3ply = q1.copy()
+
+        top_k_actual = min(top_k, n_actions)
+        top_k_idxs = np.argsort(q1)[-top_k_actual:]
+
+        # ——— 第二 / 三层批量收集 ———
+        ply2_best: dict[int, tuple[float, np.ndarray, np.ndarray]] = {}
+
+        for i in top_k_idxs:
+            a1 = legal[int(i)]
+            r1 = float(sim.step(a1["block_idx"], a1["gx"], a1["gy"]))
+            legal2 = sim.get_legal_actions()
+
+            if not legal2 or len(legal2) > max_actions2:
+                q3ply[i] = r1
+                sim.restore_state(saved)
+                continue
+
+            n2 = len(legal2)
+            saved2 = sim.save_state()
+            r2_arr = np.empty(n2, dtype=np.float32)
+            ns2 = np.empty((n2, STATE_FEATURE_DIM), dtype=np.float32)
+            for j, a2 in enumerate(legal2):
+                r2_arr[j] = float(sim.step(a2["block_idx"], a2["gx"], a2["gy"]))
+                ns2[j] = sim.extract_state()
+                sim.restore_state(saved2)
+
+            ply2_best[int(i)] = (r1, r2_arr, ns2)
+            sim.restore_state(saved)
 
     if not ply2_best:
         return q3ply
@@ -925,51 +939,52 @@ def _beam_3ply_q_values(
         v2_offset += n2
 
     # 对每个 a1，选 top_k2 个 a2 展开第三层
-    for i, (r1, q2_arr) in q2_map.items():
-        n2 = len(q2_arr)
-        top_k2_actual = min(top_k2, n2)
-        top2_idxs = np.argsort(q2_arr)[-top_k2_actual:]
+    with sim.search_mode():
+        for i, (r1, q2_arr) in q2_map.items():
+            n2 = len(q2_arr)
+            top_k2_actual = min(top_k2, n2)
+            top2_idxs = np.argsort(q2_arr)[-top_k2_actual:]
 
-        # 需要重新模拟以收集 ns3
-        a1 = legal[i]
-        sim.step(a1["block_idx"], a1["gx"], a1["gy"])
-        legal2_cur = sim.get_legal_actions()
-        if not legal2_cur:
-            q3ply[i] = r1
+            # 需要重新模拟以收集 ns3
+            a1 = legal[i]
+            sim.step(a1["block_idx"], a1["gx"], a1["gy"])
+            legal2_cur = sim.get_legal_actions()
+            if not legal2_cur:
+                q3ply[i] = r1
+                sim.restore_state(saved)
+                continue
+
+            saved2 = sim.save_state()
+            for j in top2_idxs:
+                if j >= len(legal2_cur):
+                    sim.restore_state(saved2)
+                    continue
+                a2 = legal2_cur[j]
+                r2_val = float(sim.step(a2["block_idx"], a2["gx"], a2["gy"]))
+                legal3 = sim.get_legal_actions()
+
+                if not legal3:
+                    ply3_batches.append((
+                        i,
+                        r1,
+                        r2_val,
+                        np.empty(0, dtype=np.float32),
+                        np.empty((0, STATE_FEATURE_DIM), dtype=np.float32),
+                    ))
+                    sim.restore_state(saved2)
+                    continue
+
+                n3 = len(legal3)
+                saved3 = sim.save_state()
+                r3_arr = np.empty(n3, dtype=np.float32)
+                ns3 = np.empty((n3, STATE_FEATURE_DIM), dtype=np.float32)
+                for k, a3 in enumerate(legal3):
+                    r3_arr[k] = float(sim.step(a3["block_idx"], a3["gx"], a3["gy"]))
+                    ns3[k] = sim.extract_state()
+                    sim.restore_state(saved3)
+                ply3_batches.append((i, r1, r2_val, r3_arr, ns3))
+                sim.restore_state(saved2)
             sim.restore_state(saved)
-            continue
-
-        saved2 = sim.save_state()
-        for j in top2_idxs:
-            if j >= len(legal2_cur):
-                sim.restore_state(saved2)
-                continue
-            a2 = legal2_cur[j]
-            r2_val = float(sim.step(a2["block_idx"], a2["gx"], a2["gy"]))
-            legal3 = sim.get_legal_actions()
-
-            if not legal3:
-                ply3_batches.append((
-                    i,
-                    r1,
-                    r2_val,
-                    np.empty(0, dtype=np.float32),
-                    np.empty((0, STATE_FEATURE_DIM), dtype=np.float32),
-                ))
-                sim.restore_state(saved2)
-                continue
-
-            n3 = len(legal3)
-            saved3 = sim.save_state()
-            r3_arr = np.empty(n3, dtype=np.float32)
-            ns3 = np.empty((n3, STATE_FEATURE_DIM), dtype=np.float32)
-            for k, a3 in enumerate(legal3):
-                r3_arr[k] = float(sim.step(a3["block_idx"], a3["gx"], a3["gy"]))
-                ns3[k] = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
-                sim.restore_state(saved3)
-            ply3_batches.append((i, r1, r2_val, r3_arr, ns3))
-            sim.restore_state(saved2)
-        sim.restore_state(saved)
 
     if ply3_batches:
         # 合并所有 ns3 做一次批量推理
@@ -1058,7 +1073,18 @@ def collect_episode(
     覆盖基于 global_ep 的线性计算结果。
     """
     ep_strategy = sample_rl_training_strategy_id()
-    sim = OpenBlockSimulator(ep_strategy)
+    # v12 风格族 token：训练时按 conditionToken.samplingProb 随机注入 (arc, intent)；
+    # 同时让 simulator 拿到当前 episode 的难度桶 scd 上限以做 dock 重抽。
+    from .condition_token import sample_condition
+    from .simulator import max_scd_for_episode
+    cond_arc, cond_intent = sample_condition()
+    max_scd = max_scd_for_episode(global_ep)
+    sim = OpenBlockSimulator(
+        ep_strategy,
+        condition_arc=cond_arc,
+        condition_intent=cond_intent,
+        max_scd=max_scd,
+    )
     if win_threshold_override is not None:
         sim.win_score_threshold = win_threshold_override
     else:
@@ -1274,6 +1300,7 @@ def collect_episode(
             "board_quality": sup["board_quality"],
             "feasibility": sup["feasibility"],
             "topology_after": sup.get("topology_after"),
+            "spawn_difficulty_after": sup.get("spawn_difficulty_after"),
             # Q 分布蒸馏目标：MCTS 访问分布 or beam Q 值
             "q_vals": q_vals.tolist() if q_vals is not None else None,
             # MCTS 访问分布（visit_pi）：用于直接 CE 损失（可选，比 q_proxy 更准确）
@@ -1401,6 +1428,7 @@ def _reevaluate_and_update(
     all_feasibility: list[float] = []
     all_steps_to_end: list[float] = []
     all_topology_after: list[np.ndarray] = []
+    all_spawn_diff_after: list[np.ndarray] = []
     all_q_vals: list[np.ndarray | None] = []
     all_visit_pi: list[np.ndarray | None] = []
     all_pg_weights: list[float] = []
@@ -1436,6 +1464,9 @@ def _reevaluate_and_update(
             topo = step.get("topology_after")
             if topo is not None:
                 all_topology_after.append(np.asarray(topo, dtype=np.float32))
+            sd = step.get("spawn_difficulty_after")
+            if sd is not None:
+                all_spawn_diff_after.append(np.asarray(sd, dtype=np.float32))
             qv = step.get("q_vals")
             all_q_vals.append(np.array(qv, dtype=np.float32) if qv is not None else None)
             vp = step.get("visit_pi")
@@ -1465,6 +1496,7 @@ def _reevaluate_and_update(
     surv_coef = _survival_coef()
     topo_coef = _topology_aux_coef()
     bonus_clear_coef = _bonus_clear_aux_coef()
+    spawn_diff_coef = _spawn_diff_aux_coef()
     q_distill_coef = _q_distill_coef(global_ep)
     q_distill_tau = _q_distill_tau()
     q_distill_norm = _q_distill_norm_mode()
@@ -1522,6 +1554,18 @@ def _reevaluate_and_update(
             torch.tensor([1.0 if b > 0 else 0.0 for b in all_bonus_lines], dtype=torch.float32),
             device,
         )
+
+    use_spawn_diff_aux = (
+        spawn_diff_coef > 1e-12
+        and callable(getattr(net, "forward_spawn_diff_aux", None))
+        and len(all_spawn_diff_after) == total_steps
+    )
+    spawn_diff_target_t: torch.Tensor | None = None
+    if use_spawn_diff_aux:
+        spawn_diff_target_t = tensor_to_device(
+            torch.from_numpy(np.stack(all_spawn_diff_after).astype(np.float32)),
+            device,
+        ).clamp(0.0, 1.0)
 
     # --- 直接监督目标 ---
     has_aux_heads = callable(getattr(net, "forward_aux_all", None))
@@ -1780,6 +1824,11 @@ def _reevaluate_and_update(
                 bonus_logits, bonus_clear_target_t, reduction="mean"
             )
 
+        spawn_diff_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        if use_spawn_diff_aux and spawn_diff_target_t is not None:
+            pred_sd = net.forward_spawn_diff_aux(states_t)
+            spawn_diff_loss = F.smooth_l1_loss(pred_sd, spawn_diff_target_t, reduction="mean", beta=1.0)
+
         bq_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         feas_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         surv_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
@@ -1849,6 +1898,7 @@ def _reevaluate_and_update(
             + clear_pred_coef * _safe_aux(clear_pred_loss)
             + topo_coef * _safe_aux(topology_aux_loss)
             + bonus_clear_coef * _safe_aux(bonus_clear_loss)
+            + spawn_diff_coef * _safe_aux(spawn_diff_loss)
             + bq_coef * _safe_aux(bq_loss)
             + feas_coef * _safe_aux(feas_loss)
             + surv_coef * _safe_aux(surv_loss)
@@ -1900,6 +1950,7 @@ def _reevaluate_and_update(
             "loss_clear_pred": _safe_metric(clear_pred_loss),
             "loss_topology_aux": _safe_metric(topology_aux_loss),
             "loss_bonus_clear_aux": _safe_metric(bonus_clear_loss),
+            "loss_spawn_diff_aux": _safe_metric(spawn_diff_loss),
             "loss_bq": _safe_metric(bq_loss),
             "loss_feas": _safe_metric(feas_loss),
             "loss_surv": _safe_metric(surv_loss),
@@ -1909,6 +1960,7 @@ def _reevaluate_and_update(
             "clear_pred_coef": float(clear_pred_coef),
             "topology_aux_coef": float(topo_coef),
             "bonus_clear_aux_coef": float(bonus_clear_coef),
+            "spawn_diff_aux_coef": float(spawn_diff_coef),
             "q_distill_coef": float(q_distill_coef),
             "visit_pi_coef": float(visit_pi_coef),
             "pg_steps": pg_steps_num,
@@ -2590,6 +2642,8 @@ def train_loop(
                     hole_str += f"  topo={_fmt_update('loss_topology_aux')}"
                 if last_update and _num_update("bonus_clear_aux_coef") > 1e-12:
                     hole_str += f"  bonus={_fmt_update('loss_bonus_clear_aux')}"
+                if last_update and _num_update("spawn_diff_aux_coef") > 1e-12:
+                    hole_str += f"  sdiff={_fmt_update('loss_spawn_diff_aux')}"
                 if last_update and _num_update("loss_bq") > 1e-6:
                     hole_str += f"  bq={_fmt_update('loss_bq')}"
                 if last_update and _num_update("loss_feas") > 1e-6:
@@ -2679,6 +2733,7 @@ def train_loop(
                         "loss_hole_aux": _num_update("loss_hole_aux") if last_update else None,
                         "loss_clear_pred": _num_update("loss_clear_pred") if last_update else None,
                         "loss_topology_aux": _num_update("loss_topology_aux") if last_update else None,
+                        "loss_spawn_diff_aux": _num_update("loss_spawn_diff_aux") if last_update else None,
                         "loss_bq": _num_update("loss_bq") if last_update else None,
                         "loss_feas": _num_update("loss_feas") if last_update else None,
                         "loss_surv": _num_update("loss_surv") if last_update else None,

@@ -11,6 +11,7 @@ import { detectBonusLines } from '../clearScoring.js';
 import { getRlTrainingBonusLineSkin } from '../skins.js';
 import { spawnStepDifficultyFeatures } from '../spawnStepDifficulty.js';
 import { encodeStrategyOnehot } from './strategyFeatures.js';
+import { encodeConditionOnehot } from './conditionToken.js';
 
 const enc = FEATURE_ENCODING;
 const AF = enc.almostFullLineRatio ?? 0.78;
@@ -245,7 +246,7 @@ function dockMobility(grid, dock) {
  * @param {import('../grid.js').Grid} grid
  * @param {{ shape: number[][], colorIdx: number, placed: boolean }[]} dock
  */
-export function extractStateFeatures(grid, dock, strategyId = 'normal') {
+export function extractStateFeatures(grid, dock, strategyId = 'normal', arc = null, intent = null) {
     const n = grid.size;
     const area = n * n;
     let filled = 0;
@@ -344,13 +345,17 @@ export function extractStateFeatures(grid, dock, strategyId = 'normal') {
     const unplacedShapes = dock.filter((b) => !b.placed).map((b) => b.shape);
     const diffScalars = spawnStepDifficultyFeatures(unplacedShapes, filled);
     const strategyVec = encodeStrategyOnehot(strategyId);
+    const conditionVec = encodeConditionOnehot(arc, intent);
     const scalars = new Float32Array(
-        baseScalars.length + colorSummary.length + diffScalars.length + strategyVec.length,
+        baseScalars.length + colorSummary.length + diffScalars.length
+            + strategyVec.length + conditionVec.length,
     );
-    scalars.set(baseScalars, 0);
-    scalars.set(colorSummary, baseScalars.length);
-    scalars.set(diffScalars, baseScalars.length + colorSummary.length);
-    scalars.set(strategyVec, baseScalars.length + colorSummary.length + diffScalars.length);
+    let off = 0;
+    scalars.set(baseScalars, off); off += baseScalars.length;
+    scalars.set(colorSummary, off); off += colorSummary.length;
+    scalars.set(diffScalars, off); off += diffScalars.length;
+    scalars.set(strategyVec, off); off += strategyVec.length;
+    scalars.set(conditionVec, off);
     if (scalars.length !== STATE_SCALAR_DIM) {
         throw new Error(`标量段长度 ${scalars.length} != stateScalarDim ${STATE_SCALAR_DIM}`);
     }
@@ -526,7 +531,9 @@ export function extractActionFeatures(
  */
 export function buildDecisionBatch(sim) {
     const legal = sim.getLegalActions();
-    const stateFeat = extractStateFeatures(sim.grid, sim.dock, sim.strategyId);
+    const stateFeat = extractStateFeatures(
+        sim.grid, sim.dock, sim.strategyId, sim.conditionArc ?? null, sim.conditionIntent ?? null,
+    );
     const phiList = [];
     for (const a of legal) {
         const wouldClear = sim.countClearsIfPlaced(a.blockIdx, a.gx, a.gy);

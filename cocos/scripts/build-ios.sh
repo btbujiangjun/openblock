@@ -72,6 +72,10 @@ NOISE='mach_port_rendezvous|shared_memory_switch|No rendezvous client|Recovery w
 # 用临时文件留存完整日志，便于据「Finished」判定成功（管道里 $? 是 grep 的码，不可靠）。
 LOG="$(mktemp -t cocos-build-ios)"
 
+# ⚠️ ELECTRON_RUN_AS_NODE 必须 unset：某些开发环境（Cursor agent shell、部分 IDE
+#   集成终端）会把它注入子进程，让 CocosCreator 走 Node CLI 模式 → 报 "bad option: --project"。
+unset ELECTRON_RUN_AS_NODE
+
 "$CREATOR" \
     --project "$COCOS_DIR" \
     --build "configPath=$CONFIG" 2>&1 | tee "$LOG" | grep -Ev "$NOISE"

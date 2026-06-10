@@ -19,6 +19,7 @@ echo "=== sync-core: $SRC → $DST ==="
 
 mkdir -p "$DST/bot"
 mkdir -p "$DST/lib"
+mkdir -p "$DST/spawn"
 mkdir -p "$DST/tuning/v2"
 mkdir -p "$DST/evaluation"
 
@@ -58,6 +59,7 @@ FILES=(
   "spawnStepDifficulty.js"
   "bot/constructiveSpawn.js"
   "bot/blockSpawn.js"
+  "spawn/commitSpawnContext.js"
   "tuning/v2/clientPolicyV2.js"
   "evaluation/gridAdapter.js"
   "evaluation/placementQuality.js"

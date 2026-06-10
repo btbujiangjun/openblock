@@ -147,12 +147,12 @@ const STRATEGY_TIP = {
 };
 
 const TARGET_TIP = {
-    shapeComplexity:       '形状复杂度（shapeComplexity）= stress×0.75 + boredHighSkill×0.25 − riskRelief×0.45',
-    solutionSpacePressure: '解空间压力（solutionSpacePressure）= stress×0.7 + complexity×0.25 − boardRisk×0.55 − recoveryNeed×0.35',
-    clearOpportunity:      '消行机会（clearOpportunity）= recoveryNeed×0.55 + payoffOpp×0.45 − stress×0.18',
-    spatialPressure:       '空间压力（spatialPressure）= stress×0.65 + boardDifficulty×0.25 − boardRisk×0.5 − recoveryNeed×0.3',
-    payoffIntensity:       '兑现强度（payoffIntensity）= delight.multiClearBoost×0.45 + payoffOpp×0.4 + max(0,momentum)×0.15',
-    novelty:               '新奇度（novelty）= (bored?0.45:0) + stress×0.25 + session/80 − recoveryNeed×0.2',
+    shapeComplexity:       '形状复杂度（shapeComplexity ∈ [0,1]）= stress × 0.75 + boredHighSkill × 0.25 − riskRelief × 0.45。\n含义：本帧期望出块的"形状几何复杂度"目标。值高 → 偏向 T/Z/L/J 等异形和大块；值低 → 偏向方块/直线等基础块。\n用法：blockSpawn 候选评分时按 |形状复杂度 − target| 反向加权。',
+    solutionSpacePressure: '解空间压力（solutionSpacePressure ∈ [0,1]）= stress × 0.7 + complexity × 0.25 − boardRisk × 0.55 − recoveryNeed × 0.35。\n含义：本帧期望"三连块可行解数量被压缩"的程度。值高 → 强制玩家从有限排列里挑解；值低 → 多种排列都可行（更友好）。\n用法：与 orderRigor 协同决定 maxValidPerms 阈值。',
+    clearOpportunity:      '消行机会（clearOpportunity ∈ [0,1]）= recoveryNeed × 0.55 + payoffOpp × 0.45 − stress × 0.18。\n含义：本帧期望"放下后能直接消行"的候选比例。值高 → 主动给消行机会（救济 / 兑现）；值低 → 让玩家先铺垫。\n用法：与 clearGuarantee 协同决定保消档位。',
+    spatialPressure:       '空间压力（spatialPressure ∈ [0,1]）= stress × 0.65 + boardDifficulty × 0.25 − boardRisk × 0.5 − recoveryNeed × 0.3。\n含义：本帧期望块"在盘面上落子的位置自由度被压缩"的程度。值高 → 偏向只有 1-2 个安全落点的块；值低 → 落点多样。\n用法：与 sizePreference 联动——空间压力高时倾向大块占用更多格子。',
+    payoffIntensity:       '兑现强度（payoffIntensity ∈ [0,1]）= delight.multiClearBoost × 0.45 + payoffOpp × 0.4 + max(0, momentum) × 0.15。\n含义：本帧期望"立刻给玩家爽感"的强度。值高 → 主动注入 multiClear / monoFlush / pcSetup 候选；值低 → 维持平稳出块。\n用法：直接驱动 multiClearBonus / iconBonusTarget / perfectClearBoost 的 floor。',
+    novelty:               '新奇度（novelty ∈ [0,1]）= (bored ? 0.45 : 0) + stress × 0.25 + session/80 − recoveryNeed × 0.2。\n含义：本帧期望"和近 N 块不同 category"的强度。值高 → 主动避免连续给同类块（缓解审美疲劳）；值低 → 维持当前类目。\n用法：直接驱动 diversityBoost。',
 };
 
 const STRESS_TIP = '压力（stress）— 24 项基础分量求和 + 10 步后置调制（含 phaseFreq→pressurePhase，不改 stress 标量）→ normalize [0,1]；中央球映射 stressLevel；hover 决策动态可见 breakdown';
@@ -193,11 +193,79 @@ function _pressurePhaseToSpark(phase) {
     return NaN;
 }
 
+/** 把 intentResolver 输出的英文 reason 字符串本地化为"中文短句 + 原始 keyword"（v1.67）。
+ *
+ * intentResolver.js 的 reason 是开发者诊断格式（如 'delightMode=flow_payoff' / 'playerDistress=-0.16 < -0.10'）。
+ * 直接显示给玩家会出现"出块意图副标题是英文"的体验问题。
+ *
+ * 本函数按模式匹配把常见 reason 翻译为"中文短句（原始 keyword）"复合格式：
+ *   · 玩家/策划看：左侧中文即可
+ *   · 开发者/测试看：右侧括号内的原始诊断 keyword 仍可被 grep / 断言定位
+ *
+ * pb_chase_pressure 测试用例（decisionFlowVizMetrics.test.js）要求返回值 contain 'pbChasePressureActive'，
+ * 本函数通过保留括号内 keyword 同时满足两侧需求。
+ * 关键词与 intentResolver.INTENT_RULES 的 reason() 输出严格同源。
+ */
+function _humanizeIntentReason(raw) {
+    if (!raw || typeof raw !== 'string') return raw;
+    const r = raw.trim();
+
+    /* pb_chase_pressure（优先匹配，关键字 pbChasePressureActive 必须保留以满足测试） */
+    if (r.includes('pbChasePressureActive')) {
+        const bm = r.match(/challengeBoost=(-?\d+\.\d+)/);
+        return bm ? `PB 追击加压（pbChasePressureActive，boost ${bm[1]}）` : 'PB 追击加压（pbChasePressureActive）';
+    }
+
+    /* relief 规则 */
+    if (r.includes('forceReliefIntent')) return '强制救济：末段崩盘 / 高挫败（forceReliefIntent）';
+    if (r.includes('delightMode=relief')) return '愉悦模式 = 救济（delightMode=relief）';
+    let m = r.match(/^playerDistress=(-?\d+\.\d+)\s*<\s*-?0?\.10/);
+    if (m) return `玩家挫败度 ${m[1]} < -0.10（playerDistress）`;
+
+    /* delight_starved */
+    m = r.match(/delightStarved=true.*?(\d+)\s*轮/);
+    if (m) return `爽感饥渴：连续 ${m[1]} 轮无多消/清屏/同花（delightStarved）`;
+
+    /* engage */
+    if (r.includes('afkEngageActive')) return 'AFK 召回：玩家停顿但状态尚可（afkEngageActive）';
+
+    /* harvest */
+    m = r.match(/nearFullLines=(\d+)/);
+    if (m) return `密集临消行 ${m[1]} 条（nearFullLines）`;
+    m = r.match(/pcSetup=(\d+).*?fill=(\d+\.\d+)/);
+    if (m) return `清屏候选 ${m[1]}，盘面填充 ${m[2]}（pcSetup）`;
+
+    /* pressure */
+    m = r.match(/challengeBoost=(\d+\.\d+)/);
+    if (m) return `B 类挑战加压 ${m[1]}（challengeBoost）`;
+    if (r.includes('challenge_payoff')) {
+        const sm = r.match(/stress=(\d+\.\d+)/);
+        return sm ? `挑战兑现 + 高压 ${sm[1]}（delightMode=challenge_payoff）` : '挑战兑现（delightMode=challenge_payoff）';
+    }
+
+    /* sprint */
+    m = r.match(/stress=(\d+\.\d+)\s*∈/);
+    if (m) return `渐紧过渡：压力 ${m[1]}（sprint 区间）`;
+
+    /* flow */
+    if (r.includes('flow_payoff')) return '愉悦模式 = 心流兑现（delightMode=flow_payoff）';
+    if (r.startsWith('rhythmPhase=')) {
+        const pm = r.split('=')[1];
+        const map = { setup: '搭建', payoff: '兑现', neutral: '中性' };
+        return `节奏相位 = ${map[pm] || pm}（rhythmPhase=${pm}）`;
+    }
+
+    /* maintain */
+    if (r.includes('默认中性')) return '默认中性（无更高优先级触发）';
+
+    return raw;
+}
+
 /** 从 resolveIntent 结果取展示用 reason（与 intentResolver.reason 同源） */
 function _dfvIntentReasonFromResolved(resolved, profile) {
     if (!resolved?.trace?.length) return null;
     const winner = resolved.trace.find((t) => t.isWinner);
-    if (winner?.reason) return winner.reason;
+    if (winner?.reason) return _humanizeIntentReason(winner.reason);
     return null;
 }
 
@@ -399,16 +467,29 @@ const HINT_SHORT_CN = {
 };
 
 const HINT_TIP = {
-    pressurePhase: 'v1.66 phaseFreq：raw stress + boardFill → low/mid/high；驱动形状池预加权、orderSolutionBudget、构造式 C1/C2/C3 门控。',
-    orderSolutionBudget: '高压三连解评估步数上限；修复高 fill 截断导致顺序过滤静默跳过。',
-    phaseHighPoolBoost: '高压：cells≥phaseLargeCells 的大块 augmentPool 额外加权。',
-    phaseLowPoolClearBoost: '低压：清屏/近满线候选 augmentPool 额外加权（与 clearGuarantee 协同）。',
-    pacingPhase: '松紧期：玩家体验节奏的张弛状态，影响压力调节。',
-    rhythmPhase: '节奏相位：setup/payoff/neutral，决定当前更偏搭建还是兑现。',
-    sessionArc: '会话弧线：warmup/peak/cooldown，控制局内阶段感。',
-    delightMode: '愉悦模式：relief/flow/challenge 等爽感或救济倾向。',
-    motivationIntent: '动机意图：个性化层对当前玩家动机的归类。',
-    behaviorSegment: '行为分组：个性化层对玩家近期行为的分群。',
+    /* —— 已有 5 项的详细化（v1.67：从一行简述扩为"含义 + 触发 + 数值含义"三段式）—— */
+    pressurePhase: 'v1.66 phaseFreq：基于 raw stress + boardFill 计算 → low/mid/high 三档。\n用法：驱动形状池预加权（高压加大块、低压加清屏块）、orderSolutionBudget（高压增预算）、构造式 C1/C2/C3 门控。\n枚举值：低压 / 中压 / 高压。',
+    orderSolutionBudget: '高压段三连块顺序解评估的步数上限（默认 8/12/16 按档抬升）。\n用法：避免在高 fill 时因截断导致 orderRigor 过滤静默跳过，让"逼玩家做顺序规划"真的执行得起。\n数值越大 = 评估越彻底 = 顺序刚性更可信。',
+    phaseHighPoolBoost: '高压档（pressurePhase=high）下 cells ≥ phaseLargeCells 的大块在 augmentPool 中的额外权重。\n用法：高压时主动抬大块出现概率（与 sizePreference > 0 协同），让"高压感"通过形状本身传达。\n范围 [0, 1]，0=无加权，1=最强加权。',
+    phaseLowPoolClearBoost: '低压档（pressurePhase=low）下"清屏 / 近满线候选块"在 augmentPool 中的额外权重。\n用法：低压时主动放友好出块，与 clearGuarantee 一起兑现"低压 → 多消"承诺。\n范围 [0, 1]。',
+    pacingPhase: '松紧期（pacing）：玩家体验节奏的张弛状态枚举（紧绷 / 释放 / 中性）。\n用法：在 stress 微调层附加 pacingAdjust，让"紧/松"周期化交替，避免压力曲线持续线性升降。\n与 rhythmPhase 不同——pacing 是会话级节奏，rhythm 是局内 setup/payoff 短周期相位。',
+    rhythmPhase: '节奏相位（rhythm）：搭建（setup）/ 兑现（payoff）/ 中性（neutral）。\n用法：决定本帧是偏"铺垫多消机会"还是"兑现已铺垫好的多消"。payoff 相位会拉高 multiClearBonus、payoffIntensity 等。',
+    sessionArc: '会话弧线（arc）：热身（warmup）/ 巅峰（peak）/ 收官（cooldown）/ 末段（late）。\n用法：控制局内整体压力曲线——warmup 普遍降压，peak 接近基线，cooldown/late 配合 momentum 触发 endSessionDistress 减压（避免末段崩盘）。',
+    delightMode: '愉悦模式（delight）：算法主动注入的爽感或救济倾向枚举。\n常见值：relief（救济）/ flow_payoff（心流兑现）/ challenge_payoff（挑战兑现）/ harvest（收获）。\n用法：作为 intentResolver 的关键 guard 输入——delightMode=relief 直接命中 relief 规则，delightMode=flow_payoff 触发 flow 规则。',
+    motivationIntent: '动机意图：个性化层对当前玩家中长期动机的归类（如 newbie / challenger / decompress / collector / social）。\n仅依据行为/明示偏好推断，不使用敏感属性。\n用法：在 stress 微调层加 motivationStressAdjust（如 decompress 系玩家整体降 0.05~0.10）。',
+    behaviorSegment: '行为分组：个性化层对玩家近期 N 局行为的分群标签（如 multi_clear / perfect_hunter / survival / combo 等）。\n用法：作为 spawnIntent / shape weights / preference 微调的基础输入；与 motivationIntent 互补——一个是"长期动机"，一个是"近期行为"。',
+
+    /* —— v1.67 新增：clearGuarantee / sizePreference / orderRigor / diversityBoost / comboChain
+     *    （HINT_CN 已有但 HINT_TIP 之前缺失，hover 会走默认兜底文案）—— */
+    clearGuarantee: '保消档（clearGuarantee，整数 0-3）：三连块中至少 N 个能即时消行。\n触发：frustrationLevel / momentum 负值 / missRate / cognitiveLoad 等多路 Math.max 拉高。\n数值含义：0=无保消，1=至少 1 块能消，2=至少 2 块能消，3=三块都能消（极端救济）。',
+    sizePreference: '尺寸偏好（sizePreference，浮点 -1~1）：负=偏小块，正=偏大块。\n触发：frustration / needsRecovery / topo onset / boardLoad 等场景被 Math.min 压低；sprint 中间档 / pbOvershoot / 高压档抬高。\n数值含义：|v|<0.18 轻影响，0.45 中影响，>0.75 强主导。',
+    orderRigor: '顺序刚性（orderRigor，浮点 0-1）：要求三连块按 placement order 摆放的强度。\n触发：高压（stress ≥ 0.85）+ 高承受力（skill / momentum）注入；flowState=bored 五重 bypass 重置。\n数值含义：0=任意顺序可解，0.45=约一半排列可解，1=tight 锁死（仅 ≤2 种排列可解）。',
+    diversityBoost: '多样性（diversityBoost，浮点 0-1）：鼓励三连块品类多样的强度。\n触发：flowState=bored / cognitiveLoad / missRate 等场景被 Math.max 拉高。\n数值含义：越大 = 越避免连续给同 category 的块，缓解审美疲劳。',
+    comboChain: '连击链（comboChain，浮点 0-1）：连续多消机会的强化程度。\n触发：deriveComboChain 读 lastClearCount + recentComboStreak，技能稳定且正动量时强化。\n数值含义：越大 = 越主动铺 combo 候选（与 rhythmPhase=setup 协同）。',
+
+    multiClearBonus: '多消加成（multiClearBonus，浮点 0-1）：抽样器对"放下后能消 ≥ 2 行"的块加权倍率。\n触发：farFromPBBoostActive（远 PB 段）/ farExtremeBoostActive（D0 极远）/ rhythmPhase=payoff / sprint 中间档 / nearFullLines ≥ 2 多路拉高。\n数值含义：>0.40 floor 起就有显著加权效果。',
+    perfectClearBoost: '清屏加成（perfectClearBoost，浮点 0-1）：抽样器对"能促成全盘清空"的块加权倍率。\n触发：pcSetup ≥ 1 + 高 fill / payoff 相位 / harvest 意图。\n数值含义：>0.5 会主动注入清屏候选块。',
+    iconBonusTarget: '同色 bonus（iconBonusTarget，浮点 0-1）：抽样器对"凑同 icon 行/列触发 ×5 倍奖励"的块加权倍率。\n触发：farFromPBBoost / monoFlush 候选可见时强化；rhythmPhase=payoff 时配合 phaseLowPoolClearBoost。\n数值含义：>0.5 时会显著抬高 monoFlush 类候选权重。',
 };
 
 /** 压力驱动策略分量（基于 adaptiveSpawn spawnHints 实际字段） */
@@ -3877,7 +3958,12 @@ class DecisionFlowViz {
         const traceReason = _dfvIntentReasonFromResolved(_intentResolved, profile);
         if (traceReason) {
             els.intentReason.textContent = traceReason;
-            els.intentReason.title = _intentResolved ? formatIntentTrace(_intentResolved) : '';
+            /* v1.67：tooltip 同时给开发者原始 reason 字符串（带英文 trace）和完整 formatIntentTrace */
+            const rawReason = _intentResolved?.trace?.find((t) => t.isWinner)?.reason || '';
+            const fullTrace = _intentResolved ? formatIntentTrace(_intentResolved) : '';
+            els.intentReason.title = rawReason
+                ? `原始诊断：${rawReason}\n\n完整路径：${fullTrace}`
+                : fullTrace;
         } else {
             let reasonFb = _ti('dfv.reason.default', '常规决策');
             if (spawnIntent === 'engage') reasonFb = _ti('dfv.reason.engage', '焦虑/挫败叠加 → 介入引导');

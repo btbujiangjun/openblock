@@ -66,7 +66,12 @@ def run_eval_games(
                 torch.manual_seed(seed)
             from .strategy_features import sample_rl_training_strategy_id
 
-            sim = OpenBlockSimulator(sample_rl_training_strategy_id())
+            # v12：eval_gate 评估策略**本身能力**，刻意不注入 condition / 不限难度桶，
+            # 以保证候选 vs 基线在全分布 dock 下的公平对照（避免 arc 偏置影响门控结论）。
+            sim = OpenBlockSimulator(
+                sample_rl_training_strategy_id(),
+                condition_arc=None, condition_intent=None, max_scd=1.0,
+            )
             sim.win_score_threshold = win_threshold
 
             while not sim.is_terminal():

@@ -127,6 +127,16 @@ export class AmbientFx extends Component {
         }
     }
 
+    /**
+     * 低内存压力下临时释放粒子 buffer，保留 _preset —— 下次 update() 自动重新 spawn。
+     * 与 applySkin('') 不同的关键：不丢预设，玩家无感（系统压力解除后立刻恢复环境氛围）。
+     */
+    trimForLowMemory(): void {
+        if (this._particles.length === 0) return;
+        this._particles.length = 0;
+        this._g?.clear();
+    }
+
     private get half(): number { return this.boardPx / 2; }
     private get margin(): number { return Math.max(12, this.boardPx * 0.08); }
 

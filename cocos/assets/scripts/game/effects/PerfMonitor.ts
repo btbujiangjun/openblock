@@ -1,6 +1,12 @@
-import { _decorator, Component, director, input, Input, Node } from 'cc';
+import { _decorator, Component, director, input, Input, Node, game, Game } from 'cc';
 
 const { ccclass } = _decorator;
+
+/** 冻屏自愈外部回调（由 Bootstrap 注入）：触发 relayout + safeRedraw，尝试重发 draw command。 */
+let _onFrozenRecover: (() => void) | null = null;
+export function setFrozenRecoverHandler(fn: (() => void) | null): void {
+    _onFrozenRecover = fn;
+}
 
 /**
  * 轻量运行时性能 / 冻屏 / 泄漏监控（诊断「越玩越卡 → 黑屏 / 触摸无响应」专用）。
@@ -45,6 +51,12 @@ export class PerfMonitor extends Component {
     private _idleTouchWindows = 0;
     /** 连续多少个窗口（5s/窗口）「fps 正常 + 0 触摸」判定为冻屏；3 ≈ 15s 静默，对玩家无干扰但能稳定捕捉。 */
     private static readonly FROZEN_THRESHOLD_WINDOWS = 3;
+    /** 冻屏持续多少个窗口后强制触发自愈（relayout + safeRedraw + LOW_MEMORY trim）。
+     *  6 窗口 = 30s 持续冻屏 → 比 FROZEN_THRESHOLD_WINDOWS=3（15s）更保守，避免玩家"思考时间长"的误伤
+     *  （15s 已经报警但不动手，30s 仍未恢复才动手）。每次触发后冷却 12 窗口=60s 避免风暴。 */
+    private static readonly FROZEN_RECOVER_WINDOWS = 6;
+    private static readonly FROZEN_RECOVER_COOLDOWN_WINDOWS = 12;
+    private _recoverCooldown = 0;
 
     private _onTouch = (): void => { this._touches++; };
 
@@ -103,11 +115,21 @@ export class PerfMonitor extends Component {
             // 是 Android 「玩一会儿后顶部工具栏弹出 → 全屏无响应」/ iOS 系统中断态的稳定标识。
             // 注意：玩家正常思考也会触发 0 触摸窗口；阈值 3×5s=15s 排除了思考态，仅在真正冻屏时报警。
             console.warn(`${line} [Frozen?] idleWindows=${this._idleTouchWindows} ⚠️`);
+            // 冻屏持续 30s 且不在冷却中 → 尝试主动自愈：通知 Bootstrap 重发 draw command 并
+            // 自己触发一次 Game.EVENT_LOW_MEMORY（模拟系统内存预警）让 trim 路径跑一遍。
+            // 这是 JS 侧能做的最后一道防线 —— 若 surface 真彻底失效仍无法救回，但能覆盖"软冻屏"。
+            if (this._idleTouchWindows >= PerfMonitor.FROZEN_RECOVER_WINDOWS && this._recoverCooldown <= 0) {
+                this._recoverCooldown = PerfMonitor.FROZEN_RECOVER_COOLDOWN_WINDOWS;
+                console.warn(`[OpenBlock][Perf] frozen for ${this._idleTouchWindows * (PerfMonitor.WINDOW_MS / 1000)}s → triggering recover (relayout + LOW_MEMORY trim)`);
+                try { _onFrozenRecover?.(); } catch (e) { console.warn('[OpenBlock][Perf] recover handler threw', e); }
+                try { game.emit(Game.EVENT_LOW_MEMORY); } catch (e) { console.warn('[OpenBlock][Perf] emit LOW_MEMORY threw', e); }
+            }
         } else if (fps < 30 || heapDelta > 64 || nodeDelta > 300) {
             console.warn(`${line} ⚠️`);
         } else {
             console.log(line);
         }
+        if (this._recoverCooldown > 0) this._recoverCooldown--;
 
         this._frames = 0;
         this._lowFrames = 0;

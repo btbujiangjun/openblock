@@ -84,7 +84,9 @@ async function _selectWithLookahead(env, legal, stateFeat, phiList, temperature)
         sim.restoreState(savedState);
         const r = sim.step(action.blockIdx, action.gx, action.gy);
         rewards.push(r);
-        const sf = extractStateFeatures(sim.grid, sim.dock, sim.strategyId);
+        const sf = extractStateFeatures(
+            sim.grid, sim.dock, sim.strategyId, sim.conditionArc ?? null, sim.conditionIntent ?? null
+        );
         nextStates.push(sf);
         sim.restoreState(savedState);
     }

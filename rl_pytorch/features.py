@@ -12,6 +12,7 @@ from .game_rules import FEATURE_ENCODING, rl_bonus_block_icons
 from . import fast_grid as _fg
 from .spawn_step_difficulty import spawn_step_difficulty_features
 from .strategy_features import encode_strategy_onehot
+from .condition_token import encode_condition_onehot
 
 _ENC = FEATURE_ENCODING
 _AF = float(_ENC.get("almostFullLineRatio", 0.78))
@@ -136,6 +137,8 @@ def extract_state_features(
     grid,
     dock: list[dict],
     strategy_id: str = "normal",
+    arc: str | None = None,
+    intent: str | None = None,
 ) -> np.ndarray:
     n = grid.size
     area = n * n
@@ -185,11 +188,13 @@ def extract_state_features(
     diff_scalars = spawn_step_difficulty_features(unplaced_shapes, int(bf["filled"]))
 
     strategy_vec = encode_strategy_onehot(strategy_id)
+    condition_vec = encode_condition_onehot(arc, intent)
     scalars = np.array(
         base_scalars
         + _encode_color_summary(grid, dock).tolist()
         + diff_scalars
-        + strategy_vec.tolist(),
+        + strategy_vec.tolist()
+        + condition_vec.tolist(),
         dtype=np.float32,
     )
     if scalars.shape[0] != _SCALAR_DIM:
@@ -356,7 +361,11 @@ def extract_action_features(
 def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
     """v6: numpy 向量化批量特征提取，batch_count_clears 替代逐动作调用。"""
     sid = getattr(sim, "strategy_id", "normal")
-    state = extract_state_features(sim.grid, sim.dock, sid)
+    state = extract_state_features(
+        sim.grid, sim.dock, sid,
+        arc=getattr(sim, "condition_arc", None),
+        intent=getattr(sim, "condition_intent", None),
+    )
     if not legal:
         return state, np.zeros((0, PHI_DIM), dtype=np.float32)
 

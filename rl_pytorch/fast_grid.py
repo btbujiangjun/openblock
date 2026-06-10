@@ -357,7 +357,8 @@ def topology_aux_targets(grid_np: np.ndarray, dock: list[dict], action_norm: dic
     """归一化拓扑分量，作为动作后辅助监督目标。
 
     顺序固定为：
-    holes, row_trans, col_trans, wells, close1, close2, mobility, fill_ratio。
+    holes, row_trans, col_trans, wells, close1, close2, mobility, fill_ratio,
+    contiguous_regions, concave_corners。
     """
     n = grid_np.shape[0]
     feats = fast_board_features(grid_np)
@@ -366,6 +367,8 @@ def topology_aux_targets(grid_np: np.ndarray, dock: list[dict], action_norm: dic
     max_trans = float(norm.get("maxTransitions", 64))
     max_wells = float(norm.get("maxWellDepth", 24))
     max_mob = float(norm.get("maxMobility", 192))
+    max_regions = float(norm.get("maxEmptyRegions", 16))
+    max_concave = float(norm.get("maxConcaveCorners", 32))
     return np.asarray(
         [
             min(float(feats["holes"]) / max(max_holes, 1.0), 1.0),
@@ -376,6 +379,8 @@ def topology_aux_targets(grid_np: np.ndarray, dock: list[dict], action_norm: dic
             min(float(feats["close2"]) / max(float(n), 1.0), 1.0),
             min(float(fast_dock_mobility(grid_np, dock)) / max(max_mob, 1.0), 1.0),
             min(float(feats["filled"]) / max(float(feats["area"]), 1.0), 1.0),
+            min(float(feats["contiguous_regions"]) / max(max_regions, 1.0), 1.0),
+            min(float(feats["concave_corners"]) / max(max_concave, 1.0), 1.0),
         ],
         dtype=np.float32,
     )

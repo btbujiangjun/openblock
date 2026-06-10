@@ -11,6 +11,8 @@ from .game_rules import FEATURE_ENCODING, rl_bonus_block_icons
 from .strategy_features import encode_strategy_onehot
 from .shapes_data import get_all_shapes
 
+from rl_pytorch.condition_token import encode_condition_onehot
+
 _ENC = FEATURE_ENCODING
 _AF = float(_ENC.get("almostFullLineRatio", 0.78))
 _DOCK = float(_ENC.get("dockSlots", 3))
@@ -258,6 +260,8 @@ def extract_state_features(
     grid,
     dock: list[dict],
     strategy_id: str = "normal",
+    arc: str | None = None,
+    intent: str | None = None,
 ) -> np.ndarray:
     n = grid.size
     area = n * n
@@ -311,11 +315,13 @@ def extract_state_features(
         ]
     diff_scalars = _spawn_step_difficulty_features(dock, filled)
     strategy_vec = encode_strategy_onehot(strategy_id)
+    condition_vec = encode_condition_onehot(arc, intent)
     scalars = np.array(
         base_scalars
         + _encode_color_summary(grid, dock).tolist()
         + diff_scalars
-        + strategy_vec.tolist(),
+        + strategy_vec.tolist()
+        + condition_vec.tolist(),
         dtype=np.float32,
     )
     if scalars.shape[0] != _SCALAR_DIM:
@@ -424,7 +430,9 @@ def _clear_payoff_features(
 def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
     """would_clear 与 web 端 countClearsIfPlaced 一致。sim: OpenBlockSimulator。"""
     sid = getattr(sim, "strategy_id", "normal")
-    state = extract_state_features(sim.grid, sim.dock, sid)
+    arc = getattr(sim, "condition_arc", None)
+    intent = getattr(sim, "condition_intent", None)
+    state = extract_state_features(sim.grid, sim.dock, sid, arc, intent)
     rows = []
     for a in legal:
         bi = a["block_idx"]

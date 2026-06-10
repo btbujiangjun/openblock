@@ -43,6 +43,7 @@ const FILES = [
     'spawnStepDifficulty.js',
     'bot/constructiveSpawn.js',
     'bot/blockSpawn.js',
+    'spawn/commitSpawnContext.js',
     'tuning/v2/clientPolicyV2.js',
     'config/platformProfile.js',
     'evaluation/gridAdapter.js',

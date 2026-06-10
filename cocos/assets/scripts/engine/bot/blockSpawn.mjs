@@ -3358,6 +3358,13 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                 } else if (inj.subType === 'pressure') {
                     ctx.specialPressureUsed = (ctx.specialPressureUsed ?? 0) + 1;
                 }
+                /* v1.60.x（根因清理）：把"间隔门归零"的责任收归引擎内部，与上方两层
+                 * 配额计数器同址维护。调用方（_commitSpawn / _commitSpawnContext /
+                 * engineSpawn commit 段）若已自行归零是幂等的（再次 = 0），不破坏既有
+                 * 三端实现；但此后新调用方（如 RL 模拟器 / 离线 evaluator）无须再各自
+                 * 重复一遍"shapes.some(isSpecial)→ 归 0"的样板，避免 Android 端那次
+                 * 漏接的同型 bug 再次出现。 */
+                ctx.roundsSinceSpecial = 0;
                 specialInjected = true;
             }
         }

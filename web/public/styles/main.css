@@ -9026,7 +9026,9 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
 }
 .adc-trace-row--hit { background: color-mix(in srgb, #10b981 15%, transparent); }
 .adc-trace-row--miss { background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent); opacity: 0.5; }
-.adc-trace-id { font-weight: 600; color: var(--text-primary, #f1f5f9); font-family: 'SF Mono', Menlo, monospace; }
+.adc-trace-id { font-weight: 600; color: var(--text-primary, #f1f5f9); display: inline-flex; align-items: baseline; gap: 4px; }
+.adc-trace-id strong { font-family: inherit; }
+.adc-trace-id-en { font-family: 'SF Mono', Menlo, monospace; font-size: 8.5px; font-weight: 400; color: var(--text-secondary, #94a3b8); opacity: 0.75; }
 .adc-trace-prio { font-size: 8px; color: var(--text-secondary, #94a3b8); }
 .adc-trace-reason { font-size: 8.5px; color: var(--text-secondary, #cbd5e1); }
 .adc-trace-reason--miss { font-style: italic; }
@@ -9038,7 +9040,8 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
     background: color-mix(in srgb, var(--text-primary, #1e293b) 4%, transparent);
     border-radius: 2px;
 }
-.adc-driver-field { font-family: 'SF Mono', Menlo, monospace; color: var(--text-primary, #f1f5f9); }
+.adc-driver-field { color: var(--text-primary, #f1f5f9); display: inline-flex; align-items: baseline; gap: 4px; }
+.adc-driver-field-en { font-family: 'SF Mono', Menlo, monospace; font-size: 8px; font-weight: 400; color: var(--text-secondary, #94a3b8); opacity: 0.7; }
 .adc-driver-arrow { color: var(--text-secondary, #64748b); font-size: 10px; }
 .adc-driver-source { color: var(--text-secondary, #94a3b8); font-size: 8.5px; }
 

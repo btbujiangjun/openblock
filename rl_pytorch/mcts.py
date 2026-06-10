@@ -290,7 +290,7 @@ def _simulate(
             leaf_value = spawn_predictor.expected_value(sim, net, device, n_samples=3)
         else:
             with torch.no_grad():
-                s_np = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
+                s_np = sim.extract_state()
                 s_t = tensor_to_device(torch.from_numpy(s_np).unsqueeze(0), device)
                 leaf_value = float(net.forward_value(s_t).item())
 
@@ -362,10 +362,11 @@ def run_mcts(
         root.children[i] = _MCTSNode(prior=float(priors[i]))
 
     root_saved = sim.save_state()
-    for _ in range(n_simulations):
+    with sim.search_mode():
+        for _ in range(n_simulations):
+            sim.restore_state(root_saved)
+            _simulate(root, sim, net, device, c_puct, max_depth, spawn_predictor, gamma)
         sim.restore_state(root_saved)
-        _simulate(root, sim, net, device, c_puct, max_depth, spawn_predictor, gamma)
-    sim.restore_state(root_saved)
 
     return _extract_visit_pi(root, n_root)
 
@@ -431,10 +432,11 @@ def run_mcts_reuse(
         extra_sims = max(0, n_simulations - already)
 
     root_saved = sim.save_state()
-    for _ in range(extra_sims):
+    with sim.search_mode():
+        for _ in range(extra_sims):
+            sim.restore_state(root_saved)
+            _simulate(root, sim, net, device, c_puct, max_depth, spawn_predictor, gamma)
         sim.restore_state(root_saved)
-        _simulate(root, sim, net, device, c_puct, max_depth, spawn_predictor, gamma)
-    sim.restore_state(root_saved)
 
     return _extract_visit_pi(root, n_root)
 
@@ -749,7 +751,7 @@ def _select_leaf_for_batch(
     is_term = sim.is_terminal() or not sim.get_legal_actions()
     if is_term:
         return path, None, True
-    leaf_feat = extract_state_features(sim.grid, sim.dock, sim.strategy_id)
+    leaf_feat = sim.extract_state()
     return path, leaf_feat, False
 
 
@@ -851,12 +853,13 @@ def run_mcts_batched(
         term_flags: list[bool] = []
         leaf_feat_idx: list[int] = []   # 非终局样本在 feats_list 中的索引
 
-        # Phase 1: selection（含虚拟 loss）
+        # Phase 1: selection（含虚拟 loss）—— search_mode 跳过 eval shaping 计算
         for _ in range(batch):
             sim.restore_state(root_saved)
-            path, feat, is_term = _select_leaf_for_batch(
-                root, sim, net, device, c_puct, max_depth
-            )
+            with sim.search_mode():
+                path, feat, is_term = _select_leaf_for_batch(
+                    root, sim, net, device, c_puct, max_depth
+                )
             paths_list.append(path)
             term_flags.append(is_term)
             if not is_term and feat is not None:
@@ -1159,7 +1162,7 @@ def run_mcts_adaptive(
         already_done = 0
 
     def _run_batch(n: int) -> None:
-        """执行 n 次模拟（批量或单步）。"""
+        """执行 n 次模拟（批量或单步）。search_mode 跳过 eval shaping。"""
         if n <= 0:
             return
         use_batch = n >= 8
@@ -1171,9 +1174,10 @@ def run_mcts_adaptive(
                 paths_list, feats_list, term_flags, leaf_feat_idx = [], [], [], []
                 for _ in range(batch):
                     sim.restore_state(root_saved)
-                    path, feat, is_term = _select_leaf_for_batch(
-                        root, sim, net, device, c_puct, max_depth
-                    )
+                    with sim.search_mode():
+                        path, feat, is_term = _select_leaf_for_batch(
+                            root, sim, net, device, c_puct, max_depth
+                        )
                     paths_list.append(path)
                     term_flags.append(is_term)
                     if not is_term and feat is not None:
@@ -1202,10 +1206,11 @@ def run_mcts_adaptive(
                     root.N += 1
                 done += batch
         else:
-            for _ in range(n):
-                sim.restore_state(root_saved)
-                _simulate(root, sim, net, device, c_puct, max_depth,
-                          spawn_predictor=spawn_predictor, gamma=gamma)
+            with sim.search_mode():
+                for _ in range(n):
+                    sim.restore_state(root_saved)
+                    _simulate(root, sim, net, device, c_puct, max_depth,
+                              spawn_predictor=spawn_predictor, gamma=gamma)
 
     def _confidence() -> float:
         """计算当前 top1/top2 访问比；根动作数 < 2 时返回无穷大。"""

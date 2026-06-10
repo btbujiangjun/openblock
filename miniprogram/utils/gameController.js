@@ -30,6 +30,8 @@ const {
   validateSpawnTriplet,
 } = require('../core/bot/blockSpawn');
 const { PlayerProfile } = require('../core/playerProfile');
+const { resolveThetaV2 } = require('../core/tuning/v2/clientPolicyV2');
+const { commitSpawnContext } = require('../core/spawn/commitSpawnContext');
 const {
   evalOnSessionStart,
   evalOnSpawn,
@@ -105,6 +107,10 @@ class GameController {
       roundsSinceSpecial: 0,
       dupInjectUsed: 0,
       roundsSinceDupInject: 0,
+      /* v1.67 构造式跨 dock 状态机（与 web `_spawnContext` 初始化对齐）：
+       * commit 段每 dock −−；构造块交付后置 cooldownDocks 以防"系统连发喂解"。 */
+      constructCooldown: 0,
+      pendingClearTarget: null,
     };
     resetSpawnMemory();
     resetAdaptiveMilestone();
@@ -247,7 +253,12 @@ class GameController {
   _resolveSpawnStrategy() {
     const fill = this.grid?.getFillRatio?.() || 0;
     const _difficulty = (this.strategyId === 'hard' || this.strategyId === 'normal') ? this.strategyId : 'easy';
-    const _generator = (this.strategyId === 'hard') ? 'budget-p2' : 'triplet-p1';
+    /* v3.0.8（与 web `game.js` 同源修复）：generator 维度必须与采样口径严格 1:1（'rule' / 'generative'），
+     * 旧值 'budget-p2'/'triplet-p1' 是启发式形状变体，与 v2 generator 无关；
+     * 用旧值 → resolveThetaV2 exact/fuzzy/coarse 三层全部 miss → 100% 回落 DEFAULT_THETA_V2，
+     * 部署的 360 条寻参 θ 在小程序端实际从未生效。
+     * 小程序暂不支持模型推理（无 generative 路径），固定 'rule'。 */
+    const _generator = 'rule';
     const _bestScore = Math.max(
       this._bestScore,
       Number(this._profile?.personalBest || this._profile?.bestScore || 0),
@@ -268,6 +279,18 @@ class GameController {
       lifecycle_stage: _lifecycle,
       userId: this._profile?.userId || '',
     };
+    /* v3.0.8 修复 #2（与 web 同源）：把命中的寻参 θ 落到 _spawnContext.modelConfig，
+     * 让 C/D/E 共 ~19 维真正生效（augmentPool 乘性加权 / spawnTargets 翻译矩阵 / PB 段弯折）。
+     * 此前小程序端只接通了 derivePbCurve 4 维 PB 曲线（B 组），其它维度全部 dead。
+     * 仅在「真实命中策略」(exact / fuzzy-lifecycle / coarse-gen) 时注入；未命中显式清为 null，
+     * 让各 consumer 沿用历史硬默认，避免 fallback 多数局相对 baseline 产生行为漂移。 */
+    try {
+      const _r = typeof resolveThetaV2 === 'function' ? resolveThetaV2(_tuningCtx) : null;
+      const _hit = _r && (_r.source === 'exact' || _r.source === 'fuzzy-lifecycle' || _r.source === 'coarse-gen');
+      this._spawnContext.modelConfig = _hit ? _r.theta : null;
+    } catch (_) {
+      this._spawnContext.modelConfig = null;
+    }
     return resolveAdaptiveStrategy(
       this.strategyId,
       this._profile,
@@ -300,27 +323,22 @@ class GameController {
   }
 
   _commitSpawnContext(layered) {
-    this._spawnContext.totalRounds = (this._spawnContext.totalRounds || 0) + 1;
-    if (this.dock?.some((s) => isSpecialShapeId(s.id))) {
-      this._spawnContext.roundsSinceSpecial = 0;
-    }
-    this._spawnContext.scoreMilestone = false;
-    this._spawnContext.totalClears = this.totalClears;
-    /* v1.55.17：prevAdaptiveStress 写入 raw 域，与 adaptiveSpawn.smoothStress 单位一致；
-     * 详见 web/src/adaptiveSpawn.js 顶部 normalizeStress JSDoc。 */
-    this._spawnContext.prevAdaptiveStress = layered?._adaptiveStressRaw ?? layered?._adaptiveStress;
-    if (Number.isFinite(layered?._occupancyFillAnchor)) {
-      this._spawnContext._occupancyFillAnchor = layered._occupancyFillAnchor;
-    }
-
+    /* v1.60.x 根因清理：纯 ctx 字段维护已抽到 core/spawn/commitSpawnContext.js，三端同源。
+     * 一次性维护 totalRounds++/roundsSinceSpecial=0/scoreMilestone=false/prevAdaptiveStress/
+     * _occupancyFillAnchor/L1 棋盘特征回写/constructCooldown 衰减/pendingClearTarget 续接。 */
     const diag = getLastSpawnDiagnostics();
-    this._spawnContext.nearFullLines = diag?.layer1?.nearFullLines ?? 0;
+    commitSpawnContext({
+      ctx: this._spawnContext,
+      shapes: this.dock,
+      layered,
+      diagnostics: diag,
+    });
+
+    /* 小程序端独有字段（不在共享函数范围）：totalClears 同步 + close1/close2（mini 独有 L1 字段）。 */
+    this._spawnContext.totalClears = this.totalClears;
     this._spawnContext.close1 = diag?.layer1?.close1 ?? 0;
     this._spawnContext.close2 = diag?.layer1?.close2 ?? 0;
-    this._spawnContext.pcSetup = diag?.layer1?.pcSetup ?? 0;
-    this._spawnContext.holes = diag?.layer1?.holes ?? 0;
-    this._spawnContext.multiClearCandidates = diag?.layer1?.multiClearCandidates ?? 0;
-    this._spawnContext.perfectClearCandidates = diag?.layer1?.perfectClearCandidates ?? 0;
+
     this._resetBottleneckTrough();
   }
 

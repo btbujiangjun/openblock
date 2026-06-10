@@ -216,6 +216,12 @@ BUILD_ERROR='构建插件 android 的钩子函数 .*执行失败|找不到 Andro
 BENIGN_BUILD_ERROR='buildPolyfillsCommand.*Caught exception during build core-js|This may indicates the core-js polyfill is not necessary|Error: Exit process with code:null, signal:SIGTERM in task (build-script|build-engine)|\[BABEL\] Note: The code generator has deoptimised the styling|exceeds the max of [0-9]+KB'
 LOG="$(mktemp -t cocos-build-android)"
 
+# ⚠️ ELECTRON_RUN_AS_NODE 必须 unset：某些开发环境（如 Cursor agent shell、部分 IDE
+#   集成终端）会把它注入子进程，导致 CocosCreator 这个 Electron 启动器走 Node CLI 模式，
+#   把 --project 当作 Node module 路径解析 → 报 "bad option: --project" 然后退出，
+#   完全无法构建。这里在 build 进程里强制 unset，恢复正常的 Electron app 启动行为。
+unset ELECTRON_RUN_AS_NODE
+
 "$CREATOR" \
     --project "$COCOS_DIR" \
     --build "configPath=$CONFIG" 2>&1 | tee "$LOG" | grep -Ev "$NOISE"

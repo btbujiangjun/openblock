@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 
 from .features import ACTION_FEATURE_DIM, PHI_DIM, STATE_FEATURE_DIM
-from .game_rules import FEATURE_ENCODING
+from .game_rules import FEATURE_ENCODING, RL_REWARD_SHAPING
 
 _SCALAR_DIM = int(FEATURE_ENCODING.get("stateScalarDim", 23))
 _GRID_SIDE = int(FEATURE_ENCODING.get("maxGridWidth", 8))
@@ -30,7 +30,10 @@ _GRID_FLAT = _GRID_SIDE * _GRID_SIDE
 _DOCK_MASK_SIDE = int(FEATURE_ENCODING.get("dockMaskSide", 5))
 _DOCK_SLOTS = int(FEATURE_ENCODING.get("dockSlots", 3))
 _DOCK_FLAT = _DOCK_SLOTS * _DOCK_MASK_SIDE * _DOCK_MASK_SIDE
-TOPOLOGY_AUX_DIM = 8
+# v12: topology_aux 8 → 10（追加 contiguous_regions / concave_corners）；
+# spawn_diff_aux 4 维（scd / comboCells / killer / longBar），target 来自当前 dock 一手计算。
+TOPOLOGY_AUX_DIM = int(RL_REWARD_SHAPING.get("topologyAuxDim") or 10)
+SPAWN_DIFF_AUX_DIM = int((RL_REWARD_SHAPING.get("spawnDiffAux") or {}).get("dim") or 4)
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +274,9 @@ class ConvSharedPolicyValueNet(nn.Module):
         self.survival_head = nn.Sequential(
             nn.Linear(width, hid), nn.GELU(), nn.Linear(hid, 1),
         )
+        self.spawn_diff_aux_head = nn.Sequential(
+            nn.Linear(width, hid), nn.GELU(), nn.Linear(hid, SPAWN_DIFF_AUX_DIM),
+        )
 
     def _encode_state(self, s: torch.Tensor) -> torch.Tensor:
         """s: [B, STATE_FEATURE_DIM] → h: [B, width]"""
@@ -382,13 +388,19 @@ class ConvSharedPolicyValueNet(nn.Module):
         h = self._encode_state(state_feat)
         return self.survival_head(h).squeeze(-1)
 
+    def forward_spawn_diff_aux(self, state_feat: torch.Tensor) -> torch.Tensor:
+        """预测当前 dock 的 4 维 spawnStepDifficulty 子向量（trunk 直接从 state 回归）。"""
+        h = self._encode_state(state_feat)
+        return self.spawn_diff_aux_head(h)
+
     def forward_aux_all(self, state_feats: torch.Tensor) -> dict[str, torch.Tensor]:
-        """一次编码，并行输出三个辅助头的预测值。"""
+        """一次编码，并行输出三个 trunk 辅助头的预测值。"""
         h = self._encode_state(state_feats)
         return {
             "board_quality": self.board_quality_head(h).squeeze(-1),
             "feasibility": self.feasibility_head(h).squeeze(-1),
             "survival": self.survival_head(h).squeeze(-1),
+            "spawn_diff": self.spawn_diff_aux_head(h),
         }
 
 
@@ -408,9 +420,13 @@ class _AuxStubsMixin:
     def forward_survival(self, state_feat: torch.Tensor) -> torch.Tensor:
         return state_feat.new_zeros(state_feat.shape[0])
 
+    def forward_spawn_diff_aux(self, state_feat: torch.Tensor) -> torch.Tensor:
+        return state_feat.new_zeros((state_feat.shape[0], SPAWN_DIFF_AUX_DIM))
+
     def forward_aux_all(self, state_feats: torch.Tensor) -> dict[str, torch.Tensor]:
         z = state_feats.new_zeros(state_feats.shape[0])
-        return {"board_quality": z, "feasibility": z, "survival": z}
+        zd = state_feats.new_zeros((state_feats.shape[0], SPAWN_DIFF_AUX_DIM))
+        return {"board_quality": z, "feasibility": z, "survival": z, "spawn_diff": zd}
 
 
 class LightPolicyValueNet(_AuxStubsMixin, nn.Module):

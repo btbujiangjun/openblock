@@ -951,7 +951,7 @@ RL 模型主要用于：
 
 浏览器本地模型选择线性架构而非 MLP：
 
-- 参数少：`W[phiDim] + Vw[stateDim]`（当前 **205 + 190**）。
+- 参数少：`W[phiDim] + Vw[stateDim]`（当前 **216 + 201**，v12）。
 - 更新稳定：单局 REINFORCE 下比深层网络更不容易发散。
 - 可序列化：直接存 localStorage / SQLite。
 - 可解释：每个特征对策略 logit 的影响线性可读。

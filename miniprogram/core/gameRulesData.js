@@ -13,6 +13,29 @@ module.exports = {
     "winThresholdStart": 40,
     "winThresholdEnd": 600,
     "rampEpisodes": 40000,
+    "difficultyBucket": {
+      "comment": "v12 难度桶课程（与 quantile/adaptive 正交）：训练时按 episode 进度逐步放宽允许的 spawnStepDifficulty 桶；simulator._spawn_dock 自博弈采样若超出当前桶上限则重抽（最多 retryCap 次）。bucketRamp 给出每阶段的 scd 上限（与 spawn_step_difficulty.py DIFFICULTY_BUCKETS 对齐：trivial<0.2/easy<0.4/standard<0.6/hard<0.8/extreme=1）。RL_DIFFICULTY_CURRICULUM=0 关闭。",
+      "enabled": true,
+      "stages": [
+        {
+          "untilEpisode": 4000,
+          "maxScd": 0.4
+        },
+        {
+          "untilEpisode": 12000,
+          "maxScd": 0.6
+        },
+        {
+          "untilEpisode": 30000,
+          "maxScd": 0.8
+        },
+        {
+          "untilEpisode": 0,
+          "maxScd": 1
+        }
+      ],
+      "retryCap": 6
+    },
     "quantile": {
       "comment": "v11.2 分位数模式参数。p=70 → 目标 win_rate=30%（比 v11 的 50% 更保守，保证稳定训练信号）。windowEpisodes=500 平衡响应速度与抖动。emaAlpha=0.05 ≈ 14 局衰减一半，抑制单局极值影响。bootstrap 期（前 100 局）使用 winThresholdStart=40 同值。floor/ceil 是兜底夹紧，正常不会触发。",
       "p": 70,
@@ -1310,7 +1333,7 @@ module.exports = {
     "rndCuriosity": {
       "comment": "v11.2 方案 C（opt-in，默认 off）：Random Network Distillation 内在动机（Burda 2018, arXiv:1810.12894）。双 MLP（target 冻结 + predictor 学习），r_intrinsic = β·||target(s) - predictor(s)||²，鼓励访问新颖 state。解决高 ep 后探索退化（entropy→0、score 停滞）问题。⚠️ 启用会引入额外网络与 β 调参；触发条件未到时启用可能干扰已收敛策略。即使 enabled=false 也会定期打印触发条件评估 alert。RL_RND=1/0 可热切换。",
       "enabled": false,
-      "stateDim": 190,
+      "stateDim": 201,
       "hiddenDim": 64,
       "outputDim": 32,
       "beta": 0.1,
@@ -1332,6 +1355,43 @@ module.exports = {
     "holeAuxTargetMax": 16,
     "clearPredLossCoef": 0.15,
     "topologyAuxLossCoef": 0.08,
+    "topologyAuxDim": 10,
+    "spawnDiffAux": {
+      "comment": "v12 单步出块难度辅助监督：让 trunk 显式预测当前 dock 的 4 维 spawnStepDifficulty 子向量（与 RL state 同源 spawn_step_difficulty_features），强化对难度分布的归纳偏置。target 取当前 dock 一手计算，不依赖未来块（无泄漏）。",
+      "enabled": true,
+      "coef": 0.05,
+      "dim": 4
+    },
+    "evalFeedbackShaping": {
+      "comment": "v12 评估反馈进 ΔΦ 塑形：把局内累计的 regret / forced_bad / salvage 信号转为势函数项（Ng 1999 不改变最优策略）。当 closeRound 信号可得时叠加；自博弈侧用 simulator 的近似口径（regret = best_reward - chosen_reward / norm，forced_bad = last_round_unfillable_holes_increase）。与 _pb_reward 离线权重同量级以对齐口径。",
+      "enabled": true,
+      "coef": 0.6,
+      "regretWeight": -0.1,
+      "optimalityWeight": 0.05,
+      "forcedBadWeight": -0.08,
+      "salvageWeight": 0.04,
+      "regretNorm": 8
+    },
+    "conditionToken": {
+      "comment": "v12 风格族 token：把出块算法的 RoR arc / spawnIntent 作为可控条件 token 注入 state（不是真实玩家观测，仅自博弈训练时按概率采样让 Bot 学一族策略；推理时显式指定）。enabled=false → 全零，state 维度仍然占位以保证 SSOT 不漂移。",
+      "enabled": true,
+      "arcs": [
+        "opener",
+        "momentum",
+        "peak",
+        "fatigue",
+        "cooldown"
+      ],
+      "intents": [
+        "relief",
+        "engage",
+        "pressure",
+        "flow",
+        "harvest",
+        "maintain"
+      ],
+      "samplingProb": 0.6
+    },
     "bonusClearAux": {
       "comment": "bonus/color-clear 辅助头：预测本步是否触发同 icon/同色 bonus line，帮助价值网络学习高分清线结构；旧 checkpoint 通过 strict=false 兼容新增头。",
       "enabled": true,
@@ -1472,7 +1532,7 @@ module.exports = {
     }
   },
   "featureEncoding": {
-    "comment": "state = 51 维标量（25 结构 + 19 颜色 + 4 单步难度 + 3 策略 one-hot）+ 64 棋盘 + 75 dock = 190；action = 15；phi = 205。策略维顺序见 strategyIds。Python 训练环境出块默认走 Node worker（scripts/rl-spawn-worker.mjs）与线上一致；RL_SPAWN_ONLINE=0 回退 block_spawn.py。改维度须同步 features 并重训。",
+    "comment": "state = 62 维标量（25 结构 + 19 颜色 + 4 单步难度 + 3 策略 one-hot + 5 arc one-hot + 6 intent one-hot）+ 64 棋盘 + 75 dock = 201；action = 15；phi = 216。策略维顺序见 strategyIds；arc/intent 顺序见 rlRewardShaping.conditionToken（顺序变更需重训）。Python 训练环境出块默认走 Node worker（scripts/rl-spawn-worker.mjs）与线上一致；RL_SPAWN_ONLINE=0 回退 block_spawn.py。改维度须同步 features 并重训。",
     "maxGridWidth": 8,
     "dockMaskSide": 5,
     "strategyIds": [
@@ -1481,13 +1541,15 @@ module.exports = {
       "hard"
     ],
     "strategyDim": 3,
-    "stateScalarDim": 51,
+    "conditionArcDim": 5,
+    "conditionIntentDim": 6,
+    "stateScalarDim": 62,
     "colorCount": 8,
     "gridSpatialDim": 64,
     "dockSpatialDim": 75,
-    "stateDim": 190,
+    "stateDim": 201,
     "actionDim": 15,
-    "phiDim": 205,
+    "phiDim": 216,
     "dockSlots": 3,
     "almostFullLineRatio": 0.78,
     "actionNorm": {

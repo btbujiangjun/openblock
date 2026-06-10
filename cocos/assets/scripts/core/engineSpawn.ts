@@ -26,6 +26,10 @@ import { Grid as EngineGrid } from '../engine/grid.mjs';
 import { getStrategy } from '../engine/config.mjs';
 // @ts-ignore
 import { generateDockShapes, getLastSpawnDiagnostics, resetSpawnMemory } from '../engine/bot/blockSpawn.mjs';
+// @ts-ignore 三端共享的「出块 commit 段」纯逻辑闭包：维护 totalRounds / roundsSinceSpecial /
+// scoreMilestone / prevAdaptiveStress / _occupancyFillAnchor / L1 棋盘特征 / constructCooldown /
+// pendingClearTarget 等跨轮字段；源自 web/src/spawn/commitSpawnContext.js，由 sync 脚本同步。
+import { commitSpawnContext } from '../engine/spawn/commitSpawnContext.mjs';
 // @ts-ignore 自适应策略解析（与 web/小程序同源）：内部 resolveThetaV2 注入寻参 θ → PB 曲线/spawnTargets。
 import { resolveAdaptiveStrategy, resetAdaptiveMilestone } from '../engine/adaptiveSpawn.mjs';
 // @ts-ignore 寻参 v2 客户端策略：把 19 维 θ（B/C/D/E 组）注入 ctx.modelConfig，与 web v3.0.8 保持一致。
@@ -276,21 +280,8 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): EngineSpaw
         }
         if (!Array.isArray(shapes) || shapes.length === 0) return [];
 
-        /* 出块后回写跨轮状态（与 web `_commitSpawn` 同址同义）：
-         *   - prevAdaptiveStress: smoothStress 的 raw 域基线，让下一轮 stress 平滑过渡而非每轮重置
-         *   - _lastSpawnIntent / _lastSpawnIntentAge: hysteresis dwell time，防止 intent 抖动
-         *   - L1 棋盘特征（holes / nearFullLines / pcSetup / multi/perfect Candidates）:
-         *     来自 blockSpawn 内部 lastSpawnDiagnostics，供下一轮 friendlyBoardRelief / frustrationRelief 等信号读取。
-         *   - roundsSinceSpecial 在引擎注入特殊形状时已自身清 0，这里同步它的"已用次数"统计。 */
-        if (layeredRef && Number.isFinite(layeredRef._adaptiveStressRaw)) {
-            ctx.prevAdaptiveStress = layeredRef._adaptiveStressRaw;
-        }
-        /* 占用衰减锚点（与 web `game.js:713`/mini `gameController.js:298` 同步）：
-         * 当 layered 算出 `_occupancyFillAnchor`（低 fill 场景下的"沿用历史高占用锚点"信号）时
-         * 持久化到 ctx，下一轮 adaptiveSpawn 内 occupancyDamping 据此延迟撤销减压。 */
-        if (layeredRef && Number.isFinite(layeredRef._occupancyFillAnchor)) {
-            ctx._occupancyFillAnchor = layeredRef._occupancyFillAnchor;
-        }
+        /* hysteresis dwell time —— 闭包级状态（不在 ctx 中），由调用方维护。
+         * 必须在 commitSpawnContext 之外，因为它依赖 layeredRef._spawnIntent + 上一轮闭包态。 */
         const _newIntent = layeredRef?._spawnIntent ?? layeredRef?.spawnHints?.spawnIntent ?? null;
         if (_newIntent && _lastSpawnIntent === _newIntent) {
             _lastSpawnIntentAge++;
@@ -298,17 +289,6 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): EngineSpaw
             _lastSpawnIntentAge = 0;
         }
         _lastSpawnIntent = _newIntent ?? null;
-        try {
-            const _diag = (getLastSpawnDiagnostics as (() => { layer1?: Record<string, number> }) | undefined)?.();
-            const l1 = _diag?.layer1;
-            if (l1) {
-                ctx.nearFullLines = l1.nearFullLines ?? 0;
-                ctx.pcSetup = l1.pcSetup ?? 0;
-                ctx.holes = l1.holes ?? 0;
-                ctx.multiClearCandidates = l1.multiClearCandidates ?? 0;
-                ctx.perfectClearCandidates = l1.perfectClearCandidates ?? 0;
-            }
-        } catch { /* diagnostics 可选，缺失不致命 */ }
 
         // 记录本轮产出的形状类别，供「下一轮」引擎做新鲜度/重复规避（web 同款 recentCategories 输入）。
         const cats = shapes.map((s) => s.category).filter((c): c is string => !!c);
@@ -331,14 +311,29 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): EngineSpaw
                 placed: false,
             });
         }
-        /* 出块成功后的「commit 段」（与 web `_commitSpawn` 同址）：
-         *   1) totalRounds++ —— 与 web 严格对齐：失败重试不消费这个计数。
-         *      重要：放在 ctx 中的 scoreMilestone 已在前面被 layered.spawnHints 桥回，
-         *      此处不再做 web 的「scoreMilestone=false 栈底重置」—— 因为 cocos 的 scoreMilestone
-         *      权威源是 PlayerContext.scoreMilestone（snapshot 每轮提供），由 PlayerContext.onRound()
-         *      在下一轮入口自动清零，无需在此手动重置 ctx 字段。
-         *   2) onSpawned 回调 —— 调用方按需 tick `postPbReleaseRemaining` 等"出块后递减"计数。 */
-        ctx.totalRounds = ((ctx.totalRounds as number) ?? 0) + 1;
+
+        /* v1.60.x 根因清理：三端共享的「出块 commit 段」纯字段维护抽到 spawn/commitSpawnContext.mjs。
+         * 一次性维护 totalRounds++/roundsSinceSpecial=0/scoreMilestone=false/prevAdaptiveStress/
+         * _occupancyFillAnchor/L1 棋盘特征回写（nearFullLines/pcSetup/holes/multi/perfectClearCandidates）/
+         * constructCooldown 衰减/pendingClearTarget 续接。
+         *
+         * 时序：必须在 blocks 构造完成（确认出块成功）之后调用——与 web `_commitSpawn` / 旧版尾部
+         * `totalRounds++` 同址契约：失败重试链（generateDockShapes 抛异常 / shapes 为空 / 单块校验
+         * 失败提前 return []）绝不消费这个计数，否则 lifecycle_stage 分桶与寻参 v2 context_key 会
+         * 因为"重试也算 1 轮"而漂移。
+         *
+         * scoreMilestone：cocos 的权威源是 PlayerContext.scoreMilestone（snapshot 每轮注入），
+         * 由 PlayerContext.onRound() 在下一轮入口自动清零；commitSpawnContext 内部把它再清一次为
+         * false 是冗余但幂等的——保持三端契约一致。 */
+        type SpawnDiag = Parameters<typeof commitSpawnContext>[0]['diagnostics'];
+        const _diag = (getLastSpawnDiagnostics as (() => SpawnDiag) | undefined)?.();
+        commitSpawnContext({
+            ctx,
+            shapes: shapes as unknown as Array<{ id: string }>,
+            layered: layeredRef as unknown as Record<string, unknown>,
+            diagnostics: _diag,
+        });
+
         if (onSpawned) { try { onSpawned(); } catch { /* 容错 */ } }
         return blocks;
     }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import os
 
@@ -13,6 +14,7 @@ from .grid import Grid
 from .dock_color_bias import mono_near_full_line_color_weights, pick_three_dock_colors
 from .player_profile_lite import PlayerProfileLite
 from .shapes_data import get_all_shapes, shape_category
+from .spawn_step_difficulty import spawn_step_difficulty_features
 from . import fast_grid as _fg
 from . import spawn_online as _spawn_online
 
@@ -33,6 +35,42 @@ _POT_W_MOB = float(_POT_CFG.get("mobilityWeight", 0.12))
 # 吸附/贴合约束：暴露边惩罚权重（负值，|值|越大越鼓励落子贴边/贴块）。
 _POT_W_ADHESION = float(_POT_CFG.get("adhesionWeight", -0.12))
 _ACTION_NORM = dict(FEATURE_ENCODING.get("actionNorm") or {})
+
+# v12 评估反馈塑形（势函数项，Ng 1999 不改变最优策略）
+_EVAL_FB_CFG = dict((RL_REWARD_SHAPING.get("evalFeedbackShaping") or {}))
+_EVAL_FB_ENABLED = bool(_EVAL_FB_CFG.get("enabled", False))
+_EVAL_FB_COEF = float(_EVAL_FB_CFG.get("coef", 0.6))
+_EVAL_W_REG = float(_EVAL_FB_CFG.get("regretWeight", -0.10))
+_EVAL_W_OPT = float(_EVAL_FB_CFG.get("optimalityWeight", 0.05))
+_EVAL_W_FB = float(_EVAL_FB_CFG.get("forcedBadWeight", -0.08))
+_EVAL_W_SV = float(_EVAL_FB_CFG.get("salvageWeight", 0.04))
+_EVAL_REGRET_NORM = max(1e-3, float(_EVAL_FB_CFG.get("regretNorm", 8.0)))
+
+# v12 难度桶课程
+from .game_rules import _DATA as _RULES_DATA
+_DIFF_CURR_CFG = dict(((_RULES_DATA.get("rlCurriculum") or {}).get("difficultyBucket") or {}))
+_DIFF_CURR_ENABLED_CFG = bool(_DIFF_CURR_CFG.get("enabled", False))
+_DIFF_CURR_STAGES = list(_DIFF_CURR_CFG.get("stages") or [])
+_DIFF_CURR_RETRY_CAP = max(1, int(_DIFF_CURR_CFG.get("retryCap", 6)))
+
+
+def _diff_curr_enabled() -> bool:
+    if os.environ.get("RL_DIFFICULTY_CURRICULUM", "").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    return _DIFF_CURR_ENABLED_CFG
+
+
+def max_scd_for_episode(episode_1based: int) -> float:
+    """难度桶课程当前允许的 spawnStepDifficulty scd 上限；未启用或越界返回 1.0。"""
+    if not _diff_curr_enabled() or not _DIFF_CURR_STAGES:
+        return 1.0
+    ep = max(0, int(episode_1based))
+    for stage in _DIFF_CURR_STAGES:
+        until = int(stage.get("untilEpisode", 0))
+        if until <= 0 or ep <= until:
+            return float(stage.get("maxScd", 1.0))
+    return float(_DIFF_CURR_STAGES[-1].get("maxScd", 1.0))
+
 
 _ICON_BONUS_LINE_MULT = float(CLEAR_SCORING.get("iconBonusLineMult") or 5)
 _PERFECT_CLEAR_MULT = float(CLEAR_SCORING.get("perfectClearMult") or 10)
@@ -145,10 +183,24 @@ def board_potential_np(grid_np: np.ndarray, dock: list[dict]) -> float:
 
 
 class OpenBlockSimulator:
-    def __init__(self, strategy_id: str = "normal", *, best_score: int = 0, run_streak: int = 0):
+    def __init__(
+        self,
+        strategy_id: str = "normal",
+        *,
+        best_score: int = 0,
+        run_streak: int = 0,
+        condition_arc: str | None = None,
+        condition_intent: str | None = None,
+        max_scd: float = 1.0,
+    ):
         self.strategy_id = strategy_id
         self.best_score = max(0, int(best_score))
         self.run_streak = max(0, int(run_streak))
+        # v12 风格族 token：自博弈训练时由 train 侧采样、推理时由调用方注入。
+        self.condition_arc = condition_arc
+        self.condition_intent = condition_intent
+        # v12 难度桶课程：spawnStepDifficulty.scdNorm 上限，超出则重抽（最多 retryCap 次）。
+        self.max_scd = float(max_scd)
         self._holes_cache: int | None = None
         self._grid_np: np.ndarray | None = None
         self._last_clears: int = 0
@@ -161,6 +213,12 @@ class OpenBlockSimulator:
         self._rounds_since_last_clear: float = float("inf")
         self._profile = PlayerProfileLite()
         self._spawn_context: dict = {}
+        # v12 评估反馈塑形：每步瞬时奖励项（非势差，无累计 → 无 search 状态污染）。
+        # forced_bad：本步落子后空洞净增 ≥ 2（拓扑剧烈恶化，与 roundQuality.forced_bad 同语义近似）。
+        # salvage：本步在 mobility 极低（≤4）时仍消行 ≥ 2（"绝境清线"，与 salvage 同语义近似）。
+        # _search_mode：MCTS/lookahead/beam 路径下置 True，跳过 eval shaping 的 O(|A|) 计算
+        # （search 用 NN-V 估计，shaping 是给真实采集轨迹的 GAE 用的，否则双重计入）。
+        self._search_mode: bool = False
         self.reset()
 
     @staticmethod
@@ -210,13 +268,31 @@ class OpenBlockSimulator:
     def _cells_for_spawn_bridge(self) -> list[list[int | None]]:
         return [list(row) for row in self.grid.cells]
 
+    def _resample_for_difficulty_cap(self, shapes: list[dict], resampler) -> list[dict]:
+        """v12 难度桶课程：若 dock 难度（spawnStepDifficulty[0]）超出 max_scd 上限则重抽。
+        无脉冲、不改变最优策略；仅压缩输入难度分布。online/legacy 两条 spawn 路径共用。
+        resampler() 须返回与 shapes 同结构（含 data 字段）的新 dock。"""
+        if self.max_scd >= 1.0:
+            return shapes
+        occupied = sum(1 for row in self.grid.cells for c in row if c is not None)
+        cur = shapes
+        for _ in range(_DIFF_CURR_RETRY_CAP):
+            feats = spawn_step_difficulty_features([s["data"] for s in cur], occupied)
+            if feats[0] <= self.max_scd:
+                return cur
+            cur = resampler()
+        return cur
+
     def _spawn_dock_legacy(self) -> None:
-        shapes = generate_blocks_for_grid(self.grid, self.strategy_config)
         n_colors = int(self.strategy_config.get("color_count", 8))
         bias = mono_near_full_line_color_weights(self.grid, _RL_BONUS_ICONS)
         dock_colors = pick_three_dock_colors(bias, n_colors=n_colors)
-        self.dock = []
         all_shapes = get_all_shapes()
+        shapes = generate_blocks_for_grid(self.grid, self.strategy_config)
+        shapes = self._resample_for_difficulty_cap(
+            shapes, lambda: generate_blocks_for_grid(self.grid, self.strategy_config)
+        )
+        self.dock = []
         for i in range(3):
             shape = shapes[i] if i < len(shapes) else all_shapes[0]
             self.dock.append(
@@ -231,8 +307,15 @@ class OpenBlockSimulator:
     def _apply_online_spawn_result(self, resp: dict) -> None:
         shapes = resp.get("shapes") or []
         dock_colors = resp.get("dockColors") or [0, 1, 2]
-        self.dock = []
         all_shapes = get_all_shapes()
+        # v12 难度桶课程：online spawn 路径下，每次重抽走 IPC 代价过高，
+        # 故若首抽超过 max_scd 上限，则切换到本地 legacy 生成器循环重抽
+        # （仅压缩 difficulty 分布，与最优策略无关）。
+        if self.max_scd < 1.0 and shapes:
+            shapes = self._resample_for_difficulty_cap(
+                shapes, lambda: generate_blocks_for_grid(self.grid, self.strategy_config)
+            )
+        self.dock = []
         for i in range(3):
             shape = shapes[i] if i < len(shapes) else all_shapes[0]
             self.dock.append(
@@ -257,7 +340,8 @@ class OpenBlockSimulator:
         self._spawn_context["totalClears"] = self.total_clears
 
     def save_state(self) -> dict:
-        """Snapshot for 1-step lookahead (no deep copy of Grid internals, just cells)."""
+        """Snapshot for 1-step lookahead. v12: 同时保存评估反馈累计，避免 search 中
+        临时 step() 污染主路径的 ΔΦ_eval（否则前瞻评估结果会反向流入真实奖励 = 泄漏）。"""
         return {
             "cells": [row[:] for row in self.grid.cells],
             "dock": [
@@ -345,6 +429,15 @@ class OpenBlockSimulator:
         gnp = self._ensure_grid_np()
         return _fg.get_all_legal_actions(gnp, self.dock)
 
+    def extract_state(self) -> np.ndarray:
+        """v12 统一入口：所有 search / lookahead / MCTS 路径必须用本方法取 state，
+        以保证 condition token 段始终注入当前 sim 的 (arc, intent)。"""
+        from .features import extract_state_features
+        return extract_state_features(
+            self.grid, self.dock, self.strategy_id,
+            arc=self.condition_arc, intent=self.condition_intent,
+        )
+
     def count_clears_if_placed(self, block_idx: int, gx: int, gy: int) -> int:
         b = self.dock[block_idx]
         return _fg.count_clears_single(self._ensure_grid_np(), _fg.shape_to_np(b["shape"]), gx, gy)
@@ -426,13 +519,94 @@ class OpenBlockSimulator:
         return 1.0 if self.count_sequential_solution_leaves(leaf_cap=1, node_budget=1200) > 0 else 0.0
 
     def get_supervision_signals(self) -> dict[str, float]:
-        """一次调用返回所有直接监督目标值（board_quality / feasibility）。"""
+        """一次调用返回所有直接监督目标值。v12 新增 spawn_difficulty_after：trunk 显式预测
+        本步落子（dock 重抽）后的 4 维 spawnStepDifficulty 子向量，强化对难度的归纳偏置。"""
         gnp = self._ensure_grid_np()
+        occupied = int(_fg.fast_board_features(gnp)["filled"])
+        unplaced_shapes = [b["shape"] for b in self.dock if not b.get("placed")]
         return {
             "board_quality": board_potential_np(gnp, self.dock) / _BOARD_POT_NORM,
             "feasibility": self.check_sequential_feasibility(),
             "topology_after": _fg.topology_aux_targets(gnp, self.dock, _ACTION_NORM),
+            "spawn_difficulty_after": np.asarray(
+                spawn_step_difficulty_features(unplaced_shapes, occupied), dtype=np.float32
+            ),
         }
+
+    def _eval_step_reward(
+        self,
+        regret: float,
+        is_optimal: float,
+        forced_bad: int,
+        salvage: int,
+    ) -> float:
+        """评估反馈：本步瞬时塑形（非势差，因 Φ 若随时间步漂移会注入伪势能）。
+
+        rewards = w_reg·(−clip(regret/REG_NORM, 0, 1))      # regret 越小越好
+                + w_opt·optimality                          # 0~1，越高越好
+                + w_fb·(−forced_bad)                        # 触发即 −1
+                + w_sv·(+salvage)                           # 触发即 +1
+        所有项均为本步增量，与时间无关；reward 直接 = 该值，无 ΔΦ。
+        """
+        reg_clip = min(1.0, max(0.0, regret) / _EVAL_REGRET_NORM)
+        return (
+            _EVAL_W_REG * (-reg_clip)
+            + _EVAL_W_OPT * float(is_optimal)
+            + _EVAL_W_FB * (-float(forced_bad))
+            + _EVAL_W_SV * float(salvage)
+        )
+
+    def _compute_eval_signals(
+        self,
+        chosen_reward: float,
+        best_reward: float,
+        holes_before: int,
+        holes_after: int,
+        mobility_before: int,
+        clears: int,
+    ) -> tuple[float, float, int, int]:
+        """返回本步评估信号（不持久化任何累计，避免 search/lookahead 数据泄漏）：
+
+        - regret = max(0, best_reward - chosen_reward)，近似 placementQuality.regret。
+        - optimality = clip01(chosen / max(best, ε))，best≈0 时记 1.0。
+        - forced_bad ∈ {0,1}：本步空洞净增 ≥ 2 → 1。
+        - salvage ∈ {0,1}：mobility ≤ 4 且 clears ≥ 2 → 1。"""
+        regret = max(0.0, float(best_reward) - float(chosen_reward))
+        if best_reward > 1e-6:
+            optim = max(0.0, min(1.0, chosen_reward / best_reward))
+        else:
+            optim = 1.0
+        forced_bad = 1 if (holes_after - holes_before) >= 2 else 0
+        salvage = 1 if (mobility_before <= 4 and clears >= 2) else 0
+        return regret, optim, forced_bad, salvage
+
+    @contextlib.contextmanager
+    def search_mode(self):
+        """上下文管理器：进入期间 step() 跳过 eval feedback shaping 的 O(|A|) 计算。
+        MCTS / lookahead / beam-search 等不收 reward 的探索路径包此 with 块。"""
+        prev = self._search_mode
+        self._search_mode = True
+        try:
+            yield
+        finally:
+            self._search_mode = prev
+
+    def _estimate_best_immediate_reward(self) -> float:
+        """评估当前合法动作集中"立刻消行得分"的最大值（仅用于 regret 估计；
+        不调用 self.step()，避免破坏状态）。复杂度 O(|A|)，节省 vs 真模拟。"""
+        gnp = self._ensure_grid_np()
+        legal = _fg.get_all_legal_actions(gnp, self.dock)
+        if not legal:
+            return 0.0
+        best = 0.0
+        for a in legal:
+            shape = self.dock[a["block_idx"]]["shape"]
+            c = _fg.count_clears_single(gnp, _fg.shape_to_np(shape), a["gx"], a["gy"])
+            if c <= 0:
+                continue
+            # 用 c² 近似上界（不含 bonus / combo，已足够指示相对优劣）
+            best = max(best, float(self.scoring.get("single_line") or 20) * c * c)
+        return best
 
     def step(self, block_idx: int, gx: int, gy: int) -> float:
         b = self.dock[block_idx]
@@ -442,6 +616,14 @@ class OpenBlockSimulator:
         holes_before = self._get_holes()
         pot_before = board_potential_np(self._ensure_grid_np(), self.dock) if _POT_ENABLED else 0.0
         prev_score = self.score
+        # v12 评估反馈：在落子前估计当前合法动作集中即时奖励上界（regret 计算用）
+        # 与本动作 mobility（已落子前合法动作总数），用于 salvage 判定
+        if _EVAL_FB_ENABLED and not self._search_mode:
+            best_immediate = self._estimate_best_immediate_reward()
+            mobility_before = int(_fg.fast_dock_mobility(self._ensure_grid_np(), self.dock))
+        else:
+            best_immediate = 0.0
+            mobility_before = 0
         self.grid.place(b["shape"], b["color_idx"], gx, gy)
         self._invalidate_grid_np()
         self.placements += 1
@@ -502,6 +684,18 @@ class OpenBlockSimulator:
         if _POT_ENABLED:
             pot_after = board_potential_np(self._ensure_grid_np(), self.dock)
             r += _POT_COEF * (pot_after - pot_before)
+
+        if _EVAL_FB_ENABLED and not self._search_mode:
+            holes_after_step = self._get_holes()
+            regret, optim, fb, sv = self._compute_eval_signals(
+                chosen_reward=gain,
+                best_reward=best_immediate,
+                holes_before=holes_before,
+                holes_after=holes_after_step,
+                mobility_before=mobility_before,
+                clears=clears,
+            )
+            r += _EVAL_FB_COEF * self._eval_step_reward(regret, optim, fb, sv)
 
         rs = RL_REWARD_SHAPING
         wb = float(rs.get("winBonus") or 0.0)

@@ -82,6 +82,7 @@ import {
     _sanitizeShapeArr,
 } from './bot/blockSpawn.js';
 import { SPECIAL_SHAPES } from './bot/blockSpawn.js';
+import { commitSpawnContext } from './spawn/commitSpawnContext.js';
 import {
     buildSpawnModelContext,
     getSpawnPolicyMode,
@@ -2436,27 +2437,30 @@ export class Game {
      */
     _commitSpawn(shapes, layered, opts, source) {
         this._evalOnSpawn(layered, shapes);
-        this._spawnContext.totalRounds++;
-        /* v1.60.1（Issue 2）：roundsSinceSpecial 在 spawnBlocks 入口已 +1，这里仅负责"本轮
-         * 若注入特殊形状则归 0"，下一轮 spawnBlocks 顶部再 +1，gate 看到 1（== 间隔 1 轮）。
-         * 旧实现在此处 ++ 会再 +1 → off-by-one（实际间隔 6 轮，文档承诺 5 轮）。 */
-        if (shapes?.some(s => SPECIAL_SHAPES.includes(s.id))) {
-            this._spawnContext.roundsSinceSpecial = 0;
-        }
+
+        /* v1.60.x 根因清理：三端共享 commit 段纯字段维护抽到 spawn/commitSpawnContext.js，
+         * 一次性维护 totalRounds++/roundsSinceSpecial=0/scoreMilestone=false/prevAdaptiveStress/
+         * _occupancyFillAnchor/L1 棋盘特征回写/constructCooldown 衰减/pendingClearTarget 续接。
+         * 以下"web 独有"的字段仍留在本地：warmupRemaining-- / postPbReleaseRemaining-- /
+         * playerProfile.recordSpawn() / tickRoundForDelight() / _resetBottleneckTrough() —— 因为
+         * 它们要么涉及 web 主端独有的玩家画像接口（profile），要么时机/语义在 mini/cocos 端由
+         * 独立组件（PlayerContext）承担，不适合塞进纯 ctx 维护函数。 */
+        const spawnDiag = getLastSpawnDiagnostics();
+        commitSpawnContext({
+            ctx: this._spawnContext,
+            shapes,
+            layered,
+            diagnostics: spawnDiag,
+        });
+
         if ((this._spawnContext.warmupRemaining ?? 0) > 0) {
             this._spawnContext.warmupRemaining--;
         }
-        /* v1.55.16：栈底重置 —— spawnBlocks() 顶部已根据 layered.spawnHints.scoreMilestone
-         * 把本轮的命中信号桥接到 _spawnContext.scoreMilestone（详见 spawnBlocks 注释），
-         * 这里在本轮使用完后清为 false，保证下一轮重新由 hints 决定，不留隔轮残留。 */
-        this._spawnContext.scoreMilestone = false;
         const logSpawn = opts.logSpawn !== false;
         this.playerProfile.recordSpawn();
         /* v1.60.45：每轮 spawn 计数 roundsSinceLastDelight +1。
          * 超阈值时 next spawn 的 _intentInputs 携带 delightStarved=true → 触发强 relief。 */
         this.playerProfile.tickRoundForDelight?.();
-        /* v1.55.17：用 raw 域写入，保持 smoothStress 步长（maxStepUp/Down）单位一致 */
-        this._spawnContext.prevAdaptiveStress = layered._adaptiveStressRaw;
         /* v1.30：新一波 dock 起始，重置上一周期的瓶颈低谷统计 */
         this._resetBottleneckTrough();
 
@@ -2472,28 +2476,6 @@ export class Game {
          *   2. dock 内 monoFlush 槽 ≤ 1（v1.60.29 blockSpawn 已限）→ 至多 1 个锁定色
          *   3. 剩余 slots 按 bias 抽，**严格无放回**保证 3 块绝不同色（除非彩蛋同色已锁）
          *   4. fallback 路径强制选未用色，避免 `Math.floor(Math.random()*8)` 引入重复 */
-        const spawnDiag = getLastSpawnDiagnostics();
-
-        /* v1.67 构造式跨 dock 状态机（防脚本护栏 + 先铺后清续接）：
-         *   - constructCooldown：每 dock 递减；构造块交付后置为 cooldownDocks，
-         *     接下来 N dock 不再强供，避免「系统连发喂解」的脚本感。
-         *   - pendingClearTarget：C2 setup 交付则记录目标线（下一 dock 由 blockSpawn 优先兑现）；
-         *     completer 交付（已兑现）或本 dock 未续接则清空，由 blockSpawn 端 isClearTargetValid 兜底失效。 */
-        if (this._spawnContext) {
-            const cons = spawnDiag?.constructive || null;
-            const cd = Math.max(0, Number(this._spawnContext.constructCooldown) || 0);
-            this._spawnContext.constructCooldown = cd > 0 ? cd - 1 : 0;
-            if (cons?.delivered) {
-                const cdSet = Math.max(0, Number(GAME_RULES.adaptiveSpawn?.constructiveSpawn?.cooldownDocks) || 0);
-                this._spawnContext.constructCooldown = cdSet;
-                if (cons.kind === 'setup' && cons.pendingClearTarget) {
-                    this._spawnContext.pendingClearTarget = cons.pendingClearTarget;
-                } else {
-                    /* completer 交付 = 目标已兑现；清空待办，避免对已消除的线反复续接。 */
-                    this._spawnContext.pendingClearTarget = null;
-                }
-            }
-        }
 
         const chosenMetas = spawnDiag?.chosen || [];
         const dockColors = new Array(3).fill(null);
@@ -2574,14 +2556,8 @@ export class Game {
             spawnShapeIds: shapes.map((s) => s.id)
         });
 
-        // 将本轮临消行数和清屏准备信号回写到 _spawnContext，供下一轮 adaptiveSpawn 使用
-        // v1.13：增加 multiClearCandidates / perfectClearCandidates，用于 friendlyBoardRelief 判定
-        const _diag = getLastSpawnDiagnostics();
-        this._spawnContext.nearFullLines           = _diag?.layer1?.nearFullLines           ?? 0;
-        this._spawnContext.pcSetup                 = _diag?.layer1?.pcSetup                 ?? 0;
-        this._spawnContext.holes                   = _diag?.layer1?.holes                   ?? 0;
-        this._spawnContext.multiClearCandidates    = _diag?.layer1?.multiClearCandidates    ?? 0;
-        this._spawnContext.perfectClearCandidates  = _diag?.layer1?.perfectClearCandidates  ?? 0;
+        // L1 棋盘特征（nearFullLines/pcSetup/holes/multi/perfectClearCandidates）已由本函数
+        // 顶部的 commitSpawnContext() 一并回写到 _spawnContext，此处不再重复。
 
         /* v1.55 §4.9：postPbReleaseWindow 计数衰减 —— 本轮使用完后扣 1；
          * 归零时清除 active flag，让下次 spawn 回到正常 stress 路径。 */

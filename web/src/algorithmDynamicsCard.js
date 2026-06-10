@@ -541,15 +541,32 @@ export function renderDecisionReasoningCard(insight, profile) {
     const resolved = resolveIntent({ ...intentInputs, geometry });
     const trace = resolved.trace || [];
 
-    /* §1 意图决策路径 */
+    /* §1 意图决策路径（v1.67：英文 rule id 同时给中文标签 + hover 解释） */
+    const INTENT_RULE_CN = {
+        pb_chase_pressure: { cn: 'PB 追击加压', tip: 'pb_chase_pressure（priority=102，最高）：临 PB 段强制加压。\n触发：pbChasePressureActive=true（fill<0.72 + 非 onboarding + 非 forceRelief）。\nspawnIntent 映射为 pressure。' },
+        relief:            { cn: '挫败救济',   tip: 'relief（priority=100）：救济出块。\n触发任一即可：playerDistress<-0.10 / delightMode=relief / forceReliefIntent=true。' },
+        delight_starved:   { cn: '爽感饥渴',   tip: 'delight_starved（priority=95）：长期无爽感 → 强制 relief。\n触发：连续 N 轮（Android 5 / iOS 7）无 multiClear / pcClear / monoFlush 命中。\nspawnIntent 映射为 relief。' },
+        engage:            { cn: 'AFK 召回',   tip: 'engage（priority=90）：AFK 介入引导。\n触发：afkEngageActive=true（玩家停顿 + 状态尚可）。' },
+        harvest:           { cn: '收获机会',   tip: 'harvest（priority=80）：兑现密集临消行 / pcSetup。\n触发：nearFullLines≥2 或 pcSetup≥1 且 fill≥0.45。' },
+        pressure:          { cn: 'B 类挑战加压', tip: 'pressure（priority=70）：临 PB 加压或 challenge 兑现。\n触发：challengeBoost>0 或 delightMode=challenge_payoff 且 stress≥0.55。' },
+        sprint:            { cn: '渐紧过渡',   tip: 'sprint（priority=60）：中间档渐紧过渡。\n触发：stress ∈ [0.45, 0.55) 渐紧带（可配置）。' },
+        flow:              { cn: '心流释放',   tip: 'flow（priority=50）：心流兑现。\n触发：delightMode=flow_payoff 或 rhythmPhase=payoff。' },
+        maintain:          { cn: '保持节奏',   tip: 'maintain（priority=0，兜底）：所有上层规则未触发时的默认中性意图。' },
+    };
+    /* v1.67 修复：trace 字段名是 t.passed（resolveIntent.js L240），历史代码错写为 t.hit
+     * 导致所有行被渲染成 miss 灰色 + "未通过 guard"，本次一并修正。 */
     const pathHtml = trace.map((t) => {
-        const cls = t.hit ? 'adc-trace-row adc-trace-row--hit' : 'adc-trace-row adc-trace-row--miss';
-        const winnerMark = t.id === resolved.intent ? ' 🏆' : '';
-        const reasonHtml = t.hit
+        const passed = !!t.passed;
+        const cls = passed ? 'adc-trace-row adc-trace-row--hit' : 'adc-trace-row adc-trace-row--miss';
+        const winnerMark = t.isWinner ? ' 🏆' : '';
+        const meta = INTENT_RULE_CN[t.id] || { cn: t.id, tip: t.id };
+        const cn = meta.cn;
+        const tipText = `${cn}（${t.id}） · 优先级 P${t.priority}\n${meta.tip}\n${passed ? '✓ 本帧 guard 通过' : '✗ 本帧 guard 未通过'}`;
+        const reasonHtml = passed
             ? `<span class="adc-trace-reason">${_attr(t.reason || '')}</span>`
             : `<span class="adc-trace-reason adc-trace-reason--miss" title="${_attr('guard 未通过')}">未通过 guard</span>`;
-        return `<div class="${cls}" title="${_attr(`优先级 ${t.priority}`)}">`
-            + `<span class="adc-trace-id">${t.id}${winnerMark}</span>`
+        return `<div class="${cls}" title="${_attr(tipText)}">`
+            + `<span class="adc-trace-id"><strong>${cn}</strong><span class="adc-trace-id-en">${t.id}</span>${winnerMark}</span>`
             + `<span class="adc-trace-prio">P${t.priority}</span>`
             + reasonHtml
             + `</div>`;
@@ -619,12 +636,21 @@ export function renderDecisionReasoningCard(insight, profile) {
         });
     }
 
+    /* v1.67：hint 字段名加中文标签 + hover 解释（与 decisionFlowViz HINT_CN/HINT_TIP 同源） */
+    const HINT_FIELD_META = {
+        clearGuarantee:   { cn: '保消档',     tip: '保消档（clearGuarantee 0-3）：三连块中至少 N 个能即时消行。\n值 ≥2 时通常由挫败/动量负值/盘面救济触发。' },
+        sizePreference:   { cn: '尺寸偏好',   tip: '尺寸偏好（sizePreference -1~1）：负=偏小块，正=偏大块。\n|v|≥0.15 时显示驱动源；负值由挫败/恢复/onboarding 拉低，正值由 challengeBoost / sprint 抬高。' },
+        multiClearBonus:  { cn: '多消加成',   tip: '多消加成（multiClearBonus 0-1）：抽样器对"放下后能消≥2行"块的加权倍率。\n≥0.30 时显示驱动源；常由 farFromPB / payoff 相位 / sprint / nearFullLines 拉高。' },
+        orderRigor:       { cn: '顺序刚性',   tip: '顺序刚性（orderRigor 0-1）：要求三连块按 placement order 摆放的强度。\n≥0.30 时显示驱动源；高 stress / pbOvershoot 时强化。' },
+        delightMode:      { cn: '愉悦模式',   tip: '愉悦模式（delightMode 枚举）：算法主动注入的爽感/救济倾向。\n常见值 relief / flow_payoff / challenge_payoff；非空时显示。' },
+    };
     const driversHtml = drivers.length === 0
         ? `<span class="adc-muted">本帧 hint 全部为默认值（无明显驱动信号）</span>`
         : drivers.map((d) => {
             const valStr = typeof d.value === 'number' ? _fmt(d.value, 2) : String(d.value);
-            return `<div class="adc-driver-row">`
-                + `<span class="adc-driver-field">${d.field}=<strong>${valStr}</strong></span>`
+            const meta = HINT_FIELD_META[d.field] || { cn: d.field, tip: d.field };
+            return `<div class="adc-driver-row" title="${_attr(`${meta.cn}（${d.field}）= ${valStr}\n${meta.tip}\n\n驱动源：${d.drivers.join(' · ')}`)}">`
+                + `<span class="adc-driver-field"><strong>${meta.cn}</strong>=<strong>${valStr}</strong><span class="adc-driver-field-en">${d.field}</span></span>`
                 + `<span class="adc-driver-arrow">←</span>`
                 + `<span class="adc-driver-source">${d.drivers.map(_attr).join(' · ')}</span>`
                 + `</div>`;
@@ -866,21 +892,24 @@ export function renderResponseSensitivityCard(history, N = 12) {
     const pairs = [
         {
             id: 'skillVsSkillAdjust',
-            label: 'skill ⇄ skillAdjust',
+            label: '技能 ⇄ 技能加压',
+            labelEn: 'skill ⇄ skillAdjust',
             expected: 'pos',
             x: playerSkill, y: algSkillAdjust,
             expHint: '算法对高手是否在加压？\n机制：skillAdjust = (skill-0.5)×0.3×confGate（adaptiveSpawn.js L951）。skill>0.5 → skillAdjust>0 加压；skill<0.5 → <0 减压。**唯一全线性纯响应分量**，无任何 score/clearRate 共变干扰。\n期望：正相关（玩家技能↑ → 算法加压↑）；强负相关 = 算法对高手反向减压（异常）。',
         },
         {
             id: 'frustVsFrustRelief',
-            label: 'frust ⇄ frustRelief',
+            label: '挫败 ⇄ 挫败救济',
+            labelEn: 'frust ⇄ frustRelief',
             expected: 'neg',
             x: playerFrust, y: algFrustRelief,
             expHint: '算法对挫败玩家是否在救济？\n机制：frustRelief = (frustLevel≥4 ? -0.18 : 0)（adaptiveSpawn.js L974）。阶跃响应，frust 整数 0-8。\n期望：负相关（玩家挫败↑ → 算法减压救济，frustRelief↓）；正相关 = 算法对挫败玩家反向加压（异常）。',
         },
         {
             id: 'momentumVsRelief',
-            label: 'momentum ⇄ 救济',
+            label: '动量 ⇄ 末段救济',
+            labelEn: 'momentum ⇄ 救济',
             expected: 'pos',
             x: playerMomentum, y: algMomentumRelief,
             expHint: '算法对动量崩盘玩家是否在救济？\n机制：救济通道 = sessionArcAdjust + endSessionDistress（adaptiveSpawn.js L1000-1015）。仅 cooldown+momentum<-0.2 或 late+momentum≤-0.30 触发。\n期望：正相关（玩家动量↑→救济通道接近 0；动量崩盘↓→救济通道更负）；peak/early 阶段救济=0 属正常（"算法这项无调整"）。',
@@ -961,8 +990,8 @@ export function renderResponseSensitivityCard(history, N = 12) {
         }
         const rStr = r != null ? r.toFixed(2) : '—';
         return `
-            <div class="adc-sens-row ${cls}" title="${_attr(p.expHint + '\nn=' + xa.length + ' / var_x=' + varX.toExponential(2) + ' / var_y=' + varY.toExponential(2))}">
-                <span class="adc-sens-pair">${p.label}</span>
+            <div class="adc-sens-row ${cls}" title="${_attr(p.expHint + '\n字段对：' + (p.labelEn || p.label) + '\nn=' + xa.length + ' / var_x=' + varX.toExponential(2) + ' / var_y=' + varY.toExponential(2))}">
+                <span class="adc-sens-pair" title="${_attr((p.labelEn || p.label) + '（hover 行查看完整机制 + 期望方向）')}">${p.label}</span>
                 <span class="adc-sens-r" title="${_attr(`Pearson r = ${rStr}（n=${xa.length}）\n阈值：|r|<${WEAK_R} 迟钝 / [${WEAK_R},${STRONG_R}) 倾向 / ≥${STRONG_R} 强信号`)}">r=${rStr}</span>
                 <span class="adc-sens-verdict adc-sens-verdict--${verdict}">${verdictLabel}</span>
             </div>
