@@ -1076,19 +1076,19 @@
         <details class="panel-section" open>
             <summary class="panel-section-head"><span class="panel-section-icon" aria-hidden="true">⚙️</span>出块算法</summary>
             <div class="spawn-mode-switch">
-                <label class="spawn-mode-label" title="📖 启发式 = L1 · SpawnPolicyRules（规则版出块决策）
-启发式规则 + 加权乘子 + 硬约束拒绝采样，直接产 3 块。不依赖神经网络。
+                <label class="spawn-mode-label" title="📖 决策AI = L1 · SpawnPolicyRules（规则版出块决策）
+决策AI 规则 + 加权乘子 + 硬约束拒绝采样，直接产 3 块。不依赖神经网络。
 
 右侧 badge 显示当前 9 维 θ 来源（来自 L2 · SpawnParamTuner 模型）：
   · 「规则」= HandTuned 默认值（policies.json 未加载或灰度未命中）
   · 「寻参」= SpawnParamTuner 已部署，按场景挑最优 θ
 
-⤳ 与「生成式」互斥：同时只有一个会真正产 3 块。">
+⤳ 与「生成式AI」互斥：同时只有一个会真正产 3 块。">
                     <span class="spawn-option-icon" aria-hidden="true">📖</span>
-                    <input type="radio" name="spawn-mode" value="rule" checked /> 启发式
+                    <input type="radio" name="spawn-mode" value="rule" checked /> 决策AI
                     <span class="spawn-policy-source-badge" id="spawn-policy-source-badge" title="θ 来源：规则版（HandTuned 默认 / policies.json 未加载或灰度未命中）">规则</span>
                 </label>
-                <label class="spawn-mode-label" title="✨ 生成式 = L1 · SpawnPolicyNet（神经版出块决策）
+                <label class="spawn-mode-label" title="✨ 生成式AI = L1 · SpawnPolicyNet（神经版出块决策）
 Transformer V3.1 学条件分布 P(s₁,s₂,s₃|board, behaviorContext₅₆, history)，直接产 3 块。
 
 右侧「V3 可用」badge 显示模型权重状态：
@@ -1096,10 +1096,10 @@ Transformer V3.1 学条件分布 P(s₁,s₂,s₃|board, behaviorContext₅₆, 
   · 「V3 未训练」= 权重缺失，需先在「模型训练」面板训练
   · 「训练中 NN%」= 后端正在用 SQLite 历史对局训练
 
-⤳ 推理失败或前端护栏不通过时自动回退到启发式（SpawnPolicyRules）。
-⤳ 与「启发式」互斥；与 SpawnParamTuner（L2）正交：本模型仅消费其中 4 个 PB 曲线参数。">
+⤳ 推理失败或前端护栏不通过时自动回退到决策AI（SpawnPolicyRules）。
+⤳ 与「决策AI」互斥；与 SpawnParamTuner（L2）正交：本模型仅消费其中 4 个 PB 曲线参数。">
                     <span class="spawn-option-icon" aria-hidden="true">✨</span>
-                    <input type="radio" name="spawn-mode" value="model-v3" /> 生成式
+                    <input type="radio" name="spawn-mode" value="model-v3" /> 生成式AI
                 </label>
                 <span class="spawn-model-status" id="spawn-model-badge">模型未训练</span>
             </div>
@@ -1137,7 +1137,7 @@ Transformer V3.1 学条件分布 P(s₁,s₂,s₃|board, behaviorContext₅₆, 
                             <span class="sl-kv-label">尺寸偏好</span><span class="sl-kv-val" id="sl-sp">–</span></div>
                         <div class="sl-kv" title="从落子行为推断的玩法风格偏好：perfect_hunter(清屏)、multi_clear(多消)、combo(连消)、survival(生存)、balanced(均衡)；影响 multiClearBonus/rhythmPhase/clearGuarantee 等出块参数">
                             <span class="sl-kv-label">玩法偏好</span><span class="sl-kv-val" id="sl-playstyle">–</span></div>
-                        <div class="sl-kv" title="生成式的上一轮 V3 元信息：模型版本、个性化状态、可行候选数或回退原因；启发式模式下显示启发式轨。">
+                        <div class="sl-kv" title="生成式AI的上一轮 V3 元信息：模型版本、个性化状态、可行候选数或回退原因；决策AI模式下显示决策AI轨。">
                             <span class="sl-kv-label">V3 元信息</span><span class="sl-kv-val" id="sl-v3meta">–</span></div>
                     </div>
                 </div>
@@ -1181,7 +1181,7 @@ Transformer V3.1 学条件分布 P(s₁,s₂,s₃|board, behaviorContext₅₆, 
                 <div class="spawn-train-actions">
                     <button type="button" class="rl-btn" id="spawn-train-start" title="向服务端提交 SpawnTransformer 训练任务；使用上方 Epochs、最低分、最大局数 筛选数据库对局，进度显示在下方。">开始训练</button>
                     <button type="button" class="rl-btn rl-btn-secondary" id="spawn-train-stop" disabled title="请求中断当前出块模型训练任务（若后端支持取消）。">停止</button>
-                    <button type="button" class="rl-btn rl-btn-secondary" id="spawn-model-reload" title="从磁盘重新加载已保存的 spawn_transformer.pt，使「生成式」立即使用新权重而无需整页刷新。">重载模型</button>
+                    <button type="button" class="rl-btn rl-btn-secondary" id="spawn-model-reload" title="从磁盘重新加载已保存的 spawn_transformer.pt，使「生成式AI」立即使用新权重而无需整页刷新。">重载模型</button>
                 </div>
                 <div class="spawn-train-progress" id="spawn-train-progress" hidden>
                     <div class="spawn-train-bar"><div class="spawn-train-fill" id="spawn-train-fill"></div></div>

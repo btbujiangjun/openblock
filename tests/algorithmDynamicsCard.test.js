@@ -100,7 +100,7 @@ describe('§A renderDecisionSnapshotCard', () => {
         const html = renderDecisionSnapshotCard(_makeInsight(), _makeProfile());
         expect(html).toContain('adc-intent-chip');
         expect(html).toContain('flow');
-        expect(html).toContain('rule 启发式');
+        expect(html).toContain('rule 决策AI');
         expect(html).toContain('adc-stress-bar');
         expect(html).toContain('adc-snapshot__row--upstream');
     });
@@ -111,7 +111,7 @@ describe('§A renderDecisionSnapshotCard', () => {
             spawnModelMeta: { modelVersion: 'v3.2', personalized: true, feasibleCount: 12 },
         });
         const html = renderDecisionSnapshotCard(ins, _makeProfile());
-        expect(html).toContain('V3 生成式');
+        expect(html).toContain('V3 生成式AI');
         expect(html).toContain('v3.2');
         expect(html).toContain('个性化');
         expect(html).toContain('可行 12');

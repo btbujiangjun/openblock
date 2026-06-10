@@ -517,7 +517,7 @@ const SPAWN_TOOLTIP = {
     targetVisualClutter:
         '视觉杂乱 delta（v1.57.3 ⑧）：放完后相邻 cell 颜色不同的边数变化。审美焦虑维度——花花绿绿的盘面让心理压力上升、整齐成片给"有序"安全感。高 stress 段 min ≥ 2 强约束（鼓励繁杂）；低 stress 段 max ≤ 2 强约束（聚团）。',
     v3Meta:
-        '生成式元信息：上一轮 V3 的模型版本、是否命中个性化 LoRA、feasibility mask 可行候选数量，以及护栏失败时的回退原因。'
+        '生成式AI元信息：上一轮 V3 的模型版本、是否命中个性化 LoRA、feasibility mask 可行候选数量，以及护栏失败时的回退原因。'
 };
 
 function _attrTitle(s) {
@@ -886,12 +886,12 @@ function _spawnModePrimaryChipHtml() {
     const primary =
         mode === SPAWN_MODE_MODEL_V3
             ? {
-                  text: `${UI_ICONS.generativeRecommend} 生成式`,
-                  title: '侧栏已选「生成式」：下轮起块将请求 SpawnPolicyNet，并通过前端护栏校验；不可用或未通过则自动回退启发式。',
+                  text: `${UI_ICONS.generativeRecommend} 生成式AI`,
+                  title: '侧栏已选「生成式AI」：下轮起块将请求 SpawnPolicyNet，并通过前端护栏校验；不可用或未通过则自动回退决策AI。',
               }
             : {
-                  text: `${UI_ICONS.ruleAlgorithm} 启发式`,
-                  title: '侧栏已选「启发式」：下轮起块由启发式规则引擎生成。',
+                  text: `${UI_ICONS.ruleAlgorithm} 决策AI`,
+                  title: '侧栏已选「决策AI」：下轮起块由决策AI规则引擎生成。',
               };
     return (
         `<span class="insight-weight insight-weight--mode-primary insight-spawn-mode-chip" title="${_attrTitle(primary.title)}">` +

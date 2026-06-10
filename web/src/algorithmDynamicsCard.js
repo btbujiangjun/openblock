@@ -231,7 +231,7 @@ export function renderDecisionSnapshotCard(insight, profile) {
         + `<span class="adc-intent-chip__cn">${_intentLabel(intent)}</span>`
         + `</span>`;
 
-    const sourceLabel = source === 'model-v3' ? 'V3 生成式' : 'rule 启发式';
+    const sourceLabel = source === 'model-v3' ? 'V3 生成式AI' : 'rule 决策AI';
     const sourceClass = source === 'model-v3' ? 'adc-source--model' : 'adc-source--rule';
     let sourceDetail = '';
     if (source === 'model-v3' && meta) {

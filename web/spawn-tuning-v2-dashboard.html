@@ -407,12 +407,12 @@
             <span class="dim-count" data-count="difficulty">3/3</span>
           </div>
           <div class="dim-row">
-            <span class="dim-label" title="v3.0.8: 与游戏页面 getSpawnPolicyMode() 严格 1:1&#10;• 启发式 (rule) — game.js _commitSpawn 走规则路径 + θ 调 PB 曲线&#10;• 生成式 (generative) — game.js _spawnBlocksWithModel 调 SpawnPolicyNet">出块算法</span>
+            <span class="dim-label" title="v3.0.8: 与游戏页面 getSpawnPolicyMode() 严格 1:1&#10;• 决策AI (rule) — game.js _commitSpawn 走规则路径 + θ 调 PB 曲线&#10;• 生成式AI (generative) — game.js _spawnBlocksWithModel 调 SpawnPolicyNet">出块算法</span>
             <div class="chip-group" data-dim="generator">
-              <button class="chip chip-on" data-val="rule" title="启发式 — 游戏页面 rule 模式. 部署 bundle 后 θ* 自动注入, 寻参主路径.">启发式
+              <button class="chip chip-on" data-val="rule" title="决策AI — 游戏页面 rule 模式. 部署 bundle 后 θ* 自动注入, 寻参主路径.">决策AI
                 <span class="chip-aux">寻参</span>
               </button>
-              <button class="chip" data-val="generative" title="生成式 — 游戏页面 generative 模式 (调 SpawnPolicyNet, HTTP). 比启发式慢, 仅模型可用时勾选">生成式
+              <button class="chip" data-val="generative" title="生成式AI — 游戏页面 generative 模式 (调 SpawnPolicyNet, HTTP). 比决策AI慢, 仅模型可用时勾选">生成式AI
                 <span class="chip-aux">V3 · HTTP</span>
               </button>
             </div>
