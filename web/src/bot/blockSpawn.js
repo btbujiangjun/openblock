@@ -1665,15 +1665,25 @@ export function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, t
     /* v1.60.47（契约 B）：加压"制造空洞 / 增加难度"——主动选择。
      *
      * 旧版加压只按 SPECIAL_SHAPE_WEIGHTS 加权随机抽斜块（权重还偏向更易放的 diag-2），
-     * 与"增加难度"相悖。这里按 _pressureHoleForcing（玩家最优放置下仍被迫造的洞数）降序，
-     * 让加压块尽量挑"无论怎么放都强制造洞"的朝向；再以"合法落点更少（更难放）→ 更大块"
-     * 为 tie-break。优先级提升 ≠ 强制选定：Step 5 槽位复校失败仍降级到其余候选。 */
+     * 与"增加难度"相悖；v1.60.47 改为按 _pressureHoleForcing 主导排序后，又走到了另一极端——
+     * diag-3*（3 格散点）几乎总是比 diag-2* 多造洞、落点更少、cellCount 更大，于是被排在最前，
+     * 加压注入近乎被 diag-3 垄断，违背 SPECIAL_SHAPE_WEIGHTS 注释「diag-3 应更稀有」的契约。
+     *
+     * v1.68 修正：把 SPECIAL_SHAPE_WEIGHTS（含 ctx.specialOverride.weights 合并结果）抬为
+     * 第一档主 key，确保业务期望分布（diag-2 主体、diag-3 稀有）。同权重档内再用
+     * _pressureHoleForcing（强制造洞数）/ 合法落点数 / cellCount 选朝向，保留 v1.60.47
+     * "主动制造难度"的语义，同时不让朝向偏好吃掉品类分布。
+     *
+     * 优先级提升 ≠ 强制选定：Step 5 槽位复校失败仍降级到其余候选。 */
     if (isPressure) {
         const cellCount = (data) => data.reduce((sum, row) => sum + row.reduce((a, v) => a + (v ? 1 : 0), 0), 0);
         const forceScore = new Map(
             candidateOrder.map(s => [s.id, _pressureHoleForcing(grid, s.data)])
         );
         candidateOrder = candidateOrder.slice().sort((a, b) => {
+            const wa = Math.max(1, pools.weights[a.id] ?? 1);
+            const wb = Math.max(1, pools.weights[b.id] ?? 1);
+            if (wa !== wb) return wb - wa;
             const d = (forceScore.get(b.id) ?? 0) - (forceScore.get(a.id) ?? 0);
             if (d !== 0) return d;
             const pa = countLegalPlacements(grid, a.data);

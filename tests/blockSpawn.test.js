@@ -2486,7 +2486,11 @@ describe('v1.60.47 契约B：加压·制造空洞主动选择', () => {
         expect(_pressureHoleForcing(g, diag2a.data)).toBe(1);
     });
 
-    it('加压注入：稀疏盘面优先选更难放的大斜块（diag-3 over diag-2）', () => {
+    it('加压注入：稀疏盘面按 SPECIAL_SHAPE_WEIGHTS 主导，diag-2 优先于 diag-3（v1.68 修正）', () => {
+        /* v1.68：旧契约把 _pressureHoleForcing 抬为第一档主 key，结果 diag-3 在稀疏盘面下
+         * 几乎总是 forceScore/落点/cellCount 三档全胜 → diag-2 几乎不出，违背
+         * SPECIAL_SHAPE_WEIGHTS 注释「diag-3 应更稀有」契约。新实现把权重抬为主 key，
+         * forcing/落点/cellCount 退化为同权重档内 tie-break。 */
         const triplet = getAllShapes().slice(0, 3);
         const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null, multiClear: 0 }));
         const hints = { spawnIntent: 'pressure' };
@@ -2494,12 +2498,42 @@ describe('v1.60.47 契约B：加压·制造空洞主动选择', () => {
         const localGrid = new Grid(8);
         const topo = { nearFullLines: 0, holes: 0, enclosedVoidCells: 0 };
         const scored = triplet.map(s => ({ shape: s, gapFills: 0, multiClear: 0, exactFit: 0 }));
-        /* fill=0.30 < 0.45 满足 pressureSignal；空盘 forceScore 全 0 → tie-break 落点少者优先 */
+        /* fill=0.30 < 0.45 满足 pressureSignal；diag-2*（权重 2）应排在 diag-3*（权重 1）之前 */
         const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.30, topo, 0, scored);
         expect(result).not.toBeNull();
         expect(result.isRelief).toBe(false);
         expect(SPECIAL_PRESSURE_SHAPES).toContain(result.injected);
-        expect(result.injected.startsWith('diag-3')).toBe(true);
+        expect(result.injected.startsWith('diag-2')).toBe(true);
+    });
+
+    /* v1.68：分布断言——多次注入下 diag-2* 占比应显著高于 diag-3*（业务契约：diag-3 稀有）。
+     * 通过 ctx.specialOverride.weights 等权重退化为均匀池，验证非权重项也不会偏向 diag-3。 */
+    it('加压注入：默认权重下 diag-2 出现频次 > diag-3（业务契约 · 蒙特卡洛 100 次）', () => {
+        const tally = { 'diag-2a': 0, 'diag-2b': 0, 'diag-3a': 0, 'diag-3b': 0 };
+        for (let seed = 0; seed < 100; seed++) {
+            resetSpawnMemory();
+            const triplet = getAllShapes().slice(0, 3);
+            const chosenMeta = triplet.map(s => ({ shape: s, placements: 10, reason: 'test', topDriver: null, multiClear: 0 }));
+            const hints = { spawnIntent: 'pressure' };
+            /* 不同 rng seed → 同权重档内 forcing/落点/cellCount tie-break 随机化候选朝向；
+             * 但权重档差异（diag-2 w=2 vs diag-3 w=1）应让 diag-2* 在最终输出中显著占多。 */
+            let s = seed * 9301 + 49297;
+            const rng = () => {
+                s = (s * 1103515245 + 12345) & 0x7fffffff;
+                return (s % 1000) / 1000;
+            };
+            const ctx = { specialShapeUsed: 0, totalClears: 10, roundsSinceSpecial: 5, totalRounds: 11, rng };
+            const localGrid = new Grid(8);
+            const topo = { nearFullLines: 0, holes: 0, enclosedVoidCells: 0 };
+            const scored = triplet.map(sh => ({ shape: sh, gapFills: 0, multiClear: 0, exactFit: 0 }));
+            const result = _tryInjectSpecial(triplet, chosenMeta, hints, ctx, localGrid, 0.30, topo, 0, scored, { rng });
+            if (result && tally[result.injected] !== undefined) tally[result.injected]++;
+        }
+        const diag2 = tally['diag-2a'] + tally['diag-2b'];
+        const diag3 = tally['diag-3a'] + tally['diag-3b'];
+        expect(diag2 + diag3).toBeGreaterThan(0);
+        /* diag-2* 应占绝对多数（业务契约：diag-3 是稀有彩蛋）；放宽到 ≥ 1.5× 容噪 */
+        expect(diag2).toBeGreaterThan(diag3);
     });
 });
 

@@ -1,7 +1,7 @@
 /**
  * Cocos 运行时数据模块 — 出块寻参 v2 策略 (离线包, ESM)
  * 来源: web/public/spawn-tuning-v2/policies.json
- * 同步: scripts/sync-spawn-bundle.mjs @ 2026-06-10T05:16:33.230Z
+ * 同步: scripts/sync-spawn-bundle.mjs @ 2026-06-10T11:25:32.293Z
  * model_id: 58
  * model_sha256: 63870c183f3b346b4c3e828c342427aa72cd58ef9326e13a996b968060a1eb91
  * bundle_sha256: fe8b294b5e3e3bb9b5fcfa2a45bf304f3fccd13e9fb440bb205faf7a49c2bd30
