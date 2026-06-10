@@ -246,6 +246,26 @@ export class FxLayer extends Component {
         return { x: -half + (gx + 0.5) * cell, y: half - (gy + 0.5) * cell };
     }
 
+    /**
+     * 把 web fxCanvas 坐标 (cs*x, cs*y) 换算到 cocos 盘面坐标系（中心 (0,0)，y+ 向上）：
+     *   wx = web x（左→右增），对应 cocos x = wx - half
+     *   wy = web y（上→下增），对应 cocos y = half - wy（y 翻转）
+     * 用于 bonus 色块/icon 粒子的位置生成时直接复用 web 公式。
+     */
+    private webToBoard(wx: number, wy: number): { x: number; y: number } {
+        const half = this.boardPx / 2;
+        return { x: wx - half, y: half - wy };
+    }
+
+    /** 当前活跃的色块 gush 任务（每个 bonusLine 一个），update 内按 web 节奏持续 spawn。 */
+    private _colorGushTasks: Array<{
+        bonusLine: { type: 'row' | 'col'; idx: number };
+        color: Color;
+        startMs: number;
+        endMs: number;
+        spawnAcc: number;
+    }> = [];
+
     /** 消行碎屑：每个被消格喷几枚小方块 */
     burstClear(result: ClearResult, skin: Skin, opts: { perfectClear?: boolean } = {}): void {
         // 视觉特效总开关（对齐 web renderer.setEffectsEnabled）：关闭时不喷碎屑/高光（连击飘字属玩法反馈、不受此约束）。
@@ -334,6 +354,188 @@ export class FxLayer extends Component {
                         gravityMul: 0.45,
                     });
                 }
+            }
+        }
+    }
+
+    /**
+     * 同花顺色块爆发 —— 严格对齐 web `addBonusLineBurst(bonusLine, cssColor, count=64)`：
+     *
+     *   主粒子 N=count(默认 64)：spread π / speed 4.5-22 px/帧 / life 1.45-2.10s / size 7-25px / 主色金/cssColor/白 轮转
+     *   内圈高速 36 个：全方位 angle / speed 8-28 px/帧 / life 1.25-1.70s / size 3.5-10.5px / 白与 cssColor 交替
+     *   金色火花 36 个：水平 ±18 / 强烈向上 12-28 / life 1.75-2.20s / size 3-9px / 金色 #FFD700
+     *
+     * 该函数对每条 bonusLine 单独调用；与 burstClear 共用 _particles 队列与渲染管线
+     * （update() 内按 web 物理积分：vx/vy×dt + damping^frames + 重力 - vy → cocos y+ 翻转）。
+     */
+    addBonusLineBurst(bonusLine: { type: 'row' | 'col'; idx: number }, color: Color, count: number = 64): void {
+        if (!VisualFx.enabled) return;
+        if (Motion.reduced) count = Math.max(8, Math.round(count * 0.3));
+        const cs = this.boardPx / this.size;
+        const gold: [number, number, number] = [255, 215, 0];
+        const white: [number, number, number] = [255, 255, 255];
+        const rgb: [number, number, number] = [color.r, color.g, color.b];
+        // 预算守卫：与 burstClear 同口径，超出 MAX_CLEAR_PARTICLES 等比削减。
+        const intended = count + 36 + 36;
+        const budget = MAX_CLEAR_PARTICLES - this._particles.length;
+        if (budget <= 0) return;
+        const scale = intended > budget ? budget / intended : 1;
+        const N = Math.max(1, Math.floor(count * scale));
+        const N2 = Math.max(1, Math.floor(36 * scale));
+        const N3 = Math.max(1, Math.floor(36 * scale));
+
+        const pickXY = (): { x: number; y: number } => {
+            // web: row → x = cs * rand × size, y = cs * (idx+0.5); col 反之
+            if (bonusLine.type === 'row') {
+                return this.webToBoard(cs * Math.random() * this.size, cs * (bonusLine.idx + 0.5));
+            }
+            return this.webToBoard(cs * (bonusLine.idx + 0.5), cs * Math.random() * this.size);
+        };
+        const push = (x: number, y: number, vxFrame: number, vyFrame: number, rgbCol: [number, number, number],
+                      life: number, decay: number, size: number, gravityMul: number, damping?: number): void => {
+            this._particles.push({
+                x, y,
+                vx: vxFrame * 60,
+                vy: -vyFrame * 60, // cocos y+ 向上
+                life, maxLife: life,
+                size,
+                color: new Color(rgbCol[0], rgbCol[1], rgbCol[2], 255),
+                decay, gravityMul,
+                damping,
+            });
+        };
+
+        // ── 主粒子（half-sphere 爆发，金/cssColor/白 三色轮转）─────────────────
+        for (let i = 0; i < N; i++) {
+            const { x, y } = pickXY();
+            const angle = -Math.PI / 2 + (Math.random() - 0.5) * 3.20;
+            const speed = 4.5 + Math.random() * 17.5;
+            const vxFrame = Math.cos(angle) * speed;
+            const vyFrame = Math.sin(angle) * speed - (1.5 + Math.random() * 2.5);
+            const triple = i % 3;
+            const c = triple === 0 ? gold : triple === 1 ? rgb : white;
+            push(x, y, vxFrame, vyFrame, c,
+                1.45 + Math.random() * 0.65,
+                0.0042 + Math.random() * 0.0035,
+                7 + Math.random() * 18,
+                0.48);
+        }
+        // ── 内圈高速碎屑（全方位 + 速度更高，营造爆炸内核）───────────────────
+        for (let k = 0; k < N2; k++) {
+            const { x, y } = pickXY();
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 8 + Math.random() * 20;
+            const vxFrame = Math.cos(angle) * speed;
+            const vyFrame = Math.sin(angle) * speed - (1.5 + Math.random() * 2.5);
+            const c = k % 2 ? white : rgb;
+            push(x, y, vxFrame, vyFrame, c,
+                1.25 + Math.random() * 0.45,
+                0.0055 + Math.random() * 0.0048,
+                3.5 + Math.random() * 7,
+                0.34);
+        }
+        // ── 金色火花（强烈向上飞溅，最长余韵）─────────────────────────────
+        for (let j = 0; j < N3; j++) {
+            const { x, y } = pickXY();
+            const vxFrame = (Math.random() - 0.5) * 36;
+            const vyFrame = -(12 + Math.random() * 16);
+            const life = 1.75 + Math.random() * 0.45;
+            push(x, y, vxFrame, vyFrame, gold,
+                life,
+                0.0058 + Math.random() * 0.004,
+                3 + Math.random() * 6,
+                0.40);
+        }
+    }
+
+    /**
+     * 同花顺色块持续涌出 —— 严格对齐 web `beginBonusColorGush(lineSpecs, durationMs)`：
+     *
+     *   首帧每条 bonusLine 强爆发 42 个 strongBurst 色块；
+     *   整段 durationMs 内每 ~33ms 滚一次 spawn：
+     *     - t < 0.36：82% × 3 / 18% × 2
+     *     - t < 0.76：62% × 2 / 38% × 1
+     *     - 末段    ：40% × 1 / 60% × 0
+     *   单次粒子参数：spread strong 3.15 / 常规 2.85；speed strong 4.8-20.3 / 常规 3.4-14.4；
+     *   life 1.20-1.82s；size 2.8-13.8（strong）/2.8-10.3（常规）；色彩 34% 金 / 34% cssColor / 32% 白
+     *
+     * 与 OverlayFx.bonusIconGush 同期触发（icon + 色块双层喷涌），构成 web 同花顺的"绚丽感"。
+     */
+    beginBonusColorGush(lineSpecs: Array<{ bonusLine: { type: 'row' | 'col'; idx: number }; color: Color }>, durationMs: number): void {
+        if (!VisualFx.enabled || !lineSpecs.length) return;
+        if (Motion.reduced) return;
+        const now = Date.now();
+        const span = Math.max(520, durationMs);
+        for (const spec of lineSpecs) {
+            this._colorGushTasks.push({
+                bonusLine: spec.bonusLine,
+                color: spec.color,
+                startMs: now,
+                endMs: now + span,
+                spawnAcc: 0,
+            });
+            // 首帧强爆发 42 个
+            for (let i = 0; i < 42; i++) {
+                this.pushColorGushParticle(spec.bonusLine, spec.color, /*strong*/ true);
+            }
+        }
+    }
+
+    /** 单个色块粒子生成（与 web `_pushBonusColorParticle` 1:1）。 */
+    private pushColorGushParticle(bonusLine: { type: 'row' | 'col'; idx: number }, color: Color, strong: boolean): void {
+        if (this._particles.length >= MAX_CLEAR_PARTICLES) return;
+        const cs = this.boardPx / this.size;
+        const wx = bonusLine.type === 'row' ? cs * Math.random() * this.size : cs * (bonusLine.idx + 0.5);
+        const wy = bonusLine.type === 'row' ? cs * (bonusLine.idx + 0.5) : cs * Math.random() * this.size;
+        const { x, y } = this.webToBoard(wx, wy);
+        const gold: [number, number, number] = [255, 215, 0];
+        const white: [number, number, number] = [255, 255, 255];
+        const roll = Math.random();
+        const rgb: [number, number, number] = roll < 0.34 ? gold : roll < 0.68 ? [color.r, color.g, color.b] : white;
+        const spread = strong ? 3.15 : 2.85;
+        const angle = -Math.PI / 2 + (Math.random() - 0.5) * spread;
+        const speed = (strong ? 4.8 : 3.4) + Math.random() * (strong ? 15.5 : 11.0);
+        const vxFrame = Math.cos(angle) * speed;
+        const vyFrame = Math.sin(angle) * speed - (1.4 + Math.random() * 3.0);
+        const life = 1.20 + Math.random() * 0.62;
+        this._particles.push({
+            x, y,
+            vx: vxFrame * 60,
+            vy: -vyFrame * 60,
+            life, maxLife: life,
+            size: 2.8 + Math.random() * (strong ? 11 : 7.5),
+            color: new Color(rgb[0], rgb[1], rgb[2], 255),
+            decay: 0.0036 + Math.random() * 0.0036,
+            gravityMul: 0.42 + Math.random() * 0.14,
+            // 色块涌出无 damping（web `_pushBonusColorParticle` 不设 damping）
+        });
+    }
+
+    /** colorGush 调度（在 update 内按 web `_tickColorGushSpawn` 时间窗口节奏 spawn）。 */
+    private tickColorGushSpawn(dt: number): void {
+        if (!this._colorGushTasks.length) return;
+        const now = Date.now();
+        // 过期任务清理
+        for (let i = this._colorGushTasks.length - 1; i >= 0; i--) {
+            if (now >= this._colorGushTasks[i].endMs) this._colorGushTasks.splice(i, 1);
+        }
+        if (!this._colorGushTasks.length) return;
+        // web `particles.length > 620` 上限直接套用
+        if (this._particles.length > 620) return;
+        for (const task of this._colorGushTasks) {
+            task.spawnAcc += dt;
+            if (task.spawnAcc < 0.033) continue;
+            task.spawnAcc = 0;
+            const span = Math.max(1, task.endMs - task.startMs);
+            const t = (now - task.startMs) / span;
+            let rolls = 0;
+            if (t < 0.36) rolls = Math.random() < 0.82 ? 3 : 2;
+            else if (t < 0.76) rolls = Math.random() < 0.62 ? 2 : 1;
+            else rolls = Math.random() < 0.40 ? 1 : 0;
+            const strong = t < 0.15;
+            for (let k = 0; k < rolls; k++) {
+                if (this._particles.length >= MAX_CLEAR_PARTICLES) break;
+                this.pushColorGushParticle(task.bonusLine, task.color, strong);
             }
         }
     }
@@ -472,36 +674,38 @@ export class FxLayer extends Component {
                 containerLetterEm: 0, labelLetterEm: 0.10,
                 animMs: 700, holdMs: 600, anim: 'floatUp',
             },
-            // .float-multi: color #27ae60, 24px, text-shadow 8px 绿光；label color #2ecc71 text-shadow 10px 绿；multiPop 0.9s
+            // .float-multi: color #27ae60, clamp(20,4.5vw,28) → 桌面上限 28px；shadow 8px 绿；multiPop 0.9s
+            // cocos 走"准桌面"展示档（盘面 ≥480px），统一采用 web 桌面上限字号，
+            // 之前 24px 在大盘面下飘字明显小于 web 整体氛围。
             multi: {
                 labelColor: new Color(46, 204, 113, 255), labelShadowColor: new Color(46, 204, 113, 180),
                 ptsColor: new Color(39, 174, 96, 255),
                 shadowColor: new Color(39, 174, 96, 200),
-                baseSize: 24, labelEm: 0.72, ptsEm: 1.12,
+                baseSize: 28, labelEm: 0.72, ptsEm: 1.12,
                 containerLetterEm: 0, labelLetterEm: 0.10,
                 animMs: 900, holdMs: 1450, anim: 'multiPop',
             },
-            // .float-combo: color #e67e22, 30px, letter 0.04em, text-shadow 14/28px 暖金；label 0.6em letter 0.14em；comboScorePop 1.5s
+            // .float-combo: color #e67e22, clamp(24,5.5vw,36) → 桌面上限 36px，letter 0.04em；label 0.6em letter 0.14em；comboScorePop 1.5s
             combo: {
                 labelColor: new Color(230, 126, 34, 255), ptsColor: new Color(230, 126, 34, 255),
                 shadowColor: new Color(255, 200, 80, 240),
-                baseSize: 30, labelEm: 0.60, ptsEm: 1.12,
+                baseSize: 36, labelEm: 0.60, ptsEm: 1.12,
                 containerLetterEm: 0.04, labelLetterEm: 0.14,
                 animMs: 1500, holdMs: 1450, anim: 'comboScorePop',
             },
-            // .float-perfect: 彩虹渐变(红/橙/黄/绿/蓝/紫)→ 取金黄 #ffd166 主色；36px 容器 letter 0.06em；label 0.55em letter 0.18em；perfectPop 2.2s
+            // .float-perfect: 彩虹渐变(红/橙/黄/绿/蓝/紫)→ 取金黄 #ffd166 主色；clamp(28,6vw,44) → 桌面上限 44px；letter 0.06em；label 0.55em letter 0.18em；perfectPop 2.2s
             perfect: {
                 labelColor: new Color(255, 209, 102, 255), ptsColor: new Color(255, 209, 102, 255),
                 shadowColor: new Color(255, 200, 100, 240),
-                baseSize: 36, labelEm: 0.55, ptsEm: 1.12,
+                baseSize: 44, labelEm: 0.55, ptsEm: 1.12,
                 containerLetterEm: 0.06, labelLetterEm: 0.18,
                 animMs: 2200, holdMs: 2200, anim: 'perfectPop',
             },
-            // .float-new-best: 金粉蓝渐变 → 主色 #ffd166；38px 容器 letter 0.08em；label 0.5em letter 0.20em；newBestFloat 2.3s
+            // .float-new-best: 金粉蓝渐变 → 主色 #ffd166；clamp(30,6.2vw,46) → 桌面上限 46px；letter 0.08em；label 0.5em letter 0.20em；newBestFloat 2.3s
             'new-best': {
                 labelColor: new Color(255, 209, 102, 255), ptsColor: new Color(255, 209, 102, 255),
                 shadowColor: new Color(255, 122, 217, 220),
-                baseSize: 38, labelEm: 0.50, ptsEm: 1.12,
+                baseSize: 46, labelEm: 0.50, ptsEm: 1.12,
                 containerLetterEm: 0.08, labelLetterEm: 0.20,
                 animMs: 2300, holdMs: 2300, anim: 'newBestFloat',
             },
@@ -514,7 +718,21 @@ export class FxLayer extends Component {
                 animMs: 4000, holdMs: 4000, anim: 'bonusScoreArtPop',
             },
         };
-        const spec = specs[kind] ?? specs.normal;
+        const rawSpec = specs[kind] ?? specs.normal;
+        // ── boardPx 适配（cocos 全屏沉浸 vs web 浏览器内嵌）──────────────────
+        // web 用 `clamp(min, X vw, max)`，移动端 (375px 视口) combo 仅 ~21px；cocos 是全屏
+        // 占位 (没有侧栏/导航/HUD 抢占视觉)，飘字必须比"等宽度移动端 web"更大才能撑住氛围。
+        // 因此把 spec.baseSize 视为"web 桌面上限"基准，再按 boardPx/480 等比放大（不缩小）：
+        //   boardPx=480 (典型 6.x 寸全屏) → 1.0× → 与 web 桌面上限一致
+        //   boardPx=600+ (平板/折叠屏)    → 等比变大
+        //   boardPx<480 (低端小屏)        → 维持桌面上限，宁可大一点也不能瘦小
+        // 这同时回应用户反馈"combo 在 web 主端字体很大，在 cocos 上很小"——
+        // 锁定 web 桌面上限即是"看起来与 web 主端等量"的最低保障。
+        const sizeScale = Math.max(1.0, this.boardPx / 480);
+        const spec: Spec = {
+            ...rawSpec,
+            baseSize: Math.round(rawSpec.baseSize * sizeScale),
+        };
 
         // ── 节点骨架 ─────────────────────────────────────────────────────────
         // web `_anchorOnBoard({ dyRatio: 0 })` —— 盘面正中央，所有消行飘字共用同一位置；
@@ -634,7 +852,9 @@ export class FxLayer extends Component {
         }
 
         // ── 关键帧驱动（按档位精确还原 CSS 6 套 @keyframes）─────────────────
-        this.driveScoreFloatKeyframes(n, op, spec.anim, spec.animMs / 1000);
+        // 位移幅度同步按 sizeScale 放大（web 的 -36px 在 36px 字号下视觉是"约 1 个字高"
+        // 的上浮；cocos 大盘面下 baseSize 已放大，位移也要等比，否则飘字"几乎不动"）。
+        this.driveScoreFloatKeyframes(n, op, spec.anim, spec.animMs / 1000, sizeScale);
 
         // ── 兜底销毁（与 web `setTimeout(() => el.remove(), floatHoldMs)` 同步）────
         // 关键帧自带末段 opacity 0，但显式 hold 兜底防止某些 cocos 版本 tween 残留。
@@ -653,10 +873,12 @@ export class FxLayer extends Component {
         op: UIOpacity,
         anim: 'floatUp' | 'multiPop' | 'comboScorePop' | 'perfectPop' | 'newBestFloat' | 'bonusScoreArtPop',
         durationS: number,
+        sizeScale: number = 1,
     ): void {
         // 各关键帧通用单位转换：web CSS y+ 向下 → cocos y+ 向上，需取负。
+        // sizeScale 同步缩放位移（web 像素值在大屏 cocos 上原样使用会显得"几乎不动"）。
         const s = (v: number) => v3(v, v, 1);
-        const y = (py: number) => v3(0, -py, 0);
+        const y = (py: number) => v3(0, -py * sizeScale, 0);
 
         switch (anim) {
             case 'floatUp': {
@@ -680,7 +902,7 @@ export class FxLayer extends Component {
                 // 40%  α 1, y -2, scale 1.0
                 // 100% α 0, y -30, scale 1.04
                 n.setScale(0.7, 0.7, 1);
-                n.setPosition(0, -6, 0);
+                n.setPosition(0, -6 * sizeScale, 0);
                 op.opacity = 0;
                 tween(n)
                     .to(durationS * 0.16, { position: y(0), scale: s(1.08) }, { easing: 'cubicOut' })
@@ -700,7 +922,7 @@ export class FxLayer extends Component {
                 // 50%  α 1, y -4, scale 1.00
                 // 100% α 0, y -36, scale 1.05
                 n.setScale(0.65, 0.65, 1);
-                n.setPosition(0, -8, 0);
+                n.setPosition(0, -8 * sizeScale, 0);
                 op.opacity = 0;
                 tween(n)
                     .to(durationS * 0.12, { position: y(0), scale: s(1.15) }, { easing: 'cubicOut' })
@@ -721,7 +943,7 @@ export class FxLayer extends Component {
                 // 60%  α 1, y  -6, scale 1.02
                 // 100% α 0, y -44, scale 1.08
                 n.setScale(0.40, 0.40, 1);
-                n.setPosition(0, -12, 0);
+                n.setPosition(0, -12 * sizeScale, 0);
                 op.opacity = 0;
                 tween(n)
                     .to(durationS * 0.10, { position: y(0), scale: s(1.25) }, { easing: 'cubicOut' })
@@ -742,7 +964,7 @@ export class FxLayer extends Component {
                 // 55%  α 1, y  -8, scale 1.00
                 // 100% α 0, y -46, scale 0.92
                 n.setScale(0.72, 0.72, 1);
-                n.setPosition(0, -14, 0);
+                n.setPosition(0, -14 * sizeScale, 0);
                 op.opacity = 0;
                 tween(n)
                     .to(durationS * 0.18, { position: y(0), scale: s(1.14) }, { easing: 'cubicOut' })
@@ -766,7 +988,7 @@ export class FxLayer extends Component {
                 // 68%  α 1, y   0, scale 1.00
                 // 100% α 0, y -16, scale 0.88
                 n.setScale(0.06, 0.06, 1);
-                n.setPosition(0, -18, 0);
+                n.setPosition(0, -18 * sizeScale, 0);
                 op.opacity = 0;
                 tween(n)
                     .to(durationS * 0.14, { position: y(0), scale: s(1.00) }, { easing: 'cubicOut' })  // 0→14% 爆入
@@ -1099,6 +1321,8 @@ export class FxLayer extends Component {
 
     update(dt: number): void {
         this.updateAmbience(dt);
+        // bonus 色块持续涌出（与 OverlayFx.bonusIconGush 同期、按 web 时间窗节奏 spawn 进 _particles）
+        this.tickColorGushSpawn(dt);
         const g = this._g;
         if (!g) return;
         if (this._particles.length === 0) {

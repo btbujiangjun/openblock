@@ -103,13 +103,21 @@ const LIFT_RAMP_MS = 30;
 const POP_GHOST_DURATION_S = 0.05;
 
 /** 触摸诊断开关：排查「按钮点不动」时设 true，在 Xcode/控制台看每次触摸的坐标与命中结果。
- *  确认无误后改回 false 关闭日志。 */
-const DEBUG_TOUCH = false;
+ *  确认无误后改回 false 关闭日志。
+ *  v1.62.3：临时开启用于排查安卓「偶发候选块拖不动」—— 复现后取出 logcat 看 [OpenBlock] 链路即可定位
+ *  是「event 没进 onTouchStart」「dragIndex 残留」还是「Modal/守卫拦截」哪一段。修复后改回 false。 */
+const DEBUG_TOUCH = true;
 
 /** 拖拽心跳超时（毫秒）：进行中拖拽（手指应仍按住）超过此时长无 TOUCH_MOVE / TOUCH_END，
  *  update() 看门狗会强制 cancelDrag。常见触发：iOS WKWebView 系统手势接管 / 控制中心下拉吞掉 END /
  *  安卓沉浸式 surfaceChanged / 边缘手势让出触摸 … 这是「候选块再也激活不了」最常见的隐藏成因，
- *  也是「触摸事件风暴」的源头前兆 —— END/CANCEL 被平台吞掉而 dragIndex 永久残留。 */
+ *  也是「触摸事件风暴」的源头前兆 —— END/CANCEL 被平台吞掉而 dragIndex 永久残留。
+ *  ⚠️ 不要轻易往下调：此值同时管 hold-and-drag「按住不动思考落点」与 deferred tap-place
+ *  「按住盘面待定 place 思考」两个合法长按场景（这两个分支 _tapSelected=false 且 dragMoved=false，
+ *  与 DRAG_HOVER_STALE_MS 的 hover-select 路径互不相干）。3500ms 是经过权衡的安全值：再短会
+ *  把"按住候选块停顿 2~3 秒挑落点"的玩家方块无故收回去。
+ *  "用户下次点击才恢复"的体验问题不靠这里解决 —— onTouchStart 已做「dragIndex>=0 一律 cancel」的
+ *  即时自愈（见 L2095），下一次触摸就能恢复，不需要靠看门狗赶在用户点击之前清。 */
 const DRAG_STALE_TIMEOUT_MS = 3500;
 
 /** 悬浮选中（tap-select）僵尸上限（毫秒）：点选候选块后 ghost 悬停、手指已抬起，等待下一次点击落子，
@@ -942,16 +950,28 @@ export class GameController extends Component {
     }
 
     onEnable(): void {
-        console.log('[OpenBlock] GameController.onEnable: registering global touch listeners');
+        // 设备/平台信息一次性打印：排查「点击无反应」时第一眼要看 isMobile/isNative/平台串，
+        // 不同平台触摸事件分发路径差异大（特别是安卓沉浸式 + 异形屏切横屏）。
+        const plat = `isMobile=${sys.isMobile ? 1 : 0} isNative=${sys.isNative ? 1 : 0} platform=${sys.platform} os=${sys.os} osVersion=${sys.osVersion}`;
+        console.log(`[OpenBlock] GameController.onEnable: registering global touch listeners | ${plat}`);
         input.on(Input.EventType.TOUCH_START, this.onTouchStart, this);
         input.on(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
         input.on(Input.EventType.TOUCH_END, this.onTouchEnd, this);
         // TOUCH_CANCEL（iOS app 切后台/系统手势接管/WKWebView 滑屏冲突）必须无条件清理 drag 状态，
         // 否则会出现"候选块再也激活不了"的僵尸态。这里独立挂钩，不与 END 复用，避免被 isOwnTouch 过滤。
         input.on(Input.EventType.TOUCH_CANCEL, this.onTouchCancel, this);
+        console.log(`[OpenBlock] input listeners registered (START/MOVE/END/CANCEL)`);
     }
 
     onDisable(): void {
+        // ⭐ 节点禁用时必须强制清掉拖拽状态：场景切换/皮肤转场/前后台切换都会触发 onDisable，
+        // 而 onEnable 重挂监听器后 dragIndex 残留 → 下次激活被 `if (dragIndex >= 0) return` 拦死，
+        // 表现为"切回游戏后任何候选块都点不动"，必须先点一次空白才能 heal。
+        // 安卓沉浸式 surfaceChanged 重建 GL 上下文时尤其高频复现，这是补上的最后一根针。
+        if (this.dragIndex >= 0) {
+            console.warn(`[OpenBlock] GameController.onDisable: drag in flight (idx=${this.dragIndex}) → force cancel before unregister`);
+            try { this.cancelDrag(); } catch (err) { console.warn('[OpenBlock] onDisable cancelDrag', err); }
+        }
         input.off(Input.EventType.TOUCH_START, this.onTouchStart, this);
         input.off(Input.EventType.TOUCH_MOVE, this.onTouchMove, this);
         input.off(Input.EventType.TOUCH_END, this.onTouchEnd, this);
@@ -1094,7 +1114,20 @@ export class GameController extends Component {
                             .filter((s) => !!s.icon);
                         // 持续喷涌时长 = web bonusEffectHoldMs(bonusCount)：3000-5000ms。
                         // 与 LineClearFx 主消行特效 baseDuration 协同；overlayFx 内部会取 max(520, durationMs)。
-                        if (iconSpecs.length) this.overlayFx.bonusIconGush(iconSpecs, bonusEffectHoldMs(bonusLines.length));
+                        const holdMs = bonusEffectHoldMs(bonusLines.length);
+                        if (iconSpecs.length) this.overlayFx.bonusIconGush(iconSpecs, holdMs);
+                        // 严格对齐 web playClearEffect：除了 icon 持续涌出，还要叠加色块层（爆发 + 持续涌出），
+                        // 这是 web 同花顺"绚丽感"的核心；缺失会导致 cocos 端整体氛围明显暗淡。
+                        //   - addBonusLineBurst：每条 bonusLine 一次性 64+36+36=136 个金/cssColor/白 色块爆发
+                        //   - beginBonusColorGush：在 holdMs 时长内按 web 时间窗节奏持续涌出 strongBurst 色块
+                        const colorSpecs = bonusLines.map((bl) => ({
+                            bonusLine: { type: bl.type, idx: bl.idx },
+                            color: blockColor(this.model.skin, bl.colorIdx),
+                        }));
+                        for (const cs of colorSpecs) {
+                            this.fx.addBonusLineBurst(cs.bonusLine, cs.color, 64);
+                        }
+                        this.fx.beginBonusColorGush(colorSpecs, holdMs);
                     }
                     if (e.perfectClear) this.overlayFx.triggerPerfectFlash();
                     else if (e.result.count >= 3) this.overlayFx.triggerComboFlash(e.result.count);
@@ -2497,8 +2530,21 @@ export class GameController extends Component {
         return Modal.isOpen() || (this.metaPanel?.node?.active === true) || this.model.gameOver;
     }
 
+    private _touchMoveCount = 0;
     private onTouchMove(e: EventTouch): void {
-        if (this.dragIndex < 0) return;
+        if (this.dragIndex < 0) {
+            // 此条用于排查「触摸进了 input，但 dragIndex<0 → move 全被忽略」的故障：
+            // 若 logcat 一直看到这条但永远不进入实际 drag 逻辑，说明 beginDockDrag 没成功跑通
+            // （pickBlock 命中失败 / Modal 守卫拦截 / dock.setDraggingSlot 抛错回滚）。
+            if (DEBUG_TOUCH) {
+                this._touchMoveCount++;
+                if (this._touchMoveCount % 60 === 1) {
+                    const loc = e.getLocation();
+                    console.log(`[OpenBlock] touch-move (no drag) #${this._touchMoveCount} at (${loc.x | 0},${loc.y | 0})`);
+                }
+            }
+            return;
+        }
         if (!this.isOwnTouch(e)) return;
         if (this.shouldAbortDragNow()) { this.cancelDrag(); return; }
         // 拖拽全程维持 60fps 跟手（poke 窗口短，靠 move 持续续期）。
@@ -2507,6 +2553,15 @@ export class GameController extends Component {
         this.moveGhost(e);
         // 起手即视为「跟手位移」：updateSnap 用真实指位 + lift 计算落点（与 web 一致）。
         this.updateSnap(e);
+        // 节流心跳：每 30 个 move 打一次，证明事件流仍在转。安卓侧若用户报告"拖动卡死"，
+        // 这条日志的"最后一次时间"就是事件被吞断的时刻 —— 配合 dragWatchdog 的 reset 日志可精确定位。
+        if (DEBUG_TOUCH) {
+            this._touchMoveCount++;
+            if (this._touchMoveCount % 30 === 1) {
+                const loc = e.getLocation();
+                console.log(`[OpenBlock] touch-move #${this._touchMoveCount} idx=${this.dragIndex} at (${loc.x | 0},${loc.y | 0}) snap=${this.snap ? `(${this.snap.gx},${this.snap.gy})` : 'null'} moved=${this.dragMoved ? 1 : 0}`);
+            }
+        }
     }
 
     /**
