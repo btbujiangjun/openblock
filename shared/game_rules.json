@@ -13,18 +13,18 @@
       "comment": "v12 难度桶课程（与 quantile/adaptive 正交）：训练时按 episode 进度逐步放宽允许的 spawnStepDifficulty 桶；simulator._spawn_dock 自博弈采样若超出当前桶上限则重抽（最多 retryCap 次）。bucketRamp 给出每阶段的 scd 上限（与 spawn_step_difficulty.py DIFFICULTY_BUCKETS 对齐：trivial<0.2/easy<0.4/standard<0.6/hard<0.8/extreme=1）。RL_DIFFICULTY_CURRICULUM=0 关闭。",
       "enabled": true,
       "stages": [
-        { "untilEpisode": 4000, "maxScd": 0.4 },
-        { "untilEpisode": 12000, "maxScd": 0.6 },
-        { "untilEpisode": 30000, "maxScd": 0.8 },
+        { "untilEpisode": 2000, "maxScd": 0.4 },
+        { "untilEpisode": 6000, "maxScd": 0.6 },
+        { "untilEpisode": 15000, "maxScd": 0.8 },
         { "untilEpisode": 0, "maxScd": 1.0 }
       ],
       "retryCap": 6
     },
     "quantile": {
-      "comment": "v11.2 分位数模式参数。p=70 → 目标 win_rate=30%（比 v11 的 50% 更保守，保证稳定训练信号）。windowEpisodes=500 平衡响应速度与抖动。emaAlpha=0.05 ≈ 14 局衰减一半，抑制单局极值影响。bootstrap 期（前 100 局）使用 winThresholdStart=40 同值。floor/ceil 是兜底夹紧，正常不会触发。",
-      "p": 70,
-      "windowEpisodes": 500,
-      "emaAlpha": 0.05,
+      "comment": "v11.4 温和加压课程参数。p=60 → 目标 win_rate=40%（介于 v11.2 的 30% 与过激的 50% 之间）。windowEpisodes=300 平衡响应速度与抖动。emaAlpha=0.08 ≈ 8 局衰减一半，追踪能力提升但不过激（v11.3 的 0.15 配合弱在线学习器导致门槛爬升过快、得分退化）。bootstrap 期（前 100 局）使用 winThresholdStart=40 同值。floor/ceil 是兜底夹紧，正常不会触发。",
+      "p": 60,
+      "windowEpisodes": 300,
+      "emaAlpha": 0.08,
       "bootstrapEpisodes": 100,
       "bootstrapThreshold": 40,
       "floor": 40,
@@ -863,8 +863,8 @@
       "holeWeight": -0.40,
       "transitionWeight": -0.08,
       "wellWeight": -0.15,
-      "closeToFullWeight": 0.35,
-      "mobilityWeight": 0.12,
+      "closeToFullWeight": 0.40,
+      "mobilityWeight": 0.20,
       "adhesionWeight": -0.12
     },
     "outcomeValueMix": {
