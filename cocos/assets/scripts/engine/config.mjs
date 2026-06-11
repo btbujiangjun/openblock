@@ -8,3 +8,7 @@ export const STRATEGIES = DEFAULT_STRATEGIES;
 export function getStrategy(id) {
     return DEFAULT_STRATEGIES[id] || DEFAULT_STRATEGIES.normal;
 }
+/* analyticsTracker / ltvPredictor 等同步模块需要的 config 导出：
+ * Cocos 端无后端 API / SQLite 客户端数据库，返回安全默认值。 */
+export function getApiBaseUrl() { return ""; }
+export function isSqliteClientDatabase() { return false; }

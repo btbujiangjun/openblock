@@ -504,7 +504,7 @@ def _remaining_unplaced_dock_blocks(sim: OpenBlockSimulator) -> int:
     return sum(1 for b in sim.dock if b is not None and not bool(b.get("placed", False)))
 
 
-def _mcts_risk_adaptive_sims(sim: OpenBlockSimulator, legal: list[dict], base_sims: int, cfg: dict) -> int:
+def _mcts_risk_adaptive_sims(sim: OpenBlockSimulator, legal: list[dict], base_sims: int, cfg: dict, risk_node_budget: int = 150) -> int:
     """高风险局面提升 MCTS sims，普通局面节省预算。"""
     raw_enabled = os.environ.get("RL_MCTS_RISK_ADAPTIVE", "").strip().lower()
     enabled = (
@@ -523,7 +523,7 @@ def _mcts_risk_adaptive_sims(sim: OpenBlockSimulator, legal: list[dict], base_si
     if mobility <= int(cfg.get("riskMobility", 16)):
         risk += 0.35
     try:
-        if sim.count_sequential_solution_leaves(leaf_cap=2, node_budget=500) <= 1:
+        if sim.count_sequential_solution_leaves(leaf_cap=2, node_budget=risk_node_budget) <= 1:
             risk += 0.30
     except Exception:
         pass
@@ -532,7 +532,7 @@ def _mcts_risk_adaptive_sims(sim: OpenBlockSimulator, legal: list[dict], base_si
     return max(base_sims, min(max_sims, int(round(base_sims * mult))))
 
 
-def _beam3_risk_adaptive_params(sim: OpenBlockSimulator, legal: list[dict], cfg: dict) -> tuple[int, int, int, int, float]:
+def _beam3_risk_adaptive_params(sim: OpenBlockSimulator, legal: list[dict], cfg: dict, risk_node_budget: int = 150) -> tuple[int, int, int, int, float]:
     """高风险局面动态提高 3-ply beam 宽度；普通局保持默认吞吐。"""
     top_k = int(cfg.get("topK", 15))
     top_k2 = int(cfg.get("topK2", 5))
@@ -556,7 +556,7 @@ def _beam3_risk_adaptive_params(sim: OpenBlockSimulator, legal: list[dict], cfg:
     if mobility <= int(cfg.get("riskMobility", 18)):
         risk += 0.35
     try:
-        leaves = sim.count_sequential_solution_leaves(leaf_cap=2, node_budget=600)
+        leaves = sim.count_sequential_solution_leaves(leaf_cap=2, node_budget=risk_node_budget)
         if leaves <= int(cfg.get("riskLeafCount", 1)):
             risk += 0.30
     except Exception:
@@ -1094,17 +1094,28 @@ def collect_episode(
     use_lookahead = os.environ.get("RL_LOOKAHEAD", "1").lower() not in ("0", "false", "no")
     lookahead_mix = float(os.environ.get("RL_LOOKAHEAD_MIX", "0.5"))
 
+    # --- 训练预设覆盖（performance / balanced / quality）---
+    from .game_rules import rl_active_preset_config
+    _preset = rl_active_preset_config()
+    _preset_mcts = _preset.get("mcts") or {}
+    _preset_b3 = _preset.get("beam3ply") or {}
+    _preset_b2 = _preset.get("beam2ply") or {}
+    _feasibility_budget = int(_preset.get("feasibilityNodeBudget", 200))
+    _risk_budget = int(_preset.get("riskNodeBudget", 150))
+
     # --- 搜索策略选择（优先级：MCTS > 3-ply beam > 2-ply beam > 1-step）---
     _mcts_cfg = RL_REWARD_SHAPING.get("lightMCTS") or {}
+    # preset 可覆盖 enabled / numSimulations 等
+    _mcts_cfg_eff = {**_mcts_cfg, **_preset_mcts}
     use_mcts = (
-        _mcts_cfg.get("enabled", False)
+        _mcts_cfg_eff.get("enabled", False)
         or os.environ.get("RL_MCTS", "0").lower() not in ("0", "false", "no")
     )
     # 显式 RL_MCTS=0 时强制关闭（否则 game_rules 里 lightMCTS.enabled 无法局部关掉）
     _mcts_env_neg = os.environ.get("RL_MCTS", "").strip().lower()
     if _mcts_env_neg in ("0", "false", "no", "off"):
         use_mcts = False
-    _mcts_sims = int(_mcts_cfg.get("numSimulations", 20))
+    _mcts_sims = int(_mcts_cfg_eff.get("numSimulations", 20))
     _mcts_cpuct = float(_mcts_cfg.get("cPuct", 1.5))
     _mcts_depth = int(_mcts_cfg.get("maxDepth", 8))
     # v8.1：MCTS 树复用 + 多温度采样 + SpawnPredictor
@@ -1124,11 +1135,11 @@ def collect_episode(
     elif _adapt_env in ("1", "true", "yes", "on"):
         _mcts_adaptive = bool(use_mcts)
     else:
-        _mcts_adaptive = bool(use_mcts and _mcts_cfg.get("adaptiveSims", False))
+        _mcts_adaptive = bool(use_mcts and _mcts_cfg_eff.get("adaptiveSims", False))
     _mcts_min_sims = int(os.environ.get("RL_MCTS_MIN_SIMS", max(10, _mcts_sims // 4)))
     _mcts_confidence = float(os.environ.get("RL_MCTS_CONFIDENCE", "3.0"))
 
-    _beam3ply_cfg = RL_REWARD_SHAPING.get("beam3ply") or {}
+    _beam3ply_cfg = {**(RL_REWARD_SHAPING.get("beam3ply") or {}), **_preset_b3}
     use_beam3ply = (
         (_beam3ply_cfg.get("enabled", False)
          or os.environ.get("RL_BEAM3PLY", "0").lower() not in ("0", "false", "no"))
@@ -1139,7 +1150,7 @@ def collect_episode(
     _b3_max = int(_beam3ply_cfg.get("maxActions", 100))
     _b3_max2 = int(_beam3ply_cfg.get("maxActions2", 50))
 
-    _beam2ply_cfg = RL_REWARD_SHAPING.get("beam2ply") or {}
+    _beam2ply_cfg = {**(RL_REWARD_SHAPING.get("beam2ply") or {}), **_preset_b2}
     use_beam2ply = (
         _beam2ply_cfg.get("enabled", True)
         and os.environ.get("RL_BEAM2PLY", "1").lower() not in ("0", "false", "no")
@@ -1185,7 +1196,7 @@ def collect_episode(
         _beam_risk = 0.0
         if use_lookahead and step_idx >= explore_first_moves:
             if use_mcts:
-                mcts_sims_eff = _mcts_risk_adaptive_sims(sim, legal, _mcts_sims, _mcts_cfg)
+                mcts_sims_eff = _mcts_risk_adaptive_sims(sim, legal, _mcts_sims, _mcts_cfg, risk_node_budget=_risk_budget)
                 if _mcts_adaptive:
                     # v8.3：渐进式模拟次数（adaptive sims）
                     from .mcts import run_mcts_adaptive as _adaptive_fn
@@ -1223,7 +1234,7 @@ def collect_episode(
             elif use_beam3ply:
                 # 3-ply beam：还有 3 个未放置 dock 块时展开，否则自动退化为 2-ply/1-step
                 _b3_topk_eff, _b3_max_eff, _b3_topk2_eff, _b3_max2_eff, _beam_risk = _beam3_risk_adaptive_params(
-                    sim, legal, _beam3ply_cfg
+                    sim, legal, _beam3ply_cfg, risk_node_budget=_risk_budget
                 )
                 q_vals = _beam_3ply_q_values(
                     net, device, sim, legal, gamma,
@@ -1286,7 +1297,7 @@ def collect_episode(
         if _mcts_tree is not None:
             _mcts_tree.advance(chosen)
 
-        sup = sim.get_supervision_signals()
+        sup = sim.get_supervision_signals(feasibility_node_budget=_feasibility_budget)
         trajectory.append({
             "state": state_np.copy(),
             "action_feats": phi_np[:, STATE_FEATURE_DIM:].copy(),
@@ -1985,11 +1996,16 @@ def _reevaluate_and_update(
 
 
 def _auto_n_workers(device: torch.device) -> int:
-    """自动选择多进程 worker 数：GPU 设备留 1 核给主线程，CPU 模式不启多进程。"""
-    if device.type == "cpu":
-        return 1
+    """自动选择多进程 worker 数。
+
+    所有设备类型都启用多进程采集（worker 用 CPU 推理，主进程用 GPU/MPS 更新），
+    充分利用多核并行 rollout 来喂满 GPU。
+    留 2 核给主进程（GPU 更新 + 系统），其余全部用于采集。
+    """
     n_cpu = os.cpu_count() or 1
-    return max(2, min(n_cpu - 1, 6))
+    if device.type == "cpu":
+        return max(2, min(n_cpu - 2, 8))
+    return max(2, min(n_cpu - 2, 10))
 
 
 def train_loop(

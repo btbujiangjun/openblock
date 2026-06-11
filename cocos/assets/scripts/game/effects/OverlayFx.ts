@@ -63,6 +63,8 @@ export class OverlayFx extends Component {
     }> = [];
     /** 当前在屏 icon 粒子数（限流，对齐 web `iconParticles.length > 320` 的硬阀）。 */
     private _gushAlive = 0;
+    /** 逐帧驱动的 icon 粒子 ticker（对齐 web updateIconParticles + renderIconParticles 的帧率无关物理积分）。 */
+    private _gushTickers: Array<(dt: number) => void> = [];
 
     onLoad(): void {
         const uit = this.node.getComponent(UITransform) || this.node.addComponent(UITransform);
@@ -177,13 +179,22 @@ export class OverlayFx extends Component {
     }
 
     /**
-     * 单个 icon 粒子的生成与动画 —— 严格对齐 web `_pushIconParticle` 物理参数：
+     * 单个 icon 粒子的生成与动画 —— 严格对齐 web `_pushIconParticle` + `renderIconParticles`：
+     *
+     * 物理参数：
      *   spread     strongBurst ? 3.10rad ≈ 178° : 2.80rad ≈ 160°
      *   angle      `-π/2 + rand × spread`（基准向上，水平方向大范围随机）
      *   speed      strongBurst ? 5.5-22.5 : 4-18 单位/帧（web 60fps；cocos × 60 = px/s）
      *   life       1.45-2.0 s（cocos 用 tween duration 直接覆盖）
      *   fontSize   36-92px 随机（与 web 完全一致）
      *   rotation   ±π 起始 + rotSpeed ±0.20 rad/帧（cocos × 60 ≈ ±12 rad/s）
+     *
+     * 渲染：严格对齐 web `renderIconParticles` 的 3 阶段 growScale 曲线
+     *   u < 0.44  : growIn  = 0.16 + 0.84 × sqrt(u/0.44)    — 由小爆大
+     *   u < 0.78  : oscillate = 1 + 0.07 × sin((u-0.44)/0.34 × 2π) — 呼吸脉冲
+     *   u >= 0.78 : shrink = max(0.1, 1 - 0.88 × (u-0.78)/0.22)    — 缩小消失
+     *   alphaFade : u > 0.83 时 max(0.12, 1 - (u-0.83)/0.17)
+     *   pulse     : 0.9 + 0.1 × sin(u × π)
      */
     private spawnGushIcon(icon: string, x: number, y: number, cell: number, strongBurst: boolean): void {
         let n = this._gushPool.pop();
@@ -203,10 +214,7 @@ export class OverlayFx extends Component {
         n.parent = this.node;
         n.active = true;
         n.setPosition(x, y, 0);
-        // 字号严格按 web `_pushIconParticle`：36 + floor(rand × 56) = 36-92px；与 cell 无关（避免小 cell 时全屏只见小字）。
-        // 同时受盘面尺寸缩放：cell 仅作单位换算供 cocos 运动参数。
         const fontSize = 36 + Math.floor(Math.random() * 56);
-        // 字体栈：emoji 必须用系统彩色 emoji 字体，否则在 cocos Label 上渲染为方框。
         const anyL = l as unknown as { useSystemFont: boolean; fontFamily: string; fontSize: number; lineHeight: number };
         anyL.useSystemFont = true;
         anyL.fontFamily = EMOJI_FONT_FAMILY;
@@ -215,38 +223,73 @@ export class OverlayFx extends Component {
         l.string = icon;
         op.opacity = 235;
 
-        // 运动学（与 web `_pushIconParticle` 1:1）：
-        //   angle = -π/2 + (rand-0.5)×spread  →  基准向上、左右大范围爆开
-        //   speed 转换：web 是 px/帧（60fps）→ cocos px/秒需 ×60；cell 作单位换算（web 用 cellSize，cocos 同）。
         const spread = strongBurst ? 3.10 : 2.80;
         const angle = -Math.PI / 2 + (Math.random() - 0.5) * spread;
         const speedFrame = (strongBurst ? 5.5 : 4.0) + Math.random() * (strongBurst ? 17.0 : 14.0);
-        // web `_pushIconParticle`: `vx = cos(angle) × speed`，单位是 **px/帧**（fxCanvas 像素坐标系，60fps）。
-        // cocos 用 px/秒，故 ×60；y 反向（cocos y+ 向上 vs web canvas y+ 向下 → 取负）。
         const vxPxSec = Math.cos(angle) * speedFrame * 60;
         const vyPxSec = Math.sin(angle) * speedFrame * 60;
         const life = 1.45 + Math.random() * 0.55;
-        // 重力：web `vy += 0.35 × gravityMul`/帧（默认 gravityMul=1）→ 0.35 × 60² = 1260 px/s²。
-        // 这里取 0.5 倍重力，让 emoji 上升轨迹更柔和（icon 比方形碎屑视觉更"轻"）。
-        const gravity = 1260 * 0.5;
-        const endX = x + vxPxSec * life;
-        const endY = y - vyPxSec * life - 0.5 * gravity * life * life;
+        // web: vy += 0.075/帧 → 0.075×3600 = 270 px/s²（icon 用更弱重力，飘屏更久）
+        const gravity = 270;
+        const lifeDecay = 0.0028 + Math.random() * 0.0022;
 
-        // 自旋：起始旋转 ±π，旋转速度 ±12 rad/s ≈ ±687°/s；tween 旋转 angle = degrees。
-        const startAngle = (Math.random() - 0.5) * 360; // ±180°
-        const rotSpeedDeg = (Math.random() - 0.5) * 0.20 * 60 * (180 / Math.PI); // ±0.20 rad/帧 × 60 → ±687°/s
-        const endAngle = startAngle + rotSpeedDeg * life;
+        const startAngle = (Math.random() - 0.5) * 360;
+        const rotSpeedDeg = (Math.random() - 0.5) * 0.20 * 60 * (180 / Math.PI);
         n.angle = startAngle;
-        n.setScale(0.6, 0.6, 1);
+        // web: vx *= 0.988/帧 → 阻尼因子
+        const damping = 0.988;
 
         const node = n;
+        void l; // label 配置已完成，后续由 node.scale 驱动视觉缩放
         this._gushAlive++;
-        // 起手 backOut 弹大（0.16s 0.6→1.0），与 web 不显式 pop，但 cocos 用 backOut 还原 web 的视觉弹性。
-        tween(n).to(0.16, { scale: v3(1, 1, 1) }, { easing: 'backOut' }).start();
-        // 主运动 + 自旋（quadOut 模拟空气阻力 + 重力下落混合）。
-        tween(n).to(life, { position: v3(endX, endY, 0), angle: endAngle }, { easing: 'quadOut' }).start();
-        // 末段淡出：寿命最后 30% 淡出（web lifeDecay 0.0028-0.005 → 末段大概 0.4s 淡出）。
-        tween(op).delay(life * 0.55).to(life * 0.45, { opacity: 0 }).call(() => this.recycleGush(node)).start();
+
+        // 用 update 调度逐帧积分（对齐 web updateIconParticles + renderIconParticles 的帧率无关化），
+        // 而非 tween 预算终点（tween 只能做线性/缓动插值，无法模拟 web 的逐帧 vx*=damping + vy+=gravity + 3阶段 growScale）。
+        const state = {
+            x, y, vx: vxPxSec, vy: vyPxSec,
+            lifeVal: life, lifeMax: life, lifeDecay,
+            rotation: startAngle, rotSpeedDeg,
+            baseFontSize: fontSize,
+        };
+        // 初始缩放：growScale u=0 → 0.16
+        n.setScale(0.16, 0.16, 1);
+
+        const ticker = ((dt: number): void => {
+            if (!node.isValid) { (ticker as unknown as { _done: boolean })._done = true; return; }
+            const frames = dt * 60;
+            state.x += state.vx * dt;
+            state.y += state.vy * dt;
+            state.vx *= Math.pow(damping, frames);
+            state.vy -= gravity * dt;
+            state.rotation += state.rotSpeedDeg * dt;
+            state.lifeVal -= state.lifeDecay * frames;
+            if (state.lifeVal <= 0) {
+                this.recycleGush(node);
+                (ticker as unknown as { _done: boolean })._done = true;
+                return;
+            }
+            node.setPosition(state.x, state.y, 0);
+            node.angle = state.rotation;
+
+            // 3 阶段 growScale + pulse（严格 1:1 web renderIconParticles）
+            const u = 1 - Math.max(0, state.lifeVal) / Math.max(0.001, state.lifeMax);
+            let growScale: number;
+            if (u < 0.44) {
+                growScale = 0.16 + 0.84 * Math.pow(u / 0.44, 0.5);
+            } else if (u < 0.78) {
+                growScale = 1 + 0.07 * Math.sin(((u - 0.44) / 0.34) * Math.PI * 2);
+            } else {
+                growScale = Math.max(0.1, 1 - 0.88 * ((u - 0.78) / 0.22));
+            }
+            const pulse = 0.9 + 0.1 * Math.sin(u * Math.PI);
+            const finalScale = growScale * pulse;
+            node.setScale(finalScale, finalScale, 1);
+
+            const alphaFade = u > 0.83 ? Math.max(0.12, 1 - (u - 0.83) / 0.17) : 1;
+            op.opacity = Math.round(Math.min(1, state.lifeVal) * alphaFade * 255);
+
+        }) as (dt: number) => void;
+        this._gushTickers.push(ticker);
     }
 
     /** gush 动画结束回收进池（上限 128，超出销毁），替代 destroy。 */
@@ -262,6 +305,14 @@ export class OverlayFx extends Component {
     update(dt: number): void {
         // bonus icon 持续 spawn 调度（与 Graphics 闪光独立，关闭/无任务时零开销返回）。
         this.tickGushSpawn(dt);
+        // 逐帧驱动 icon 粒子物理积分 + growScale 渲染（对齐 web updateIconParticles）。
+        if (this._gushTickers.length) {
+            for (let i = this._gushTickers.length - 1; i >= 0; i--) {
+                this._gushTickers[i](dt);
+            }
+            // 清除已失效的 ticker（recycleGush 置 node inactive → ticker 内 node.isValid 短路并标记 done）。
+            this._gushTickers = this._gushTickers.filter(fn => !(fn as unknown as { _done?: boolean })._done);
+        }
 
         const g = this._g;
         if (!g) return;

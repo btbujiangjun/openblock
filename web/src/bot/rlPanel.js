@@ -84,6 +84,7 @@ export function initRLPanel(game) {
     const outBest = el('rl-best');
     const chkPytorch = el('rl-use-pytorch');
     const chkLookahead = el('rl-lookahead');
+    const selPreset = el('rl-training-preset');
     const outBackendStatus = el('rl-backend-status');
     const outServerLog = el('rl-server-log');
     const btnRefreshLog = el('rl-refresh-server-log');
@@ -95,6 +96,36 @@ export function initRLPanel(game) {
     let chartPollTimer = null;
     /** 局结束后合并刷新看板曲线 + 服务端损失日志，避免每局多次请求 */
     let dashRefreshTimer = null;
+
+    /* --- 训练档位切换 --- */
+    if (selPreset) {
+        const LS_PRESET = 'rl_training_preset';
+        const saved = localStorage.getItem(LS_PRESET);
+        if (saved && selPreset.querySelector(`option[value="${saved}"]`)) {
+            selPreset.value = saved;
+        }
+        selPreset.addEventListener('change', async () => {
+            const v = selPreset.value;
+            try { localStorage.setItem(LS_PRESET, v); } catch { /* */ }
+            try {
+                await fetch('/api/rl/training_preset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ preset: v }),
+                });
+            } catch { /* offline / no backend */ }
+        });
+        /* 初始同步到后端 */
+        void (async () => {
+            try {
+                await fetch('/api/rl/training_preset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ preset: selPreset.value }),
+                });
+            } catch { /* */ }
+        })();
+    }
 
     const needRlHydrate = Boolean(game?.db && isSqliteClientDatabase());
     if (needRlHydrate) {
@@ -574,6 +605,9 @@ export function initRLPanel(game) {
                     if (st.available && typeof st.episodes === 'number') {
                         totalEpisodes = st.episodes;
                         updateStats();
+                    }
+                    if (st.training_preset && selPreset) {
+                        selPreset.value = st.training_preset;
                     }
                 } catch {
                     /* ignore */

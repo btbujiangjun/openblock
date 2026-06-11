@@ -46,6 +46,29 @@ const FILES = [
     'spawn/commitSpawnContext.js',
     'tuning/v2/clientPolicyV2.js',
     'config/platformProfile.js',
+    'lifecycle/lifecycleStressCapMap.js',
+    'retention/runOverRunArc.js',
+    'retention/playerMaturity.js',
+    'retention/churnPredictor.js',
+    'retention/winbackProtection.js',
+    'retention/difficultyPredictor.js',
+    'retention/goalSystem.js',
+    'retention/vipSystem.js',
+    'retention/firstPurchaseFunnel.js',
+    'retention/dailyChallengePlaybook.js',
+    'retention/playerLifecycleDashboard.js',
+    'lifecycle/lifecycleSignals.js',
+    'monetization/featureFlags.js',
+    'monetization/MonetizationBus.js',
+    'monetization/analyticsTracker.js',
+    'channelAttribution.js',
+    'monetization/ltvPredictor.js',
+    'monetization/commercialFeatureSnapshot.js',
+    'retention/retentionManager.js',
+    'retention/levelProgression.js',
+    'level/levelPack.js',
+    'lifecycle/lifecycleOrchestrator.js',
+    'pbGrowthTracker.js',
     'evaluation/gridAdapter.js',
     'evaluation/placementQuality.js',
     'evaluation/roundQuality.js',
@@ -82,7 +105,11 @@ function genConfigShim() {
             'export const STRATEGIES = DEFAULT_STRATEGIES;\n' +
             'export function getStrategy(id) {\n' +
             '    return DEFAULT_STRATEGIES[id] || DEFAULT_STRATEGIES.normal;\n' +
-            '}\n',
+            '}\n' +
+            '/* analyticsTracker / ltvPredictor 等同步模块需要的 config 导出：\n' +
+            ' * Cocos 端无后端 API / SQLite 客户端数据库，返回安全默认值。 */\n' +
+            'export function getApiBaseUrl() { return ""; }\n' +
+            'export function isSqliteClientDatabase() { return false; }\n',
     );
 }
 
@@ -191,8 +218,38 @@ function copyFiles() {
 }
 
 /* ---- 4. 生成桩 ---- */
+
+/**
+ * 手写桩：对于需要返回非 null 默认值的模块，在此提供自定义实现。
+ * key = 相对路径（posix，.js 后缀），value = 文件内容字符串。
+ * 不在此表中的桩仍自动生成"全部返回 null"的空桩。
+ */
+const CUSTOM_STUBS = new Map();
+
+/* monetization/commercialModel.js —— 规则模型桩：lifecycleOrchestrator 通过 _safe() 调用
+ * getCommercialChurnRisk01，桩返回 null 安全降级为双路投票。
+ * 全量同步需拉入 strategy/ + calibration/ + ml/ + quality/ 子系统，不值得。 */
+CUSTOM_STUBS.set('monetization/commercialModel.js', `${GEN_HEADER('monetization/commercialModel（Cocos 桩：规则模型需 strategy/ml 子系统）')}
+export function buildCommercialModelVector() { return null; }
+export function getCommercialChurnRisk01() { return null; }
+export function shouldAllowMonetizationAction() { return true; }
+`);
+
+/* monetization/adTrigger.js —— 广告触发桩：lifecycleOrchestrator 通过 _safe() 调用
+ * getAdFreqSnapshot，桩返回 null 安全。全量同步需广告/IAP/弹窗协调器。 */
+CUSTOM_STUBS.set('monetization/adTrigger.js', `${GEN_HEADER('monetization/adTrigger（Cocos 桩：广告触发需 adAdapter/iapAdapter/popupCoordinator）')}
+export function getAdGuardrailState() { return null; }
+export function initAdTrigger() { return null; }
+export function getAdFreqSnapshot() { return null; }
+`);
+
 function genStubs() {
     for (const [target, info] of stubs) {
+        const custom = CUSTOM_STUBS.get(target);
+        if (custom) {
+            emit(target, custom);
+            continue;
+        }
         let body = GEN_HEADER(`软依赖桩（cocos 不分发该子系统）：原 web/src/${target}`);
         for (const name of info.named) {
             body += `export function ${name}() { return null; }\n`;

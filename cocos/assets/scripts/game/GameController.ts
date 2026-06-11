@@ -849,9 +849,7 @@ export class GameController extends Component {
         const base = this.game.pbBaseline;
         if (this._celebratedNewBest || base <= 0 || score <= base) return;
         this._celebratedNewBest = true;
-        // 破纪录释放窗口（对齐 web `_startPostPbReleaseWindow`，v1.55 §4.9）：
-        // 接下来 5 次 spawn stress×0.7 + clearGuarantee+1 + challengeBoost 禁用，留出"我赢了"情绪释放时间；
-        // 局内只激活一次（PlayerContext 内 used cooldown）。
+        this.playerCtx.recordNewPb(score);
         this.playerCtx.triggerPostPbRelease();
         // 对齐 web `new-best-popup`：局内破纪录用中心庆贺 popup（celebrate Toast，hold 2300ms，每局一次），
         // 取代原裸 floatText —— 走统一队列，避免与其它庆贺浮条视觉黏连。
@@ -1110,7 +1108,8 @@ export class GameController extends Component {
             case 'clear': {
                 // 消行高亮 + 碎屑粒子要在 60fps 下播放，维持高帧覆盖整个特效余韵窗口。
                 FrameRate.poke();
-                this.lineFx.play(e.result, this.model.skin, { perfectClear: e.perfectClear });
+                const hasBonusLines = (e.result.bonusLines || []).length > 0;
+                this.lineFx.play(e.result, this.model.skin, { perfectClear: e.perfectClear, bonus: hasBonusLines });
                 this.fx.burstClear(e.result, this.model.skin, { perfectClear: e.perfectClear });
                 // 全屏闪光层（对齐 web playClearEffect 主路径）：
                 //   bonus 同色/同 icon → 紫金光晕 + icon 喷涌；perfect → 彩虹脉冲；
@@ -1329,6 +1328,7 @@ export class GameController extends Component {
     private doRevive(): void {
         if (this.model.revive()) {
             Analytics.track(ANALYTICS_EVENTS.reviveUsed, { n: this.model.reviveCount });
+            this.playerCtx.activateReviveBoost(2);
             this.hud.setGameOver(false);
             if (this.model.modeDef.timeLimitSec > 0) { this.timeLeft = Math.max(this.timeLeft, 20); }
             this.renderAll();
@@ -1342,6 +1342,7 @@ export class GameController extends Component {
         this.stats.totalGames++;
 
         const score = this.model.score;
+        this.playerCtx.recordGameOver(score);
         // 每日大师题收尾（移植 web _onChallengeEnd）：记录战绩（每日一次去重依据）+ 撤销种子 + 完成提示。
         if (DailyMaster.isActive()) {
             DailyMaster.markPlayed(score);

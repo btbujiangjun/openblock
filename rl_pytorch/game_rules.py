@@ -284,3 +284,38 @@ def rl_rnd_curiosity_config() -> dict:
     elif env in ("0", "false", "no", "off"):
         base["enabled"] = False
     return base
+
+
+# ---------------------------------------------------------------------------
+# 训练预设（performance / balanced / quality）
+# ---------------------------------------------------------------------------
+_TRAINING_PRESETS: dict = dict(
+    (RL_REWARD_SHAPING.get("trainingPresets") or {})
+)
+
+# 运行时可被 rl_backend 热切换的活跃预设名
+_active_preset: str = os.environ.get("RL_TRAINING_PRESET", "balanced")
+
+
+def rl_training_presets() -> dict:
+    """返回所有预设定义（给前端枚举用）。"""
+    return dict(_TRAINING_PRESETS)
+
+
+def rl_active_training_preset() -> str:
+    return _active_preset
+
+
+def rl_set_training_preset(name: str) -> dict | None:
+    """切换活跃预设并返回其配置；无效名称返回 None。"""
+    global _active_preset
+    cfg = _TRAINING_PRESETS.get(name)
+    if cfg is None:
+        return None
+    _active_preset = name
+    return dict(cfg)
+
+
+def rl_active_preset_config() -> dict:
+    """返回当前活跃预设的完整配置字典（含 mcts/beam 覆盖值）。"""
+    return dict(_TRAINING_PRESETS.get(_active_preset) or {})

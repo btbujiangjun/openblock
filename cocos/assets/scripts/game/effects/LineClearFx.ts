@@ -51,6 +51,7 @@ export class LineClearFx extends Component {
 
     /**
      * @param opts.perfectClear 完美清屏（与 web playClearEffect 同步参数）
+     * @param opts.bonus 同花顺模式（对齐 web setClearCells({ mode: 'bonus' })）
      *
      * 时长严格对齐 web `game.js` 的 baseDuration：
      *   - single (1 行)        500ms
@@ -59,8 +60,12 @@ export class LineClearFx extends Component {
      *   - perfect              1050ms
      * 强度（pulse 系数、glow 半径、溶解带 alpha）也随 type 同步放大，
      * 与 web `renderClearCells` 的视觉权重一致。
+     *
+     * bonus 模式差异（对齐 web `renderClearCells` 中 `_clearCellMode === 'bonus'`）：
+     *   - 辉光半径系数 0.42+0.16×pulse（vs normal 0.46+0.18×pulse）
+     *   - globalAlpha 0.82×pulse（vs normal 0.9×pulse）
      */
-    play(result: ClearResult, skin: Skin, opts: { perfectClear?: boolean } = {}): void {
+    play(result: ClearResult, skin: Skin, opts: { perfectClear?: boolean; bonus?: boolean } = {}): void {
         const g = this._g;
         if (!g || !VisualFx.enabled) return;
         const cell = this.boardPx / this.size;
@@ -75,6 +80,7 @@ export class LineClearFx extends Component {
         // type 档位（对齐 web playClearEffect 的 isCombo/isDouble/perfectClear 判定）。
         const count = result.count | 0;
         const perfectClear = !!opts.perfectClear;
+        const bonus = !!opts.bonus;
         const isCombo = count >= 3;
         const isDouble = count === 2;
         // baseDuration 与 web `game.js` 一一对应；reduced motion 缩为 60% 但仍按档位区分。
@@ -97,12 +103,14 @@ export class LineClearFx extends Component {
             if (env <= 0.001) return;
             // 溶解带（整行/整列被清满线）：先画在底层，逐格辉光叠在其上。
             this.drawDissolveBands(g, rows, cols, cell, half, flash, 0.34 * pulse * env * intensity);
-            // 逐格径向辉光。
+            // 逐格径向辉光（bonus 模式用 web `_clearCellMode === 'bonus'` 的缩小辉光 + 降 alpha）。
+            const radiusFactor = bonus ? (0.42 + 0.16 * pulse) : (0.46 + 0.18 * pulse);
+            const alphaBase = bonus ? 0.82 : 0.9;
             for (const c of cells) {
                 const cx = -half + (c.x + 0.5) * cell;
-                const cy = half - (c.y + 0.5) * cell + lift * 0.35; // y 向上：lift 让辉光略微上抬
-                const r = cell * (0.46 + 0.18 * pulse) * (0.95 + 0.20 * (intensity - 1));
-                this.glowDot(g, cx, cy, r, r, flash, Math.min(1, 0.9 * pulse * env * intensity));
+                const cy = half - (c.y + 0.5) * cell + lift * 0.35;
+                const r = cell * radiusFactor * (0.95 + 0.20 * (intensity - 1));
+                this.glowDot(g, cx, cy, r, r, flash, Math.min(1, alphaBase * pulse * env * intensity));
             }
         };
 

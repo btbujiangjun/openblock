@@ -97,17 +97,9 @@ export class Bootstrap extends Component {
         applyAprilFoolsIfActive({ optOut: Storage.get(STORAGE_KEYS.aprilFoolsOptout, '0') === '1' });
         // 出块寻参 v2（SpawnParamTuner）：安装离线 θ bundle 并挂到 globalThis，
         // 使 createEngineSpawner → resolveAdaptiveStrategy 内的 resolveThetaV2 取到策略，θ 与 web 同源生效。
-        //
-        // ⚡ 冷启动优化：把 23k 行 θ bundle 的安装处理循环（install loop）从同步 boot 路径移到首帧之后，
-        //   避免它阻塞第一帧渲染（首屏更快）。代价是「第一副 dock」在 install 完成前用 DEFAULT θ，
-        //   约 1 帧后 install 完成、从第 2 副 dock 起用 v2 θ —— 这正是代码既有的「未部署/失败软回退」
-        //   语义（resolveThetaV2 取不到 __openblockClientPolicyV2 时返回 DEFAULT θ），不影响可玩性。
-        //   下一帧远早于任何用户落子/refillDock，故仅首副 dock 受影响。bundle 解析成本仍在引擎脚本
-        //   加载期（静态 import 不可免），此处仅省去同步安装循环对首帧的阻塞。
-        this.scheduleOnce(() => {
-            if (!this.node?.isValid) return;
-            try { initSpawnTuningV2(); } catch (e) { console.warn('[OpenBlock] deferred initSpawnTuningV2', e); }
-        }, 0);
+        // 同步安装：保证首副 dock 即命中真实 θ（高 PB 玩家的开局体验依赖完整寻参）。
+        // bundle 已由静态 import 加载（解析成本不可免），此处仅执行 install loop（~5ms）。
+        try { initSpawnTuningV2(); } catch (e) { console.warn('[OpenBlock] initSpawnTuningV2', e); }
 
         // 关键：代码优先工程必须显式锁定设计分辨率 + 铺满策略，并按安全区布局。
         // 否则原生 iOS 端会用引擎默认分辨率 → 画面留黑边（未铺满）且 getUILocation 坐标

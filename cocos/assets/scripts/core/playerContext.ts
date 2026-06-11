@@ -9,6 +9,12 @@
  * 由 GameController 在模型事件里驱动：onRound（每次新 dock）/ onClear（消行）/ onScore（计分），
  * 新开局调 reset。snapshot() 返回合并进 spawnContext 的只读快照。
  */
+
+// @ts-ignore 同步引擎（未类型化 ESM）
+import { deriveRunOverRunArc, resolveArcThresholds } from '../engine/retention/runOverRunArc.mjs';
+// @ts-ignore
+import { recordPersonalBest, isPbGrowthFast } from '../engine/pbGrowthTracker.mjs';
+
 export class PlayerContext {
     /** 距上次消行的出块轮数（引擎据此判断纾困/加压）。 */
     private roundsSinceClear = 0;
@@ -46,6 +52,21 @@ export class PlayerContext {
     private postPbReleaseActive = false;
     private postPbReleaseUsed = false;
 
+    /** 局间弧线（RunOverRunArc）：opener/momentum/peak/fatigue/cooldown。 */
+    private runOverRunArc: string | null = null;
+    /** 今日第几局（从 1 起计）。 */
+    private dailyRunIndex = 0;
+    /** 上一局结束时间戳 + 分数。 */
+    private lastGameOver: { ts: number; score: number } | null = null;
+    /** 赌气重开链长（跨局累加；非进程内持久化——重启 app 清零无妨）。 */
+    private rageChainLen = 0;
+    /** 最近若干局得分（升序，赌气/疲劳判定用）。 */
+    private recentScores: number[] = [];
+    /** PB 增长率过快标记（与 web `ctx.pbGrowthFast` 同义）。 */
+    private pbGrowthFast = false;
+    /** 复活后救济（与 web `_postReviveBoost` 同义）：连续 N 轮 spawn 强制 relief intent。 */
+    private forceReliefTtl = 0;
+
     /** 分数里程碑步长（每跨过一档触发一次 scoreMilestone）。 */
     private readonly milestoneStep = 500;
     private readonly window = 8;
@@ -67,10 +88,13 @@ export class PlayerContext {
         this.setBest(best);
         this.warmupRemaining = Math.max(0, warmup.rounds ?? 3);
         this.warmupClearBoost = Math.max(0, warmup.clearBoost ?? 0.4);
-        // 新局：破纪录释放窗口的"局内 used cooldown"也重置（与 web `_postPbReleaseUsed` 重置时机一致）。
         this.postPbReleaseRemaining = 0;
         this.postPbReleaseActive = false;
         this.postPbReleaseUsed = false;
+        this.forceReliefTtl = 0;
+        this.dailyRunIndex++;
+        this._refreshRunOverRunArc();
+        this._refreshPbGrowthFast();
     }
 
     /** 取当前暖局剩余轮数（engineSpawn 每轮拉取并自然 −−）。 */
@@ -128,6 +152,68 @@ export class PlayerContext {
         if (!this.postPbReleaseActive) return;
         if (this.postPbReleaseRemaining > 0) this.postPbReleaseRemaining--;
         if (this.postPbReleaseRemaining <= 0) this.postPbReleaseActive = false;
+    }
+
+    /**
+     * 复活后激活救济（与 web `_postReviveBoost` 同义）：接下来 N 轮 spawn
+     * 强制 `ctx.forceReliefIntent=true`，每轮消费一次。
+     */
+    activateReviveBoost(rounds = 2): void {
+        this.forceReliefTtl = Math.max(0, rounds | 0);
+    }
+
+    /**
+     * 局结束时记录最终得分（供 runOverRunArc 的 fatigue/cooldown 判定）。
+     * 由 GameController 在 settle / gameOver 路径调用。
+     */
+    recordGameOver(score: number): void {
+        this.lastGameOver = { ts: Date.now(), score: Math.max(0, score | 0) };
+        this.recentScores.push(score);
+        if (this.recentScores.length > 10) this.recentScores.shift();
+    }
+
+    /**
+     * 记录新 PB（与 web `game.js _emitPersonalBestEvent → recordPersonalBest` 对齐）。
+     * 同时刷新 pbGrowthFast 标记。
+     */
+    recordNewPb(newBest: number): void {
+        try { recordPersonalBest(newBest); } catch { /* ignore */ }
+        this._refreshPbGrowthFast();
+    }
+
+    /** 取当前局间弧线标签（喂给 ctx.runOverRunArc）。 */
+    getRunOverRunArc(): string | null {
+        return this.runOverRunArc;
+    }
+
+    /** 取 PB 增长率过快标记（喂给 ctx.pbGrowthFast）。 */
+    getPbGrowthFast(): boolean {
+        return this.pbGrowthFast;
+    }
+
+    private _refreshRunOverRunArc(): void {
+        try {
+            const result = deriveRunOverRunArc({
+                dailyRunIndex: this.dailyRunIndex,
+                now: Date.now(),
+                lastGameOver: this.lastGameOver,
+                recentScores: this.recentScores,
+                bestScore: this.bestScore,
+                rageChainLen: this.rageChainLen,
+            });
+            this.runOverRunArc = result?.arc ?? null;
+            if (result?.arc === 'cooldown') {
+                this.rageChainLen = (result as { debug?: { rageChainLen?: number } }).debug?.rageChainLen ?? this.rageChainLen;
+            } else {
+                this.rageChainLen = 0;
+            }
+        } catch {
+            this.runOverRunArc = null;
+        }
+    }
+
+    private _refreshPbGrowthFast(): void {
+        try { this.pbGrowthFast = isPbGrowthFast(); } catch { this.pbGrowthFast = false; }
     }
 
     /** 每次新 dock（出块一轮）：推进节奏计数，开窗，清里程碑标记。 */
@@ -204,6 +290,8 @@ export class PlayerContext {
 
     /** 合并进 spawnContext 的只读快照（键名与引擎/web _spawnContext 对齐）。 */
     snapshot(): Record<string, unknown> {
+        const forceRelief = this.forceReliefTtl > 0;
+        if (forceRelief) this.forceReliefTtl--;
         return {
             lastClearCount: this.lastClearCount,
             roundsSinceClear: this.roundsSinceClear,
@@ -217,6 +305,9 @@ export class PlayerContext {
             bottleneckSolutionTrough: this.bottleneckSolutionTrough,
             bottleneckSamples: this.bottleneckSamples,
             postPbReleaseActive: this.postPbReleaseActive,
+            runOverRunArc: this.runOverRunArc,
+            pbGrowthFast: this.pbGrowthFast,
+            forceReliefIntent: forceRelief,
         };
     }
 }

@@ -1484,10 +1484,10 @@ export default {
     "beam3ply": {
       "comment": "三块全排列 3-ply beam（v8 新增）：Q_3ply = r1+γ·max_{a2}[r2+γ·max_{a3}[r3+γ·V(s''')]]。仅在 dock 未放置块数≥3 时激活。v10 起支持 riskAdaptive：高填充、低 mobility、低 leaf count 时动态提高 topK/topK2/maxActions。",
       "enabled": true,
-      "topK": 12,
-      "topK2": 4,
-      "maxActions": 100,
-      "maxActions2": 50,
+      "topK": 8,
+      "topK2": 3,
+      "maxActions": 60,
+      "maxActions2": 30,
       "riskAdaptive": true,
       "riskFill": 0.56,
       "riskMobility": 18,
@@ -1510,7 +1510,7 @@ export default {
     "lightMCTS": {
       "comment": "轻量 UCT-MCTS：visit_pi + Q 代理作为 teacher，配合 visitPiDistillation。默认开启 moderate sims；采集更慢但显著缓解「短局无 teacher」。训练前可设环境变量 RL_MCTS=0 强制关闭改回纯 beam。",
       "enabled": true,
-      "numSimulations": 24,
+      "numSimulations": 12,
       "cPuct": 1.5,
       "maxDepth": 8,
       "evalBatchSize": 8,
@@ -1527,7 +1527,75 @@ export default {
       "riskFill": 0.58,
       "riskMobility": 16,
       "riskMaxMultiplier": 2,
-      "maxSimulations": 80
+      "maxSimulations": 40
+    },
+    "trainingPresets": {
+      "comment": "三档训练预设：performance（最快吞吐，弱 teacher）/ balanced（默认，速度与质量折中）/ quality（慢但 teacher 信号最强）。面板切换后覆盖 lightMCTS / beam3ply / beam2ply 的运行时参数，不修改本文件持久值。",
+      "performance": {
+        "label": "⚡ 性能",
+        "description": "最高吞吐 · 弱 teacher 信号",
+        "mcts": {
+          "enabled": false
+        },
+        "beam3ply": {
+          "enabled": false
+        },
+        "beam2ply": {
+          "enabled": true,
+          "topK": 8,
+          "maxActions": 50
+        },
+        "feasibilityNodeBudget": 80,
+        "riskNodeBudget": 60
+      },
+      "balanced": {
+        "label": "⚖️ 平衡",
+        "description": "速度与质量折中",
+        "mcts": {
+          "enabled": true,
+          "numSimulations": 12,
+          "maxSimulations": 40,
+          "adaptiveSims": true
+        },
+        "beam3ply": {
+          "enabled": true,
+          "topK": 8,
+          "topK2": 3,
+          "maxActions": 60,
+          "maxActions2": 30
+        },
+        "beam2ply": {
+          "enabled": true,
+          "topK": 15,
+          "maxActions": 100
+        },
+        "feasibilityNodeBudget": 200,
+        "riskNodeBudget": 150
+      },
+      "quality": {
+        "label": "🎯 效果",
+        "description": "最强 teacher 信号 · 训练较慢",
+        "mcts": {
+          "enabled": true,
+          "numSimulations": 24,
+          "maxSimulations": 80,
+          "adaptiveSims": true
+        },
+        "beam3ply": {
+          "enabled": true,
+          "topK": 12,
+          "topK2": 4,
+          "maxActions": 100,
+          "maxActions2": 50
+        },
+        "beam2ply": {
+          "enabled": true,
+          "topK": 15,
+          "maxActions": 100
+        },
+        "feasibilityNodeBudget": 1200,
+        "riskNodeBudget": 600
+      }
     }
   },
   "featureEncoding": {

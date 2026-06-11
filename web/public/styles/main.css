@@ -1651,7 +1651,7 @@ html[data-ui-theme="dark"] .header-skin .skin-picker select option {
     background-position: 48% 48%;
 }
 
-/* RL 机器人盘面演示：避免演示过程中误触棋盘与待选区 */
+/* AI Bot 盘面演示：避免演示过程中误触棋盘与待选区 */
 body.game-rl-preview #game-wrapper,
 body.game-rl-preview .block-dock {
     pointer-events: none;
@@ -3648,7 +3648,7 @@ html[data-visibility="hidden"] *::after {
     line-height: 1.4;
 }
 
-/* —— RL 机器人面板（v1.13 合并：原左侧 #rl-panel 与原右侧 #rl-dash-panel 二合一） ——
+/* —— AI Bot 面板（v1.13 合并：原左侧 #rl-panel 与原右侧 #rl-dash-panel 二合一） ——
  * 几何沿用原 .rl-dash-panel：右侧固定栏，纵向填满视口可用区。
  * 内部布局：header-row + 多段 details，第一块 sticky 顶部，曲线块吃剩余高度。
  */
@@ -4106,6 +4106,29 @@ html[data-visibility="hidden"] *::after {
     color: var(--text-secondary, #3d5266);
     cursor: pointer;
     line-height: 1.2;
+}
+
+.rl-preset-select {
+    font-size: 7.5px;
+    padding: 1px 3px;
+    border: 1px solid var(--border-color, #3a5068);
+    border-radius: 3px;
+    background: var(--panel-bg, #1e2d3d);
+    color: var(--text-secondary, #8fa8bf);
+    cursor: pointer;
+    line-height: 1.3;
+    max-width: 80px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%238fa8bf'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 3px center;
+    padding-right: 12px;
+}
+
+.rl-preset-select option {
+    background: var(--panel-bg, #1e2d3d);
+    color: var(--text-secondary, #8fa8bf);
 }
 
 .rl-lookahead-toggle input {

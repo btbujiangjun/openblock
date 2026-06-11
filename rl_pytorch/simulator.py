@@ -515,10 +515,10 @@ class OpenBlockSimulator:
         self.restore_state(saved_root)
         return int(min(leaves, leaf_cap))
 
-    def check_sequential_feasibility(self) -> float:
-        return 1.0 if self.count_sequential_solution_leaves(leaf_cap=1, node_budget=1200) > 0 else 0.0
+    def check_sequential_feasibility(self, node_budget: int = 200) -> float:
+        return 1.0 if self.count_sequential_solution_leaves(leaf_cap=1, node_budget=node_budget) > 0 else 0.0
 
-    def get_supervision_signals(self) -> dict[str, float]:
+    def get_supervision_signals(self, feasibility_node_budget: int = 200) -> dict[str, float]:
         """一次调用返回所有直接监督目标值。v12 新增 spawn_difficulty_after：trunk 显式预测
         本步落子（dock 重抽）后的 4 维 spawnStepDifficulty 子向量，强化对难度的归纳偏置。"""
         gnp = self._ensure_grid_np()
@@ -526,7 +526,7 @@ class OpenBlockSimulator:
         unplaced_shapes = [b["shape"] for b in self.dock if not b.get("placed")]
         return {
             "board_quality": board_potential_np(gnp, self.dock) / _BOARD_POT_NORM,
-            "feasibility": self.check_sequential_feasibility(),
+            "feasibility": self.check_sequential_feasibility(node_budget=feasibility_node_budget),
             "topology_after": _fg.topology_aux_targets(gnp, self.dock, _ACTION_NORM),
             "spawn_difficulty_after": np.asarray(
                 spawn_step_difficulty_features(unplaced_shapes, occupied), dtype=np.float32

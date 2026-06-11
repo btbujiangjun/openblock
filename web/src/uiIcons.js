@@ -24,7 +24,7 @@ export const UI_ICONS = {
     generativeRecommend: '✨',
     /** 模型训练 */
     modelTraining: '🏋️',
-    /** RL 机器人面板主标题 */
+    /** AI Bot 面板主标题 */
     rlRobot: '🦾',
     /** RL 统计与操作 */
     rlStatsAndActions: '📋',

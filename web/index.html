@@ -1191,7 +1191,7 @@ Transformer V3.1 学条件分布 P(s₁,s₂,s₃|board, behaviorContext₅₆, 
         </details>
     </aside>
     <!-- v1.13：原 #spawn-model-panel 三个 details 已并入上方 #player-insight-panel；左侧栏只剩单一玩家画像容器 -->
-    <!-- v1.13：原左侧 #rl-panel 与右侧 #rl-dash-panel 合并为单一 RL 机器人面板（统一在右侧栏），相关 DOM 见下方 #rl-panel -->
+    <!-- v1.13：原左侧 #rl-panel 与右侧 #rl-dash-panel 合并为单一 AI Bot 面板（统一在右侧栏），相关 DOM 见下方 #rl-panel -->
     <!-- 回放详情：放在左栏底部，不遮挡中央棋盘 -->
     <div id="replay-view-screen" class="screen screen-replay-view" aria-label="对局回放">
         <div class="replay-view-panel">
@@ -1213,14 +1213,14 @@ Transformer V3.1 学条件分布 P(s₁,s₂,s₃|board, behaviorContext₅₆, 
     </div>
     </div>
     <!--
-        合并后的 RL 机器人面板（v1.13）：
+        合并后的 AI Bot 面板（v1.13）：
         历史上左侧栏有 #rl-panel（统计/操作/日志），右侧栏有 #rl-dash-panel（看板曲线）；二者
-        本质属于同一个「RL 机器人训练」功能。统一到右侧后：
+        本质属于同一个「AI Bot 训练」功能。统一到右侧后：
           1) 释放左栏空间，左栏只承载玩家画像 + 出块策略；
           2) 训练数据（统计、按钮、摘要、曲线、进展、损失日志）一处汇总，免去左右切换；
           3) JS（rlPanel.js）通过 #rl-panel 判断挂载点并按 ID 绑定其余子元素，所有子 ID 保持不变。
     -->
-    <aside id="rl-panel" class="side-panel-base rl-panel rl-panel--right" aria-label="RL 机器人训练">
+    <aside id="rl-panel" class="side-panel-base rl-panel rl-panel--right" aria-label="AI Bot 训练">
         <!-- v1.33：收起态细栏 — body.rl-collapsed 时仅此可见，点击 #rl-expand-btn 展开 -->
         <div class="rl-collapsed-strip" aria-hidden="true">
             <button type="button" class="rl-expand-btn" id="rl-expand-btn"
@@ -1229,9 +1229,14 @@ Transformer V3.1 学条件分布 P(s₁,s₂,s₃|board, behaviorContext₅₆, 
             <span class="rl-collapsed-strip-label">RL 训练 · 展开 ›</span>
         </div>
         <div class="rl-header-row">
-            <h3 class="rl-panel-title"><span class="panel-head-icon" aria-hidden="true">🦾</span>RL机器人</h3>
+            <h3 class="rl-panel-title"><span class="panel-head-icon" aria-hidden="true">🦾</span>AI Bot</h3>
             <label class="rl-backend-toggle" title="勾选后策略推理与训练走 Flask /api/rl PyTorch 服务端；不勾选则使用浏览器内线性智能体与本地日志。"><input type="checkbox" id="rl-use-pytorch" /> PyTorch <span id="rl-backend-status" class="rl-backend-status">未检测</span></label>
             <label class="rl-lookahead-toggle" title="开启后每步用 r+γV(s') 选动作并上报 q_teacher（利于 Q 蒸馏），但每步要在浏览器枚举全部合法落点并多次请求服务端，首局可能很慢甚至像卡住；初次训练建议先不勾选。"><input type="checkbox" id="rl-lookahead" /> 1-step lookahead</label>
+            <select id="rl-training-preset" class="rl-preset-select" title="训练档位：性能（最快吞吐）/ 平衡（折中）/ 效果（最强 teacher 信号）">
+                <option value="performance">⚡ 性能</option>
+                <option value="balanced" selected>⚖️ 平衡</option>
+                <option value="quality">🎯 效果</option>
+            </select>
             <!-- v1.33：收起按钮 — 把整个 RL 面板压缩成 36px 细栏，让中央游戏区放大 -->
             <button type="button" class="rl-collapse-btn" id="rl-collapse-btn"
                     title="收起 RL 训练面板，把空间让给游戏区（盘面与候选区随之放大）"

@@ -976,6 +976,7 @@ def create_rl_blueprint() -> Blueprint:
             cuda_available = bool(torch.cuda.is_available())
         except Exception:
             cuda_available = False
+        from rl_pytorch.game_rules import rl_training_presets, rl_active_training_preset
         return jsonify(
             {
                 "available": True,
@@ -991,6 +992,12 @@ def create_rl_blueprint() -> Blueprint:
                 "save_every": int(os.environ.get("RL_SAVE_EVERY", "500")),
                 "autoload": os.environ.get("RL_AUTOLOAD", "1"),
                 "meta": _state["meta"],
+                "training_preset": rl_active_training_preset(),
+                "training_presets": {
+                    k: {"label": v.get("label", k), "description": v.get("description", "")}
+                    for k, v in rl_training_presets().items()
+                    if k != "comment"
+                },
             }
         )
 
@@ -1336,6 +1343,38 @@ def create_rl_blueprint() -> Blueprint:
                 "checkpoint_loaded": _state["checkpoint_loaded"],
             }
         )
+
+    @bp.route("/api/rl/training_preset", methods=["GET", "POST"])
+    def rl_training_preset():
+        """GET: 返回当前预设和所有可选项。POST body: { preset: "performance"|"balanced"|"quality" }"""
+        from rl_pytorch.game_rules import (
+            rl_training_presets,
+            rl_active_training_preset,
+            rl_set_training_preset,
+        )
+        if request.method == "GET":
+            presets = rl_training_presets()
+            return jsonify({
+                "active": rl_active_training_preset(),
+                "presets": {
+                    k: {"label": v.get("label", k), "description": v.get("description", "")}
+                    for k, v in presets.items()
+                    if k != "comment"
+                },
+            })
+        data = request.get_json(force=True, silent=True) or {}
+        name = str(data.get("preset", "")).strip()
+        if not name:
+            return jsonify({"error": "preset field required"}), 400
+        cfg = rl_set_training_preset(name)
+        if cfg is None:
+            return jsonify({"error": f"unknown preset: {name}"}), 400
+        _append_training_log({
+            "event": "preset_changed",
+            "preset": name,
+            "label": cfg.get("label", name),
+        })
+        return jsonify({"ok": True, "active": name, "label": cfg.get("label", name)})
 
     return bp
 

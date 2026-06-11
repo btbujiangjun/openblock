@@ -335,6 +335,13 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): EngineSpaw
         });
 
         if (onSpawned) { try { onSpawned(); } catch { /* 容错 */ } }
+
+        if ((ctx.totalRounds as number) <= 3 || (ctx.totalRounds as number) % 10 === 0) {
+            const lr = layeredRef as Record<string, unknown> | null;
+            const sb = (lr as any)?.stressBreakdown;
+            console.log(`[spawn-diag] round=${ctx.totalRounds} stress=${lr?._adaptiveStressRaw ?? '?'} intent=${lr?._spawnIntent ?? '?'} arc=${ctx.runOverRunArc ?? 'null'} pbGrowth=${ctx.pbGrowthFast ?? false} lifecycle=${sb?.lifecycleStage ?? '?'}·${sb?.lifecycleBand ?? '?'} cap=${sb?.lifecycleCapAdjust ?? 0}`);
+        }
+
         return blocks;
     }
 
