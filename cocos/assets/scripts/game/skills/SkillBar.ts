@@ -1,5 +1,5 @@
-import { _decorator, Component, Node, Label, UITransform, Color, Graphics } from 'cc';
-import { SKILL_ORDER, SKILLS, SkillId, Wallet } from '../../core';
+import { _decorator, Component, Node, Label, UITransform, Color, Graphics, tween, Tween, UIOpacity, Vec3, v3 } from 'cc';
+import { SKILL_ORDER, SKILLS, SkillId, Wallet, WalletKind, WalletChangeDetail } from '../../core';
 import { TapBus, bindEngineClick, inheritLayer } from '../ui/uiKit';
 
 const { ccclass } = _decorator;
@@ -14,6 +14,8 @@ interface SlotRef {
     icon: Label;
     bg: Graphics;
     badge: { node: Node; g: Graphics; lbl: Label } | null;
+    /** 上一次展示的余额，用于 count-up 动效起始值。 */
+    prevCount: number;
 }
 
 // web `.skill-btn--*` 的极淡描边色调（hint=绿 / restart 类=橙），其余中性。
@@ -54,10 +56,8 @@ export class SkillBar extends Component {
         this.onActivate = onActivate;
         this.wallet = wallet;
         this.build();
-        // 钱包任意通货变更（宝箱入账 / 技能消耗）即时刷新徽章余额。
-        // 放在 build() 之后注册：build 会清空 _unregs，故钱包监听单独存放。
         this._walletUnreg?.();
-        this._walletUnreg = wallet.onAnyChange(() => this.refresh());
+        this._walletUnreg = wallet.onAnyChange((detail: WalletChangeDetail) => this.refreshWithDetail(detail));
     }
 
     private build(): void {
@@ -114,7 +114,7 @@ export class SkillBar extends Component {
             this._unregs.push(TapBus.add(n, fire));
             this._unregs.push(bindEngineClick(n, fire));
 
-            this.slots.push({ id, node: n, icon, bg, badge });
+            this.slots.push({ id, node: n, icon, bg, badge, prevCount: 0 });
         });
         this.refresh();
     }
@@ -183,18 +183,51 @@ export class SkillBar extends Component {
         this.refresh();
     }
 
-    /** 依据钱包道具余额刷新每个技能槽的可用态与数量徽章。 */
-    refresh(): void {
+    /** 钱包变更带明细刷新：根据 detail 的 action/kind 驱动对应槽位的动效。 */
+    private refreshWithDetail(detail: WalletChangeDetail): void {
         for (const s of this.slots) {
-            const kind = SKILLS[s.id].tokenKind;
-            // aim 无消耗 → 始终可用；其余按余额（库存 + 当日免费）判定。
+            const kind = SKILLS[s.id].tokenKind as WalletKind | undefined;
             const count = kind && this.wallet ? this.wallet.getBalance(kind) : 0;
             const affordable = kind ? count > 0 : true;
             const active = this.activeId === s.id;
             this.drawBg(s, active, affordable);
             s.icon.color = (affordable || active) ? SkillBar.ICON_ON : SkillBar.ICON_OFF;
+            if (!s.badge || !kind) continue;
+            const isTarget = detail.kind === kind;
+            const oldCount = s.prevCount;
+            s.prevCount = count;
+            if (count > 0) {
+                s.badge.node.active = true;
+                this.drawBadge(s.badge, affordable);
+                if (isTarget && detail.action === 'add' && detail.amount > 0) {
+                    this.animateBadgeGain(s.badge, oldCount, count, s.node);
+                } else if (isTarget && detail.action === 'spend') {
+                    this.animateBadgeDrain(s.badge, oldCount, count);
+                } else {
+                    s.badge.lbl.string = count > 99 ? '99+' : `${count}`;
+                }
+            } else if (oldCount > 0 && isTarget) {
+                this.animateBadgeDrain(s.badge, oldCount, 0);
+                this.scheduleNode(0.65, () => {
+                    if (s.badge && count <= 0) s.badge.node.active = false;
+                });
+            } else {
+                s.badge.node.active = false;
+            }
+        }
+    }
+
+    /** 依据钱包道具余额刷新每个技能槽的可用态与数量徽章（无动效版，用于初始化/激活态切换）。 */
+    refresh(): void {
+        for (const s of this.slots) {
+            const kind = SKILLS[s.id].tokenKind as WalletKind | undefined;
+            const count = kind && this.wallet ? this.wallet.getBalance(kind) : 0;
+            const affordable = kind ? count > 0 : true;
+            const active = this.activeId === s.id;
+            this.drawBg(s, active, affordable);
+            s.icon.color = (affordable || active) ? SkillBar.ICON_ON : SkillBar.ICON_OFF;
+            s.prevCount = count;
             if (s.badge) {
-                // 余额为 0 时隐藏徽章（对齐 web 0 不显数字），否则显示数量（>99 显示 99+）。
                 if (count > 0) {
                     s.badge.node.active = true;
                     s.badge.lbl.string = count > 99 ? '99+' : `${count}`;
@@ -204,5 +237,112 @@ export class SkillBar extends Component {
                 }
             }
         }
+    }
+
+    /**
+     * 增益动效（对齐 web badgeAnimator badgePopUp + badgeFloatPlus）：
+     *   1. badge scale 1→1.38→0.96→1（弹出回弹）
+     *   2. count-up 从 oldVal 缓动到 newVal
+     *   3. badge 上方飘出 +N 金色文字
+     */
+    private animateBadgeGain(
+        badge: NonNullable<SlotRef['badge']>,
+        oldVal: number,
+        newVal: number,
+        slotNode: Node,
+    ): void {
+        const fmt = (n: number): string => {
+            const v = Math.max(0, Math.round(n));
+            return v > 99 ? '99+' : `${v}`;
+        };
+        // pulse
+        Tween.stopAllByTarget(badge.node);
+        badge.node.setScale(1, 1, 1);
+        tween(badge.node)
+            .to(0.24, { scale: v3(1.38, 1.38, 1) }, { easing: 'cubicOut' })
+            .to(0.18, { scale: v3(0.96, 0.96, 1) }, { easing: 'cubicInOut' })
+            .to(0.12, { scale: v3(1, 1, 1) }, { easing: 'cubicOut' })
+            .start();
+        // count-up
+        const st = { v: oldVal };
+        tween(st)
+            .to(0.55, { v: newVal }, {
+                easing: 'quadOut',
+                onUpdate: () => { badge.lbl.string = fmt(st.v); },
+            })
+            .call(() => { badge.lbl.string = fmt(newVal); })
+            .start();
+        // float +N
+        const delta = newVal - oldVal;
+        if (delta > 0) this.spawnFloatPlus(slotNode, delta);
+    }
+
+    /** 消耗动效（对齐 web badgePopDown）：badge scale 1→0.78→1。 */
+    private animateBadgeDrain(
+        badge: NonNullable<SlotRef['badge']>,
+        oldVal: number,
+        newVal: number,
+    ): void {
+        const fmt = (n: number): string => {
+            const v = Math.max(0, Math.round(n));
+            return v > 99 ? '99+' : `${v}`;
+        };
+        Tween.stopAllByTarget(badge.node);
+        badge.node.setScale(1, 1, 1);
+        tween(badge.node)
+            .to(0.18, { scale: v3(0.78, 0.78, 1) }, { easing: 'quadOut' })
+            .to(0.22, { scale: v3(1, 1, 1) }, { easing: 'cubicOut' })
+            .start();
+        const st = { v: oldVal };
+        tween(st)
+            .to(0.45, { v: newVal }, {
+                easing: 'quadOut',
+                onUpdate: () => { badge.lbl.string = fmt(st.v); },
+            })
+            .call(() => { badge.lbl.string = fmt(newVal); })
+            .start();
+    }
+
+    /**
+     * 在技能槽上方飘出 "+N" 金色文字（对齐 web `.badge-float-plus` @keyframes badgeFloatPlus）。
+     */
+    private spawnFloatPlus(slotNode: Node, delta: number): void {
+        const parent = slotNode.parent;
+        if (!parent?.isValid) return;
+        const n = new Node('floatPlus');
+        n.parent = parent;
+        inheritLayer(n, parent);
+        n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        const pos = slotNode.position;
+        n.setPosition(pos.x, pos.y + SLOT / 2 + 4, 0);
+        const op = n.addComponent(UIOpacity);
+        op.opacity = 0;
+        const l = n.addComponent(Label);
+        l.string = `+${delta > 99 ? '99+' : delta}`;
+        l.fontSize = 16;
+        l.lineHeight = 18;
+        l.color = new Color(255, 213, 107, 255);
+        (l as unknown as { isBold: boolean }).isBold = true;
+        const startY = pos.y + SLOT / 2 + 4;
+        n.setScale(0.55, 0.55, 1);
+        tween(n)
+            .to(0.12, { position: v3(pos.x, startY + 14, 0), scale: v3(1.12, 1.12, 1) }, { easing: 'cubicOut' })
+            .to(0.50, { position: v3(pos.x, startY + 38, 0), scale: v3(1, 1, 1) }, { easing: 'cubicOut' })
+            .to(0.26, { position: v3(pos.x, startY + 60, 0), scale: v3(0.92, 0.92, 1) }, { easing: 'quadOut' })
+            .call(() => n.destroy())
+            .start();
+        tween(op)
+            .to(0.12, { opacity: 255 }, { easing: 'quadOut' })
+            .delay(0.50)
+            .to(0.26, { opacity: 0 }, { easing: 'quadOut' })
+            .start();
+    }
+
+    /** 延时执行回调（利用临时节点的 tween，无需 Component 调度）。 */
+    private scheduleNode(delaySec: number, fn: () => void): void {
+        const timer = new Node('skillBarTimer');
+        timer.parent = this.node;
+        timer.addComponent(UITransform);
+        tween(timer).delay(delaySec).call(() => { fn(); if (timer.isValid) timer.destroy(); }).start();
     }
 }

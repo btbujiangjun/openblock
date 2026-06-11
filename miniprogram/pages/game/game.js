@@ -106,6 +106,7 @@ Page({
   _dragStartTouch: null,
   _gridRect: null,
   _particleRafId: null,
+  _floodRafId: null,
   _clearCellsTimer: null,
   _floatScoreTimer: null,
   _scoreBurstTimer: null,
@@ -699,6 +700,7 @@ Page({
     if (next > prev) {
       storage.setItem(bestKey, String(next));
     }
+    this._startBoardFlood();
     this._scheduleGameOverFeedback();
     this._bestScore = next;
     this.setData({
@@ -721,6 +723,183 @@ Page({
     } catch { /* ignore */ }
   },
 
+  _startBoardFlood() {
+    const g = this._controller;
+    const r = this._renderer;
+    if (!g || !g.grid || !r || !this._canvas) return;
+    const n = g.grid.size;
+    const skin = this._skin || r._skin;
+    const palette = skin?.blockColors || [];
+    const colorCount = palette.length || 8;
+    const cs = this._cellSize;
+
+    const rows = [];
+    for (let gy = n - 1; gy >= 0; gy--) {
+      const row = [];
+      for (let gx = 0; gx < n; gx++) {
+        if (g.grid.cells[gy][gx] === null) {
+          row.push({ gx, gy, colorIdx: Math.floor(Math.random() * colorCount) });
+        }
+      }
+      if (row.length) rows.push({ cells: row, gy, offset: 0, startTime: 0, done: false });
+    }
+    if (!rows.length) return;
+
+    const SLIDE_MS = 500;
+    const ROW_DELAY = Math.min(140, 3000 / Math.max(rows.length, 1));
+    const totalMs = rows.length * ROW_DELAY + SLIDE_MS + 2400;
+    this._gameOverQuietUntil = Math.max(this._gameOverQuietUntil || 0, Date.now() + totalMs);
+
+    const easeOutCubic = (x) => 1 - Math.pow(1 - x, 3);
+    const gold = '#FFD700';
+    const t0 = Date.now();
+    let rowIdx = 0;
+    let lastRowTime = t0;
+    let doneCount = 0;
+
+    const tick = () => {
+      const now = Date.now();
+      const elapsed = now - t0;
+      r.clear();
+
+      if (rowIdx < rows.length && now - lastRowTime >= ROW_DELAY) {
+        const row = rows[rowIdx];
+        row.startTime = now;
+        row.offset = (n - row.gy + 3) * cs;
+        rowIdx++;
+        lastRowTime = now;
+      }
+
+      for (let ri = 0; ri < rowIdx; ri++) {
+        const row = rows[ri];
+        if (row.done) continue;
+        const t = (now - row.startTime) / SLIDE_MS;
+        if (t >= 1 && !row.done) {
+          row.done = true;
+          doneCount++;
+          for (const c of row.cells) {
+            g.grid.cells[c.gy][c.gx] = c.colorIdx;
+          }
+          for (const c of row.cells) {
+            const cx = c.gx * cs + cs / 2;
+            const cy = c.gy * cs + cs / 2;
+            const color = palette[c.colorIdx % palette.length] || gold;
+            for (let j = 0; j < 3; j++) {
+              const ang = Math.random() * Math.PI * 2;
+              const sp = 1.5 + Math.random() * 3;
+              r.particles.push({
+                x: cx, y: cy,
+                vx: Math.cos(ang) * sp,
+                vy: Math.sin(ang) * sp - 2,
+                color: j === 0 ? gold : color,
+                life: 0.4 + Math.random() * 0.2,
+                lifeDecay: 0.028,
+                size: 1.5 + Math.random() * 2,
+                gravityMul: 0.3,
+              });
+            }
+          }
+        }
+      }
+
+      for (let ri = 0; ri < rowIdx; ri++) {
+        const row = rows[ri];
+        if (row.done) continue;
+        const remaining = 1 - easeOutCubic((now - row.startTime) / SLIDE_MS);
+        const yOff = row.offset * remaining;
+        for (const c of row.cells) {
+          const color = palette[c.colorIdx % palette.length] || gold;
+          r._paintCell(c.gx * cs, c.gy * cs + yOff, cs, color);
+        }
+      }
+
+      r.drawGrid(g.grid, cs, 0, 0);
+
+      r.updateShake();
+      r.updateParticles();
+      r.renderParticles();
+
+      const allDone = rowIdx >= rows.length && doneCount >= rows.length;
+      if (!allDone) {
+        this._floodRafId = this._canvas.requestAnimationFrame(tick);
+      } else {
+        this._floodRafId = null;
+        this._startRowFlipWave(g, r, n, cs, palette);
+      }
+    };
+    this._floodRafId = this._canvas.requestAnimationFrame(tick);
+  },
+
+  _startRowFlipWave(g, r, n, cs, palette) {
+    const TOTAL_MS = 2000;
+    const FLIP_MS = 300;
+    const ROW_STAGGER = Math.min(180, (TOTAL_MS - FLIP_MS) / Math.max(n - 1, 1));
+    const flipStart = Date.now();
+
+    const newColors = [];
+    for (let gy = 0; gy < n; gy++) {
+      const row = [];
+      for (let gx = 0; gx < n; gx++) {
+        const cur = g.grid.cells[gy][gx];
+        if (cur === null) { row.push(null); continue; }
+        let nc;
+        do { nc = Math.floor(Math.random() * palette.length); } while (nc === cur && palette.length > 1);
+        row.push(nc);
+      }
+      newColors.push(row);
+    }
+
+    const flipped = new Array(n).fill(false);
+
+    const flipTick = () => {
+      const elapsed = Date.now() - flipStart;
+      r.clear();
+
+      for (let gy = 0; gy < n; gy++) {
+        const rowStart = gy * ROW_STAGGER;
+        const t = Math.max(0, Math.min(1, (elapsed - rowStart) / FLIP_MS));
+
+        if (t >= 1 && !flipped[gy]) {
+          flipped[gy] = true;
+          for (let gx = 0; gx < n; gx++) {
+            if (newColors[gy][gx] !== null) {
+              g.grid.cells[gy][gx] = newColors[gy][gx];
+            }
+          }
+        }
+
+        const scaleY = t < 0.5 ? 1 - t * 2 : (t - 0.5) * 2;
+        const rowCenterY = gy * cs + cs / 2;
+
+        const ctx = r._ctx || r.ctx;
+        for (let gx = 0; gx < n; gx++) {
+          const v = g.grid.cells[gy][gx];
+          if (v === null) continue;
+          const color = palette[v % palette.length];
+          if (!color) continue;
+          ctx.save();
+          ctx.translate(gx * cs + cs / 2, rowCenterY);
+          ctx.scale(1, scaleY);
+          ctx.translate(-(gx * cs + cs / 2), -rowCenterY);
+          r._paintCell(gx * cs, gy * cs, cs, color);
+          ctx.restore();
+        }
+      }
+
+      r.updateParticles();
+      r.renderParticles();
+
+      const allFlipped = elapsed >= (n - 1) * ROW_STAGGER + FLIP_MS;
+      if (!allFlipped) {
+        this._floodRafId = this._canvas.requestAnimationFrame(flipTick);
+      } else {
+        this._floodRafId = null;
+        this._redraw();
+      }
+    };
+    this._floodRafId = this._canvas.requestAnimationFrame(flipTick);
+  },
+
   _scheduleGameOverFeedback() {
     if (this._gameOverAudioTimer) {
       clearTimeout(this._gameOverAudioTimer);
@@ -737,6 +916,10 @@ Page({
     if (this._canvas && this._particleRafId != null) {
       this._canvas.cancelAnimationFrame(this._particleRafId);
       this._particleRafId = null;
+    }
+    if (this._canvas && this._floodRafId != null) {
+      this._canvas.cancelAnimationFrame(this._floodRafId);
+      this._floodRafId = null;
     }
   },
 
@@ -1076,6 +1259,10 @@ Page({
   onRestart() {
     this._newBestCelebrated = false;
     this._gameOverQuietUntil = 0;
+    if (this._floodRafId != null && this._canvas) {
+      this._canvas.cancelAnimationFrame(this._floodRafId);
+      this._floodRafId = null;
+    }
     if (this._gameOverTimer) {
       clearTimeout(this._gameOverTimer);
       this._gameOverTimer = null;

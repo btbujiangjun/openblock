@@ -13,6 +13,7 @@ const ROOT = path.resolve(import.meta.dirname, '..');
 const WEB_BUNDLE = path.join(ROOT, 'web/public/spawn-tuning-v2/policies.json');
 const WEB_META = path.join(ROOT, 'web/public/spawn-tuning-v2/policies.meta.json');
 const MP_TARGET = path.join(ROOT, 'miniprogram/core/tuning/v2/spawnPoliciesV2.js');
+const COCOS_TARGET = path.join(ROOT, 'cocos/assets/scripts/engine/tuning/v2/spawnPoliciesV2.mjs');
 
 describe('spawn tuning v2 bundle sync', () => {
     it('web bundle 存在且格式正确', () => {
@@ -36,5 +37,16 @@ describe('spawn tuning v2 bundle sync', () => {
         const result = syncSpawnBundle({ verify: true });
         expect(result.ok).toBe(true);
         expect(result.verified).toBe(true);
+    });
+
+    it('Cocos ESM 模块与 web bundle 语义一致', () => {
+        expect(fs.existsSync(COCOS_TARGET)).toBe(true);
+        const webData = JSON.parse(fs.readFileSync(WEB_BUNDLE, 'utf8'));
+        const src = fs.readFileSync(COCOS_TARGET, 'utf8');
+        const marker = 'export default ';
+        const idx = src.indexOf(marker);
+        expect(idx).toBeGreaterThanOrEqual(0);
+        const cocosData = JSON.parse(src.slice(idx + marker.length).trim().replace(/;\s*$/, ''));
+        expect(JSON.stringify(cocosData)).toBe(JSON.stringify(webData));
     });
 });

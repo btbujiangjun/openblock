@@ -167,6 +167,9 @@ export RL_TEMP_DECAY_RATE="${RL_TEMP_DECAY_RATE:-0.00005}"
 export RL_DIRICHLET_DECAY_EPISODES="${RL_DIRICHLET_DECAY_EPISODES:-25000}"
 export RL_ZOBRIST_SHARED="${RL_ZOBRIST_SHARED:-1}"          # 跨进程共享转置表
 
+# ── 训练日志 JSONL（看板 rlTrainingCharts.js 可读）────────────────────────────
+export RL_TRAINING_LOG="${RL_TRAINING_LOG:-logs/rl/train_full_mcts.jsonl}"
+
 # ── 数值稳定 env（显式 pin，覆盖任何泄漏值）────────────────────────────────
 export RL_RETURN_SCALE="${RETURN_SCALE}"                    # 固定回报缩放，杜绝旧 0.032 泄漏
 export RL_VALUE_TARGET_CLIP="${VALUE_TARGET_CLIP}"          # 价值目标裁剪
@@ -204,6 +207,7 @@ echo "  dirichlet    : eps=${DIRICHLET_EPSILON} alpha=${DIRICHLET_ALPHA}"
 echo "  stability    : return_scale=${RETURN_SCALE} grad_clip=${GRAD_CLIP} value_target_clip=${VALUE_TARGET_CLIP} gae_delta_clip=${GAE_DELTA_CLIP}"
 echo "  save         : ${SAVE_PATH}"
 echo "  log          : ${LOG_FILE}"
+echo "  jsonl        : ${RL_TRAINING_LOG}"
 echo "  env"
 echo "    RL_MCTS                       = ${RL_MCTS}"
 echo "    RL_CURRICULUM_MODE            = ${RL_CURRICULUM_MODE}"

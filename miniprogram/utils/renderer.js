@@ -1248,6 +1248,10 @@ class GameRenderer {
       const p = this.particles[i];
       p.x += p.vx;
       p.y += p.vy;
+      if (p.damping != null) {
+        p.vx *= p.damping;
+        p.vy *= p.damping;
+      }
       p.vy += 0.35 * (p.gravityMul ?? 1);
       const decay = p.lifeDecay ?? 0.03;
       p.life -= decay;

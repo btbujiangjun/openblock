@@ -111,6 +111,8 @@ export interface EngineSpawner {
      * 跨局不清会让 cocos 上一局的「已用特殊形状配额」「上轮 intent」直接污染新局头几轮出块。
      */
     resetForNewGame: () => void;
+    /** 运行时切换出块难度策略（对齐 web `this.strategy` 的动态切换）。 */
+    setStrategyId: (id: string) => void;
 }
 
 /**
@@ -119,7 +121,7 @@ export interface EngineSpawner {
  */
 export function createEngineSpawner(opts: EngineSpawnerOptions = {}): EngineSpawner {
     const rng = opts.rng ?? defaultRng;
-    const strategyId = opts.strategyId ?? 'normal';
+    let strategyId = opts.strategyId ?? 'normal';
     const getSkin = opts.getSkin ?? (() => null);
     const onRound = opts.onRound;
     const getProfile = opts.getProfile ?? (() => null);
@@ -339,7 +341,9 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): EngineSpaw
         if ((ctx.totalRounds as number) <= 3 || (ctx.totalRounds as number) % 10 === 0) {
             const lr = layeredRef as Record<string, unknown> | null;
             const sb = (lr as any)?.stressBreakdown;
-            console.log(`[spawn-diag] round=${ctx.totalRounds} stress=${lr?._adaptiveStressRaw ?? '?'} intent=${lr?._spawnIntent ?? '?'} arc=${ctx.runOverRunArc ?? 'null'} pbGrowth=${ctx.pbGrowthFast ?? false} lifecycle=${sb?.lifecycleStage ?? '?'}·${sb?.lifecycleBand ?? '?'} cap=${sb?.lifecycleCapAdjust ?? 0}`);
+            const mc = ctx.modelConfig as Record<string, number> | null;
+            const mcSummary = mc ? `hit(${Object.keys(mc).length}d)` : 'null';
+            console.log(`[spawn-diag] round=${ctx.totalRounds} stress=${lr?._adaptiveStressRaw ?? '?'} intent=${lr?._spawnIntent ?? '?'} arc=${ctx.runOverRunArc ?? 'null'} pbGrowth=${ctx.pbGrowthFast ?? false} lifecycle=${sb?.lifecycleStage ?? '?'}·${sb?.lifecycleBand ?? '?'} cap=${sb?.lifecycleCapAdjust ?? 0} theta=${sb?.tuningV2Source ?? '?'} modelCfg=${mcSummary} profile=${getProfile() ? 'ok' : 'null'}`);
         }
 
         return blocks;
@@ -364,6 +368,10 @@ export function createEngineSpawner(opts: EngineSpawnerOptions = {}): EngineSpaw
         _lastSpawnIntentAge = 0;
         // 引擎模块级态：清掉 _prevScoreMilestone / _spawnMemory。
         resetEngineForNewGame();
+    };
+    engineSpawn.setStrategyId = (id: string): void => {
+        strategyId = id;
+        try { strat = getStrategy(strategyId); } catch { strat = null; }
     };
     return engineSpawn;
 }

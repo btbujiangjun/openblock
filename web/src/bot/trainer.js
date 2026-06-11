@@ -392,6 +392,7 @@ export async function trainSelfPlay(opts) {
 
             let serverEpisodes = null, lossPi = null, lossV = null;
             let buffered = false;
+            let bufferSize = null, batchThreshold = null;
             if (ep.trajectory.length > 0) {
                 try {
                     const res = await trainEpisodeRemote(ep.trajectory, {
@@ -401,6 +402,8 @@ export async function trainSelfPlay(opts) {
                     lossPi = res.loss_policy;
                     lossV = res.loss_value;
                     buffered = Boolean(res.buffered);
+                    bufferSize = res.buffer_size ?? null;
+                    batchThreshold = res.batch_threshold ?? null;
                 } catch (err) {
                     console.warn('[RL backend] train_episode failed:', err);
                 }
@@ -419,7 +422,7 @@ export async function trainSelfPlay(opts) {
                 clears: ep.totalClears, won: ep.won, trajLen: ep.trajectory.length,
                 policySteps: ep.trajectory.length, serverEpisodes,
                 lossPolicy: lossPi, lossValue: lossV, fromBackend: true,
-                buffered,
+                buffered, bufferSize, batchThreshold,
             });
 
             if (e % 3 === 0) await new Promise(r => setTimeout(r, 0));

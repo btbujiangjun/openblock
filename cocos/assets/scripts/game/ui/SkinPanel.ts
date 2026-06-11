@@ -1,6 +1,6 @@
 import { _decorator, Component, Node, Color, UITransform, Label, Graphics, UIOpacity, Vec3, tween } from 'cc';
 import { Modal, dimBg, card, label, closeX, TapBus, bindEngineClick, inheritLayer } from './uiKit';
-import { SKINS, listSkinIds, Skin, t } from '../../core';
+import { SKINS, listSkinIds, Skin, t, getSkinCategories } from '../../core';
 import { blockMetrics, gridOuterColor, cellEmptyColor, blockIcon } from '../skin/palette';
 import { paintBlockFace, iconFontSize } from '../skin/blockPaint';
 import { Motion } from '../platform/Motion';
@@ -41,20 +41,25 @@ export class SkinPanel extends Component {
 
     private build(): void {
         Modal.open();
-        const ids = listSkinIds();
-        // 移动端优先：4 列紧凑卡片，避免列表压到底部并被关闭按钮遮挡。
+        const categories = getSkinCategories();
         const cols = 4;
-        const swatch = 136;        // 单元宽
-        const swatchH = 132;       // 单元高（含名字）
+        const swatch = 136;
+        const swatchH = 132;
         const gapX = 10;
         const gapY = 10;
-        const rows = Math.ceil(ids.length / cols);
+        const catLabelH = 38;
+        const catGap = 14;
         const gridW = cols * swatch + (cols - 1) * gapX;
-        const gridH = rows * swatchH + (rows - 1) * gapY;
-        const h = gridH + 150;
+
+        let totalH = 0;
+        for (const cat of categories) {
+            totalH += catLabelH + catGap;
+            const catRows = Math.ceil(cat.skins.length / cols);
+            totalH += catRows * swatchH + (catRows - 1) * gapY + catGap;
+        }
+        const h = totalH + 150;
         const w = gridW + 60;
 
-        // 点背景关闭
         const dim = dimBg(this.node);
         dim.getComponent(UITransform)!.setContentSize(2000, 3000);
         this._unregs.push(TapBus.add(dim, () => this.close()));
@@ -62,18 +67,25 @@ export class SkinPanel extends Component {
         const c = card(this.node, w, h);
         const topY = h / 2 - 54;
         label(c, t('skin.title'), 38, 0, topY, new Color(255, 220, 130, 255));
-        // 右上角 × 关闭（对齐 web 弹窗）
         this._unregs.push(closeX(c, w / 2 - 44, h / 2 - 44, () => this.close()));
 
         const startX = -gridW / 2 + swatch / 2;
-        const startY = topY - 72 - swatchH / 2;
-        ids.forEach((id, i) => {
-            const r = Math.floor(i / cols);
-            const col = i % cols;
-            const x = startX + col * (swatch + gapX);
-            const y = startY - r * (swatchH + gapY);
-            this.makeSwatch(c, SKINS[id], x, y, swatch, swatchH);
-        });
+        let curY = topY - 72;
+
+        for (const cat of categories) {
+            label(c, cat.label, 22, 0, curY, new Color(180, 195, 220, 255));
+            curY -= catLabelH + catGap;
+
+            cat.skins.forEach((skin, i) => {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const x = startX + col * (swatch + gapX);
+                const y = curY - row * (swatchH + gapY) - swatchH / 2;
+                this.makeSwatch(c, skin, x, y, swatch, swatchH);
+            });
+            const catRows = Math.ceil(cat.skins.length / cols);
+            curY -= catRows * swatchH + (catRows - 1) * gapY + catGap;
+        }
     }
 
     private makeSwatch(parent: Node, skin: Skin, x: number, y: number, w: number, h: number): void {

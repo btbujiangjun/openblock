@@ -133,7 +133,7 @@ const MODAL_GHOST_HEAL_MS = 5000;
  *  （Modal 计数为 0）持续达到此时长 → 说明结算/复活面板没能弹出（build 抛错 / 事件链中断），
  *  此时 onTouchStart 会被 gameOver 守卫永久拦死且无 UI 可退出，表现为「玩到中途候选块全部
  *  无法激活、又看不到任何弹窗」。看门狗据此重新弹出结算卡，保证玩家始终能「再来一局」。 */
-const GAMEOVER_NO_PANEL_HEAL_MS = 1500;
+const GAMEOVER_NO_PANEL_HEAL_MS = 6000;
 
 /** 泄漏守卫兜底：用户连续点击「死区」（未命中任何可交互目标）却被 Modal/metaPanel 守卫拦住、
  *  且场景内确无合法弹窗 —— 判定为僵尸守卫态（Modal 计数泄漏 / metaPanel.active 卡死，
@@ -364,7 +364,7 @@ export class GameController extends Component {
         playerCtx: PlayerContext;
         profile?: AdaptiveProfile;
         /** 出块器引用：新局开始时调 resetForNewGame() 清掉跨局态。可选（缺省时回退为 no-op，老路径仍兼容）。 */
-        spawner?: { resetForNewGame: () => void };
+        spawner?: { resetForNewGame: () => void; setStrategyId?: (id: string) => void };
     }): void {
         Object.assign(this, parts);
     }
@@ -751,7 +751,6 @@ export class GameController extends Component {
         this._pendingClearLines = 0;
         this.timeLeft = getMode(mode).timeLimitSec;
         this.hud.setTimeLeft(this.timeLeft > 0 ? this.timeLeft : null);
-        this.hud.setGameOver(false);
         this.hud.resetScore();
         this.resetInPlayHud();
         this.model.newGame();
@@ -1257,7 +1256,6 @@ export class GameController extends Component {
     // ---- 结算 / 复活 / 奖励 ----
 
     private onGameOver(): void {
-        this.hud.setGameOver(true);
         this.hud.setTimeLeft(null);
         // checkGameOver / endByTime 已经在 model 内 commit 了新 PB（若本局确实超过旧 PB），
         // 这里立即把顶栏 HUD 的"最佳"刷新到新值，避免出现"结算卡显示新 PB 但顶栏仍是旧 PB"的撕裂感。
@@ -1280,12 +1278,25 @@ export class GameController extends Component {
             });
         } catch { /* ignore */ }
 
-        const cfg = getConfig();
-        if (flag('revive') && this.model.reviveCount < cfg.reviveMaxPerGame) {
-            this.showReviveOverlay();
-        } else {
-            this.settle();
-        }
+        const colorCount = this.model.skin.blockColors?.length || 8;
+        this.board.floodFill(
+            this.model.grid, this.model.skin, colorCount,
+            (gx, gy, colorIdx) => {
+                try { this.fx.burstAtCell(gx, gy, blockColor(this.model.skin, colorIdx), 4); } catch { /* ignore */ }
+            },
+            () => { try { AudioManager.sfxPlace(); } catch { /* ignore */ } },
+            () => { try { AudioManager.sfxTick(); } catch { /* ignore */ } },
+            () => { try { AudioManager.sfxBonus(); } catch { /* ignore */ } },
+        ).then(() => {
+            this.scheduleOnce(() => {
+                const cfg = getConfig();
+                if (flag('revive') && this.model.reviveCount < cfg.reviveMaxPerGame) {
+                    this.showReviveOverlay();
+                } else {
+                    this.settle();
+                }
+            }, 0.3);
+        });
     }
 
     private showReviveOverlay(): void {
@@ -1329,7 +1340,6 @@ export class GameController extends Component {
         if (this.model.revive()) {
             Analytics.track(ANALYTICS_EVENTS.reviveUsed, { n: this.model.reviveCount });
             this.playerCtx.activateReviveBoost(2);
-            this.hud.setGameOver(false);
             if (this.model.modeDef.timeLimitSec > 0) { this.timeLeft = Math.max(this.timeLeft, 20); }
             this.renderAll();
         }
@@ -1440,6 +1450,14 @@ export class GameController extends Component {
         const newBest = score > this.prevBest && score > 0;
         // 鼓励语：无时限模式（经典/无尽）的「棋盘填满」收尾；限时模式不显示。
         const subtitle = this.model.modeDef.timeLimitSec <= 0 ? t('gameover.encourage') : null;
+        // 近失 banner（对齐 web v1.56 §3.4）：未破 PB 且得分达 PB 85%~99% 时显示"差 N 分"。
+        let nearMissBanner: string | null = null;
+        if (!newBest && this.prevBest > 0) {
+            const pct = score / this.prevBest;
+            if (pct >= 0.85 && pct < 1.0) {
+                nearMissBanner = t('endGame.nearMiss', { gap: Math.max(0, this.prevBest - score) });
+            }
+        }
         const links: GameOverLink[] = [];
         if (this.onRequestMenu) {
             // 去主菜单前先把未展示的局末宝箱奖励静默入账，避免错失。
@@ -1455,6 +1473,7 @@ export class GameController extends Component {
             xpText: xpGain > 0 ? t('gameover.xpGain', { n: xpGain }) : null,
             levelBadge: leveledUp ? `★ Lv.${level}` : null,
             newBest,
+            nearMissBanner,
             digestTitle: t('game.summary.title'),
             facts: this.buildGameFacts(),
             againLabel: t('btn.again'),
@@ -1776,6 +1795,35 @@ export class GameController extends Component {
         });
     }
 
+    /**
+     * 难度选择（对齐 web `.strategy-btn` 的 easy/normal/hard 切换逻辑）：
+     * 切换后持久化到 Storage，更新出块器 strategyId 并开新局。
+     */
+    selectDifficulty(onChanged?: (id: string) => void): void {
+        const currentStrategy = Storage.get(STORAGE_KEYS.strategy, 'normal') || 'normal';
+        const strategies: Array<{ id: string; label: string; icon: string }> = [
+            { id: 'easy', label: t('difficulty.easy'), icon: '🌱' },
+            { id: 'normal', label: t('difficulty.normal'), icon: '⚡' },
+            { id: 'hard', label: t('difficulty.hard'), icon: '🔥' },
+        ];
+        ModalPanel.show(this.node, {
+            title: t('difficulty.title'),
+            buttons: strategies.map((s) => ({
+                label: `${s.icon} ${s.label}`,
+                primary: s.id === currentStrategy,
+                onClick: () => {
+                    if (s.id === currentStrategy) return;
+                    Storage.set(STORAGE_KEYS.strategy, s.id);
+                    this.spawner?.setStrategyId?.(s.id);
+                    this.playerCtx.resetRunStreak();
+                    this.startGame(this.model.mode);
+                    onChanged?.(s.id);
+                },
+            })),
+            dismissable: true,
+        });
+    }
+
     /** 7 日签到日历（对齐 web `#checkin-panel`）：日历展示 + 领取今日奖励 + 月度里程碑。 */
     openCheckin(): void {
         CheckInPanel.show(this.node, {
@@ -1832,7 +1880,6 @@ export class GameController extends Component {
 
     /** 赛季通行证任务面板（对齐 web `#season-pass-panel`）：任务进度 + 积分 + 高级通行证入口。 */
     openSeasonPass(): void {
-        if (!flag('seasonPass')) return;
         SeasonPassPanel.show(this.node, {
             pass: this.seasonPass,
             // 付费轨道未接入支付：给一次提示飘字（对齐 web「付费功能即将上线」）。
@@ -1924,7 +1971,6 @@ export class GameController extends Component {
         this.dock.render(this.model.dock, this.model.skin);
         this.hud.setScore(this.model.score);
         this.hud.setCoins(this.model.wallet.coins);
-        this.hud.setGameOver(this.model.gameOver);
     }
 
     /**

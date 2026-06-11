@@ -2027,24 +2027,6 @@ export class Renderer {
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);
         this._renderClearDissolveBands(cells, pulse, skin);
-
-        for (const cell of cells) {
-            const full = this.cellSize - inset * 2;
-            const cx = cell.x * this.cellSize + this.cellSize * 0.5;
-            const cy = cell.y * this.cellSize + this.cellSize * 0.5 - lift * 0.35;
-            const bonus = this._clearCellMode === 'bonus';
-            const r = full * (bonus ? (0.42 + 0.16 * pulse) : (0.46 + 0.18 * pulse));
-            const grad = this.ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-            grad.addColorStop(0, skin.clearFlash);
-            grad.addColorStop(0.42, `rgba(255, 240, 180, ${bonus ? 0.22 * pulse : 0.28 * pulse})`);
-            grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-            this.ctx.globalAlpha = (bonus ? 0.82 : 0.9) * pulse;
-            this.ctx.fillStyle = grad;
-            this.ctx.beginPath();
-            this.ctx.arc(cx, cy, r, 0, Math.PI * 2);
-            this.ctx.fill();
-        }
-
         this.ctx.restore();
     }
 

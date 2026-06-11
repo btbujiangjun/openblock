@@ -22,6 +22,8 @@ export interface GameOverOptions {
     levelBadge?: string | null;
     /** 是否本局破纪录（顶部皇冠）。 */
     newBest?: boolean;
+    /** 近失 banner 文案（"差 N 分"），得分达 PB 85%~99% 时显示（对齐 web near-miss-banner）。 */
+    nearMissBanner?: string | null;
     /** 战报子卡标题（i18n，如「◆ 本局战报」由本组件补 ◆）。 */
     digestTitle: string;
     /** 本局战报条目（消行 / 最高连击 / 命中率 / 用时）。 */
@@ -75,6 +77,8 @@ export class GameOverPanel extends Component {
     private static readonly GOLD_PILL = new Color(245, 207, 107, 255);
     private static readonly GOLD_PILL_TEXT = new Color(58, 36, 0, 255);
     private static readonly BTN_BLUE = new Color(33, 150, 243, 255);     // #2196f3
+    private static readonly NEAR_MISS = new Color(220, 38, 38, 255);     // red-600 (web D3)
+    private static readonly NEAR_MISS_MILD = new Color(211, 84, 0, 255); // orange (web D2)
 
     static show(parent: Node, opts: GameOverOptions): GameOverPanel {
         const root = new Node('GameOver');
@@ -107,12 +111,14 @@ export class GameOverPanel extends Component {
         const rows = opts.facts.length;
         const hasSub = !!opts.subtitle;
         const hasXp = !!opts.xpText;
+        const hasNearMiss = !!opts.nearMissBanner;
         const digestH = 36 + rows * 38 + 18;
         const H = 38                       // pad top
             + 34                            // title
             + (hasSub ? 32 : 0)             // subtitle
             + (opts.newBest ? 40 : 0)       // crown
             + 84                            // score
+            + (hasNearMiss ? 30 : 0)        // near-miss banner
             + (hasXp ? 34 : 0)             // xp
             + 16                            // gap
             + digestH
@@ -147,6 +153,11 @@ export class GameOverPanel extends Component {
         // 得分（大号橙）
         this.mkLabel(card, `${opts.score}`, 70, 0, y - 40, GameOverPanel.SCORE, 0.5);
         y -= 84;
+        // 近失 banner（"差 N 分"，对齐 web near-miss-banner）
+        if (hasNearMiss) {
+            this.mkLabel(card, opts.nearMissBanner!, 20, 0, y - 14, GameOverPanel.NEAR_MISS, 0.5);
+            y -= 30;
+        }
         // 经验（蓝）+ 可选金色升级徽章
         if (hasXp) {
             if (opts.levelBadge) {

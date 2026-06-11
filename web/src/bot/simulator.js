@@ -5,6 +5,7 @@
  * PlayerProfile + spawnContext → resolveAdaptiveStrategy → generateDockShapes。
  */
 import { Grid } from '../grid.js';
+import { countEmptyRegions, countConcaveCorners } from '../boardTopology.js';
 import { getStrategy } from '../config.js';
 import { getAllShapes, getShapeCategory } from '../shapes.js';
 import { FEATURE_ENCODING, RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD } from '../gameRules.js';
@@ -184,6 +185,8 @@ function _topologyAuxTargets(grid, dock) {
         Math.min(close2 / Math.max(n, 1), 1),
         Math.min(_dockMobility(grid, dock) / Math.max(_AN.maxMobility ?? 192, 1), 1),
         Math.min(filled / area, 1),
+        Math.min(countEmptyRegions(grid) / Math.max(_AN.maxEmptyRegions ?? 16, 1), 1),
+        Math.min(countConcaveCorners(grid) / Math.max(_AN.maxConcaveCorners ?? 32, 1), 1),
     ];
 }
 

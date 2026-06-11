@@ -203,6 +203,18 @@ echo "▶ 构建 Android：project=$COCOS_DIR"
 echo "  config=$CONFIG"
 preflight_android_env
 
+# ── 寻参 bundle 同步 + 校验 ──────────────────────────────────────────
+# Cocos 端的 spawnPoliciesV2.mjs 必须与 web/public/spawn-tuning-v2/policies.json
+# 保持一致；此处在构建前自动同步并校验，避免打包到过期/空的 θ bundle。
+REPO_ROOT="$(cd "$COCOS_DIR/.." && pwd)"
+SYNC_SCRIPT="$REPO_ROOT/scripts/sync-spawn-bundle.mjs"
+if [[ -f "$SYNC_SCRIPT" ]]; then
+    echo "▶ 同步寻参 bundle (sync-spawn-bundle) ..."
+    node "$SYNC_SCRIPT" || { echo "✗ sync-spawn-bundle 失败" >&2; exit 1; }
+    echo "  校验 web ↔ cocos bundle 一致性 ..."
+    node "$SYNC_SCRIPT" --verify || { echo "✗ 寻参 bundle 校验失败：web ↔ cocos 不一致" >&2; exit 1; }
+fi
+
 # Cocos Creator 无头 Electron 构建成功后偶发输出 IPC 退出噪音。
 # 注意：Android 插件失败时也可能打印 build Task Finished，因此不能只看 Finished。
 # 过滤退出噪音：见 build-ios.sh 中的同名变量注释。
@@ -322,6 +334,11 @@ is_debug_config() {
 
 VARIANT="Release"
 if is_debug_config; then VARIANT="Debug"; fi
+
+# Gradle 增量构建会因为 assets 未变而跳过打包（UP-TO-DATE），导致 APK 不更新。
+# 清理 APK 输出目录，强制 Gradle 重新执行 package + assemble，确保每次构建产出最新 APK。
+echo "▶ 清理旧 APK 输出 ..."
+rm -rf "$ANDROID_PROJ/build/openblock-cocos/outputs/apk" 2>/dev/null || true
 
 run_gradle_task() {
     local task="$1"

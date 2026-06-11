@@ -1374,6 +1374,27 @@ html[data-ui-theme="dark"] .header-skin .skin-picker select option {
     outline-offset: 1px;
 }
 
+.skin-picker select optgroup {
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--text-secondary, #64748b);
+    padding: 4px 0 2px;
+}
+
+.skin-picker select optgroup option {
+    font-weight: 500;
+    padding-left: 8px;
+}
+
+html[data-ui-theme="dark"] .skin-picker select optgroup {
+    color: #94a3b8;
+    background-color: #334155;
+}
+
+html[data-ui-theme="dark"] .skin-picker select optgroup option {
+    background-color: #475569;
+}
+
 .stats-bar {
     display: flex;
     gap: 12px;
@@ -7768,6 +7789,9 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
 .chest-card--epic {
     background: linear-gradient(180deg, #ffd160 0%, #fff 100%);
 }
+.chest-card--epic .chest-title { color: #7a4a00; }
+.chest-card--epic .chest-reward { color: #5c3d00; }
+.chest-card--epic .chest-hint { color: #8b6914; }
 .chest-icon { font-size: 64px; margin-bottom: 12px; }
 .chest-title { margin: 0 0 8px; font-size: 22px; font-weight: 700; }
 .chest-reward { font-size: 14px; color: var(--text-secondary, #64748b); margin-bottom: 10px; line-height: 1.6; }

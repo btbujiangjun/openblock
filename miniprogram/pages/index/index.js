@@ -5,6 +5,7 @@ const {
   getSkinListMeta,
   getActiveSkinId,
   setActiveSkinId,
+  getSkinCategories,
 } = require('../../core/skins');
 const {
   getLanguage,
@@ -25,6 +26,9 @@ Page({
     skins: [{ id: 'titanium', name: '钛晶矩阵' }],
     skinIndex: 0,
     selectedSkinName: '钛晶矩阵',
+    skinCategories: [],
+    skinMultiRange: [[], []],
+    skinMultiIndex: [0, 0],
     languages: [{ id: 'zh-CN', name: '简体中文' }],
     languageIndex: 0,
     selectedLanguageName: '简体中文',
@@ -50,10 +54,12 @@ Page({
     let languageIndex = languages.findIndex((x) => x.id === lang);
     if (languageIndex < 0) languageIndex = 0;
     const difficulties = this._difficultyOptions();
+    const skinCatData = this._buildSkinCategoryData(active);
     this.setData({
       skins,
       skinIndex,
       selectedSkinName: skins[skinIndex]?.name || '默认皮肤',
+      ...skinCatData,
       languages,
       languageIndex,
       selectedLanguageName: languages[languageIndex]?.name || '简体中文',
@@ -106,15 +112,51 @@ Page({
     return DIFFICULTIES.map((x) => ({ id: x.id, name: t(x.labelKey) }));
   },
 
+  _buildSkinCategoryData(activeSkinId) {
+    const cats = getSkinCategories();
+    const catNames = cats.map((c) => c.label);
+    let catIdx = 0;
+    let skinIdx = 0;
+    for (let ci = 0; ci < cats.length; ci++) {
+      const si = cats[ci].skins.findIndex((s) => s.id === activeSkinId);
+      if (si >= 0) { catIdx = ci; skinIdx = si; break; }
+    }
+    const skinNames = cats[catIdx]?.skins.map((s) => s.name) || [];
+    return {
+      skinCategories: cats,
+      skinMultiRange: [catNames, skinNames],
+      skinMultiIndex: [catIdx, skinIdx],
+    };
+  },
+
+  onSkinColumnChange(e) {
+    const { column, value } = e.detail;
+    const cats = this.data.skinCategories;
+    if (column === 0) {
+      const skinNames = cats[value]?.skins.map((s) => s.name) || [];
+      this.setData({
+        'skinMultiIndex[0]': value,
+        'skinMultiIndex[1]': 0,
+        'skinMultiRange[1]': skinNames,
+      });
+    }
+  },
+
   onSkinChange(e) {
-    const idx = Number(e.detail.value) || 0;
-    const skin = this.data.skins[idx];
-    if (skin) setActiveSkinId(skin.id);
-    this._audio?.feedback('select');
-    this.setData({
-      skinIndex: idx,
-      selectedSkinName: skin?.name || '默认皮肤',
-    });
+    const [catIdx, skinIdx] = e.detail.value.map(Number);
+    const cats = this.data.skinCategories;
+    const skin = cats[catIdx]?.skins[skinIdx];
+    if (skin) {
+      setActiveSkinId(skin.id);
+      const skins = this.data.skins;
+      const flatIdx = skins.findIndex((s) => s.id === skin.id);
+      this._audio?.feedback('select');
+      this.setData({
+        skinIndex: flatIdx >= 0 ? flatIdx : 0,
+        selectedSkinName: skin.name,
+        skinMultiIndex: [catIdx, skinIdx],
+      });
+    }
   },
 
   onLanguageChange(e) {
@@ -126,10 +168,12 @@ Page({
     const skin = this.data.skins[this.data.skinIndex];
     const skinIndex = Math.max(0, skins.findIndex((s) => s.id === skin?.id));
     const difficulties = this._difficultyOptions();
+    const skinCatData = this._buildSkinCategoryData(skin?.id || getActiveSkinId());
     this.setData({
       skins,
       skinIndex,
       selectedSkinName: skins[skinIndex]?.name || t('skin'),
+      ...skinCatData,
       languageIndex: idx,
       selectedLanguageName: lang?.name || '简体中文',
       difficulties,

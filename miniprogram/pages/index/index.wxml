@@ -26,7 +26,7 @@
       </view>
       <view class="config-row">
         <text class="config-label">{{text.skin}}</text>
-        <picker mode="selector" range="{{skins}}" range-key="name" value="{{skinIndex}}" bindchange="onSkinChange">
+        <picker mode="multiSelector" range="{{skinMultiRange}}" value="{{skinMultiIndex}}" bindcolumnchange="onSkinColumnChange" bindchange="onSkinChange">
           <view class="config-picker">{{selectedSkinName}}</view>
         </picker>
       </view>

@@ -99,6 +99,7 @@ export const STORAGE_KEYS = {
     reduceMotion: 'openblock_cocos_reduce_motion_v1',
     // 季节推荐 toast 反打扰状态（对齐 web openblock_seasonal_v1）：{ lastShown: ymd, birthdayClaimedYear }
     seasonal: 'openblock_cocos_seasonal_v1',
+    strategy: 'openblock_cocos_strategy_v1',
     // 周末试穿券按 ISO 周记录（对齐 web openblock_weekend_trial_v1）：{ '2026-W23': skinId }
     weekendTrial: 'openblock_cocos_weekend_trial_v1',
     // 用户生日 'MM-DD'（对齐 web openblock_user_birthday_v1，不存年份避免隐私）

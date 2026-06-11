@@ -67,7 +67,8 @@ import {
     SKINS,
     DEFAULT_SKIN_ID,
     onSkinAfterApply,
-    normalizeSkinPickerLabel
+    normalizeSkinPickerLabel,
+    getSkinCategories
 } from './skins.js';
 import { Grid } from './grid.js';
 import { analyzeBoardTopology } from './boardTopology.js';
@@ -1510,10 +1511,14 @@ export class Game {
         if (!skinSelect) {
             return;
         }
-        skinSelect.innerHTML = SKIN_LIST.map((s) => {
-            const raw = tSkinName(s);
-            const label = normalizeSkinPickerLabel(raw).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-            return `<option value="${s.id}">${label}</option>`;
+        const categories = getSkinCategories();
+        skinSelect.innerHTML = categories.map(cat => {
+            const opts = cat.skins.map(s => {
+                const raw = tSkinName(s);
+                const label = normalizeSkinPickerLabel(raw).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+                return `<option value="${s.id}">${label}</option>`;
+            }).join('');
+            return `<optgroup label="${cat.label.replace(/"/g, '&quot;')}">${opts}</optgroup>`;
         }).join('');
         let current = getActiveSkinId();
         if (!SKINS[current]) {
@@ -4202,6 +4207,23 @@ export class Game {
                         rounds: this.gameStats?.rounds ?? 0,
                     });
                 } catch { /* ignore */ }
+
+                try {
+                    const el = window.__effectLayer;
+                    if (el && typeof el.boardFlood === 'function') {
+                        const { getBlockColors, getActiveSkin } = await import('./skins.js');
+                        await el.boardFlood({
+                            grid: this.grid,
+                            palette: getBlockColors(),
+                            skin: getActiveSkin(),
+                            gridSize: this.grid.size,
+                        });
+                        await new Promise((r) => setTimeout(r, 300));
+                    }
+                } catch (e) {
+                    console.warn('[OpenBlock] boardFlood effect failed', e);
+                }
+
                 this.showScreen('game-over');
             }
         })();

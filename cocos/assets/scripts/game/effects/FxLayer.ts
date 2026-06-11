@@ -481,6 +481,31 @@ export class FxLayer extends Component {
         }
     }
 
+    /** 方块涌入落地点缀：在盘面指定格 (gx, gy) 喷射少量碎屑。 */
+    burstAtCell(gx: number, gy: number, color: Color, count: number = 4): void {
+        if (!VisualFx.enabled || Motion.reduced) return;
+        const cs = this.boardPx / this.size;
+        const { x, y } = this.webToBoard(cs * (gx + 0.5), cs * (gy + 0.5));
+        const gold = new Color(255, 215, 0, 255);
+        for (let i = 0; i < count; i++) {
+            if (this._particles.length >= MAX_CLEAR_PARTICLES) break;
+            const ang = Math.random() * Math.PI * 2;
+            const sp = 2 + Math.random() * 5;
+            const col = i % 2 === 0 ? color : gold;
+            this._particles.push({
+                x, y,
+                vx: Math.cos(ang) * sp * 60,
+                vy: (-Math.sin(ang) * sp + 3) * 60,
+                life: 0.5 + Math.random() * 0.3,
+                maxLife: 0.8,
+                size: 1.5 + Math.random() * 3,
+                color: new Color(col.r, col.g, col.b, 255),
+                gravityMul: 0.4,
+                decay: 0.022,
+            });
+        }
+    }
+
     /** 单个色块粒子生成（与 web `_pushBonusColorParticle` 1:1）。 */
     private pushColorGushParticle(bonusLine: { type: 'row' | 'col'; idx: number }, color: Color, strong: boolean): void {
         if (this._particles.length >= MAX_CLEAR_PARTICLES) return;

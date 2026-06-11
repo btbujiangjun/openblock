@@ -63,6 +63,7 @@ export const SKINS: Record<string, Skin> = {
     neonCity: {
         id: 'neonCity',
         name: '🌃 霓虹未眠',
+        blockIcons: ['🌆', '🚥', '🚇', '🎆', '🏨', '🚖', '🌉', '🛤️'],
         blockColors: ['#FF2DAA', '#9B72FF', '#00E5FF', '#76FF03', '#FFAB40', '#FF4081', '#448AFF', '#18FFFF'],
         gridOuter: '#0B0F1A',
         gridCell: '#151C2E',
@@ -79,7 +80,7 @@ export const SKINS: Record<string, Skin> = {
     ocean: {
         id: 'ocean',
         name: '🌊 深海之瞳',
-        blockIcons: ['🐙', '🦞', '🐡', '🪸', '🐚', '🐳', '🦈', '🦑'],
+        blockIcons: ['🐙', '🦞', '🐡', '🐬', '🐚', '🐳', '🦈', '🐢'],
         blockColors: ['#00C8F0', '#0098C8', '#48D4E4', '#90F0FF', '#00E4C0', '#FFB347', '#FF7878', '#20E8FF'],
         gridOuter: '#040E18',
         gridCell: '#081C28',
@@ -158,23 +159,6 @@ export const SKINS: Record<string, Skin> = {
         uiDark: true,
     },
 
-    /** 泡泡糖：Q 弹果冻海洋生物 */
-    bubbly: {
-        id: 'bubbly',
-        name: '🫧 泡沫之夏',
-        blockColors: ['#FF72BB', '#4898F8', '#42C442', '#FFAA18', '#22C87A', '#E060FF', '#FF8848', '#12C4E8'],
-        blockIcons: ['🐬', '🦦', '🪼', '🏖️', '🦀', '🐢', '🫧', '🦐'],
-        gridOuter: '#2A1048',
-        gridCell: '#401870',
-        gridGap: 1,
-        blockInset: 1,
-        blockRadius: 14,
-        blockStyle: 'cartoon',
-        clearFlash: 'rgba(255,160,240,0.82)',
-        cssBg: '#1C0838',
-        uiDark: true,
-    },
-
     /** 卡通乐园：原色积木 + 萌物图标 */
     toon: {
         id: 'toon',
@@ -213,6 +197,7 @@ export const SKINS: Record<string, Skin> = {
     dawn: {
         id: 'dawn',
         name: '☀️ 晨光微曦',
+        blockIcons: ['🐝', '🌱', '🍯', '🦗', '🐞', '🌿', '🪹', '🐓'],
         blockColors: ['#E06E62', '#5A92D6', '#D8A84E', '#55A873', '#8D75CE', '#42A7A8', '#D46282', '#6B7DDD'],
         gridOuter: '#F1E3C5',
         gridCell: '#FFF3D8',
@@ -316,32 +301,16 @@ export const SKINS: Record<string, Skin> = {
     fantasy: {
         id: 'fantasy',
         name: '🔮 幻梦之境',
+        blockIcons: ['🧙', '🧝', '🧞', '💫', '🗝️', '📿', '🪬', '🪩'],
         blockColors: ['#CC48FF', '#5080F0', '#18B848', '#E82020', '#E8B820', '#20B0D8', '#E020A0', '#9060E0'],
         gridOuter: '#0E0428',
         gridCell: '#1A0838',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 7,
-        blockStyle: 'glass',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(160,80,255,0.42)',
         cssBg: '#0A0420',
-        uiDark: true,
-    },
-
-    /** 冒险奇境：凶猛野兽 icon */
-    beast: {
-        id: 'beast',
-        name: '🗺️ 荒野之歌',
-        blockIcons: ['🐺', '🦏', '🐯', '🦁', '🐗', '🦅', '🐆', '🐻'],
-        blockColors: ['#6878A0', '#A82820', '#3878C8', '#5C2880', '#2A6028', '#D4A028', '#4A6020', '#7C5028'],
-        gridOuter: '#150C04',
-        gridCell: '#221608',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 6,
-        blockStyle: 'cartoon',
-        clearFlash: 'rgba(255,180,30,0.50)',
-        cssBg: '#0E0802',
         uiDark: true,
     },
 
@@ -537,9 +506,9 @@ export const SKINS: Record<string, Skin> = {
     /** 山林秘境：树木 / 落叶 / 麦穗 */
     forest: {
         id: 'forest',
-        name: '🌳 森林物语',
-        blockIcons: ['🌳', '🌲', '🌴', '🍁', '🍂', '🌾', '🪵', '🪺'],
-        blockColors: ['#8B5828', '#D87838', '#D4A848', '#4F8048', '#2A6038', '#B0386D', '#38A878', '#5090C8'],
+        name: '🌳 荒野秘境',
+        blockIcons: ['🌳', '🌲', '🐺', '🍁', '🦅', '🌾', '🐻', '🪺'],
+        blockColors: ['#8B5828', '#D87838', '#6878A0', '#4F8048', '#D4A028', '#B0386D', '#7C5028', '#5090C8'],
         gridOuter: '#06140A',
         gridCell: '#0E2010',
         gridGap: 1,
@@ -619,6 +588,146 @@ export const SKINS: Record<string, Skin> = {
         cssBg: '#09090D',
         uiDark: true,
     },
+
+    /** 禅意山水：水墨画卷 */
+    zen: {
+        id: 'zen',
+        name: '🍵 禅意山水',
+        blockIcons: ['🏯', '🎍', '🕊️', '🪔', '🧘', '🎑', '🪘', '🫖'],
+        blockColors: ['#6A8A7A', '#8A7A6A', '#5A7A8A', '#A0907A', '#7A9A8A', '#9A8A70', '#6A7A9A', '#8A9A7A'],
+        gridOuter: '#D8D0C0',
+        gridCell: '#F0EBE0',
+        gridLine: 'rgba(100,90,70,0.10)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 6,
+        blockStyle: 'flat',
+        clearFlash: 'rgba(200,190,170,0.60)',
+        cssBg: '#E8E2D6',
+        uiDark: false,
+    },
+
+    /** 午后咖啡：暖棕治愈 */
+    cafe: {
+        id: 'cafe',
+        name: '☕ 午后咖啡',
+        blockIcons: ['☕', '📖', '🧋', '🪴', '🕯️', '🥐', '🎵', '📝'],
+        blockColors: ['#8A6A50', '#6A7A6A', '#A0785A', '#5A8A7A', '#9A7A5A', '#7A8A6A', '#8A6A6A', '#6A8A8A'],
+        gridOuter: '#D8C8B0',
+        gridCell: '#F2E8D8',
+        gridLine: 'rgba(120,90,60,0.10)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 8,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(210,180,140,0.65)',
+        cssBg: '#EAE0D0',
+        uiDark: false,
+    },
+
+    /** 花园时光：园艺花草（长辈友好） */
+    garden: {
+        id: 'garden',
+        name: '🌼 花园时光',
+        blockIcons: ['🌼', '🏵️', '🪻', '🐌', '🐛', '🪣', '🌸', '🍀'],
+        blockColors: ['#C87848', '#5A8A5A', '#D4A040', '#4A80A0', '#9A6A8A', '#6A9A6A', '#C06060', '#4A8A8A'],
+        gridOuter: '#C8D8C0',
+        gridCell: '#EAF0E4',
+        gridLine: 'rgba(60,100,60,0.10)',
+        gridGap: 0,
+        blockInset: 2,
+        blockRadius: 10,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(200,230,180,0.70)',
+        cssBg: '#E0EAD8',
+        uiDark: false,
+    },
+
+    /** 涂鸦课堂：彩笔画板（儿童友好） */
+    doodle: {
+        id: 'doodle',
+        name: '✏️ 涂鸦课堂',
+        blockIcons: ['✏️', '📐', '📏', '🎨', '🖍️', '📚', '🔬', '🎓'],
+        blockColors: ['#E06050', '#3888D8', '#E8B020', '#40A850', '#D060B0', '#30A8B0', '#F08030', '#8868D0'],
+        gridOuter: '#C8D0E0',
+        gridCell: '#E8EEF6',
+        gridLine: 'rgba(60,80,120,0.10)',
+        gridGap: 0,
+        blockInset: 2,
+        blockRadius: 8,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(200,220,255,0.70)',
+        cssBg: '#DEE4F0',
+        uiDark: false,
+    },
+
+    /** 赛博朋克：电路板 + AI + 矩阵代码 */
+    cyberpunk: {
+        id: 'cyberpunk',
+        name: '🤖 赛博朋克',
+        blockIcons: ['🤖', '💻', '🔌', '📡', '🧬', '📊', '🔋', '💾'],
+        blockColors: ['#00FF88', '#FF0066', '#00CCFF', '#FFCC00', '#CC00FF', '#00FFCC', '#FF6600', '#88FF00'],
+        gridOuter: '#060A10',
+        gridCell: '#0C1420',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 3,
+        blockStyle: 'neon',
+        clearFlash: 'rgba(0,255,136,0.35)',
+        cssBg: '#040810',
+        uiDark: true,
+    },
+
+    /** 北欧极简：纯配色 */
+    nordic: {
+        id: 'nordic',
+        name: '🏔️ 北欧极简',
+        blockColors: ['#8A9AA8', '#A8B0A0', '#B0A890', '#90A0B0', '#A0B0A0', '#B0A8A0', '#98A8B0', '#A8B0A8'],
+        gridOuter: '#D0D8DC',
+        gridCell: '#EAF0F0',
+        gridLine: 'rgba(80,100,110,0.08)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 6,
+        blockStyle: 'flat',
+        clearFlash: 'rgba(200,210,220,0.55)',
+        cssBg: '#E2EAE8',
+        uiDark: false,
+    },
+
+    /** 欢庆嘉年：派对 / 节日 */
+    fiesta: {
+        id: 'fiesta',
+        name: '🎉 欢庆嘉年',
+        blockIcons: ['🎉', '🎊', '🎈', '🪅', '🥳', '🎁', '🧨', '🎪'],
+        blockColors: ['#FF3058', '#FF9020', '#FFD028', '#30D850', '#2098FF', '#CC40FF', '#FF50A0', '#20D0D0'],
+        gridOuter: '#180828',
+        gridCell: '#281040',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 8,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,220,100,0.85)',
+        cssBg: '#100420',
+        uiDark: true,
+    },
+
+    /** 星座物语：纯配色 + glass */
+    zodiac: {
+        id: 'zodiac',
+        name: '♈ 星座物语',
+        blockColors: ['#E84848', '#D8A030', '#58B868', '#3888D8', '#A048D8', '#E87058', '#48A8B8', '#C860A8'],
+        gridOuter: '#08081C',
+        gridCell: '#101028',
+        gridLine: 'rgba(180,160,255,0.12)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'glass',
+        clearFlash: 'rgba(140,120,220,0.40)',
+        cssBg: '#060618',
+        uiDark: true,
+    },
 };
 
 /** 默认皮肤与 web 一致：titanium。 */
@@ -634,6 +743,8 @@ const REMOVED_SKIN_ALIASES: Record<string, string> = {
     pastel: 'candy',
     retro: 'pixel8',
     jungle: 'toon',
+    bubbly: 'ocean',
+    beast: 'forest',
 };
 
 export function getSkin(id?: string | null): Skin {
@@ -644,6 +755,34 @@ export function getSkin(id?: string | null): Skin {
 
 export function listSkinIds(): string[] {
     return Object.keys(SKINS);
+}
+
+export interface SkinCategory {
+    id: string;
+    label: string;
+    skins: string[];
+}
+
+export const SKIN_CATEGORIES: SkinCategory[] = [
+    { id: 'classic',   label: '🔰 基础经典', skins: ['classic', 'titanium'] },
+    { id: 'tech',      label: '💡 暗色科技', skins: ['aurora', 'neonCity', 'cyberpunk'] },
+    { id: 'nature',    label: '🌐 自然元素', skins: ['ocean', 'sunset', 'forest', 'desert', 'outdoor'] },
+    { id: 'japanese',  label: '🎎 日系美学', skins: ['sakura', 'koi', 'zen'] },
+    { id: 'cute',      label: '🍡 休闲甜系', skins: ['candy', 'toon', 'pixel8', 'doodle'] },
+    { id: 'light',     label: '🫧 浅色清新', skins: ['dawn', 'summer', 'cafe', 'garden', 'nordic'] },
+    { id: 'life',      label: '🏷️ 生活意象', skins: ['food', 'music', 'pets', 'universe', 'sports', 'vehicles', 'farm'] },
+    { id: 'fantasy',   label: '🧿 奇幻神话', skins: ['fantasy', 'fairy', 'greece', 'demon', 'jurassic'] },
+    { id: 'culture',   label: '🪆 文化主题', skins: ['industrial', 'forbidden', 'mahjong', 'boardgame', 'pirate'] },
+    { id: 'festive',   label: '🎖️ 庆典社交', skins: ['fiesta', 'zodiac', 'apple'] },
+];
+
+export function getSkinCategories(): Array<{ id: string; label: string; skins: Skin[] }> {
+    return SKIN_CATEGORIES
+        .map(cat => ({
+            ...cat,
+            skins: cat.skins.filter(id => SKINS[id]).map(id => SKINS[id]),
+        }))
+        .filter(cat => cat.skins.length > 0);
 }
 
 /** 盘面水印（对齐 web `skin.boardWatermark`）：盘面 5 锚点上的低透明度浮层 emoji。 */
@@ -665,7 +804,6 @@ const WATERMARKS: Record<string, BoardWatermark> = {
     sakura: { icons: ['🌸', '🌺'], opacity: 0.09 },
     koi: { icons: ['🎏', '🐟'], opacity: 0.08 },
     candy: { icons: ['🍭', '🍬'], opacity: 0.09 },
-    bubbly: { icons: ['🫧', '🐡'], opacity: 0.09 },
     toon: { icons: ['🎪', '🎠'], opacity: 0.08 },
     pixel8: { icons: ['👾', '🎮', '🍄', '🥊'], opacity: 0.10, scale: 0.72 },
     dawn: { icons: ['🌄', '🌻', '🕊️', '🍃'], opacity: 0.12, scale: 0.28 },
@@ -674,7 +812,6 @@ const WATERMARKS: Record<string, BoardWatermark> = {
     pets: { icons: ['🐶', '🐾'], opacity: 0.09 },
     universe: { icons: ['🪐', '⭐'], opacity: 0.07 },
     fantasy: { icons: ['🔮', '✨'], opacity: 0.08 },
-    beast: { icons: ['🦁', '🐯'], opacity: 0.08 },
     greece: { icons: ['🏛️', '⚡'], opacity: 0.08 },
     demon: { icons: ['😈', '💀'], opacity: 0.08 },
     jurassic: { icons: ['🦕', '🦖'], opacity: 0.08 },
@@ -692,6 +829,14 @@ const WATERMARKS: Record<string, BoardWatermark> = {
     desert: { icons: ['🐫', '🌵'], opacity: 0.055 },
     summer: { icons: ['☀️', '🏝️'], opacity: 0.10 },
     apple: { icons: ['🍎', '✨'], opacity: 0.06 },
+    zen: { icons: ['🍵', '🏯'], opacity: 0.10 },
+    cafe: { icons: ['☕', '📖'], opacity: 0.10 },
+    garden: { icons: ['🌼', '🌸'], opacity: 0.10 },
+    doodle: { icons: ['✏️', '📚'], opacity: 0.10 },
+    cyberpunk: { icons: ['🤖', '💻'], opacity: 0.06 },
+    nordic: { icons: ['🏔️', '🌿'], opacity: 0.08 },
+    fiesta: { icons: ['🎉', '🎊'], opacity: 0.08 },
+    zodiac: { icons: ['♈', '♌'], opacity: 0.06 },
 };
 
 /** 取皮肤盘面水印（含已下线皮肤别名映射）；无则返回 null。 */

@@ -62,6 +62,16 @@ fi
 echo "▶ 构建 iOS：project=$COCOS_DIR"
 echo "  config=$CONFIG"
 
+# ── 寻参 bundle 同步 + 校验 ──────────────────────────────────────────
+REPO_ROOT="$(cd "$COCOS_DIR/.." && pwd)"
+SYNC_SCRIPT="$REPO_ROOT/scripts/sync-spawn-bundle.mjs"
+if [[ -f "$SYNC_SCRIPT" ]]; then
+    echo "▶ 同步寻参 bundle (sync-spawn-bundle) ..."
+    node "$SYNC_SCRIPT" || { echo "✗ sync-spawn-bundle 失败" >&2; exit 1; }
+    echo "  校验 web ↔ cocos bundle 一致性 ..."
+    node "$SYNC_SCRIPT" --verify || { echo "✗ 寻参 bundle 校验失败：web ↔ cocos 不一致" >&2; exit 1; }
+fi
+
 # 过滤退出噪音的正则
 # - mach_port_rendezvous / shared_memory_switch / No rendezvous client：CLI 退出时的 Electron IPC 拆除噪音
 # - Recovery window failed / window\.json: Unexpected end of JSON / 紧随其后的 SyntaxError 栈：

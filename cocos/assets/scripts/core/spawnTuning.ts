@@ -84,8 +84,22 @@ export function initSpawnTuningV2(): number {
         const mod = clientPolicyV2 as unknown as ClientPolicyV2Module;
         // adaptiveSpawn.resolveThetaV2 通过 globalThis.__openblockClientPolicyV2 取模块（避免循环 import）。
         (globalThis as unknown as Record<string, unknown>).__openblockClientPolicyV2 = mod;
-        const r = mod.initClientPolicyV2({ bundleData: spawnPoliciesV2, pollMetaUrl: false }) as { installed?: number } | undefined;
-        const installed = Number(r?.installed ?? 0);
+        // initClientPolicyV2 是 async function，但传 bundleData 时 installPoliciesV2 是同步执行的。
+        // 不能直接读返回值（Promise 对象无 .installed 属性），须先同步验证 resolveThetaV2 是否可用。
+        mod.initClientPolicyV2({ bundleData: spawnPoliciesV2, pollMetaUrl: false });
+        // 直接用 resolveThetaV2 + 一个已知的 context 做 probe，确认策略确实已装入内存。
+        let installed = 0;
+        try {
+            const probe = mod.resolveThetaV2({ difficulty: 'easy', generator: 'rule', bot_policy: 'clear-greedy', pb_bin: 500, lifecycle_stage: 'onboarding', userId: '__probe__' });
+            installed = (probe && probe.source !== 'default') ? (spawnPoliciesV2 as { n_contexts?: number }).n_contexts ?? 360 : 0;
+        } catch { /* probe 失败 = 未安装 */ }
+        // 兜底：检查 getStatsV2 是否报告命中。
+        if (installed === 0 && mod.getStatsV2) {
+            try {
+                const stats = mod.getStatsV2() as { policyCount?: number } | undefined;
+                installed = Number(stats?.policyCount ?? 0);
+            } catch { /* ignore */ }
+        }
         _installed = installed > 0;
         console.log(`[spawn-tuning-v2] cocos installed ${installed} policies (rollout=${(spawnPoliciesV2 as { rollout_pct?: number })?.rollout_pct ?? 100}%)`);
         return installed;

@@ -42,7 +42,6 @@ export class Hud extends Component {
     private bestLbl!: Label;
     private bestShadow!: Label;
     private timeLabel!: Label;
-    private overLabel!: Label;
     private comboHeart!: { node: Node; g: Graphics; lbl: Label };
     private bestGapLbl!: Label;
     private powerCaption!: Label;
@@ -57,7 +56,6 @@ export class Hud extends Component {
     private accent = new Color(56, 189, 248, 255); // web 默认 --accent-color #38bdf8
     private _unsubLocale: (() => void) | null = null;
     private _timeLeft: number | null = null;
-    private _gameOver = false;
 
     // 字标尺寸（放大强化的产品 icon）
     private static readonly WM_CELL_W = 9;
@@ -130,9 +128,8 @@ export class Hud extends Component {
         // 追 PB 横幅（对齐 web `#best-gap`）：最佳格下方小字「差 N 分 / 本局 +N」，默认空。
         this.bestGapLbl = this.makeLabel(this.rowNode, '', 12, Hud.BEST_X, -28, Hud.GAP_COLOR);
 
-        // 3) 限时 / 结束提示（HUD 下沿浮动；仅限时/结束态显示，常态为空不占视觉）
+        // 3) 限时提示（HUD 下沿浮动；仅限时态显示，常态为空不占视觉）
         this.timeLabel = this.makeLabel(this.node, '', 16, 0, -64, new Color(255, 140, 140, 255));
-        this.overLabel = this.makeLabel(this.node, '', 22, 0, -84, new Color(255, 209, 96, 255));
 
         this._unsubLocale = onLocaleChange(() => this.refreshI18nLabels());
     }
@@ -148,7 +145,6 @@ export class Hud extends Component {
         // 称号依赖 i18n，语言切换后重绘
         this.applyLevelPillText();
         this.setTimeLeft(this._timeLeft);
-        this.setGameOver(this._gameOver);
     }
 
     /** 固定设计宽 720，无需随可见宽收缩；保留接口供 Bootstrap relayout 调用。 */
@@ -215,10 +211,6 @@ export class Hud extends Component {
         this.timeLabel.string = sec == null ? '' : t('hud.timeleft', { n: Math.max(0, Math.ceil(sec)) });
     }
 
-    setGameOver(over: boolean): void {
-        this._gameOver = over;
-        this.overLabel.string = over ? t('hud.gameover') : '';
-    }
 
     /** combo 心形（对齐 web `#combo-heart` / `_updateComboHeart`）：
      *   - combo<=0 → 完全隐藏

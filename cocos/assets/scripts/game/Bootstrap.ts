@@ -59,6 +59,7 @@ export class Bootstrap extends Component {
     private _hudComp: Hud | null = null;
     private _skillBar: Node | null = null;
     private _buttons: Node[] = [];
+    private _wheelBtn: Node | null = null;
     private _board: BoardView | null = null;
     private _ambientFx: AmbientFx | null = null;
     private _lineFx: LineClearFx | null = null;
@@ -112,6 +113,7 @@ export class Bootstrap extends Component {
         // 未手动选皮肤时按季节给默认皮肤（季节皮肤）
         const skinId = Storage.get(STORAGE_KEYS.skin, null) || seasonalSkinId();
         const mode = (Storage.get(STORAGE_KEYS.mode, 'classic') || 'classic') as GameMode;
+        const strategy = Storage.get(STORAGE_KEYS.strategy, 'normal') || 'normal';
 
         // 玩家画像 / 出块上下文（web _spawnContext 的引擎无关下沉）：注入 provider 喂给真实引擎，
         // 并以 onRound 推进节奏计数。GameController 负责在消行/计分事件里更新。
@@ -131,7 +133,7 @@ export class Bootstrap extends Component {
         // 构造时 `model` 尚未声明，runtime 也安全；下面用 let 预声明以让 TS 静态检查通过。
         let model!: GameModel;
         const spawner = createEngineSpawner({
-            strategyId: 'normal',
+            strategyId: strategy,
                 getSkin: () => model.skin,
                 onRound: () => {
                     playerCtx.onRound();
@@ -250,14 +252,14 @@ export class Bootstrap extends Component {
         // 按启用项数量自适应排布（居中铺满），保证每个图标按钮有足够触摸区且不超出屏宽。
         const soundOn = Storage.get(STORAGE_KEYS.sound, '1') !== '0';
         const hapticOn = Storage.get(STORAGE_KEYS.haptics, '1') !== '0';
-        type ButtonKind = 'locale' | 'sound' | 'haptic' | 'motion';
+        type ButtonKind = 'locale' | 'sound' | 'haptic' | 'motion' | 'difficulty';
         const defs: Array<{ name: string; icon: string; onClick: () => void; kind?: ButtonKind }> = [];
         defs.push({ name: 'LocaleBtn', icon: this.localeIcon(), onClick: () => { /* 占位，下方注入 */ }, kind: 'locale' });
         defs.push({ name: 'SkinBtn', icon: '🎨', onClick: () => ctrl.openSkinPanel() });
         if (flag('modes')) defs.push({ name: 'ModeBtn', icon: '🎮', onClick: () => ctrl.selectMode() });
         defs.push({ name: 'MetaBtn', icon: '📅', onClick: () => ctrl.toggleMeta() });
-        if (flag('wheel')) defs.push({ name: 'WheelBtn', icon: '🎡', onClick: () => ctrl.openWheel() });
-        if (flag('leaderboard')) defs.push({ name: 'RankBtn', icon: '🏆', onClick: () => ctrl.showLeaderboard() });
+        defs.push({ name: 'DifficultyBtn', icon: this.difficultyIcon(strategy), onClick: () => { /* 占位，下方注入 */ }, kind: 'difficulty' });
+        defs.push({ name: 'SeasonBtn', icon: '🏆', onClick: () => ctrl.openSeasonPass() });
         if (flag('share')) defs.push({ name: 'ShareBtn', icon: '📤', onClick: () => ctrl.doShare() });
         defs.push({ name: 'SoundBtn', icon: soundOn ? '🔊' : '🔇', onClick: () => { /* 占位，下方注入 */ }, kind: 'sound' });
         defs.push({ name: 'HapticBtn', icon: hapticOn ? '📳' : '🚫', onClick: () => { /* 占位，下方注入 */ }, kind: 'haptic' });
@@ -295,13 +297,17 @@ export class Bootstrap extends Component {
                     pb.setText(on ? '📳' : '🚫');
                 });
                 this._buttons.push(pb.node);
+            } else if (d.kind === 'difficulty') {
+                const pb = this.iconButton(d.name, x, buttonsY, d.icon, btnW, () => {
+                    ctrl.selectDifficulty((newId: string) => {
+                        pb.setText(this.difficultyIcon(newId));
+                    });
+                }, 20);
+                this._buttons.push(pb.node);
             } else if (d.kind === 'motion') {
                 const pb = this.iconButton(d.name, x, buttonsY, d.icon, btnW, () => {
                     const enabled = VisualFx.toggle();
                     pb.setText(enabled ? '✨' : '✦');
-                    // 切换即时反馈：此按钮控制的是 VisualFx（视觉特效开关），与 Motion.reduced 无关，
-                    // 故用语义对齐的 i18n visualfx.on/off（文案即「视觉特效：开/关」）。
-                    // floatText 签名 (text, color, yOffset)，颜色按状态区分以提升可识别度。
                     ctrl.fx.floatText(
                         enabled ? t('visualfx.on') : t('visualfx.off'),
                         enabled ? new Color(255, 220, 130, 255) : new Color(180, 200, 220, 255),
@@ -313,6 +319,17 @@ export class Bootstrap extends Component {
                 this._buttons.push(this.iconButton(d.name, x, buttonsY, d.icon, btnW, d.onClick).node);
             }
         });
+
+        // 转盘按钮置于底部（dock 左侧），与顶部工具栏分离。
+        if (flag('wheel')) {
+            const wheelBtnX = -(dockWidth / 2) - 40;
+            const wheelBtnY = dockY;
+            const wb = button(this.node, '🎡', wheelBtnX, wheelBtnY, 28, () => ctrl.openWheel(), new Color(22, 26, 38, 215), {
+                width: 60, height: 60, radius: 30,
+            });
+            wb.node.name = 'WheelBtn';
+            this._wheelBtn = wb.node;
+        }
 
         this.detectPlatform();
         this.showSplash();
@@ -636,6 +653,7 @@ export class Bootstrap extends Component {
         // 伙伴也按新可见宽决定显隐 / 偏移。
         this._ctrl?.relayoutCompanion();
         if (this._skillBar) this._skillBar.setPosition(0, m.skillY, 0);
+        if (this._wheelBtn) this._wheelBtn.setPosition(-(m.dockWidth / 2) - 40, m.dockY, 0);
         for (const b of this._buttons) b.setPosition(b.position.x, m.buttonsY, 0);
         // 盘面/特效层同步边长并重绘（保持正方形铺满）。
         if (this._board) this._board.setBoardPx(m.boardPx);
@@ -782,6 +800,13 @@ export class Bootstrap extends Component {
     /** 顶栏语言按钮：显示点击后将切换到的目标语言。 */
     private localeIcon(): string {
         return getLocale() === 'zh-CN' ? 'En' : '中';
+    }
+
+    /** 难度按钮图标（对齐 web strategy-btn 的视觉语义）。 */
+    private difficultyIcon(strategyId: string): string {
+        if (strategyId === 'easy') return '🌱';
+        if (strategyId === 'hard') return '🔥';
+        return '⚡';
     }
 
     /** 语言切换后原地刷新可见 UI。 */

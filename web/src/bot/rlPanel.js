@@ -341,8 +341,19 @@ export function initRLPanel(game) {
                 if (e.event === 'load_api') {
                     return `[${t}] API 加载模型：当前第 ${e.episodes ?? '?'} 局`;
                 }
+                if (e.event === 'preset_changed') {
+                    return `[${t}] 切换预设 → ${e.label || e.preset || '?'}`;
+                }
+                if (e.event === 'eval_greedy') {
+                    const wr = typeof e.win_rate === 'number' ? `胜率${(e.win_rate * 100).toFixed(0)}%` : '';
+                    return `[${t}] 评估：${e.games ?? '?'} 局 ${wr}`;
+                }
                 return `[${t}] ${JSON.stringify(e).slice(0, 100)}`;
             });
+            const hasLoss = tail.some((e) => e.event === 'train_episode' && e.loss_policy != null);
+            if (!hasLoss && tail.length > 0) {
+                rows.unshift('⏳ 批量训练攒批中，loss 将在攒满一批后显示…');
+            }
             outServerLog.textContent = rows.join('\n');
             outServerLog.scrollTop = 0;
         } catch (err) {
@@ -375,6 +386,9 @@ export function initRLPanel(game) {
         const a = info.lossPolicy;
         const b = info.lossValue;
         if (a == null || b == null) {
+            if (info.buffered) {
+                return `｜攒批中(${info.bufferSize ?? '?'}/${info.batchThreshold ?? '?'})`;
+            }
             return '';
         }
         const lp = Number(a);

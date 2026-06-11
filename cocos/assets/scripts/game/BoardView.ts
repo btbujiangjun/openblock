@@ -646,4 +646,231 @@ export class BoardView extends Component {
             },
         });
     }
+
+    /**
+     * 方块涌入特效（v4）：逐行从底到顶，每行空格的方块从盘面外飞入目标格。
+     * 飞入带 easeOutBack 弹性 + onLand 回调（粒子爆发）。约 4s。
+     * @param colorCount 皮肤色板数量（随机索引上限）
+     * @param onLand 每个方块落地时调用
+     */
+    floodFill(grid: Grid, skin: Skin, colorCount: number, onLand?: (gx: number, gy: number, colorIdx: number) => void, onRowLand?: () => void, onFlipRow?: () => void, onAllLand?: () => void): Promise<void> {
+        const n = grid.size;
+        const cell = this.cellSize;
+        const half = this.boardPx / 2;
+        const { inset, radius } = blockMetrics(skin, cell);
+        const fsize = cell - inset * 2;
+        interface RowData { cells: Array<{ gx: number; gy: number; colorIdx: number }>; gy: number; offset: number; startTime: number; done: boolean }
+
+        const rows: RowData[] = [];
+        for (let gy = n - 1; gy >= 0; gy--) {
+            const cells: Array<{ gx: number; gy: number; colorIdx: number }> = [];
+            for (let gx = 0; gx < n; gx++) {
+                if (grid.cells[gy][gx] === null) {
+                    cells.push({ gx, gy, colorIdx: Math.floor(Math.random() * colorCount) });
+                }
+            }
+            if (cells.length) rows.push({ cells, gy, offset: 0, startTime: 0, done: false });
+        }
+        if (!rows.length) {
+            onAllLand?.();
+            return new Promise<void>((resolve) => {
+                this._rowFlipWave(grid, skin, colorCount, onLand, onFlipRow, resolve);
+            });
+        }
+
+        const SLIDE_MS = 500;
+        const ROW_DELAY = Math.min(140, 3000 / Math.max(rows.length, 1));
+
+        const easeOutCubic = (x: number): number => 1 - Math.pow(1 - x, 3);
+        const flyG = this._blocksG!;
+        const fs = iconFontSize(fsize);
+
+        const raf = (typeof requestAnimationFrame === 'function')
+            ? requestAnimationFrame
+            : (cb: () => void) => setTimeout(cb, 16);
+
+        return new Promise<void>((resolve) => {
+            const startTime = Date.now();
+            let rowIdx = 0;
+            let lastRowTime = startTime;
+            let doneCount = 0;
+
+            const tick = () => {
+                if (!flyG?.node?.isValid) { resolve(); return; }
+                const now = Date.now();
+
+                if (rowIdx < rows.length && now - lastRowTime >= ROW_DELAY) {
+                    const row = rows[rowIdx];
+                    row.startTime = now;
+                    row.offset = (n - row.gy + 3) * cell;
+                    rowIdx++;
+                    lastRowTime = now;
+                }
+
+                for (let ri = 0; ri < rowIdx; ri++) {
+                    const row = rows[ri];
+                    if (row.done) continue;
+                    const t = (now - row.startTime) / SLIDE_MS;
+                    if (t >= 1 && !row.done) {
+                        row.done = true;
+                        doneCount++;
+                        for (const c of row.cells) {
+                            grid.cells[c.gy][c.gx] = c.colorIdx;
+                            onLand?.(c.gx, c.gy, c.colorIdx);
+                        }
+                        onRowLand?.();
+                    }
+                }
+
+                flyG.clear();
+
+                let iconN = 0;
+                for (let ri = 0; ri < rowIdx; ri++) {
+                    const row = rows[ri];
+                    if (row.done) continue;
+                    const remaining = 1 - easeOutCubic((now - row.startTime) / SLIDE_MS);
+                    const yOff = -row.offset * remaining;
+                    for (const c of row.cells) {
+                        const baseX = -half + c.gx * cell + inset;
+                        const baseY = half - (c.gy + 1) * cell + inset;
+                        paintBlockFace(flyG, baseX, baseY + yOff, fsize, radius, skin, c.colorIdx);
+
+                        const em = blockIcon(skin, c.colorIdx);
+                        if (em && fs > 0) {
+                            const l = this.icon(iconN++);
+                            l.node.active = true;
+                            l.string = em;
+                            l.fontSize = fs;
+                            l.lineHeight = fs;
+                            l.node.setPosition(
+                                -half + c.gx * cell + cell / 2,
+                                half - (c.gy + 1) * cell + cell / 2 + yOff,
+                                0,
+                            );
+                        }
+                    }
+                }
+
+                // Static blocks (already landed) — draw faces + icons
+                for (let gy2 = 0; gy2 < n; gy2++) {
+                    for (let gx = 0; gx < n; gx++) {
+                        const v = grid.cells[gy2][gx];
+                        if (v === null) continue;
+                        paintBlockFace(flyG, -half + gx * cell + inset, half - (gy2 + 1) * cell + inset, fsize, radius, skin, v);
+
+                        const em = blockIcon(skin, v);
+                        if (em && fs > 0) {
+                            const l = this.icon(iconN++);
+                            l.node.active = true;
+                            l.string = em;
+                            l.fontSize = fs;
+                            l.lineHeight = fs;
+                            l.node.setPosition(
+                                -half + gx * cell + cell / 2,
+                                half - (gy2 + 1) * cell + cell / 2,
+                                0,
+                            );
+                        }
+                    }
+                }
+                for (let i = iconN; i < this._icons.length; i++) this._icons[i].node.active = false;
+
+                const allDone = rowIdx >= rows.length && doneCount >= rows.length;
+                if (!allDone) {
+                    raf(tick);
+                } else {
+                    this.render(grid, skin);
+                    onAllLand?.();
+                    this._rowFlipWave(grid, skin, colorCount, onLand, onFlipRow, resolve);
+                }
+            };
+            raf(tick);
+        });
+    }
+
+    private _rowFlipWave(grid: Grid, skin: Skin, colorCount: number, onLand: ((gx: number, gy: number, colorIdx: number) => void) | undefined, onFlipRow: (() => void) | undefined, resolve: () => void): void {
+        const n = grid.size;
+        const cell = this.cellSize;
+        const half = this.boardPx / 2;
+        const { inset, radius } = blockMetrics(skin, cell);
+        const fsize = cell - inset * 2;
+        const fs = iconFontSize(fsize);
+        const TOTAL_MS = 2000;
+        const FLIP_MS = 300;
+        const ROW_STAGGER = Math.min(180, (TOTAL_MS - FLIP_MS) / Math.max(n - 1, 1));
+        const startTime = Date.now();
+        const flyG = this._blocksG!;
+
+        const newColors: (number | null)[][] = [];
+        for (let gy = 0; gy < n; gy++) {
+            const row: (number | null)[] = [];
+            for (let gx = 0; gx < n; gx++) {
+                const cur = grid.cells[gy][gx];
+                if (cur === null) { row.push(null); continue; }
+                let nc: number;
+                do { nc = Math.floor(Math.random() * colorCount); } while (nc === cur && colorCount > 1);
+                row.push(nc);
+            }
+            newColors.push(row);
+        }
+        const flipped = new Array(n).fill(false);
+        const raf2 = (typeof requestAnimationFrame === 'function')
+            ? requestAnimationFrame
+            : (cb: () => void) => setTimeout(cb, 16);
+
+        const flipTick = () => {
+            if (!flyG?.node?.isValid) { resolve(); return; }
+            const elapsed = Date.now() - startTime;
+            flyG.clear();
+
+            let iconN = 0;
+            for (let gy = 0; gy < n; gy++) {
+                const rowStart = gy * ROW_STAGGER;
+                const t = Math.max(0, Math.min(1, (elapsed - rowStart) / FLIP_MS));
+
+                if (t >= 1 && !flipped[gy]) {
+                    flipped[gy] = true;
+                    for (let gx = 0; gx < n; gx++) {
+                        if (newColors[gy][gx] !== null) {
+                            grid.cells[gy][gx] = newColors[gy][gx]!;
+                            onLand?.(gx, gy, newColors[gy][gx]!);
+                        }
+                    }
+                    onFlipRow?.();
+                }
+
+                const scaleY = t < 0.5 ? 1 - t * 2 : (t - 0.5) * 2;
+                const scaledH = Math.max(1, fsize * scaleY);
+                const rowCenterY = half - (gy + 0.5) * cell;
+
+                for (let gx = 0; gx < n; gx++) {
+                    const v = grid.cells[gy][gx];
+                    if (v === null) continue;
+                    const baseX = -half + gx * cell + inset;
+                    const baseY = rowCenterY - scaledH / 2;
+                    paintBlockFace(flyG, baseX, baseY, scaledH, Math.max(0, radius * scaleY), skin, v);
+
+                    const em = blockIcon(skin, v);
+                    if (em && fs > 0) {
+                        const l = this.icon(iconN++);
+                        l.node.active = true;
+                        l.string = em;
+                        l.fontSize = Math.max(1, Math.round(fs * scaleY));
+                        l.lineHeight = l.fontSize;
+                        l.node.setPosition(-half + gx * cell + cell / 2, rowCenterY, 0);
+                    }
+                }
+            }
+            for (let i = iconN; i < this._icons.length; i++) this._icons[i].node.active = false;
+
+            const allFlipped = elapsed >= (n - 1) * ROW_STAGGER + FLIP_MS;
+            if (!allFlipped) {
+                raf2(flipTick);
+            } else {
+                this.render(grid, skin);
+                resolve();
+            }
+        };
+        raf2(flipTick);
+    }
 }
