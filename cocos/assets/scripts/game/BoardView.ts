@@ -646,8 +646,8 @@ export class BoardView extends Component {
     }
 
     /**
-     * 方块涌入特效（v4）：逐行从底到顶，每行空格的方块从盘面外飞入目标格。
-     * 飞入带 easeOutBack 弹性 + onLand 回调（粒子爆发）。约 4s。
+     * 方块涌入特效（v5）：起始方向随机（从上到下 / 从下到上 / 从左到右 / 从右到左），
+     * 沿该方向逐行（或逐列）从盘面外飞入空格。落满后接 _rowFlipWave 行/列翻转波。约 4s。
      * @param colorCount 皮肤色板数量（随机索引上限）
      * @param onLand 每个方块落地时调用
      */
@@ -657,17 +657,35 @@ export class BoardView extends Component {
         const half = this.boardPx / 2;
         const { inset, radius } = blockMetrics(skin, cell);
         const fsize = cell - inset * 2;
-        interface RowData { cells: Array<{ gx: number; gy: number; colorIdx: number }>; gy: number; offset: number; startTime: number; done: boolean }
+        interface FlyCell { gx: number; gy: number; colorIdx: number; jit: number; jit2: number }
+        interface RowData { cells: FlyCell[]; offset: number; startTime: number; done: boolean }
+
+        // 起始方向随机：up=从下到上 / down=从上到下 / right=从左到右 / left=从右到左
+        const fillDir = (['up', 'down', 'right', 'left'] as const)[Math.floor(Math.random() * 4)];
+        const fillVertical = fillDir === 'up' || fillDir === 'down';
+        const fillLines: number[] = [];
+        for (let i = 0; i < n; i++) fillLines.push(i);
+        if (fillDir === 'up' || fillDir === 'left') fillLines.reverse();
 
         const rows: RowData[] = [];
-        for (let gy = n - 1; gy >= 0; gy--) {
-            const cells: Array<{ gx: number; gy: number; colorIdx: number }> = [];
-            for (let gx = 0; gx < n; gx++) {
+        for (const line of fillLines) {
+            const cells: FlyCell[] = [];
+            for (let k = 0; k < n; k++) {
+                const gx = fillVertical ? k : line;
+                const gy = fillVertical ? line : k;
                 if (grid.cells[gy][gx] === null) {
-                    cells.push({ gx, gy, colorIdx: Math.floor(Math.random() * colorCount) });
+                    cells.push({ gx, gy, colorIdx: Math.floor(Math.random() * colorCount), jit: Math.random(), jit2: Math.random() });
                 }
             }
-            if (cells.length) rows.push({ cells, gy, offset: 0, startTime: 0, done: false });
+            if (cells.length) {
+                // 距入场边的格距 + 4（越远飞行越久）
+                let dist: number;
+                if (fillDir === 'up') dist = n - 1 - line;
+                else if (fillDir === 'down') dist = line;
+                else if (fillDir === 'right') dist = line;
+                else dist = n - 1 - line;
+                rows.push({ cells, offset: dist + 4, startTime: 0, done: false });
+            }
         }
         if (!rows.length) {
             onAllLand?.();
@@ -700,7 +718,6 @@ export class BoardView extends Component {
                 if (rowIdx < rows.length && now - lastRowTime >= ROW_DELAY) {
                     const row = rows[rowIdx];
                     row.startTime = now;
-                    row.offset = (n - row.gy + 3) * cell;
                     rowIdx++;
                     lastRowTime = now;
                 }
@@ -727,22 +744,50 @@ export class BoardView extends Component {
                     const row = rows[ri];
                     if (row.done) continue;
                     const remaining = 1 - easeOutCubic((now - row.startTime) / SLIDE_MS);
-                    const yOff = -row.offset * remaining;
+                    const slide = row.offset * remaining * cell;
+                    let dx = 0;
+                    let dy = 0;
+                    if (fillDir === 'up') dy = -slide;
+                    else if (fillDir === 'down') dy = slide;
+                    else if (fillDir === 'right') dx = -slide;
+                    else dx = slide;
                     for (const c of row.cells) {
-                        const baseX = -half + c.gx * cell + inset;
-                        const baseY = half - (c.gy + 1) * cell + inset;
-                        paintBlockFace(flyG, baseX, baseY + yOff, fsize, radius, skin, c.colorIdx);
+                        // 与 web 严格一致：每格独立抖动 + 风吹飘动 + rotate + scale 扭曲，随 remaining 衰减归零。
+                        const jLag = c.jit * cell * 2.2 * remaining;
+                        const jPerp = (c.jit2 - 0.5) * cell * 1.4 * remaining;
+                        const phase = now * 0.011 + (c.gx + c.gy) * 0.8 + c.jit2 * 6.283;
+                        const sway = cell * (0.5 + 0.8 * c.jit) * remaining * Math.sin(phase);
+                        let sdx = dx;
+                        let sdy = dy;
+                        if (fillDir === 'up') sdy -= jLag;
+                        else if (fillDir === 'down') sdy += jLag;
+                        else if (fillDir === 'right') sdx -= jLag;
+                        else sdx += jLag;
+                        if (fillVertical) sdx += sway + jPerp; else sdy += sway + jPerp;
+
+                        // web: rotate(rot) + scale(sx, sy) → Cocos 数学等效
+                        const rot = (0.14 + 0.18 * c.jit) * remaining * Math.sin(phase + 0.6);
+                        const sAlong = 1 + (0.14 + 0.18 * c.jit) * remaining;
+                        const sPerp2 = 1 - 0.12 * remaining;
+                        const sx = fillVertical ? sPerp2 : sAlong;
+                        const sy = fillVertical ? sAlong : sPerp2;
+                        const cosR = Math.cos(rot);
+                        const sinR = Math.sin(rot);
+                        // 方块相对原位中心偏移
+                        const ox = sdx;
+                        const oy = sdy;
+                        // 变换后的中心（translate → rotate → scale 的等效坐标偏移）
+                        const faceCx = -half + c.gx * cell + cell / 2 + (cosR * ox * sx - sinR * oy * sy);
+                        const faceCy = half - (c.gy + 1) * cell + cell / 2 + (sinR * ox * sx + cosR * oy * sy);
+                        const sz = fsize * Math.min(sx, sy);
+                        paintBlockFace(flyG, faceCx - sz / 2, faceCy - sz / 2, sz, radius, skin, c.colorIdx);
 
                         const em = blockIcon(skin, c.colorIdx);
                         if (em && fs > 0) {
                             const l = this.icon(iconN++);
                             l.node.active = true;
                             applyIconLabel(l, em, fs);
-                            l.node.setPosition(
-                                -half + c.gx * cell + cell / 2,
-                                half - (c.gy + 1) * cell + cell / 2 + yOff,
-                                0,
-                            );
+                            l.node.setPosition(faceCx, faceCy, 0);
                         }
                     }
                 }
@@ -791,9 +836,17 @@ export class BoardView extends Component {
         const fs = iconFontSize(fsize);
         const TOTAL_MS = 2000;
         const FLIP_MS = 300;
-        const ROW_STAGGER = Math.min(180, (TOTAL_MS - FLIP_MS) / Math.max(n - 1, 1));
+        const STAGGER = Math.min(180, (TOTAL_MS - FLIP_MS) / Math.max(n - 1, 1));
         const startTime = Date.now();
         const flyG = this._blocksG!;
+
+        // 翻转方向随机：down=下翻 / up=上翻（绕水平轴，scaleY）；right=右翻 / left=左翻（绕竖直轴，scaleX）
+        const flipDir = (['down', 'up', 'right', 'left'] as const)[Math.floor(Math.random() * 4)];
+        const flipVertical = flipDir === 'down' || flipDir === 'up';
+        const orderPos = (lineIdx: number): number => {
+            if (flipDir === 'down' || flipDir === 'right') return lineIdx;
+            return n - 1 - lineIdx;
+        };
 
         const newColors: (number | null)[][] = [];
         for (let gy = 0; gy < n; gy++) {
@@ -807,7 +860,7 @@ export class BoardView extends Component {
             }
             newColors.push(row);
         }
-        const flipped = new Array(n).fill(false);
+        const committed = new Array(n).fill(false);
         const raf2 = (typeof requestAnimationFrame === 'function')
             ? requestAnimationFrame
             : (cb: () => void) => setTimeout(cb, 16);
@@ -818,13 +871,15 @@ export class BoardView extends Component {
             flyG.clear();
 
             let iconN = 0;
-            for (let gy = 0; gy < n; gy++) {
-                const rowStart = gy * ROW_STAGGER;
-                const t = Math.max(0, Math.min(1, (elapsed - rowStart) / FLIP_MS));
+            for (let lineIdx = 0; lineIdx < n; lineIdx++) {
+                const k = orderPos(lineIdx);
+                const t = Math.max(0, Math.min(1, (elapsed - k * STAGGER) / FLIP_MS));
 
-                if (t >= 1 && !flipped[gy]) {
-                    flipped[gy] = true;
-                    for (let gx = 0; gx < n; gx++) {
+                if (t >= 1 && !committed[lineIdx]) {
+                    committed[lineIdx] = true;
+                    for (let m = 0; m < n; m++) {
+                        const gx = flipVertical ? m : lineIdx;
+                        const gy = flipVertical ? lineIdx : m;
                         if (newColors[gy][gx] !== null) {
                             grid.cells[gy][gx] = newColors[gy][gx]!;
                             onLand?.(gx, gy, newColors[gy][gx]!);
@@ -833,36 +888,155 @@ export class BoardView extends Component {
                     onFlipRow?.();
                 }
 
-                const scaleY = t < 0.5 ? 1 - t * 2 : (t - 0.5) * 2;
-                const scaledH = Math.max(1, fsize * scaleY);
-                const rowCenterY = half - (gy + 0.5) * cell;
+                const scale = t < 0.5 ? 1 - t * 2 : (t - 0.5) * 2;
+                const sizeScaled = Math.max(1, fsize * scale);
 
-                for (let gx = 0; gx < n; gx++) {
+                for (let m = 0; m < n; m++) {
+                    const gx = flipVertical ? m : lineIdx;
+                    const gy = flipVertical ? lineIdx : m;
                     const v = grid.cells[gy][gx];
                     if (v === null) continue;
-                    const baseX = -half + gx * cell + inset;
-                    const baseY = rowCenterY - scaledH / 2;
-                    paintBlockFace(flyG, baseX, baseY, scaledH, Math.max(0, radius * scaleY), skin, v);
+
+                    let baseX: number;
+                    let baseY: number;
+                    let iconX: number;
+                    let iconY: number;
+                    if (flipVertical) {
+                        const rowCenterY = half - (gy + 0.5) * cell;
+                        baseX = -half + gx * cell + inset;
+                        baseY = rowCenterY - sizeScaled / 2;
+                        iconX = -half + gx * cell + cell / 2;
+                        iconY = rowCenterY;
+                    } else {
+                        const colCenterX = -half + (gx + 0.5) * cell;
+                        baseX = colCenterX - sizeScaled / 2;
+                        baseY = half - (gy + 1) * cell + inset;
+                        iconX = colCenterX;
+                        iconY = half - (gy + 0.5) * cell;
+                    }
+                    paintBlockFace(flyG, baseX, baseY, sizeScaled, Math.max(0, radius * scale), skin, v);
 
                     const em = blockIcon(skin, v);
                     if (em && fs > 0) {
                         const l = this.icon(iconN++);
                         l.node.active = true;
-                        applyIconLabel(l, em, Math.max(1, Math.round(fs * scaleY)));
-                        l.node.setPosition(-half + gx * cell + cell / 2, rowCenterY, 0);
+                        applyIconLabel(l, em, Math.max(1, Math.round(fs * scale)));
+                        l.node.setPosition(iconX, iconY, 0);
                     }
                 }
             }
             for (let i = iconN; i < this._icons.length; i++) this._icons[i].node.active = false;
 
-            const allFlipped = elapsed >= (n - 1) * ROW_STAGGER + FLIP_MS;
+            const allFlipped = elapsed >= (n - 1) * STAGGER + FLIP_MS;
             if (!allFlipped) {
                 raf2(flipTick);
             } else {
                 this.render(grid, skin);
-                resolve();
+                this._boardFlyOut(grid, skin, resolve);
             }
         };
         raf2(flipTick);
+    }
+
+    /**
+     * 竹简飞散（收尾）：翻转完成后整盘以「竹帘脱钩坠落」方式飞出 ——
+     * 每列当作一条竹简，逐列错峰释放，绕顶端钟摆摇摆（曲线变形），越靠下摆幅越大，
+     * 整体受重力加速下坠 + 远端透视压缩（正方形近似）+ 渐隐，结束后盘面清空。
+     * 注：Cocos Graphics 无法对已绘制块做仿射旋转，故曲线主要由钟摆位置体现。
+     */
+    private _boardFlyOut(grid: Grid, skin: Skin, resolve: () => void): void {
+        const n = grid.size;
+        const cell = this.cellSize;
+        const half = this.boardPx / 2;
+        const { inset, radius } = blockMetrics(skin, cell);
+        const fsize = cell - inset * 2;
+        const fs = iconFontSize(fsize);
+        const flyG = this._blocksG!;
+        const FLYOUT_MS = 1600;
+        const boardPx = this.boardPx;
+        const N = Math.max(n - 1, 1);
+        const start = Date.now();
+        const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
+        const raf3 = (typeof requestAnimationFrame === 'function')
+            ? requestAnimationFrame
+            : (cb: () => void) => setTimeout(cb, 16);
+
+        // 每格独立随机种子 → 脱钩时刻/下坠速度/淡出时机各异，飞散错落有致（飞出无需收敛）
+        const jitA: number[][] = [];
+        const jitB: number[][] = [];
+        for (let gy = 0; gy < n; gy++) {
+            const ra: number[] = [];
+            const rb: number[] = [];
+            for (let gx = 0; gx < n; gx++) { ra.push(Math.random()); rb.push(Math.random()); }
+            jitA.push(ra); jitB.push(rb);
+        }
+
+        const tick = () => {
+            if (!flyG?.node?.isValid) { resolve(); return; }
+            const t = clamp01((Date.now() - start) / FLYOUT_MS);
+            flyG.clear();
+
+            let iconN = 0;
+            for (let gx = 0; gx < n; gx++) {
+                const colNorm = gx / N;
+                const lt = clamp01((t - colNorm * 0.22) / 0.78);
+                const ang = 0.5 * Math.sin(lt * Math.PI * 1.6 + colNorm * Math.PI) * (0.35 + 0.65 * lt);
+                const driftX = cell * 1.4 * Math.sin(colNorm * Math.PI * 2 - t * 3) * lt;
+                const sinA = Math.sin(ang);
+                const cosA = Math.cos(ang);
+                const pivotX = -half + gx * cell + cell / 2;
+
+                // 与 web 严格一致：sX 横向缩窄
+                const sX = Math.max(0.3, 1 - 0.3 * lt);
+
+                for (let gy = 0; gy < n; gy++) {
+                    const v = grid.cells[gy][gx];
+                    if (v === null) continue;
+                    const jA = jitA[gy][gx];
+                    const jB = jitB[gy][gx];
+                    const rowNorm = gy / N;
+                    const len = gy * cell + cell / 2;
+                    // 每格独立脱钩时刻 → 同列方块参差散开
+                    const ltc = clamp01((t - colNorm * 0.22 - jA * 0.14) / 0.78);
+                    const lttc = ltc * ltc;
+                    // 重力拉伸 + 每格速度差异
+                    const grav = (1 + 1.4 * lttc * rowNorm) * (0.85 + 0.3 * jB);
+                    // 风吹飘扬：横向行波 + 每格相位扰动
+                    const wave = cell * 1.7 * Math.sin(rowNorm * 4.5 - t * 11 + colNorm * 1.2 + jB * 3) * (0.15 + 0.85 * rowNorm) * ltc;
+                    // 重力加速下坠（二次 + 三次项）+ 每格速度差异
+                    const dropY = boardPx * (3.4 * lttc + 1.8 * ltc * lttc) * (0.8 + 0.4 * jA);
+
+                    const sY = Math.max(0.2, 1 - 0.7 * ltc * rowNorm);
+                    // 与 web 一致的位置计算（Cocos y 上为正，dropY 向下故取负）
+                    const fcx = pivotX + driftX - len * sinA + wave;
+                    const fcy = (half - dropY) - len * cosA * grav;
+                    const sz = Math.max(2, fsize * Math.min(sX, sY));
+                    // 每格淡出时机错开
+                    const alpha = clamp01(1 - (ltc - (0.5 + jB * 0.2)) / 0.4);
+                    if (alpha <= 0.02) continue;
+                    const a255 = Math.round(alpha * 255);
+
+                    paintBlockFace(flyG, fcx - sz / 2, fcy - sz / 2, sz, Math.max(0, radius * Math.min(sX, sY)), skin, v, a255);
+
+                    const em = blockIcon(skin, v);
+                    if (em && fs > 0 && alpha > 0.35) {
+                        const l = this.icon(iconN++);
+                        l.node.active = true;
+                        applyIconLabel(l, em, Math.max(1, Math.round(fs * Math.min(sX, sY))));
+                        l.node.setPosition(fcx, fcy, 0);
+                    }
+                }
+            }
+            for (let i = iconN; i < this._icons.length; i++) this._icons[i].node.active = false;
+
+            if (t < 1) {
+                raf3(tick);
+            } else {
+                flyG.clear();
+                for (let i = 0; i < this._icons.length; i++) this._icons[i].node.active = false;
+                resolve();
+            }
+        };
+        raf3(tick);
     }
 }

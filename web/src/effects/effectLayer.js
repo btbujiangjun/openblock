@@ -213,8 +213,8 @@ export class EffectLayer {
     _onGameOver() {}
 
     /**
-     * 棋盘方块涌入：逐行从底到顶，每行空格的方块从盘面底部（候选区方向）飞入。
-     * 方块先写入 grid 再重绘，通过逐行 offset 偏移实现"从下方滑入"的视觉。
+     * 棋盘方块涌入：起始方向随机（从上到下 / 从下到上 / 从左到右 / 从右到左），
+     * 沿该方向逐行（或逐列）从盘面外飞入空格。落满后接 _rowFlipWave 行/列翻转波。
      * @returns {Promise<void>}
      */
     boardFlood({ grid, palette, skin, gridSize } = {}) {
@@ -226,26 +226,39 @@ export class EffectLayer {
         const gold = '#FFD700';
 
         const gridEl = r.canvas;
-        const dockEl = document.getElementById('dock');
-        if (!gridEl || !dockEl) return Promise.resolve();
+        if (!gridEl) return Promise.resolve();
 
         const gridRect = gridEl.getBoundingClientRect();
-        const dockRect = dockEl.getBoundingClientRect();
-        const dockCenterX = dockRect.left + dockRect.width / 2;
-        const dockCenterY = dockRect.top + dockRect.height / 2;
-
         const cssPxPerCell = gridRect.width / n;
 
+        // 起始方向随机：up=从下到上 / down=从上到下 / right=从左到右 / left=从右到左
+        const fillDir = ['up', 'down', 'right', 'left'][Math.floor(Math.random() * 4)];
+        const fillVertical = fillDir === 'up' || fillDir === 'down';
+
+        // 沿填充方向逐行/逐列分组：靠近入场边的先落地
+        const fillLines = [];
+        for (let i = 0; i < n; i++) fillLines.push(i);
+        if (fillDir === 'up' || fillDir === 'left') fillLines.reverse();
+
         const rows = [];
-        for (let gy = n - 1; gy >= 0; gy--) {
+        for (const line of fillLines) {
             const cells = [];
-            for (let gx = 0; gx < n; gx++) {
+            for (let k = 0; k < n; k++) {
+                const gx = fillVertical ? k : line;
+                const gy = fillVertical ? line : k;
                 if (grid.cells[gy][gx] === null) {
-                    const _sx = dockCenterX + (Math.random() - 0.5) * dockRect.width * 0.6;
-                    cells.push({ gx, gy, colorIdx: Math.floor(Math.random() * palette.length), _sx });
+                    cells.push({ gx, gy, colorIdx: Math.floor(Math.random() * palette.length), jit: Math.random(), jit2: Math.random() });
                 }
             }
-            if (cells.length) rows.push({ cells, gy, startTime: 0, done: false });
+            if (cells.length) {
+                // 距入场边的格距 + 4（越远飞行越久）
+                let dist;
+                if (fillDir === 'up') dist = n - 1 - line;
+                else if (fillDir === 'down') dist = line;
+                else if (fillDir === 'right') dist = line;
+                else dist = n - 1 - line;
+                rows.push({ cells, offset: dist + 4, startTime: 0, done: false });
+            }
         }
         if (!rows.length) {
             try { window.__audioFx?.play('bonus'); } catch { /* ignore */ }
@@ -326,14 +339,41 @@ export class EffectLayer {
                     const row = rows[ri];
                     if (row.done) continue;
                     const t = (now - row.startTime) / SLIDE_MS;
-                    const p = easeOutCubic(t);
+                    const remaining = 1 - easeOutCubic(t);
+                    const slide = row.offset * remaining * cssPxPerCell;
                     for (const c of row.cells) {
-                        const destX = gridRect.left + c.gx * cssPxPerCell;
-                        const destY = gridRect.top + c.gy * cssPxPerCell;
-                        const curX = c._sx + (destX - c._sx) * p;
-                        const curY = dockCenterY + (destY - dockCenterY) * p;
+                        // 每格独立抖动 → 落入错落有致；顺向 lag 让同行/列参差不齐，
+                        // 全部随 remaining 衰减 → 落定瞬间归零，与最终棋盘无缝吻合。
+                        const jLag = c.jit * cssPxPerCell * 2.2 * remaining;
+                        const jPerp = (c.jit2 - 0.5) * cssPxPerCell * 1.4 * remaining;
+                        let curX = gridRect.left + c.gx * cssPxPerCell;
+                        let curY = gridRect.top + c.gy * cssPxPerCell;
+                        if (fillDir === 'up') { curY += slide + jLag; curX += jPerp; }
+                        else if (fillDir === 'down') { curY -= slide + jLag; curX += jPerp; }
+                        else if (fillDir === 'right') { curX -= slide + jLag; curY += jPerp; }
+                        else { curX += slide + jLag; curY += jPerp; }
+
+                        // 风吹飘动 + 适度扭曲：横向摆动 + 顺向拉伸/侧向挤压 + 轻微倾斜（每格振幅/相位各异）
+                        const phase = now * 0.011 + (c.gx + c.gy) * 0.8 + c.jit2 * 6.283;
+                        const windAmp = cssPxPerCell * (0.5 + 0.8 * c.jit) * remaining;
+                        const sway = windAmp * Math.sin(phase);
+                        if (fillVertical) curX += sway; else curY += sway;
+                        const rot = (0.14 + 0.18 * c.jit) * remaining * Math.sin(phase + 0.6);
+                        const sAlong = 1 + (0.14 + 0.18 * c.jit) * remaining;
+                        const sPerp = 1 - 0.12 * remaining;
+                        const sx = fillVertical ? sPerp : sAlong;
+                        const sy = fillVertical ? sAlong : sPerp;
+
                         const color = palette[c.colorIdx] || gold;
+                        const cxp = curX + cssPxPerCell / 2;
+                        const cyp = curY + cssPxPerCell / 2;
+                        octx.save();
+                        octx.translate(cxp, cyp);
+                        octx.rotate(rot);
+                        octx.scale(sx, sy);
+                        octx.translate(-cxp, -cyp);
                         r.drawBlock(curX / cssPxPerCell, curY / cssPxPerCell, color, skin);
+                        octx.restore();
                     }
                 }
 
@@ -362,8 +402,17 @@ export class EffectLayer {
     _rowFlipWave(r, grid, n, cs, palette, skin, resolve) {
         const TOTAL_MS = 2000;
         const FLIP_MS = 300;
-        const ROW_STAGGER = Math.min(180, (TOTAL_MS - FLIP_MS) / Math.max(n - 1, 1));
+        const STAGGER = Math.min(180, (TOTAL_MS - FLIP_MS) / Math.max(n - 1, 1));
         const flipStart = performance.now();
+
+        // 翻转方向随机：down=下翻 / up=上翻（绕水平轴，scaleY）；right=右翻 / left=左翻（绕竖直轴，scaleX）
+        const flipDir = ['down', 'up', 'right', 'left'][Math.floor(Math.random() * 4)];
+        const flipVertical = flipDir === 'down' || flipDir === 'up';
+        // 每条线（行/列）的波及顺序位置
+        const orderPos = (lineIdx) => {
+            if (flipDir === 'down' || flipDir === 'right') return lineIdx;
+            return n - 1 - lineIdx; // up / left
+        };
 
         const newColors = [];
         for (let gy = 0; gy < n; gy++) {
@@ -378,7 +427,7 @@ export class EffectLayer {
             newColors.push(row);
         }
 
-        const flipped = new Array(n).fill(false);
+        const committed = new Array(n).fill(false);
 
         const flipTick = (now) => {
             const elapsed = now - flipStart;
@@ -390,13 +439,15 @@ export class EffectLayer {
             ctx.save();
             if (r.shakeOffset) ctx.translate(r.shakeOffset.x, r.shakeOffset.y);
 
-            for (let gy = 0; gy < n; gy++) {
-                const rowStart = gy * ROW_STAGGER;
-                const t = Math.max(0, Math.min(1, (elapsed - rowStart) / FLIP_MS));
+            for (let lineIdx = 0; lineIdx < n; lineIdx++) {
+                const k = orderPos(lineIdx);
+                const t = Math.max(0, Math.min(1, (elapsed - k * STAGGER) / FLIP_MS));
 
-                if (t >= 1 && !flipped[gy]) {
-                    flipped[gy] = true;
-                    for (let gx = 0; gx < n; gx++) {
+                if (t >= 1 && !committed[lineIdx]) {
+                    committed[lineIdx] = true;
+                    for (let m = 0; m < n; m++) {
+                        const gx = flipVertical ? m : lineIdx;
+                        const gy = flipVertical ? lineIdx : m;
                         if (newColors[gy][gx] !== null) {
                             grid.cells[gy][gx] = newColors[gy][gx];
                         }
@@ -404,22 +455,23 @@ export class EffectLayer {
                     try { window.__audioFx?.play('tick'); } catch { /* ignore */ }
                 }
 
-                const scaleY = t < 0.5
-                    ? 1 - t * 2
-                    : (t - 0.5) * 2;
+                const scale = t < 0.5 ? 1 - t * 2 : (t - 0.5) * 2;
 
-                const rowCenterY = gy * cs + cs / 2;
-
-                for (let gx = 0; gx < n; gx++) {
+                for (let m = 0; m < n; m++) {
+                    const gx = flipVertical ? m : lineIdx;
+                    const gy = flipVertical ? lineIdx : m;
                     const v = grid.cells[gy][gx];
                     if (v === null) continue;
                     const color = palette[v];
                     if (!color) continue;
 
+                    const cx = gx * cs + cs / 2;
+                    const cy = gy * cs + cs / 2;
                     ctx.save();
-                    ctx.translate(gx * cs + cs / 2, rowCenterY);
-                    ctx.scale(1, scaleY);
-                    ctx.translate(-(gx * cs + cs / 2), -rowCenterY);
+                    ctx.translate(cx, cy);
+                    if (flipVertical) ctx.scale(1, scale);
+                    else ctx.scale(scale, 1);
+                    ctx.translate(-cx, -cy);
                     r.drawBlock(gx, gy, color, skin);
                     ctx.restore();
                 }
@@ -431,15 +483,114 @@ export class EffectLayer {
             r.renderParticles?.();
             r.syncFxCanvasVisibility?.();
 
-            const allFlipped = elapsed >= (n - 1) * ROW_STAGGER + FLIP_MS;
+            const allFlipped = elapsed >= (n - 1) * STAGGER + FLIP_MS;
             if (!allFlipped) {
                 requestAnimationFrame(flipTick);
             } else {
                 try { r.renderGrid(grid); } catch { /* ignore */ }
-                resolve();
+                this._boardFlyOut(r, grid, n, cs, palette, skin, resolve);
             }
         };
         requestAnimationFrame(flipTick);
+    }
+
+    /**
+     * 竹简飞散（v2 收尾）：行/列翻转完成后，整盘以「竹帘脱钩坠落」的方式飞出 ——
+     * 把每一列当作一条竹简，逐列错峰释放；每列绕其顶端做钟摆式摇摆（曲线变形），
+     * 越靠下的格子摆幅越大；整体受重力加速下坠，远端格子做透视压缩 + 渐隐，
+     * 营造受重力形变的立体感与真实感。结束后盘面清空。
+     */
+    _boardFlyOut(r, grid, n, cs, palette, skin, resolve) {
+        const FLYOUT_MS = 1600;
+        const boardPx = n * cs;
+        const N = Math.max(n - 1, 1);
+        const start = performance.now();
+        const clamp01 = (x) => Math.max(0, Math.min(1, x));
+
+        // 每格独立随机种子 → 脱钩时刻/下坠速度/淡出时机各异，飞散错落有致（飞出无需收敛）
+        const jitA = [];
+        const jitB = [];
+        for (let gy = 0; gy < n; gy++) {
+            const ra = [];
+            const rb = [];
+            for (let gx = 0; gx < n; gx++) { ra.push(Math.random()); rb.push(Math.random()); }
+            jitA.push(ra); jitB.push(rb);
+        }
+
+        const tick = (now) => {
+            const t = clamp01((now - start) / FLYOUT_MS);
+
+            r.clear?.();
+            r.renderBackground?.();
+
+            const ctx = r.ctx;
+            ctx.save();
+            if (r.shakeOffset) ctx.translate(r.shakeOffset.x, r.shakeOffset.y);
+
+            for (let gx = 0; gx < n; gx++) {
+                const colNorm = gx / N;
+                // 竹简逐条脱钩：左侧先落，形成自左向右的释放波（列级钟摆保持竹简整体感）
+                const lt = clamp01((t - colNorm * 0.22) / 0.78);
+                const ang = 0.5 * Math.sin(lt * Math.PI * 1.6 + colNorm * Math.PI) * (0.35 + 0.65 * lt);
+                const driftX = cs * 1.4 * Math.sin(colNorm * Math.PI * 2 - t * 3) * lt;
+                const sinA = Math.sin(ang);
+                const cosA = Math.cos(ang);
+                const pivotX = gx * cs + cs / 2;
+                const sX = Math.max(0.3, 1 - 0.3 * lt);
+
+                for (let gy = 0; gy < n; gy++) {
+                    const v = grid.cells[gy][gx];
+                    if (v === null) continue;
+                    const color = palette[v];
+                    if (!color) continue;
+                    const jA = jitA[gy][gx];
+                    const jB = jitB[gy][gx];
+                    const rowNorm = gy / N;
+                    const len = gy * cs + cs / 2;
+                    // 每格独立脱钩时刻 → 同列方块参差散开
+                    const ltc = clamp01((t - colNorm * 0.22 - jA * 0.14) / 0.78);
+                    const lttc = ltc * ltc;
+                    // 重力拉伸 + 每格速度差异
+                    const grav = (1 + 1.4 * lttc * rowNorm) * (0.85 + 0.3 * jB);
+                    // 风吹飘扬：横向行波 + 每格相位扰动
+                    const wave = cs * 1.7 * Math.sin(rowNorm * 4.5 - t * 11 + colNorm * 1.2 + jB * 3) * (0.15 + 0.85 * rowNorm) * ltc;
+                    // 重力加速下坠（二次 + 三次项）+ 每格速度差异
+                    const dropY = boardPx * (3.4 * lttc + 1.8 * ltc * lttc) * (0.8 + 0.4 * jA);
+                    const cx = pivotX + driftX - len * sinA + wave;
+                    const cy = dropY + len * cosA * grav;
+                    const sY = Math.max(0.2, 1 - 0.7 * ltc * rowNorm);
+                    // 每格淡出时机错开
+                    const alpha = clamp01(1 - (ltc - (0.5 + jB * 0.2)) / 0.4);
+                    if (alpha <= 0.02) continue;
+
+                    const baseCx = gx * cs + cs / 2;
+                    const baseCy = gy * cs + cs / 2;
+                    ctx.save();
+                    ctx.globalAlpha = alpha;
+                    ctx.translate(cx, cy);
+                    ctx.rotate(ang);
+                    ctx.scale(sX, sY);
+                    ctx.translate(-baseCx, -baseCy);
+                    r.drawBlock(gx, gy, color, skin);
+                    ctx.restore();
+                }
+            }
+
+            ctx.restore();
+            r.updateParticles?.();
+            r.renderParticles?.();
+            r.syncFxCanvasVisibility?.();
+
+            if (t < 1) {
+                requestAnimationFrame(tick);
+            } else {
+                r.clear?.();
+                r.renderBackground?.();
+                r.syncFxCanvasVisibility?.();
+                resolve();
+            }
+        };
+        requestAnimationFrame(tick);
     }
 
     // ------------------------------------------------------------------

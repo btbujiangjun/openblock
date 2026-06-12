@@ -736,21 +736,37 @@ Page({
     const colorCount = palette.length || 8;
     const cs = this._cellSize;
 
+    const fillDir = ['up', 'down', 'right', 'left'][Math.floor(Math.random() * 4)];
+    const fillVertical = fillDir === 'up' || fillDir === 'down';
+    const fillLines = [];
+    for (let i = 0; i < n; i++) fillLines.push(i);
+    if (fillDir === 'up' || fillDir === 'left') fillLines.reverse();
+
     const rows = [];
-    for (let gy = n - 1; gy >= 0; gy--) {
+    for (const line of fillLines) {
       const row = [];
-      for (let gx = 0; gx < n; gx++) {
+      for (let k = 0; k < n; k++) {
+        const gx = fillVertical ? k : line;
+        const gy = fillVertical ? line : k;
         if (g.grid.cells[gy][gx] === null) {
-          row.push({ gx, gy, colorIdx: Math.floor(Math.random() * colorCount) });
+          row.push({ gx, gy, colorIdx: Math.floor(Math.random() * colorCount), jit: Math.random(), jit2: Math.random() });
         }
       }
-      if (row.length) rows.push({ cells: row, gy, offset: 0, startTime: 0, done: false });
+      if (row.length) {
+        let dist;
+        if (fillDir === 'up') dist = n - 1 - line;
+        else if (fillDir === 'down') dist = line;
+        else if (fillDir === 'right') dist = line;
+        else dist = n - 1 - line;
+        rows.push({ cells: row, offset: dist + 4, startTime: 0, done: false });
+      }
     }
     if (!rows.length) return;
 
     const SLIDE_MS = 500;
     const ROW_DELAY = Math.min(140, 3000 / Math.max(rows.length, 1));
-    const totalMs = rows.length * ROW_DELAY + SLIDE_MS + 2400;
+    // 填满 + 翻转波(~2000) + 竹简飞散(~1600) 的总时长，确保 gameOver 音效在整段动效后再响。
+    const totalMs = rows.length * ROW_DELAY + SLIDE_MS + 4100;
     this._gameOverQuietUntil = Math.max(this._gameOverQuietUntil || 0, Date.now() + totalMs);
 
     const easeOutCubic = (x) => 1 - Math.pow(1 - x, 3);
@@ -768,7 +784,6 @@ Page({
       if (rowIdx < rows.length && now - lastRowTime >= ROW_DELAY) {
         const row = rows[rowIdx];
         row.startTime = now;
-        row.offset = (n - row.gy + 3) * cs;
         rowIdx++;
         lastRowTime = now;
       }
@@ -805,14 +820,44 @@ Page({
         }
       }
 
+      const fctx = r._ctx || r.ctx;
       for (let ri = 0; ri < rowIdx; ri++) {
         const row = rows[ri];
         if (row.done) continue;
         const remaining = 1 - easeOutCubic((now - row.startTime) / SLIDE_MS);
-        const yOff = row.offset * remaining;
+        const slide = row.offset * remaining * cs;
         for (const c of row.cells) {
           const color = palette[c.colorIdx % palette.length] || gold;
-          r._paintCell(c.gx * cs, c.gy * cs + yOff, cs, color);
+          // 每格独立抖动 → 落入错落有致；顺向 lag 让同行/列参差不齐，随 remaining 衰减落定归零。
+          const jLag = c.jit * cs * 2.2 * remaining;
+          const jPerp = (c.jit2 - 0.5) * cs * 1.4 * remaining;
+          let x = c.gx * cs;
+          let y = c.gy * cs;
+          if (fillDir === 'up') { y += slide + jLag; x += jPerp; }
+          else if (fillDir === 'down') { y -= slide + jLag; x += jPerp; }
+          else if (fillDir === 'right') { x -= slide + jLag; y += jPerp; }
+          else { x += slide + jLag; y += jPerp; }
+
+          // 风吹飘动 + 适度扭曲：横向摆动 + 顺向拉伸/侧向挤压（每格振幅/相位各异）
+          const phase = now * 0.011 + (c.gx + c.gy) * 0.8 + c.jit2 * 6.283;
+          const windAmp = cs * (0.5 + 0.8 * c.jit) * remaining;
+          const sway = windAmp * Math.sin(phase);
+          if (fillVertical) x += sway; else y += sway;
+          const rot = (0.14 + 0.18 * c.jit) * remaining * Math.sin(phase + 0.6);
+          const sAlong = 1 + (0.14 + 0.18 * c.jit) * remaining;
+          const sPerp = 1 - 0.12 * remaining;
+          const sx = fillVertical ? sPerp : sAlong;
+          const sy = fillVertical ? sAlong : sPerp;
+
+          const cxp = x + cs / 2;
+          const cyp = y + cs / 2;
+          fctx.save();
+          fctx.translate(cxp, cyp);
+          fctx.rotate(rot);
+          fctx.scale(sx, sy);
+          fctx.translate(-cxp, -cyp);
+          r._paintCell(x, y, cs, color);
+          fctx.restore();
         }
       }
 
@@ -836,8 +881,16 @@ Page({
   _startRowFlipWave(g, r, n, cs, palette) {
     const TOTAL_MS = 2000;
     const FLIP_MS = 300;
-    const ROW_STAGGER = Math.min(180, (TOTAL_MS - FLIP_MS) / Math.max(n - 1, 1));
+    const STAGGER = Math.min(180, (TOTAL_MS - FLIP_MS) / Math.max(n - 1, 1));
     const flipStart = Date.now();
+
+    // 翻转方向随机：down=下翻 / up=上翻（绕水平轴，scaleY）；right=右翻 / left=左翻（绕竖直轴，scaleX）
+    const flipDir = ['down', 'up', 'right', 'left'][Math.floor(Math.random() * 4)];
+    const flipVertical = flipDir === 'down' || flipDir === 'up';
+    const orderPos = (lineIdx) => {
+      if (flipDir === 'down' || flipDir === 'right') return lineIdx;
+      return n - 1 - lineIdx;
+    };
 
     const newColors = [];
     for (let gy = 0; gy < n; gy++) {
@@ -852,38 +905,44 @@ Page({
       newColors.push(row);
     }
 
-    const flipped = new Array(n).fill(false);
+    const committed = new Array(n).fill(false);
 
     const flipTick = () => {
       const elapsed = Date.now() - flipStart;
       r.clear();
 
-      for (let gy = 0; gy < n; gy++) {
-        const rowStart = gy * ROW_STAGGER;
-        const t = Math.max(0, Math.min(1, (elapsed - rowStart) / FLIP_MS));
+      const ctx = r._ctx || r.ctx;
+      for (let lineIdx = 0; lineIdx < n; lineIdx++) {
+        const k = orderPos(lineIdx);
+        const t = Math.max(0, Math.min(1, (elapsed - k * STAGGER) / FLIP_MS));
 
-        if (t >= 1 && !flipped[gy]) {
-          flipped[gy] = true;
-          for (let gx = 0; gx < n; gx++) {
+        if (t >= 1 && !committed[lineIdx]) {
+          committed[lineIdx] = true;
+          for (let m = 0; m < n; m++) {
+            const gx = flipVertical ? m : lineIdx;
+            const gy = flipVertical ? lineIdx : m;
             if (newColors[gy][gx] !== null) {
               g.grid.cells[gy][gx] = newColors[gy][gx];
             }
           }
         }
 
-        const scaleY = t < 0.5 ? 1 - t * 2 : (t - 0.5) * 2;
-        const rowCenterY = gy * cs + cs / 2;
+        const scale = t < 0.5 ? 1 - t * 2 : (t - 0.5) * 2;
 
-        const ctx = r._ctx || r.ctx;
-        for (let gx = 0; gx < n; gx++) {
+        for (let m = 0; m < n; m++) {
+          const gx = flipVertical ? m : lineIdx;
+          const gy = flipVertical ? lineIdx : m;
           const v = g.grid.cells[gy][gx];
           if (v === null) continue;
           const color = palette[v % palette.length];
           if (!color) continue;
+          const cx = gx * cs + cs / 2;
+          const cy = gy * cs + cs / 2;
           ctx.save();
-          ctx.translate(gx * cs + cs / 2, rowCenterY);
-          ctx.scale(1, scaleY);
-          ctx.translate(-(gx * cs + cs / 2), -rowCenterY);
+          ctx.translate(cx, cy);
+          if (flipVertical) ctx.scale(1, scale);
+          else ctx.scale(scale, 1);
+          ctx.translate(-cx, -cy);
           r._paintCell(gx * cs, gy * cs, cs, color);
           ctx.restore();
         }
@@ -892,15 +951,101 @@ Page({
       r.updateParticles();
       r.renderParticles();
 
-      const allFlipped = elapsed >= (n - 1) * ROW_STAGGER + FLIP_MS;
+      const allFlipped = elapsed >= (n - 1) * STAGGER + FLIP_MS;
       if (!allFlipped) {
         this._floodRafId = this._canvas.requestAnimationFrame(flipTick);
       } else {
         this._floodRafId = null;
-        this._redraw();
+        this._startBoardFlyOut(g, r, n, cs, palette);
       }
     };
     this._floodRafId = this._canvas.requestAnimationFrame(flipTick);
+  },
+
+  /**
+   * 竹简飞散（收尾）：翻转完成后整盘以「竹帘脱钩坠落」方式飞出 ——
+   * 每列当作一条竹简，逐列错峰释放，绕顶端钟摆摇摆（曲线变形），越靠下摆幅越大，
+   * 整体受重力加速下坠 + 远端透视压缩 + 渐隐，结束后盘面清空。
+   */
+  _startBoardFlyOut(g, r, n, cs, palette) {
+    const FLYOUT_MS = 1600;
+    const boardPx = n * cs;
+    const N = Math.max(n - 1, 1);
+    const start = Date.now();
+    const clamp01 = (x) => Math.max(0, Math.min(1, x));
+    const ctx = r._ctx || r.ctx;
+
+    // 每格独立随机种子 → 脱钩时刻/下坠速度/淡出时机各异，飞散错落有致（飞出无需收敛）
+    const jitA = [];
+    const jitB = [];
+    for (let gy = 0; gy < n; gy++) {
+      const ra = [];
+      const rb = [];
+      for (let gx = 0; gx < n; gx++) { ra.push(Math.random()); rb.push(Math.random()); }
+      jitA.push(ra); jitB.push(rb);
+    }
+
+    const tick = () => {
+      const t = clamp01((Date.now() - start) / FLYOUT_MS);
+      r.clear();
+
+      for (let gx = 0; gx < n; gx++) {
+        const colNorm = gx / N;
+        const lt = clamp01((t - colNorm * 0.22) / 0.78);
+        const ang = 0.5 * Math.sin(lt * Math.PI * 1.6 + colNorm * Math.PI) * (0.35 + 0.65 * lt);
+        const driftX = cs * 1.4 * Math.sin(colNorm * Math.PI * 2 - t * 3) * lt;
+        const sinA = Math.sin(ang);
+        const cosA = Math.cos(ang);
+        const pivotX = gx * cs + cs / 2;
+        const sX = Math.max(0.3, 1 - 0.3 * lt);
+
+        for (let gy = 0; gy < n; gy++) {
+          const v = g.grid.cells[gy][gx];
+          if (v === null) continue;
+          const color = palette[v % palette.length];
+          if (!color) continue;
+          const jA = jitA[gy][gx];
+          const jB = jitB[gy][gx];
+          const rowNorm = gy / N;
+          const len = gy * cs + cs / 2;
+          // 每格独立脱钩时刻 → 同列方块参差散开
+          const ltc = clamp01((t - colNorm * 0.22 - jA * 0.14) / 0.78);
+          const lttc = ltc * ltc;
+          const grav = (1 + 1.4 * lttc * rowNorm) * (0.85 + 0.3 * jB);
+          const wave = cs * 1.7 * Math.sin(rowNorm * 4.5 - t * 11 + colNorm * 1.2 + jB * 3) * (0.15 + 0.85 * rowNorm) * ltc;
+          const dropY = boardPx * (3.4 * lttc + 1.8 * ltc * lttc) * (0.8 + 0.4 * jA);
+          const cx = pivotX + driftX - len * sinA + wave;
+          const cy = dropY + len * cosA * grav;
+          const sY = Math.max(0.2, 1 - 0.7 * ltc * rowNorm);
+          const alpha = clamp01(1 - (ltc - (0.5 + jB * 0.2)) / 0.4);
+          if (alpha <= 0.02) continue;
+          const baseCx = gx * cs + cs / 2;
+          const baseCy = gy * cs + cs / 2;
+
+          ctx.save();
+          ctx.globalAlpha = alpha;
+          ctx.translate(cx, cy);
+          ctx.rotate(ang);
+          ctx.scale(sX, sY);
+          ctx.translate(-baseCx, -baseCy);
+          r._paintCell(gx * cs, gy * cs, cs, color);
+          ctx.restore();
+        }
+      }
+
+      r.updateParticles();
+      r.renderParticles();
+
+      if (t < 1) {
+        this._floodRafId = this._canvas.requestAnimationFrame(tick);
+      } else {
+        this._floodRafId = null;
+        r.clear();
+        const empty = { size: n, cells: Array.from({ length: n }, () => new Array(n).fill(null)) };
+        try { r.drawGrid(empty, cs, 0, 0); } catch { /* ignore */ }
+      }
+    };
+    this._floodRafId = this._canvas.requestAnimationFrame(tick);
   },
 
   _scheduleGameOverFeedback() {
