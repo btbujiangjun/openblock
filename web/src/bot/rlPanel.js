@@ -816,15 +816,15 @@ export function initRLPanel(game) {
                         episodes: 500000,
                         resume: true,
                         n_workers: 1,
-                        // batch=8：每批更快产出一条 train_episode（约 10s/条 vs batch=16 的 ~30s），
-                        // 配合后端 per-episode 进度心跳，看板每 ~1-2s 即有新日志行。
-                        batch_episodes: 8,
+                        // batch=16：小 batch（8）长/变长 episode 的梯度方差大，是策略漂移退化诱因之一；
+                        // 提至 16 提升梯度稳定性。日志实时性由后端 per-episode 进度心跳保证（不再依赖 batch）。
+                        batch_episodes: 16,
                         preset: 'performance',
                         eval_gate_every: 0,
                         // Lv 价值损失较 Lπ 收敛慢，加权至 1.5 加速 value 拟合，决策更稳
                         value_coef: 1.5,
                     });
-                    logLine('后台训练已启动（看板模式：batch=8 / value_coef=1.5 / 逐局进度心跳；评估门关闭）');
+                    logLine('后台训练已启动（看板模式：batch=16 / value_coef=1.5 / 逐局进度心跳 / best 守护+回滚；评估门关闭）');
                 } catch (err) {
                     logLine(`后台训练启动失败: ${err.message}`);
                     return;

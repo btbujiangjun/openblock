@@ -308,12 +308,29 @@ def _outcome_value_mix() -> float:
     return float(ocfg.get("mix", 1.0))
 
 
-def _outcome_value_target(score: float, threshold: float) -> float:
-    """终局分数价值目标，默认 log 变换以保留 400+ 高分段差异。"""
+def _outcome_value_ref() -> float:
+    """outcome 价值目标的固定绝对参考分。
+
+    历史实现用「当前课程门槛」作分母，但门槛在 quantile 课程下会随策略退化一起下跌，
+    导致同一分数映射出更高的 value 目标（价值头"自我安慰"）、目标非平稳 → Lv 上升、
+    丧失对退化的纠偏能力。改用固定绝对参考分，使 value 目标平稳且与课程解耦。
+    """
+    ocfg = RL_REWARD_SHAPING.get("outcomeValueMix") or {}
+    if (raw := os.environ.get("RL_OUTCOME_REF_SCORE", "").strip()) != "":
+        return max(float(raw), 1.0)
+    return max(float(ocfg.get("refScore", 1500.0)), 1.0)
+
+
+def _outcome_value_target(score: float, threshold: float | None = None) -> float:
+    """终局分数价值目标，默认 log 变换以保留高分段差异。
+
+    分母为固定绝对参考分（见 _outcome_value_ref），不再依赖随课程漂移的 threshold。
+    threshold 形参仅为兼容旧调用，已忽略。
+    """
     ocfg = RL_REWARD_SHAPING.get("outcomeValueMix") or {}
     mode = os.environ.get("RL_OUTCOME_VALUE_MODE", str(ocfg.get("targetMode", "log"))).strip().lower()
     max_value = float(os.environ.get("RL_OUTCOME_VALUE_MAX", str(ocfg.get("maxValue", 3.0))))
-    denom = max(float(threshold), 1.0)
+    denom = _outcome_value_ref()
     if mode == "linear":
         val = float(score) / denom
     else:
@@ -605,8 +622,18 @@ def _replay_config() -> dict:
         "sampleRatio": 0.5,
         "maxSamples": 8,
         "minPriority": 0.0,
+        # 高分优先回放（防退化锚）：保留/采样改为偏好高分局，并对其 chosen 动作做
+        # 轻量行为克隆（"记住有效打法"），抵抗灾难性遗忘。默认开启。
+        "highScoreReplay": True,
+        "bcCoef": 0.1,
     }
     cfg.update(RL_REWARD_SHAPING.get("searchReplay") or {})
+    if (raw_hs := os.environ.get("RL_HIGH_SCORE_REPLAY", "").strip().lower()) in ("1", "true", "yes", "on"):
+        cfg["highScoreReplay"] = True
+    elif raw_hs in ("0", "false", "no", "off"):
+        cfg["highScoreReplay"] = False
+    if (raw_bc := os.environ.get("RL_REPLAY_BC_COEF", "").strip()) != "":
+        cfg["bcCoef"] = float(raw_bc)
     raw = os.environ.get("RL_SEARCH_REPLAY", "").strip().lower()
     if raw in ("1", "true", "yes", "on"):
         cfg["enabled"] = True
@@ -650,7 +677,7 @@ def _hole_aux_coef_and_denom() -> tuple[float, float]:
 
 def _effective_entropy_coef(global_ep: int, base: float) -> float:
     """随局数线性降低熵系数；衰减周期与课程爬坡对齐。"""
-    lo = float(os.environ.get("RL_ENTROPY_COEF_MIN", "0.008"))
+    lo = float(os.environ.get("RL_ENTROPY_COEF_MIN", "0.005"))
     span = float(os.environ.get("RL_ENTROPY_DECAY_EPISODES", "60000"))
     if span <= 0 or base <= lo:
         return base
@@ -1441,6 +1468,10 @@ def _reevaluate_and_update(
     ppo_epochs: int = 1,
     ppo_clip: float = 0.2,
     global_ep: int = 0,
+    target_kl: float = 0.0,
+    ref_net: "AnyNet | None" = None,
+    kl_ref_coef: float = 0.0,
+    bc_replay_coef: float = 0.0,
 ) -> dict | None:
     """v5: outcome 价值目标 + 直接监督三头 + GAE advantage + PPO。"""
     valid = [ep for ep in batch if ep["trajectory"]]
@@ -1720,7 +1751,7 @@ def _reevaluate_and_update(
         v = vals_np[v_off : v_off + ep_len]
         r = np.array([all_rewards[r_off + j] * return_scale for j in range(ep_len)], dtype=np.float32)
         t_len = ep_len
-        outcome_val = _outcome_value_target(ep_scores[ep_i], ep_thresholds[ep_i])
+        outcome_val = _outcome_value_target(ep_scores[ep_i])
 
         if ep_replay_flags[ep_i]:
             # Replay 轨迹可能来自旧策略/旧 ranked window；只保留终局 outcome 作为稳定 value 监督。
@@ -1783,6 +1814,20 @@ def _reevaluate_and_update(
 
     values_old_for_clip = values_init.detach()
 
+    # KL-to-reference：参考策略（冻结的历史最优）的动作分布只需算一次（不随 epoch 变）
+    ref_lp_2d: torch.Tensor | None = None
+    if ref_net is not None and kl_ref_coef > 0.0:
+        with torch.no_grad():
+            ref_lp_2d, _rv, _rmask, _rc = _forward_and_log_probs(
+                ref_net, states_t, action_feats_t, n_actions_t,
+                all_n_actions, total_steps, device,
+            )
+            ref_lp_2d = ref_lp_2d.detach()
+
+    # 高分回放行为克隆：replay 步（pg_weight≈0）的掩码，BC 仅作用于这些"好例"步
+    bc_mask = (pg_weight_t < 0.5) if bc_replay_coef > 0.0 else None
+    bc_sum = float(bc_mask.float().sum().item()) if bc_mask is not None else 0.0
+
     last_result: dict | None = None
     n_epochs = max(1, ppo_epochs)
 
@@ -1811,12 +1856,17 @@ def _reevaluate_and_update(
         probs_2d = lp_2d.exp() * mask.float()
         ent_t = -(probs_2d * lp_2d.masked_fill(~mask, 0.0)).sum(dim=1)
 
+        approx_kl = 0.0
         if n_epochs > 1:
             log_ratio = (new_lp - old_lp_t).clamp(-10.0, 10.0)
             ratio = torch.exp(log_ratio)
             surr1 = ratio * adv_cat
             surr2 = torch.clamp(ratio, 1.0 - ppo_clip, 1.0 + ppo_clip) * adv_cat
             policy_loss = -(torch.min(surr1, surr2) * pg_weight_t).sum() / pg_weight_sum
+            # Schulman 近似 KL：E[(r-1) - log r] ≥ 0，比 -log r 方差更低、恒非负
+            with torch.no_grad():
+                kl_t = ((ratio - 1.0) - log_ratio) * pg_weight_t
+                approx_kl = float((kl_t.sum() / pg_weight_sum).item())
         else:
             policy_loss = -((new_lp * adv_cat) * pg_weight_t).sum() / pg_weight_sum
 
@@ -1833,6 +1883,20 @@ def _reevaluate_and_update(
             posinf=0.0,
             neginf=0.0,
         )
+
+        # KL-to-reference：KL(π_ref‖π) 在有效动作上求和，拉当前策略回历史最优附近（防漂移）
+        kl_ref_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        if ref_lp_2d is not None:
+            pi_ref = ref_lp_2d.exp() * mask.float()
+            kl_per_step = (pi_ref * (ref_lp_2d - lp_2d).masked_fill(~mask, 0.0)).sum(dim=1)
+            kl_ref_loss = torch.nan_to_num(kl_per_step.mean(), nan=0.0, posinf=0.0, neginf=0.0)
+
+        # 高分回放行为克隆：最大化 replay（高分局）chosen 动作的 log π，"记住有效打法"
+        bc_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
+        if bc_mask is not None and bc_sum > 0.5:
+            bc_loss = torch.nan_to_num(
+                -(new_lp * bc_mask.float()).sum() / bc_sum, nan=0.0, posinf=0.0, neginf=0.0
+            )
 
         hole_aux_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         if use_hole_aux and holes_target is not None:
@@ -1936,6 +2000,8 @@ def _reevaluate_and_update(
             + surv_coef * _safe_aux(surv_loss)
             + q_distill_coef * _safe_aux(q_distill_loss)
             + visit_pi_coef * _safe_aux(visit_pi_loss)
+            + kl_ref_coef * _safe_aux(kl_ref_loss)
+            + bc_replay_coef * _safe_aux(bc_loss)
         )
 
         opt.zero_grad()
@@ -1994,6 +2060,8 @@ def _reevaluate_and_update(
             "loss_surv": _safe_metric(surv_loss),
             "loss_q_distill": _safe_metric(q_distill_loss),
             "loss_visit_pi": _safe_metric(visit_pi_loss),
+            "loss_kl_ref": _safe_metric(kl_ref_loss),
+            "loss_bc_replay": _safe_metric(bc_loss),
             "hole_aux_coef": float(hole_coef),
             "clear_pred_coef": float(clear_pred_coef),
             "topology_aux_coef": float(topo_coef),
@@ -2014,9 +2082,15 @@ def _reevaluate_and_update(
             "teacher_visit_entropy_norm": float(np.mean(visit_entropy_norm_vals)) if visit_entropy_norm_vals else 0.0,
             "optimizer_stepped": stepped,
             "optimizer_skip_reason": skip_reason,
+            "approx_kl": float(approx_kl),
+            "ppo_epochs_run": epoch_i + 1,
         }
 
         if not stepped and epoch_i > 0:
+            break
+        # 信任域早停：单批 KL 超阈值即停止剩余 epoch，防止小批多轮过拟合导致策略漂移。
+        if target_kl > 0.0 and approx_kl > target_kl and not math.isnan(approx_kl):
+            last_result["optimizer_skip_reason"] = (skip_reason + "|" if skip_reason else "") + "early_stop_kl"
             break
 
     return last_result
@@ -2065,6 +2139,7 @@ def train_loop(
     n_workers: int = 0,
     ppo_epochs: int = 4,
     ppo_clip: float = 0.2,
+    target_kl: float = 0.0,
     eval_gate_every: int = 0,
     eval_gate_games: int = 50,
     eval_gate_win_ratio: float = 0.55,
@@ -2075,6 +2150,13 @@ def train_loop(
 
     opt = adam_for_training(net.parameters(), lr=lr)
 
+    # --- 自适应目标熵：把策略熵稳定在目标带内，避免熵系数过高把策略推向随机 ---
+    # 熵过高 → 落子随机 → 提前死局（观测到 step_count 48→31 同步退化）。
+    # 反馈控制：实测熵高于目标带则下调熵系数（减探索压力），低于则上调，乘子有界。
+    _ent_target = float(os.environ.get("RL_TARGET_ENTROPY", "0.0"))  # >0 启用自适应
+    _ent_target_band = float(os.environ.get("RL_TARGET_ENTROPY_BAND", "0.2"))
+    _ent_adapt: float = 1.0
+
     # --- 评估门控：基线权重 + 历史最优保留（v8）---
     _baseline_sd: dict | None = None
     _last_gate_ep: int = 0
@@ -2083,6 +2165,36 @@ def train_loop(
     if eval_gate_every > 0:
         _baseline_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
         _best_ever_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+
+    # --- 轻量 best-checkpoint 守护（默认开启，防退化主力）---
+    # 重型 eval_gate_check 因 self-play 评估会卡顿故看板模式默认关闭；这里改用「免费」的
+    # 训练 rollout 滚动均分做守护：均分创新高即快照 best，显著回撤即回滚到 best 并重置
+    # 优化器动量。直接对症「得分越来越低」——保证模型权重单调不退化。
+    _guard_on = os.environ.get("RL_BEST_GUARD", "1").lower() not in ("0", "false", "no")
+    _guard_every = int(os.environ.get("RL_BEST_GUARD_EVERY", "200"))
+    _guard_window = int(os.environ.get("RL_BEST_GUARD_WINDOW", "200"))
+    _guard_margin = float(os.environ.get("RL_BEST_GUARD_MARGIN", "0.02"))
+    _guard_regress = float(os.environ.get("RL_BEST_GUARD_REGRESS", "0.85"))
+    _guard_scores: collections.deque = collections.deque(maxlen=max(1, _guard_window))
+    _guard_best_avg: float = 0.0
+    _guard_best_sd: dict | None = None
+    _guard_last_ep: int = 0
+    _guard_rollbacks: int = 0
+
+    # --- KL-to-reference 锚定：以「历史最优快照」为冻结参考策略，软约束当前策略不远离 ---
+    # 与硬回滚守护互补：守护是"事后兜底"，KL-ref 是"过程中持续拉回"，抑制策略缓慢漂移。
+    # 参考网随 best 快照更新（只会换成更好的策略）。每批仅多一次参考前向，开销可忽略。
+    _kl_ref_coef = float(os.environ.get("RL_KL_REF_COEF", "0.0"))  # >0 启用
+    _ref_net: AnyNet | None = None
+    if _kl_ref_coef > 0.0:
+        _ref_net = build_policy_net(
+            train_arch, getattr(net, "width", 128), policy_depth_arg, value_depth_arg,
+            mlp_ratio, device, conv_channels=getattr(net, "conv_channels", 32),
+        )
+        _ref_net.load_state_dict(net.state_dict())
+        _ref_net.eval()
+        for _p in _ref_net.parameters():
+            _p.requires_grad_(False)
 
     # --- 课程模式三选一（v11.2，详见 rl_pytorch/game_rules.py:rl_curriculum_mode）---
     #   linear   = 固定线性 ramp（v8 默认）
@@ -2116,6 +2228,8 @@ def train_loop(
     _quant_score_history: collections.deque = collections.deque(maxlen=_quant_window)
     _quant_ema: float = 0.0
     _quant_ema_inited: bool = False
+    _quant_peak: float = 0.0  # 棘轮高水位：门槛历史峰值，防止门槛追随策略退化下跌
+    _quant_ratchet_decay: float = float(_quant_cfg.get("ratchetDecay", 0.9))
     _quant_last_thr: int = int(_quant_cfg.get("bootstrapThreshold", 40))
     _quant_last_action: str = "bootstrap"
     _quant_last_target: float = -1.0
@@ -2255,6 +2369,8 @@ def train_loop(
     # --- 困难样本 replay：重放高分但未通关/低可行性尾局，减少搜索 teacher 样本浪费 ---
     _replay_cfg = _replay_config()
     _use_replay = bool(_replay_cfg.get("enabled", False))
+    _high_score_replay = bool(_replay_cfg.get("highScoreReplay", True))
+    _replay_bc_coef = float(_replay_cfg.get("bcCoef", 0.1)) if _high_score_replay else 0.0
     _replay_buffer: collections.deque = collections.deque(maxlen=int(_replay_cfg.get("maxEpisodes", 256)))
 
     start_ep = 0
@@ -2388,8 +2504,11 @@ def train_loop(
                     floor=int(_quant_cfg.get("floor", 40)),
                     ceil=int(_quant_cfg.get("ceil", 9999)),
                     ema_initialized=_quant_ema_inited,
+                    ratchet_peak=_quant_peak,
+                    ratchet_decay=_quant_ratchet_decay,
                 )
                 _quant_ema = _q_dec.new_ema
+                _quant_peak = _q_dec.new_peak
                 if _q_dec.action in ("ema_init", "quantile"):
                     _quant_ema_inited = True
                 _quant_last_thr = _q_dec.new_threshold
@@ -2553,6 +2672,8 @@ def train_loop(
             # ── 本批分数 / 胜负累计（必须在 reward 整形之后，使 history 用最终 reward 视角的 score）──
             for ep in batch:
                 scores.append(ep["score"])
+                if _guard_on:
+                    _guard_scores.append(float(ep["score"]))
                 won = ep["won"]
                 if won:
                     wins += 1
@@ -2626,7 +2747,7 @@ def train_loop(
 
             # --- GPU 批量更新（PPO 或 REINFORCE）---
             tt0 = time.perf_counter()
-            ent_eff = _effective_entropy_coef(ep_cursor, entropy_coef)
+            ent_eff = _effective_entropy_coef(ep_cursor, entropy_coef) * _ent_adapt
             replay_sample: list[dict] = []
             if _use_replay and len(_replay_buffer) > 0:
                 replay_n = min(
@@ -2634,7 +2755,20 @@ def train_loop(
                     max(1, int(round(len(batch) * float(_replay_cfg.get("sampleRatio", 0.5))))),
                     len(_replay_buffer),
                 )
-                replay_sample = copy.deepcopy(random.sample(list(_replay_buffer), replay_n))
+                _buf_list = list(_replay_buffer)
+                if _high_score_replay:
+                    # 按 score 加权无放回采样：高分局更可能被回放（行为锚）
+                    _w = [max(1e-3, float(ep.get("score", 0.0))) for ep in _buf_list]
+                    _picked: list = []
+                    _pool = list(range(len(_buf_list)))
+                    for _ in range(min(replay_n, len(_pool))):
+                        _ws = [_w[i] for i in _pool]
+                        _idx = random.choices(_pool, weights=_ws, k=1)[0]
+                        _picked.append(_buf_list[_idx])
+                        _pool.remove(_idx)
+                    replay_sample = copy.deepcopy(_picked)
+                else:
+                    replay_sample = copy.deepcopy(random.sample(_buf_list, replay_n))
                 for ep in replay_sample:
                     ep["_replay_sample"] = True
                     ep["_replay_age"] = max(0, ep_cursor - int(ep.get("_replay_added_ep", ep_cursor)))
@@ -2644,6 +2778,9 @@ def train_loop(
                 return_scale, value_coef, ent_eff, normalize_adv,
                 adv_min_std, value_huber_beta, grad_clip,
                 ppo_epochs=ppo_epochs, ppo_clip=ppo_clip, global_ep=ep_cursor,
+                target_kl=target_kl,
+                ref_net=_ref_net, kl_ref_coef=_kl_ref_coef,
+                bc_replay_coef=_replay_bc_coef,
             )
             tt1 = time.perf_counter()
             t_train_ms = (tt1 - tt0) * 1000
@@ -2651,12 +2788,23 @@ def train_loop(
             if result:
                 result["replay_samples"] = len(replay_sample)
                 last_update = result
+                # 自适应熵反馈（一批滞后）：用实测熵把熵系数乘子推向目标带，乘子限幅防失稳
+                if _ent_target > 0.0:
+                    _ent_meas = float(result.get("entropy", 0.0))
+                    if _ent_meas > _ent_target + _ent_target_band:
+                        _ent_adapt *= 0.98
+                    elif _ent_meas < _ent_target - _ent_target_band:
+                        _ent_adapt *= 1.02
+                    _ent_adapt = float(min(3.0, max(0.2, _ent_adapt)))
+                    result["entropy_coef_adapt"] = _ent_adapt
             if _use_replay:
                 min_pri = float(_replay_cfg.get("minPriority", 0.0))
-                ranked_batch = sorted(batch, key=_episode_replay_priority, reverse=True)
+                # 高分模式：按 score 保留高分局（"好例锚"）；否则按难例优先级保留（难例挖掘）
+                _key = (lambda e: float(e.get("score", 0.0))) if _high_score_replay else _episode_replay_priority
+                ranked_batch = sorted(batch, key=_key, reverse=True)
                 keep_n = min(len(ranked_batch), max(1, int(_replay_cfg.get("keepPerBatch", max(1, len(batch) // 2)))))
                 for ep in ranked_batch[:keep_n]:
-                    if _episode_replay_priority(ep) >= min_pri:
+                    if _high_score_replay or _episode_replay_priority(ep) >= min_pri:
                         ep_copy = copy.deepcopy(ep)
                         ep_copy["_replay_added_ep"] = ep_cursor
                         _replay_buffer.append(ep_copy)
@@ -2785,6 +2933,10 @@ def train_loop(
                         "entropy": _num_update("entropy") if last_update else None,
                         "loss_q_distill": _num_update("loss_q_distill") if last_update else None,
                         "loss_visit_pi": _num_update("loss_visit_pi") if last_update else None,
+                        "loss_kl_ref": _num_update("loss_kl_ref") if last_update else None,
+                        "loss_bc_replay": _num_update("loss_bc_replay") if last_update else None,
+                        "approx_kl": _num_update("approx_kl") if last_update else None,
+                        "ppo_epochs_run": int(last_update.get("ppo_epochs_run", 0) or 0) if last_update else None,
                         "q_distill_coef": _num_update("q_distill_coef") if last_update else None,
                         "visit_pi_coef": _num_update("visit_pi_coef") if last_update else None,
                         "loss_hole_aux": _num_update("loss_hole_aux") if last_update else None,
@@ -2815,6 +2967,12 @@ def train_loop(
                         "avg100": float(avg),
                         "curriculum_mode": _curr_mode,
                     }
+                    # best-checkpoint 守护状态（防退化）
+                    if _guard_on and _guard_best_sd is not None:
+                        _jsonl_row.update({
+                            "guard_best_avg": round(_guard_best_avg, 1),
+                            "guard_rollbacks": int(_guard_rollbacks),
+                        })
                     # 课程模式特定字段
                     if _use_quantile:
                         _jsonl_row.update({
@@ -2860,6 +3018,41 @@ def train_loop(
                     _rnd_entropy_history.append(float(_ent_v))
 
                 t0 = time.perf_counter()
+
+            # --- 轻量 best-checkpoint 守护：用训练滚动均分快照/回滚（防退化主力）---
+            if (
+                _guard_on
+                and len(_guard_scores) >= _guard_window
+                and ep_cursor - _guard_last_ep >= _guard_every
+            ):
+                _guard_last_ep = ep_cursor
+                _cur_avg = float(sum(_guard_scores) / len(_guard_scores))
+                if _guard_best_sd is None:
+                    # 首次：以当前为基准 best
+                    _guard_best_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+                    _guard_best_avg = _cur_avg
+                elif _cur_avg >= _guard_best_avg * (1.0 + _guard_margin):
+                    # 创新高 → 快照为新 best，并把 KL-ref 参考网同步到该更优策略
+                    _guard_best_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+                    if _ref_net is not None:
+                        _ref_net.load_state_dict(net.state_dict())
+                    _prev = _guard_best_avg
+                    _guard_best_avg = _cur_avg
+                    print(
+                        f"[BestGuard] ep={ep_cursor}  ★ 新高 avg={_cur_avg:.1f} (prev={_prev:.1f}) → 已快照 best",
+                        file=sys.stderr,
+                    )
+                elif _cur_avg < _guard_best_avg * _guard_regress:
+                    # 显著回撤 → 回滚到 best 并重置优化器动量，避免沿坏方向继续漂移
+                    net.load_state_dict({k: v.to(device) for k, v in _guard_best_sd.items()})
+                    opt = adam_for_training(net.parameters(), lr=lr)
+                    _guard_scores.clear()
+                    _guard_rollbacks += 1
+                    print(
+                        f"[BestGuard] ep={ep_cursor}  ✗ 回撤 avg={_cur_avg:.1f} < {_guard_best_avg * _guard_regress:.1f}"
+                        f"  → 已回滚到 best(avg={_guard_best_avg:.1f}) 并重置优化器  [第{_guard_rollbacks}次]",
+                        file=sys.stderr,
+                    )
 
             # --- 评估门控（v8：软/硬门控 + 历史最优保留）---
             # 软门控（默认）：仅记录，不回滚
@@ -3058,6 +3251,12 @@ def main() -> None:
         type=float,
         default=0.2,
         help="PPO clipped surrogate ε；仅 ppo-epochs>1 时生效",
+    )
+    p.add_argument(
+        "--target-kl",
+        type=float,
+        default=float(os.environ.get("RL_TARGET_KL", "0.03")),
+        help="信任域早停阈值：单批近似 KL 超此值即停止剩余 PPO epoch（0=关闭）。防小批多轮过拟合漂移",
     )
     p.add_argument(
         "--gae-lambda",
@@ -3327,6 +3526,7 @@ def main() -> None:
         n_workers=args.n_workers,
         ppo_epochs=args.ppo_epochs,
         ppo_clip=args.ppo_clip,
+        target_kl=args.target_kl,
         eval_gate_every=args.eval_gate_every,
         eval_gate_games=args.eval_gate_games,
         eval_gate_win_ratio=args.eval_gate_win_ratio,
@@ -3347,6 +3547,7 @@ def main() -> None:
     final_meta["gae_lambda"] = args.gae_lambda
     final_meta["ppo_epochs"] = args.ppo_epochs
     final_meta["ppo_clip"] = args.ppo_clip
+    final_meta["target_kl"] = args.target_kl
     final_meta["rl_curriculum"] = rl_curriculum_enabled()
     torch.save(
         {

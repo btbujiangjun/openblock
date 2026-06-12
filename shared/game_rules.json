@@ -868,11 +868,12 @@
       "adhesionWeight": -0.12
     },
     "outcomeValueMix": {
-      "comment": "v6 混合价值目标：mix=0.5 → V 从 GAE returns 学逐步评估 + outcome 提供稳定锚点。v9.2 默认用 log1p(score)/log1p(threshold) 并放宽 clip，避免 400-500 分段 score/threshold 过早饱和。",
+      "comment": "v6 混合价值目标：mix=0.5 → V 从 GAE returns 学逐步评估 + outcome 提供稳定锚点。v13 起 outcome 分母改用固定绝对参考分 refScore（不再除以随课程漂移的 winThreshold），使 value 目标平稳、与课程解耦，避免门槛下跌时价值头自我安慰。",
       "enabled": true,
       "mix": 0.5,
       "targetMode": "log",
-      "maxValue": 3.0
+      "maxValue": 3.0,
+      "refScore": 1500.0
     },
     "qDistillation": {
       "comment": "Q 分布蒸馏（v7 新增）：策略头额外学习 lookahead / beam / MCTS 搜索目标的 softmax 分布，向 AlphaZero 的「策略学搜索目标」靠拢。v9.3 加入单状态 Q 归一化与系数退火，前期跟强 teacher，后期避免过度锁死搜索偏差。",

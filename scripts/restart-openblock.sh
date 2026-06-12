@@ -237,7 +237,16 @@ export RL_BATCH_SIZE="${RL_BATCH_SIZE:-64}"             # 32→64：稀释离群
 export RL_VALUE_COEF="${RL_VALUE_COEF:-1.25}"           # 1.0→1.25：价值头多吃梯度，加速拟合
 export RL_ENTROPY_COEF="${RL_ENTROPY_COEF:-0.03}"      # 0.025→0.03：维持探索
 export RL_ENTROPY_COEF_MIN="${RL_ENTROPY_COEF_MIN:-0.012}"  # 0.008→0.012：残局熵下限抬高，软化熵深谷
+# ── v13 防退化栈（针对「得分越来越低」根因，全部可被外部 env 覆盖）──
+export RL_TARGET_KL="${RL_TARGET_KL:-0.03}"             # PPO 信任域早停：单批近似 KL 超阈即停剩余 epoch，防策略漂移（0=关）
+export RL_BEST_GUARD="${RL_BEST_GUARD:-1}"             # best-checkpoint 守护：滚动均分创新高即快照、显著回撤即回滚到 best
+export RL_BEST_GUARD_EVERY="${RL_BEST_GUARD_EVERY:-200}"     # 守护检查间隔（局）
+export RL_BEST_GUARD_REGRESS="${RL_BEST_GUARD_REGRESS:-0.85}"  # 回撤阈值：均分 < best×此值 即回滚
+export RL_OUTCOME_REF_SCORE="${RL_OUTCOME_REF_SCORE:-1500}"  # outcome 价值目标固定参考分（去课程门槛耦合，目标平稳）
+export RL_KL_REF_COEF="${RL_KL_REF_COEF:-0.05}"        # KL-to-reference：软约束策略不远离历史最优快照（每批多一次参考前向；0=关）
+export RL_HIGH_SCORE_REPLAY="${RL_HIGH_SCORE_REPLAY:-1}"  # 高分优先回放：按 score 加权采样/保留 + 对高分局 chosen 动作行为克隆
 echo "==> RL 在线训练旋钮: returns_clip=${RL_RETURNS_CLIP} grad_clip=${RL_GRAD_CLIP} batch=${RL_BATCH_SIZE} value_coef=${RL_VALUE_COEF} entropy=${RL_ENTROPY_COEF}->${RL_ENTROPY_COEF_MIN}"
+echo "==> RL 防退化栈: target_kl=${RL_TARGET_KL} best_guard=${RL_BEST_GUARD}(every=${RL_BEST_GUARD_EVERY},regress=${RL_BEST_GUARD_REGRESS}) outcome_ref=${RL_OUTCOME_REF_SCORE} kl_ref=${RL_KL_REF_COEF} hi_replay=${RL_HIGH_SCORE_REPLAY}"
 
 # ── RL 看板/后台训练所需环境（训练日志落盘、热加载检查点、设备/网络宽度）──
 # 缺失时后台训练无法把指标写入 training.jsonl，看板将看不到实时日志。

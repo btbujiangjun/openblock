@@ -190,6 +190,9 @@ def rl_quantile_config() -> dict:
         "bootstrapThreshold": 40,
         "floor": 40,
         "ceil": 9999,
+        # 棘轮：门槛回落下限 = ratchetDecay * 历史峰值。<1.0 启用单调高水位，
+        # 让策略退化时 win_rate 跌破 1-p 形成纠偏压力（消除纯分位课程的退化反馈环）。
+        "ratchetDecay": 0.9,
     }
     user = dict(_RL_CURRICULUM.get("quantile") or {})
     user.pop("comment", None)

@@ -49,17 +49,21 @@ class QuantileDecision:
     action          'bootstrap'（样本不足，用 bootstrap_threshold）/
                     'ema_init'（首次有效计算，EMA 直接初始化为分位数）/
                     'quantile'（常规 EMA 平滑）
-    new_threshold   反馈后的整数 winThreshold（已 clip 到 [floor, ceil]）
+    new_threshold   反馈后的整数 winThreshold（已 clip 到 [floor, ceil] 且应用棘轮）
     new_ema         反馈后的 EMA 内部状态（浮点；调用方需持久化）
+    new_peak        反馈后的历史最高门槛（棘轮高水位；调用方需持久化）
     target_quantile 本次分位数原始值（bootstrap 时返回 -1.0，方便日志区分）
     sample_count    本次决策使用的样本数
+    ratcheted       本次是否被棘轮地板抬升（说明策略相对历史峰值在退步）
     """
 
     action: QuantileAction
     new_threshold: int
     new_ema: float
+    new_peak: float
     target_quantile: float
     sample_count: int
+    ratcheted: bool
 
 
 def _percentile_linear(sorted_scores: list[float], p: float) -> float:
@@ -90,6 +94,8 @@ def compute_quantile_threshold(
     floor: int = 40,
     ceil: int = 9999,
     ema_initialized: bool = False,
+    ratchet_peak: float = 0.0,
+    ratchet_decay: float = 0.9,
 ) -> QuantileDecision:
     """根据近期分数分布计算 winThreshold。
 
@@ -105,21 +111,31 @@ def compute_quantile_threshold(
     floor / ceil      最终 threshold clip 边界
     ema_initialized   ema_state 是否已被首次初始化过；首次有效计算时建议设 False
                       以触发 'ema_init' 分支（避免 EMA 长时间收敛）
+    ratchet_peak      历史最高门槛（棘轮高水位，调用方持久化）。门槛只允许小幅回落。
+    ratchet_decay     门槛回落下限比例：new_threshold >= ratchet_decay * ratchet_peak。
+                      纯分位课程会让门槛追随策略一起下跌（win_rate 恒为 1-p，无绝对进步
+                      压力 → 退化反馈环）。棘轮让门槛成为"高水位线"：策略退步时门槛不跟跌，
+                      win_rate 跌破 1-p 形成纠偏压力。ratchet_decay=1.0 为完全单调，
+                      0.9 允许 10% 让步以免门槛过高致 reward variance 归零。
 
     Returns
     -------
-    QuantileDecision  含 action / new_threshold / new_ema / target_quantile / sample_count
+    QuantileDecision  含 action / new_threshold / new_ema / new_peak / target_quantile / ...
     """
     history = list(score_history)
     n = len(history)
+    ratchet_floor = float(ratchet_decay) * float(ratchet_peak)
 
     if n < max(1, bootstrap_episodes):
+        thr = max(float(floor), min(float(ceil), float(bootstrap_threshold)))
         return QuantileDecision(
             action="bootstrap",
-            new_threshold=int(max(floor, min(ceil, bootstrap_threshold))),
+            new_threshold=int(round(thr)),
             new_ema=float(ema_state),
+            new_peak=float(ratchet_peak),
             target_quantile=-1.0,
             sample_count=n,
+            ratcheted=False,
         )
 
     sorted_scores = sorted(float(x) for x in history)
@@ -138,11 +154,16 @@ def compute_quantile_threshold(
             new_ema = alpha * target + (1.0 - alpha) * float(ema_state)
         action = "quantile"
 
-    new_thr = int(round(max(float(floor), min(float(ceil), new_ema))))
+    thr_raw = max(float(floor), min(float(ceil), new_ema))
+    # 棘轮：门槛不得低于历史峰值的 ratchet_decay 倍（仍受 ceil 约束）。
+    thr_ratcheted = min(float(ceil), max(thr_raw, ratchet_floor))
+    new_peak = max(float(ratchet_peak), thr_ratcheted)
     return QuantileDecision(
         action=action,
-        new_threshold=new_thr,
+        new_threshold=int(round(thr_ratcheted)),
         new_ema=float(new_ema),
+        new_peak=float(new_peak),
         target_quantile=float(target),
         sample_count=n,
+        ratcheted=thr_ratcheted > thr_raw + 1e-9,
     )
