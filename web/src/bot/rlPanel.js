@@ -160,6 +160,12 @@ export function initRLPanel(game) {
     // 后端/看板模式下，顶部统计（均分/胜率/最佳）改由服务端日志推导填充；
     // 浏览器训练时仍优先用本机 recentScores/recentWins/bestScore。
     let serverStats = { avg: null, win: null, best: null };
+    // 「最佳」需单调（历史最高单局分）。serverStats.best 只取日志窗口内最大值，高分批次
+    // 滚出窗口后会缩水，故用会话级累加器保持单调。
+    let serverBestEver = 0;
+    // 顶部状态栏元信息缓存：使头部局数与统计行「局数」共用同一个 totalEpisodes，
+    // 每次 updateStats 同步重渲染，避免两处局数因刷新时机不同而不一致。
+    let backendHeaderMeta = null;
     // 「训练进展」面板内容拆为两段：上方事件消息（logLine 写入，启动/停止/异常等），
     // 下方实时采集进度（refreshServerTrainingLog 从 train_progress 逐局心跳生成）。
     // 两者合并渲染，使该面板在稳定训练时也每 ~1-2s 滚动更新（修复「进展没及时返回」）。
@@ -218,22 +224,42 @@ export function initRLPanel(game) {
                     typeof st.episodes === 'number' ? st.episodes : 0,
                     typeof liveEp === 'number' && Number.isFinite(liveEp) ? liveEp : 0
                 );
-                outBackendStatus.textContent = `${st.device || '?'} ${ck} ${shownEp} 局${bgTag}`;
                 if (shownEp > 0) {
                     totalEpisodes = Math.max(totalEpisodes, shownEp);
-                    updateStats();
                 }
+                // 缓存元信息，头部局数统一改由 renderBackendHeader 读 totalEpisodes 渲染，
+                // 与统计行「局数」共用同一数值并随每次 updateStats 同步刷新。
+                backendHeaderMeta = { available: true, device: st.device || '?', ck, bgTag };
+                renderBackendHeader();
+                updateStats();
                 // 页面刚打开时如果后台训练在跑，自动恢复"训练中"UI
                 if (st.bg_training?.running && !running && readUseBackend()) {
                     void _resumeBgTrainingPoll();
                 }
             } else {
-                outBackendStatus.textContent = st.reason ? `不可用：${st.reason}` : '不可用';
+                backendHeaderMeta = { available: false, reason: st.reason };
+                renderBackendHeader();
             }
         } catch {
-            outBackendStatus.textContent = '无法连接 API';
+            backendHeaderMeta = { available: false, error: true };
+            renderBackendHeader();
         }
         void refreshServerTrainingLog();
+    }
+
+    /** 统一渲染顶部状态栏：局数始终取全局单调的 totalEpisodes，与统计行「局数」保持一致。 */
+    function renderBackendHeader() {
+        if (!outBackendStatus || !backendHeaderMeta) {
+            return;
+        }
+        const m = backendHeaderMeta;
+        if (m.error) {
+            outBackendStatus.textContent = '无法连接 API';
+        } else if (!m.available) {
+            outBackendStatus.textContent = m.reason ? `不可用：${m.reason}` : '不可用';
+        } else {
+            outBackendStatus.textContent = `${m.device} ${m.ck} ${totalEpisodes} 局${m.bgTag}`;
+        }
     }
 
     /** 与 Flask 全局局数对齐（训练/空闲均可调用，刷新看板时拉齐左侧「局数」） */
@@ -374,11 +400,19 @@ export function initRLPanel(game) {
                 const winSlice = epRows.slice(-WIN_WINDOW)
                     .map((e) => (typeof e.win_rate === 'number' ? e.win_rate : typeof e.won === 'boolean' ? (e.won ? 1 : 0) : null))
                     .filter((v) => v != null);
-                const allScores = epRows.map((e) => e.score).filter((v) => typeof v === 'number' && Number.isFinite(v));
+                // 「最佳」取历史最高单局分：窗口内 train_episode 与逐局 train_progress 的最大值，
+                // 再与会话累加器取 max 保持单调（高分滚出窗口也不缩水）。
+                const epScores = epRows.map((e) => e.score).filter((v) => typeof v === 'number' && Number.isFinite(v));
+                const progScores = data.entries
+                    .filter((e) => e.event === 'train_progress')
+                    .map((e) => e.score)
+                    .filter((v) => typeof v === 'number' && Number.isFinite(v));
+                const windowBest = Math.max(0, ...epScores, ...progScores);
+                serverBestEver = Math.max(serverBestEver, windowBest);
                 serverStats = {
                     avg: scoreSlice.length ? scoreSlice.reduce((a, b) => a + b, 0) / scoreSlice.length : null,
                     win: winSlice.length ? winSlice.reduce((a, b) => a + b, 0) / winSlice.length : null,
-                    best: allScores.length ? Math.max(...allScores) : null,
+                    best: serverBestEver > 0 ? serverBestEver : null,
                 };
                 updateStats();
             }
@@ -616,6 +650,8 @@ export function initRLPanel(game) {
         if (outEp) {
             outEp.textContent = String(totalEpisodes);
         }
+        // 头部局数与统计行「局数」共用 totalEpisodes，同步刷新避免两处不一致
+        renderBackendHeader();
         if (outAvg && recentScores.length) {
             const slice = recentScores.slice(-AVG_WINDOW);
             const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
