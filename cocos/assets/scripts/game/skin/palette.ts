@@ -33,20 +33,39 @@ export function blockColor(skin: Skin, colorIdx: number, alpha = 255): Color {
  * 让顶栏数字随皮肤主题变化（如恐龙世界=草绿、海洋=湖蓝），严格对齐 web PC 主端。
  * cocos skins.ts 未移植 cssVars（属 DOM 主题），故在此维护一份 id→accent 映射，缺省回退 web 默认天蓝。
  */
-const SKIN_ACCENT: Record<string, string> = {
-    classic: '#4FB8E8', titanium: '#7eb8ff', aurora: '#38D89E', neonCity: '#00E5FF',
-    ocean: '#48CAE4', sunset: '#FF8E3A', sakura: '#FF4490', koi: '#38A8B8',
-    candy: '#FF44BB', bubbly: '#CC3EF0', toon: '#AA00FF', pixel8: '#FF2050',
-    dawn: '#D98232', food: '#F09020', music: '#E040FF', pets: '#C05820',
-    universe: '#6040C8', fantasy: '#9828D8', beast: '#D8900A', greece: '#C8A010',
-    demon: '#CC1830', jurassic: '#5AC030', fairy: '#D060F0', industrial: '#D49640',
-    forbidden: '#E8B83C', mahjong: '#E0A040', boardgame: '#D49830', sports: '#4F9050',
-    outdoor: '#4FA8C8', vehicles: '#E84020', forest: '#38A878', pirate: '#C8923C',
-    farm: '#78B860', desert: '#C89438',
+const SKIN_ACCENT: Record<string, [string, string]> = {
+    classic:    ['#4FB8E8', '#FFC428'],    titanium:   ['#7eb8ff', '#a5d8ff'],
+    aurora:     ['#38D89E', '#72EAB8'],    neonCity:   ['#00E5FF', '#76FF03'],
+    ocean:      ['#48CAE4', '#90E0EF'],    sunset:     ['#FF8E3A', '#FFD638'],
+    sakura:     ['#FF4490', '#FF80C0'],    koi:        ['#38A8B8', '#60C8D8'],
+    candy:      ['#FF44BB', '#CC2288'],    toon:       ['#AA00FF', '#DD40FF'],
+    pixel8:     ['#FF2050', '#FF6020'],    dawn:       ['#D98232', '#A85F20'],
+    summer:     ['#3078C0', '#1E5CA0'],    cafe:       ['#A87040', '#C89860'],
+    garden:     ['#50A060', '#80C888'],    nordic:     ['#5088A8', '#78B0D0'],
+    food:       ['#F09020', '#F8D020'],    music:      ['#E040FF', '#FF3060'],
+    pets:       ['#C05820', '#904010'],    universe:   ['#6040C8', '#9060E8'],
+    fantasy:    ['#9828D8', '#BB50F0'],    greece:     ['#C8A010', '#E8C038'],
+    demon:      ['#CC1830', '#E83050'],    jurassic:   ['#5AC030', '#80E050'],
+    fairy:      ['#D060F0', '#E890FF'],    industrial: ['#D49640', '#B86838'],
+    forbidden:  ['#E8B83C', '#C8222C'],    mahjong:    ['#E0A040', '#C88430'],
+    boardgame:  ['#D49830', '#B87828'],    sports:     ['#4F9050', '#70B870'],
+    outdoor:    ['#4FA8C8', '#78C8E0'],    vehicles:   ['#E84020', '#FF6040'],
+    forest:     ['#38A878', '#60C898'],    pirate:     ['#C8923C', '#E0B060'],
+    farm:       ['#78B860', '#A0D880'],    desert:     ['#C89438', '#E0B058'],
+    doodle:     ['#4488CC', '#66AAEE'],    zen:        ['#88A888', '#A8C8A8'],
+    cyberpunk:  ['#FF00CC', '#00FFCC'],    fiesta:     ['#FF6020', '#FFD020'],
+    zodiac:     ['#D02020', '#FFD700'],    apple:      ['#8868D8', '#A888F0'],
 };
 
 export function accentColor(skin: Skin, alpha = 255): Color {
-    return hexToColor(SKIN_ACCENT[skin.id] || '#38bdf8', alpha);
+    const pair = SKIN_ACCENT[skin.id];
+    return hexToColor(pair ? pair[0] : '#38bdf8', alpha);
+}
+
+/** 皮肤强调色的深色变体（与 web `--accent-dark` 同源），用于按钮渐变/激活态。 */
+export function accentDarkColor(skin: Skin, alpha = 255): Color {
+    const pair = SKIN_ACCENT[skin.id];
+    return hexToColor(pair ? pair[1] : '#7dd3fc', alpha);
 }
 
 /** 向白色插值（对齐 web lightenColor）。 */

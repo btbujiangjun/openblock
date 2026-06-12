@@ -20,7 +20,11 @@ _stop_pid() {
   local pid
   pid=$(tr -d '[:space:]' <"$f")
   if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null || true
+    # 服务由 restart 脚本以独立会话(start_new_session)启动，pid 即进程组首领；
+    # 优先按进程组(-pid)终止，确保 reloader 子进程 / npm 衍生的 node 等一并退出。
+    kill -- "-${pid}" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    sleep 0.3
+    kill -0 "$pid" 2>/dev/null && { kill -KILL -- "-${pid}" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true; }
     echo "已停止 ${label} pid=${pid}"
   fi
   rm -f "$f"

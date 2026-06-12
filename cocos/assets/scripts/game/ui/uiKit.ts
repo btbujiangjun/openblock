@@ -70,7 +70,7 @@ export function screenToLocal(node: Node, screenX: number, screenY: number): Vec
     return uit.convertToNodeSpaceAR(world);
 }
 
-function nodeHit(node: Node, uit: UITransform, screenPt: Vec2, uiPt: Vec2): boolean {
+export function nodeHit(node: Node, uit: UITransform, screenPt: Vec2, uiPt: Vec2): boolean {
     // 整体 try/catch：原生端（JSB v8 binding）当 UITransform 所属节点的 Camera/Scene 处于
     // 半销毁中间态时，`uit.isHit / uit.hitTest` 会抛 native 异常（Object.cpp:821
     // `Invoking function failed`），导致 onTouchEnd → dispatchTap 整条调用栈每次都炸，
@@ -304,6 +304,8 @@ export class PillButton extends Component {
     private base = new Color(58, 78, 120, 255);
     private primary = false;
     private _disabled = false;
+    /** 皮肤强调描边色（不设则走 base+60 自动 lighten）。 */
+    private _skinStroke: Color | null = null;
 
     init(text: string, size: number, onClick: () => void, style?: PillStyle): PillButton {
         this.onClick = onClick;
@@ -346,6 +348,12 @@ export class PillButton extends Component {
         if (this.lbl) this.lbl.string = text;
     }
 
+    /** 设置皮肤强调描边色（按钮边框跟随当前皮肤 accent）。传 null 恢复默认。 */
+    setSkinStroke(color: Color | null): void {
+        this._skinStroke = color;
+        this.redraw();
+    }
+
     setDisabled(disabled: boolean): void {
         if (this._disabled === disabled) return;
         this._disabled = disabled;
@@ -359,23 +367,46 @@ export class PillButton extends Component {
         const r = this.radius;
         const g = this.g;
         g.clear();
-        const base = this._disabled ? new Color(52, 58, 74, 220) : this.base;
-        g.fillColor = base;
+
+        if (this._disabled) {
+            g.fillColor = new Color(52, 58, 74, 220);
+            g.roundRect(-w / 2, -h / 2, w, h, r);
+            g.fill();
+            g.lineWidth = 1.5;
+            g.strokeColor = new Color(80, 88, 104, 160);
+            g.roundRect(-w / 2, -h / 2, w, h, r);
+            g.stroke();
+            this.lbl.color = new Color(150, 156, 170, 180);
+            return;
+        }
+
+        // 底色：若有皮肤 accent，混入 ~16% 的 accent 色相（对齐 web `color-mix(accent 16%, bg)`）
+        const accent = this._skinStroke;
+        let bgR = this.base.r, bgG = this.base.g, bgB = this.base.b, bgA = this.base.a;
+        if (accent) {
+            const mix = 0.16;
+            bgR = Math.round(bgR * (1 - mix) + accent.r * mix);
+            bgG = Math.round(bgG * (1 - mix) + accent.g * mix);
+            bgB = Math.round(bgB * (1 - mix) + accent.b * mix);
+        }
+        g.fillColor = new Color(bgR, bgG, bgB, bgA);
         g.roundRect(-w / 2, -h / 2, w, h, r);
         g.fill();
-        if (!this._disabled) {
-            // 顶部一抹高光，模拟 web 渐变按钮的玻璃质感
-            g.fillColor = new Color(255, 255, 255, this.primary ? 46 : 28);
-            g.roundRect(-w / 2 + 3, 1, w - 6, h / 2 - 2, Math.max(2, r - 2));
-            g.fill();
-        }
-        g.lineWidth = 2;
-        g.strokeColor = this._disabled
-            ? new Color(80, 88, 104, 160)
-            : new Color(Math.min(255, base.r + 60), Math.min(255, base.g + 60), Math.min(255, base.b + 60), 255);
+
+        // 描边：皮肤 accent 色（alpha ~50%），对齐 web `border: 1px solid color-mix(accent 50%, white 14%)`
+        g.lineWidth = 1.5;
+        g.strokeColor = accent
+            ? new Color(
+                Math.min(255, Math.round(accent.r * 0.50 + 255 * 0.14)),
+                Math.min(255, Math.round(accent.g * 0.50 + 255 * 0.14)),
+                Math.min(255, Math.round(accent.b * 0.50 + 255 * 0.14)),
+                180,
+            )
+            : new Color(Math.min(255, this.base.r + 60), Math.min(255, this.base.g + 60), Math.min(255, this.base.b + 60), 255);
         g.roundRect(-w / 2, -h / 2, w, h, r);
         g.stroke();
-        this.lbl.color = this._disabled ? new Color(150, 156, 170, 180) : new Color(245, 248, 255, 255);
+
+        this.lbl.color = new Color(245, 248, 255, 255);
     }
 
     private fire(): void {

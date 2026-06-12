@@ -66,6 +66,124 @@ _state: dict = {
     "replay_buffer": [],
 }
 
+# 后台 train_loop 状态
+_bg_train_lock = threading.Lock()
+_bg_train_thread: threading.Thread | None = None
+_bg_train_stop_event: threading.Event | None = None
+_bg_train_status: dict = {"running": False, "episodes_done": 0, "error": None}
+
+# 持久化后台训练状态：Flask debug reloader/重启会清空内存全局，导致已启动的训练子进程
+# 变成「追踪不到的孤儿」（stop 找不到、status 误判已停）。落盘 pid 等元信息后，
+# 后端重启可据此恢复对存活子进程的管理。
+_BG_STATE_PATH = _ROOT / "rl_checkpoints" / "bg_train_state.json"
+
+
+def _pid_alive(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # 进程存在但属于其它用户/权限受限，视为存活
+        return True
+
+
+def _save_bg_state(meta: dict) -> None:
+    """落盘后台训练元信息（含 pid、目标局数等）。"""
+    try:
+        _BG_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _BG_STATE_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(_BG_STATE_PATH)
+    except Exception:
+        pass
+
+
+def _load_bg_state() -> dict | None:
+    try:
+        if not _BG_STATE_PATH.is_file():
+            return None
+        return json.loads(_BG_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _clear_bg_state() -> None:
+    try:
+        _BG_STATE_PATH.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _latest_logged_episodes() -> int:
+    """从 training.jsonl 尾部读取最新的累计局数，用于展示训练进度。"""
+    try:
+        path = _training_log_path()
+        if not path.is_file():
+            return 0
+        for ln in reversed(_read_jsonl_tail_lines(path, 50)):
+            try:
+                obj = json.loads(ln)
+            except json.JSONDecodeError:
+                continue
+            ep = obj.get("episodes")
+            if isinstance(ep, (int, float)):
+                return int(ep)
+        return 0
+    except Exception:
+        return 0
+
+
+def _hydrate_bg_status_from_disk_locked() -> None:
+    """在持有 _bg_train_lock 的前提下，若内存无 pid 但磁盘记录的进程仍存活，则恢复跟踪。"""
+    if _bg_train_status.get("pid"):
+        return
+    disk = _load_bg_state()
+    if not disk:
+        return
+    pid = disk.get("pid")
+    if _pid_alive(pid):
+        _bg_train_status["pid"] = pid
+        _bg_train_status["running"] = True
+        _bg_train_status.setdefault("error", None)
+        _bg_train_status["episodes_target"] = disk.get("episodes_target")
+        _bg_train_status["recovered"] = True
+    else:
+        # 磁盘记录的进程已不在，清理陈旧状态
+        _clear_bg_state()
+
+
+def _get_bg_training_info() -> dict:
+    """获取后台训练状态，通过进程存活检测避免 Flask reloader 状态不同步。"""
+    with _bg_train_lock:
+        _hydrate_bg_status_from_disk_locked()
+        pid = _bg_train_status.get("pid")
+        running = _bg_train_status["running"]
+        if pid:
+            alive = _pid_alive(pid)
+            if running and not alive:
+                _bg_train_status["running"] = False
+                running = False
+                _clear_bg_state()
+            elif not running and alive:
+                _bg_train_status["running"] = True
+                running = True
+        episodes_done = _latest_logged_episodes()
+        if episodes_done:
+            _bg_train_status["episodes_done"] = episodes_done
+        return {
+            "running": running,
+            "episodes_done": _bg_train_status.get("episodes_done", 0),
+            "error": _bg_train_status["error"],
+            "pid": pid,
+            "episodes_target": _bg_train_status.get("episodes_target"),
+            "recovered": _bg_train_status.get("recovered", False),
+        }
+
+
 DEFAULT_CKPT_NAME = "rl_checkpoints/bb_policy.pt"
 DEFAULT_TRAINING_LOG = "rl_checkpoints/training.jsonl"
 
@@ -998,6 +1116,7 @@ def create_rl_blueprint() -> Blueprint:
                     for k, v in rl_training_presets().items()
                     if k != "comment"
                 },
+                "bg_training": _get_bg_training_info(),
             }
         )
 
@@ -1375,6 +1494,225 @@ def create_rl_blueprint() -> Blueprint:
             "label": cfg.get("label", name),
         })
         return jsonify({"ok": True, "active": name, "label": cfg.get("label", name)})
+
+    @bp.route("/api/rl/start_training", methods=["POST"])
+    def rl_start_training():
+        """启动后台 train_loop 子进程（与 python -m rl_pytorch.train 完全一致）。
+
+        body (全部可选):
+          episodes        目标局数，默认 50000
+          mcts_sims       MCTS 模拟次数，0=关闭 MCTS（默认 0）
+          n_workers       并行 worker 数，0=自动（默认 0）
+          batch_episodes  每批局数（默认 64）
+          ppo_epochs      PPO 轮数（默认 4）
+          eval_gate_every 每 N 局评估一次（默认 2000，0=关闭）
+          resume          是否从 checkpoint 续训（默认 true）
+        """
+        import subprocess
+
+        global _bg_train_thread, _bg_train_stop_event, _bg_train_status
+
+        with _bg_train_lock:
+            # 先尝试从磁盘恢复：避免 Flask 重启后内存丢失、误判「无训练」而重复启动孤儿进程
+            _hydrate_bg_status_from_disk_locked()
+            if _bg_train_status["running"] and _pid_alive(_bg_train_status.get("pid")):
+                return jsonify({
+                    "error": "训练已在运行中",
+                    "episodes_done": _bg_train_status.get("episodes_done", 0),
+                    "pid": _bg_train_status.get("pid"),
+                }), 409
+
+        data = request.get_json(force=True, silent=True) or {}
+        episodes = int(data.get("episodes", 50000))
+        mcts_sims = int(data.get("mcts_sims", 0))
+        n_workers = int(data.get("n_workers", 0))
+        batch_episodes = int(data.get("batch_episodes", 16))
+        ppo_epochs = int(data.get("ppo_epochs", 4))
+        # 后台/看板训练默认关闭评估门：eval_gate_check 会跑 paired+dual+search 共数百局
+        # 且单局无步数上限，触发时会冻结 train loop 数分钟、期间不产出 train_episode 日志
+        # （表现为「日志不刷新」）。看板场景重在持续监控，门控属离线训练范畴，默认关闭；
+        # 调用方仍可显式传 eval_gate_every>0 启用。
+        eval_gate_every = int(data.get("eval_gate_every", 0))
+        eval_gate_games = int(data.get("eval_gate_games", 50))
+        do_resume = bool(data.get("resume", True))
+        # 价值头损失权重：Lv 较 Lπ 收敛慢，看板模式默认 1.5 加速 value 拟合（决策更稳）
+        value_coef = float(data.get("value_coef", os.environ.get("RL_VALUE_COEF", "1.0")))
+        preset = str(data.get("preset", "performance")).strip()
+        # 指标落盘频率：默认与 batch_episodes 对齐，确保每批训练都写一条 train_episode
+        # JSONL（train.py 内 ep_cursor % log_every < bs 恒真），前端轮询即可逐批看到指标变化。
+        log_every = int(data.get("log_every", batch_episodes))
+        save_path = os.environ.get("RL_CHECKPOINT_SAVE", "rl_checkpoints/bb_policy.pt")
+
+        cmd = [
+            sys.executable, "-m", "rl_pytorch.train",
+            "--episodes", str(episodes),
+            "--batch-episodes", str(batch_episodes),
+            "--log-every", str(log_every),
+            "--ppo-epochs", str(ppo_epochs),
+            "--eval-gate-every", str(eval_gate_every),
+            "--eval-gate-games", str(eval_gate_games),
+            "--value-coef", str(value_coef),
+            "--save", save_path,
+        ]
+        if n_workers > 0:
+            cmd += ["--n-workers", str(n_workers)]
+        if do_resume and Path(save_path).exists():
+            cmd += ["--resume", save_path]
+        if mcts_sims > 0:
+            cmd += ["--mcts", "--mcts-sims", str(mcts_sims)]
+
+        env = {**os.environ}
+        env["RL_TRAINING_LOG"] = str(_training_log_path())
+        env["RL_TRAINING_PRESET"] = preset
+        if mcts_sims <= 0:
+            env.pop("RL_MCTS", None)
+        # 无 MCTS 时默认关闭 beam search + lookahead 以最大化采集吞吐
+        if mcts_sims <= 0 and not data.get("beam3ply") and not data.get("beam2ply"):
+            env["RL_BEAM3PLY"] = "0"
+            env["RL_BEAM2PLY"] = "0"
+            env.setdefault("RL_LOOKAHEAD", "0")
+        # 即便启用评估门，也默认关闭双路搜索评估（per-step per-action 子模拟，开销极大），
+        # 避免后台训练触发门控时长时间冻结、日志停更。
+        if eval_gate_every > 0:
+            env.setdefault("RL_EVAL_DUAL", "0")
+
+        def _monitor_process(proc: subprocess.Popen):
+            global _bg_train_status
+            try:
+                _append_training_log({
+                    "event": "bg_training_start",
+                    "pid": proc.pid,
+                    "episodes_target": episodes,
+                    "mcts_sims": mcts_sims,
+                    "n_workers": n_workers,
+                    "batch_episodes": batch_episodes,
+                    "log_every": log_every,
+                    "preset": preset,
+                    "value_coef": value_coef,
+                    "resume": do_resume,
+                })
+                proc.wait()
+                rc = proc.returncode
+                with _bg_train_lock:
+                    if rc == 0:
+                        _bg_train_status["error"] = None
+                    else:
+                        _bg_train_status["error"] = f"进程退出码 {rc}"
+                _append_training_log({
+                    "event": "bg_training_end",
+                    "pid": proc.pid,
+                    "exit_code": rc,
+                    "reason": "stopped" if rc == -15 or rc == -2 else ("error" if rc != 0 else "completed"),
+                })
+                # 训练结束后重新加载 checkpoint 到在线推理 _state
+                if rc == 0:
+                    try:
+                        _ensure_initialized()
+                        sp = Path(save_path)
+                        if sp.exists():
+                            loaded = _load_checkpoint_into_model(sp, _state["device"])
+                            with _rl_lock:
+                                _state["model"] = loaded["model"]
+                                _state["episodes"] = loaded["episodes"]
+                                _state["meta"] = loaded["meta"]
+                    except Exception:
+                        pass
+            except Exception as exc:
+                with _bg_train_lock:
+                    _bg_train_status["error"] = str(exc)
+            finally:
+                with _bg_train_lock:
+                    _bg_train_status["running"] = False
+                _clear_bg_state()
+
+        try:
+            log_fd = open(str(_ROOT / "logs" / "bg_train.log"), "a")
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(_ROOT),
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=log_fd,
+                start_new_session=True,
+            )
+        except Exception as exc:
+            return jsonify({"error": f"启动训练进程失败: {exc}"}), 500
+
+        with _bg_train_lock:
+            _bg_train_stop_event = None
+            _bg_train_status = {
+                "running": True,
+                "episodes_done": 0,
+                "error": None,
+                "pid": proc.pid,
+                "episodes_target": episodes,
+            }
+            _save_bg_state({
+                "pid": proc.pid,
+                "episodes_target": episodes,
+                "batch_episodes": batch_episodes,
+                "preset": preset,
+                "save_path": save_path,
+                "started_at": int(time.time()),
+            })
+            _bg_train_thread = threading.Thread(
+                target=_monitor_process, args=(proc,), daemon=True, name="bg-train-monitor"
+            )
+            _bg_train_thread.start()
+
+        return jsonify({
+            "ok": True,
+            "pid": proc.pid,
+            "episodes_target": episodes,
+            "mcts_sims": mcts_sims,
+            "n_workers": n_workers,
+            "batch_episodes": batch_episodes,
+            "log_every": log_every,
+            "preset": preset,
+        })
+
+    @bp.route("/api/rl/stop_training", methods=["POST"])
+    def rl_stop_training():
+        """停止后台训练子进程（SIGINT → 等待 → SIGKILL）。"""
+        import signal as _signal
+        with _bg_train_lock:
+            # 先从磁盘恢复，确保 Flask 重启后仍能停止之前启动的训练进程
+            _hydrate_bg_status_from_disk_locked()
+            pid = _bg_train_status.get("pid")
+            if not _bg_train_status["running"] and not _pid_alive(pid):
+                _clear_bg_state()
+                return jsonify({"ok": True, "message": "当前没有运行中的训练"})
+        if pid:
+            try:
+                os.killpg(os.getpgid(pid), _signal.SIGINT)
+            except (ProcessLookupError, PermissionError):
+                try:
+                    os.kill(pid, _signal.SIGINT)
+                except ProcessLookupError:
+                    pass
+
+            def _ensure_killed():
+                time.sleep(6)
+                try:
+                    os.kill(pid, 0)
+                    os.killpg(os.getpgid(pid), _signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    try:
+                        os.kill(pid, _signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                # 进程已确定停止：清理内存与磁盘状态（恢复的孤儿没有 monitor 线程兜底）
+                with _bg_train_lock:
+                    _bg_train_status["running"] = False
+                _clear_bg_state()
+
+            threading.Thread(target=_ensure_killed, daemon=True).start()
+        return jsonify({"ok": True, "message": "已发送停止信号"})
+
+    @bp.route("/api/rl/training_status", methods=["GET"])
+    def rl_training_status():
+        """查询后台训练状态（通过进程存活检测）。"""
+        return jsonify(_get_bg_training_info())
 
     return bp
 

@@ -46,7 +46,12 @@ def count_unfillable_cells(grid_np: np.ndarray, shapes: list[dict] | None = None
 
 
 def coverable_cells(grid_np: np.ndarray, shapes: list[dict] | None = None) -> np.ndarray:
-    """返回空格能否被任一合法形状覆盖的 bool 矩阵。"""
+    """返回空格能否被任一合法形状覆盖的 bool 矩阵。
+
+    向量化实现：对每个形状，positions(N×2) 与 cells(M×2) 做广播得到所有覆盖坐标
+    (N·M×2)，一次性写入 coverable，避免逐行 Python 解包（旧实现三层循环在近空棋盘
+    合法位置上百时会组合爆炸，单步特征提取退化到秒级）。
+    """
     n = grid_np.shape[0]
     coverable = np.zeros((n, n), dtype=bool)
     for shape in shapes or get_all_shapes():
@@ -58,12 +63,13 @@ def coverable_cells(grid_np: np.ndarray, shapes: list[dict] | None = None) -> np
         if len(positions) == 0:
             continue
         cells = np.argwhere(shp > 0)
-        for gy, gx in positions:
-            for sy, sx in cells:
-                y = int(gy + sy)
-                x = int(gx + sx)
-                if 0 <= y < n and 0 <= x < n:
-                    coverable[y, x] = True
+        if len(cells) == 0:
+            continue
+        # (N,1) + (1,M) -> (N,M)，展平后批量写入；positions 来自合法枚举，gy+sy/gx+sx 必在界内
+        ys = (positions[:, 0][:, None] + cells[:, 0][None, :]).ravel()
+        xs = (positions[:, 1][:, None] + cells[:, 1][None, :]).ravel()
+        valid = (ys >= 0) & (ys < n) & (xs >= 0) & (xs < n)
+        coverable[ys[valid], xs[valid]] = True
     return coverable
 
 

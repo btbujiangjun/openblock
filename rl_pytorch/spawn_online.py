@@ -65,24 +65,38 @@ def spawn_dock_online(snapshot: dict) -> dict:
             raise RuntimeError("rl-spawn-worker stdin/stdout unavailable")
         proc.stdin.write(line)
         proc.stdin.flush()
-        out_line = proc.stdout.readline()
-    if not out_line:
-        raise RuntimeError("rl-spawn-worker closed stdout")
-    resp = json.loads(out_line)
+        # 协议规定一行 JSON 一条响应；跳过启动期可能混入 stdout 的空行/非 JSON 行，
+        # 直到读到以 '{' 开头的响应行，避免单条脏行触发 JSONDecodeError 并造成请求/响应错位。
+        resp = None
+        for _ in range(64):
+            out_line = proc.stdout.readline()
+            if not out_line:
+                raise RuntimeError("rl-spawn-worker closed stdout")
+            stripped = out_line.strip()
+            if not stripped or stripped[0] != "{":
+                continue
+            try:
+                resp = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            break
+    if resp is None:
+        raise RuntimeError("rl-spawn-worker no JSON response")
     if not resp.get("ok"):
         raise RuntimeError(resp.get("error") or "spawn worker error")
     return resp
 
 
-def warn_legacy_fallback_once() -> None:
+def warn_legacy_fallback_once(exc: Exception | None = None) -> None:
     global _warned_legacy
     if _warned_legacy:
         return
     _warned_legacy = True
     import sys
 
+    reason = f"（原因: {type(exc).__name__}: {exc}）" if exc is not None else ""
     print(
         "[rl_pytorch] RL_SPAWN_ONLINE disabled or node worker unavailable; "
-        "using legacy block_spawn.py",
+        f"using legacy block_spawn.py{reason}",
         file=sys.stderr,
     )

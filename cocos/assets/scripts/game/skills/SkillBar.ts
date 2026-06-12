@@ -40,17 +40,27 @@ export class SkillBar extends Component {
     private _walletUnreg: (() => void) | null = null;
 
     // 配色（与 web main.css .skill-btn 对齐）
-    private static readonly GLASS = new Color(255, 255, 255, 34);       // 主体半透明白（≈0.13）
-    private static readonly GLASS_HI = new Color(255, 255, 255, 48);    // 顶部内高光
-    private static readonly BORDER = new Color(255, 255, 255, 46);      // 细描边（≈0.18）
-    private static readonly DISABLED_BG = new Color(8, 12, 24, 150);    // 不可负担暗底
+    private static readonly GLASS = new Color(255, 255, 255, 34);
+    private static readonly GLASS_HI = new Color(255, 255, 255, 48);
+    private static readonly BORDER = new Color(255, 255, 255, 46);
+    private static readonly DISABLED_BG = new Color(8, 12, 24, 150);
     private static readonly DISABLED_BORDER = new Color(255, 255, 255, 20);
-    private static readonly ACTIVE_BG = new Color(72, 132, 226, 235);
-    private static readonly ACTIVE_BORDER = new Color(140, 190, 255, 255);
-    private static readonly BADGE_OK = new Color(34, 197, 94, 240);     // 可负担=绿 #22c55e
-    private static readonly BADGE_NO = new Color(82, 92, 112, 230);     // 不可负担=灰
+    private static readonly BADGE_OK = new Color(34, 197, 94, 240);
+    private static readonly BADGE_NO = new Color(82, 92, 112, 230);
     private static readonly ICON_ON = new Color(255, 255, 255, 235);
     private static readonly ICON_OFF = new Color(255, 255, 255, 92);
+    /** 激活态按钮底色 / 描边色 —— 跟随皮肤 accent，由 setSkinAccent() 更新。 */
+    private _activeBg = new Color(72, 132, 226, 235);
+    private _activeBorder = new Color(140, 190, 255, 255);
+
+    /** 皮肤切换时更新按钮激活态配色（accent → 底色，accent lighten → 描边）。 */
+    setSkinAccent(accent: Color, accentDark: Color): void {
+        this._activeBg = new Color(accent.r, accent.g, accent.b, 235);
+        this._activeBorder = new Color(
+            Math.min(255, accent.r + 68), Math.min(255, accent.g + 58), Math.min(255, accent.b + 30), 255,
+        );
+        if (this.activeId) this.refresh();
+    }
 
     setup(onActivate: (id: SkillId) => void, wallet: Wallet): void {
         this.onActivate = onActivate;
@@ -131,11 +141,11 @@ export class SkillBar extends Component {
         g.clear();
         const half = SLOT / 2;
         if (active) {
-            g.fillColor = SkillBar.ACTIVE_BG;
+            g.fillColor = this._activeBg;
             g.roundRect(-half, -half, SLOT, SLOT, RADIUS);
             g.fill();
             g.lineWidth = 2.4;
-            g.strokeColor = SkillBar.ACTIVE_BORDER;
+            g.strokeColor = this._activeBorder;
             g.roundRect(-half, -half, SLOT, SLOT, RADIUS);
             g.stroke();
             return;

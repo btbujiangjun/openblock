@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Graphics, UITransform, Vec3, Color, Label, input, Input, EventTouch, view, sys, UIOpacity, Tween, tween } from 'cc';
+import { _decorator, Component, Node, Graphics, UITransform, Vec3, Color, Label, input, Input, EventTouch, view, screen, sys, UIOpacity, Tween, tween } from 'cc';
 import {
     GameModel, GameEvent, ShapeMatrix, MetaState, grantCheckinReward, findHint, listBestPlacements, SKILLS, SkillId,
     Progression, AchievementState, SeasonPass, SeasonTask, SeasonTaskType, SeasonChestState, DailyState, dateKey, listSkinIds, getSkin, t,
@@ -19,7 +19,7 @@ import { ScreenShake } from './effects/ScreenShake';
 import { SkillBar } from './skills/SkillBar';
 import { MetaPanel } from './ui/MetaPanel';
 import { ModalPanel, ModalButton } from './ui/ModalPanel';
-import { GameOverPanel, GameOverFact, GameOverLink } from './ui/GameOverPanel';
+import { GameOverPanel, GameOverFact, GameOverLink, ReviveButton } from './ui/GameOverPanel';
 import { WheelPanel } from './ui/WheelPanel';
 import { SkinPanel } from './ui/SkinPanel';
 import { LorePanel } from './ui/LorePanel';
@@ -35,7 +35,7 @@ import { CompanionView } from './companion/CompanionView';
 import { playSkinTransition } from './effects/SkinTransition';
 import { Modal, TapBus, screenToLocal, inheritLayer } from './ui/uiKit';
 import { guard, reportFatal } from './ui/Fatal';
-import { blockColor, bgColor, accentColor, blockIcon, blockMetrics } from './skin/palette';
+import { blockColor, bgColor, accentColor, accentDarkColor, blockIcon, blockMetrics } from './skin/palette';
 import { drawShapeFaces, iconFontSize, ICON_FONT_FAMILY } from './skin/blockPaint';
 import { consumeFestivalRecommendation, consumeWeekendTrial, consumeBirthdayGift } from './skin/seasonalRecommend';
 import { Storage, STORAGE_KEYS } from './platform/Storage';
@@ -334,6 +334,8 @@ export class GameController extends Component {
     private _nearMissLastShownMs: number | null = null;
     /** 由 Bootstrap 注入：从结束卡「菜单」返回主菜单。 */
     onRequestMenu: (() => void) | null = null;
+    /** 由 Bootstrap 注入：皮肤 accent 变化时同步功能按钮描边色。 */
+    onSkinAccentChange: ((accent: Color, dark: Color) => void) | null = null;
     /**
      * Ghost 生命代际 token：每次新拖拽 +1。reject 抖动的延迟清理回调会拿激活时的 token 与现值对比，
      * 若不一致说明用户已开启新一次拖拽 → 跳过清理，避免清掉新 ghost 的渲染状态（"无法二次激活"根因）。
@@ -365,7 +367,10 @@ export class GameController extends Component {
         profile?: AdaptiveProfile;
         /** 出块器引用：新局开始时调 resetForNewGame() 清掉跨局态。可选（缺省时回退为 no-op，老路径仍兼容）。 */
         spawner?: { resetForNewGame: () => void; setStrategyId?: (id: string) => void };
+        /** Bootstrap 注入：皮肤 accent 变化时同步功能按钮描边色。 */
+        onSkinAccentChange?: (accent: Color, dark: Color) => void;
     }): void {
+        if (parts.onSkinAccentChange) this.onSkinAccentChange = parts.onSkinAccentChange;
         Object.assign(this, parts);
     }
 
@@ -938,7 +943,7 @@ export class GameController extends Component {
     /**
      * gameOver 卡死自愈：model.gameOver 为真但场景内没有任何结算/复活面板（Modal 计数为 0）。
      *
-     * 正常结算链中 onGameOver → showReviveOverlay(ModalPanel) 或 settle()→GameOverPanel，二者都会
+     * 正常结算链中 onGameOver → settle()→GameOverPanel（复活按钮已整合在结算卡内），都会
      * Modal.open()，因此 gameOver 期间 Modal.isOpen() 恒为真。若出现 gameOver=true 却 Modal 计数为 0，
      * 说明面板没弹出来（build 抛错 / 事件链被异常打断），此时 onTouchStart 会被 gameOver 守卫永久
      * 拦死、又没有可见 UI 让玩家退出——正是「玩到中途三个候选块全部无法激活、且看不到弹窗」的成因。
@@ -1289,16 +1294,12 @@ export class GameController extends Component {
             () => { try { AudioManager.sfxBonus(); } catch { /* ignore */ } },
         ).then(() => {
             this.scheduleOnce(() => {
-                const cfg = getConfig();
-                if (flag('revive') && this.model.reviveCount < cfg.reviveMaxPerGame) {
-                    this.showReviveOverlay();
-                } else {
-                    this.settle();
-                }
+                this.settle();
             }, 0.3);
         });
     }
 
+    /** @deprecated 复活弹窗已整合进 GameOverPanel 结算卡，不再独立弹出。保留以备回退。 */
     private showReviveOverlay(): void {
         Analytics.track(ANALYTICS_EVENTS.reviveShow, { n: this.model.reviveCount });
         const cfg = getConfig();
@@ -1460,12 +1461,43 @@ export class GameController extends Component {
         }
         const links: GameOverLink[] = [];
         if (this.onRequestMenu) {
-            // 去主菜单前先把未展示的局末宝箱奖励静默入账，避免错失。
             links.push({ label: t('game.menu'), onClick: () => { this.flushPendingChest(); this.onRequestMenu!(); } });
         }
-        // 回放 / 分享叠在结算卡之上打开，关闭后回到结算卡（keepOpen 不关本卡）。
         links.push({ label: t('game.actions.replay'), onClick: () => this.openReplays(), keepOpen: true });
         links.push({ label: t('btn.share'), onClick: () => this.doShare(), keepOpen: true });
+
+        // 复活按钮（整合在结算卡内，避免两次弹框）
+        let reviveButtons: ReviveButton[] | undefined;
+        let reviveHint: string | null = null;
+        const cfg = getConfig();
+        if (flag('revive') && this.model.reviveCount < cfg.reviveMaxPerGame) {
+            reviveHint = t('revive.title');
+            const cost = cfg.reviveCostCoins * (this.model.reviveCount + 1);
+            Analytics.track(ANALYTICS_EVENTS.reviveShow, { n: this.model.reviveCount });
+            reviveButtons = [
+                {
+                    label: t('revive.ad'),
+                    primary: true,
+                    color: new Color(70, 130, 90, 255),
+                    onClick: () => {
+                        this._reviveAdPending = true;
+                        void Ads.rewarded(cfg.adUnitIds.revive || 'revive')
+                            .then((ok) => { if (ok) this.doRevive(); })
+                            .finally(() => { this._reviveAdPending = false; });
+                    },
+                },
+                {
+                    label: t('revive.coins', { n: cost }),
+                    color: new Color(120, 90, 60, 255),
+                    onClick: () => {
+                        if (this.model.wallet.canAfford(cost)) { this.model.wallet.spend(cost); this.doRevive(); return; }
+                        AudioManager.sfxInvalid();
+                        return false;
+                    },
+                },
+            ];
+        }
+
         GameOverPanel.show(this.node, {
             title: t('gameover.title'),
             subtitle,
@@ -1479,6 +1511,8 @@ export class GameController extends Component {
             againLabel: t('btn.again'),
             onAgain: () => this.restartFromGameOver(),
             links,
+            reviveButtons,
+            reviveHint,
         });
     }
 
@@ -3115,11 +3149,49 @@ export class GameController extends Component {
         const aim = this.dragControlScreenPoint(screenX, screenY);
         const curL = screenToLocal(parent, aim.x, aim.y);
         const lift = this.dragLiftPx();
-        this.ghost.setPosition(
-            this.dragOriginX + (curL.x - startL.x),
-            this.dragOriginY + (curL.y - startL.y) + lift * this._liftFactor,
-            0,
-        );
+        const targetX = this.dragOriginX + (curL.x - startL.x);
+        const targetY = this.dragOriginY + (curL.y - startL.y) + lift * this._liftFactor;
+        // ⭐ 候选块不能拖出屏幕：把跟手 ghost 中心夹到「整块完整留在可见区域内」。
+        // 落点高亮（snap）只在落入有效盘面格时出现，而盘面位于屏幕中央、远离边界，
+        // clamp 仅在屏幕边缘（此时 snap 必为 null）才生效，不会造成 ghost 与落点错位。
+        const c = this.clampGhostLocalToScreen(targetX, targetY);
+        this.ghost.setPosition(c.x, c.y, 0);
+    }
+
+    /**
+     * 把 ghost 目标局部坐标夹到「整块候选块完整留在屏幕可见区域内」，防止玩家把候选块拖出屏幕。
+     *
+     * 屏幕四角（`screen.windowSize`，与 `EventTouch.getLocation` 同为屏幕像素空间）经 UI 相机
+     * 反投影到 ghost 父节点局部坐标，取轴对齐包围盒（父节点无旋转，min/max 即可）；
+     * 再按 ghost 当前尺寸（dragShape × 盘面 cell）内缩半个块身做 clamp。
+     * 块比可见区还大（极端窄屏）时退化为居中，避免 min>max 导致来回抖动。
+     */
+    private clampGhostLocalToScreen(localX: number, localY: number): { x: number; y: number } {
+        const parent = this.ghost.parent;
+        if (!parent || !this.dragShape) return { x: localX, y: localY };
+        let ws: { width: number; height: number };
+        try {
+            ws = screen.windowSize;
+        } catch {
+            return { x: localX, y: localY };
+        }
+        if (!ws || ws.width <= 0 || ws.height <= 0) return { x: localX, y: localY };
+        const c0 = screenToLocal(parent, 0, 0);
+        const c1 = screenToLocal(parent, ws.width, ws.height);
+        const minX = Math.min(c0.x, c1.x);
+        const maxX = Math.max(c0.x, c1.x);
+        const minY = Math.min(c0.y, c1.y);
+        const maxY = Math.max(c0.y, c1.y);
+        const cell = this.board.cellSize;
+        const halfW = (this.dragShape[0].length * cell) / 2;
+        const halfH = (this.dragShape.length * cell) / 2;
+        const loX = minX + halfW;
+        const hiX = maxX - halfW;
+        const loY = minY + halfH;
+        const hiY = maxY - halfH;
+        const x = loX <= hiX ? Math.min(Math.max(localX, loX), hiX) : (minX + maxX) / 2;
+        const y = loY <= hiY ? Math.min(Math.max(localY, loY), hiY) : (minY + maxY) / 2;
+        return { x, y };
     }
 
     private dragControlScreenPoint(screenX: number, screenY: number): { x: number; y: number } {
@@ -3216,9 +3288,14 @@ export class GameController extends Component {
         this.save();
     }
 
-    /** 把当前皮肤的强调色同步到 HUD（得分 / 最佳数值上色）。 */
+    /** 把当前皮肤的强调色同步到 HUD / SkillBar / 功能按钮。 */
     private refreshHudSkin(): void {
-        this.hud.setAccent(accentColor(this.model.skin));
+        const skin = this.model.skin;
+        const accent = accentColor(skin);
+        const dark = accentDarkColor(skin);
+        this.hud.setAccent(accent);
+        this.skillBar.setSkinAccent(accent, dark);
+        this.onSkinAccentChange?.(accent, dark);
     }
 
     /** 循环切换下一款皮肤（保留旧入口，便于快捷切换）。 */

@@ -151,6 +151,27 @@ def _module_tensors_finite(net: torch.nn.Module, *, check_grads: bool = False) -
     return True
 
 
+def _sanitize_grads(net: torch.nn.Module) -> bool:
+    """将各参数梯度中的 nan/inf 分量原地置零，保留有限分量。
+
+    返回是否检测到并清理了非有限梯度。相比「整批丢弃更新」，只清理坏分量能保住
+    其余健康样本/参数的学习信号，把偶发数值毛刺从「半数更新被浪费」降为「局部置零」。
+    """
+    sanitized = False
+    for p in net.parameters():
+        g = p.grad
+        if g is None:
+            continue
+        if not bool(torch.isfinite(g).all().item()):
+            sanitized = True
+            # 用 nan_to_num_ 原地清零（MPS 兼容；布尔索引原地赋值在 MPS 上不可靠）
+            torch.nan_to_num_(g, nan=0.0, posinf=0.0, neginf=0.0)
+        # 钳到大的有限范围，避免极大有限梯度在 clip_grad_norm_ 求 Σg² 时溢出成 inf
+        # （随后 clip_grad_norm_ 会把总范数归一化到 grad_clip，此处上限不影响正常更新）。
+        g.clamp_(-1e4, 1e4)
+    return sanitized
+
+
 def _safe_metric(v, *, max_abs: float = 1e6, min_value: float | None = None, max_value: float | None = None) -> float | None:
     if hasattr(v, "detach"):
         try:
@@ -1922,11 +1943,17 @@ def _reevaluate_and_update(
         skip_reason = ""
         if torch.isfinite(loss).item():
             loss.backward()
+            # 先把梯度里的 nan/inf 分量置零（保留健康分量），再裁剪：避免偶发数值毛刺
+            # 导致整批更新被丢弃（此前 ~50% 批次因 non_finite_grad 跳过、学习效率减半）。
+            grads_sanitized = _sanitize_grads(net)
             grad_norm = torch.nn.utils.clip_grad_norm_(net.parameters(), max(grad_clip, 1e-8))
             if not torch.isfinite(grad_norm).item() or not _module_tensors_finite(net, check_grads=True):
+                # 消毒后仍非有限属极端异常，保持原有「丢弃该批」兜底
                 skip_reason = "non_finite_grad"
                 opt.zero_grad(set_to_none=True)
             else:
+                if grads_sanitized:
+                    skip_reason = "grad_sanitized"
                 pre_sd = {k: v.detach().clone() for k, v in net.state_dict().items()}
                 pre_opt_sd = copy.deepcopy(opt.state_dict())
                 opt.step()
@@ -2041,6 +2068,7 @@ def train_loop(
     eval_gate_every: int = 0,
     eval_gate_games: int = 50,
     eval_gate_win_ratio: float = 0.55,
+    stop_event: "threading.Event | None" = None,
 ) -> int:
     import collections
     import multiprocessing as mp
@@ -2338,6 +2366,9 @@ def train_loop(
     ep_cursor = start_ep
     try:
         while ep_cursor < start_ep + episodes:
+            if stop_event is not None and stop_event.is_set():
+                print(f"[train_loop] 收到外部停止信号，ep={ep_cursor}", file=sys.stderr)
+                break
             bs = min(batch_episodes, start_ep + episodes - ep_cursor)
 
             if warmup_batches > 0:
@@ -2394,16 +2425,26 @@ def train_loop(
                 else:
                     _pending_async = None
             else:
-                batch = [
-                    collect_episode(
+                batch = []
+                for i in range(bs):
+                    _ep_data = collect_episode(
                         net, device,
                         ep_cursor + i + 1, temp_floor,
                         explore_first_moves, explore_temp_mult,
                         dirichlet_epsilon, dirichlet_alpha,
                         win_threshold_override=cur_win_thr,
                     )
-                    for i in range(bs)
-                ]
+                    batch.append(_ep_data)
+                    # 采集进度心跳：每打完一局即写一条轻量日志，让看板每 ~1-2s 就能看到
+                    # 局数推进与单局得分，无需等整批 PPO 更新完成（train_episode 间隔可达数十秒，
+                    # 之前表现为「日志长时间不刷新、无法判断是否在训练」）。仅含基础字段，开销可忽略。
+                    _append_training_jsonl({
+                        "event": "train_progress",
+                        "episodes": ep_cursor + i + 1,
+                        "score": float(_ep_data.get("score", 0.0)),
+                        "steps": int(_ep_data.get("steps", 0)),
+                        "won": bool(_ep_data.get("won", False)),
+                    })
                 tc1 = time.perf_counter()
                 t_collect_ms = (tc1 - tc0) * 1000
 
@@ -2916,6 +2957,13 @@ def train_loop(
 
 
 def main() -> None:
+    import signal
+
+    def _sigterm_handler(signum, frame):
+        raise KeyboardInterrupt("SIGTERM received")
+
+    signal.signal(signal.SIGTERM, _sigterm_handler)
+
     p = argparse.ArgumentParser(description="Open Block PyTorch 自博弈 RL（支持 MPS/CUDA）")
     p.add_argument("--episodes", type=int, default=5000)
     p.add_argument(

@@ -11,7 +11,7 @@ const { GameController } = require('../../utils/gameController');
 const { getScreenSize } = require('../../adapters/platform');
 const storage = require('../../adapters/storage');
 const { PERFECT_CLEAR_MULT, bonusEffectHoldMs } = require('../../core/bonusScoring');
-const { getActiveSkin, setActiveSkinId } = require('../../core/skins');
+const { getActiveSkin, setActiveSkinId, getSkinAccent } = require('../../core/skins');
 const { setLanguage, t } = require('../../core/i18n');
 const { createAudioFx } = require('../../utils/audioFx');
 const { createFeedbackToggles } = require('../../utils/feedbackToggles');
@@ -427,7 +427,10 @@ Page({
       gridPx,
       dockSlotSize,
       dockCellSize,
-      pageStyle: `padding-left:${pagePad}px;padding-right:${pagePad}px;`,
+      pageStyle: (() => {
+        const accent = getSkinAccent((this._skin || getActiveSkin()).id);
+        return `padding-left:${pagePad}px;padding-right:${pagePad}px;--accent:${accent};`;
+      })(),
       gridWrapperStyle: `padding:${gridPadY}px 0 ${Math.max(6, gridPadY - 2)}px;`,
       dockStyle: `gap:${dockGap}px;padding:${dockPadTop}px 0 ${dockPadBottom}px;`,
       key: [

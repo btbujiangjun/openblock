@@ -433,26 +433,19 @@ export class AudioFx {
     }
 
     _tonePlace(now) {
-        this._tone(now, { type: 'sine', freq: 700, slideTo: 480, dur: 0.06, gain: 0.10 });
+        this._tone(now, { type: 'sine', freq: 220, dur: 0.06, gain: 0.10 });
+        this._tone(now, { type: 'sine', freq: 440, dur: 0.03, gain: 0.04 });
     }
     _toneClear(now) {
-        /* 主体：较长向上滑音，占满「消除」前半拍 */
-        this._tone(now, { type: 'sine', freq: 360, slideTo: 1020, dur: 0.26, gain: 0.15 });
-        /* 亮色：略晚进入、略快收尾，与主层错开 */
-        this._tone(now + 0.04, { type: 'sine', freq: 540, slideTo: 1580, dur: 0.2, gain: 0.078 });
-        /* 低频「落地」略拉长 */
-        this._tone(now, { type: 'sine', freq: 92, slideTo: 52, dur: 0.11, gain: 0.075 });
-        /* 尾音：固定高音缓慢包络衰减，延长爽感尾巴（无音高滑移） */
-        this._tone(now + 0.1, { type: 'sine', freq: 1180, dur: 0.2, gain: 0.055 });
-        this._tone(now + 0.14, { type: 'sine', freq: 1760, dur: 0.16, gain: 0.038 });
+        this._tone(now, { type: 'sine', freq: 262, dur: 0.18, gain: 0.10 });
+        this._tone(now + 0.06, { type: 'sine', freq: 330, dur: 0.16, gain: 0.09 });
+        this._tone(now + 0.12, { type: 'sine', freq: 392, dur: 0.20, gain: 0.08 });
     }
     _toneMulti(now) {
-        /* 多行：更长的双层上扬 + 泛音 + 双尾音 */
-        this._tone(now, { type: 'sine', freq: 400, slideTo: 1080, dur: 0.22, gain: 0.15 });
-        this._tone(now + 0.1, { type: 'sine', freq: 580, slideTo: 1320, dur: 0.2, gain: 0.13 });
-        this._tone(now + 0.06, { type: 'sine', freq: 1280, slideTo: 2100, dur: 0.12, gain: 0.06 });
-        this._tone(now + 0.13, { type: 'sine', freq: 1040, dur: 0.22, gain: 0.05 });
-        this._tone(now + 0.2, { type: 'sine', freq: 1560, dur: 0.18, gain: 0.036 });
+        this._tone(now, { type: 'sine', freq: 294, dur: 0.16, gain: 0.10 });
+        this._tone(now + 0.06, { type: 'sine', freq: 370, dur: 0.16, gain: 0.09 });
+        this._tone(now + 0.12, { type: 'sine', freq: 440, dur: 0.18, gain: 0.08 });
+        this._tone(now + 0.20, { type: 'sine', freq: 524, dur: 0.20, gain: 0.07 });
     }
     _toneCombo(now, streak = 0) {
         this._toneComboCelebration(now, streak);
@@ -460,20 +453,17 @@ export class AudioFx {
     _toneComboCelebration(now, streak = 0) {
         const lines = Math.max(3, streak | 0);
         const steps = Math.min(lines, 5);
-        const stepDt = 0.115;
-        this._tone(now, { type: 'sine', freq: 196, slideTo: 174.61, dur: 0.12, gain: 0.035 });
+        const stepDt = 0.10;
+        this._tone(now, { type: 'sine', freq: 165, dur: 0.14, gain: 0.04 });
+        const scale = [330, 392, 494, 588, 660];
         for (let i = 0; i < steps; i++) {
-            const f0 = 523.25 * (1 + i * 0.18);
-            this._tone(now + i * stepDt, {
-                type: 'triangle',
-                freq: f0,
-                slideTo: f0 * 1.22,
-                dur: 0.085,
-                gain: 0.065 + i * 0.011,
+            this._tone(now + 0.04 + i * stepDt, {
+                type: 'sine',
+                freq: scale[i % scale.length],
+                dur: i === steps - 1 ? 0.20 : 0.10,
+                gain: 0.07 - i * 0.004,
             });
         }
-        const tailAt = now + steps * stepDt + 0.02;
-        this._tone(tailAt, { type: 'sine', freq: 1396.91, slideTo: 2093, dur: 0.2, gain: 0.066 });
     }
     _tonePerfect(now) {
         // 清屏是最高优先级反馈：额外加入低频冲击、上扫和高频闪光，压过其它消行音效。

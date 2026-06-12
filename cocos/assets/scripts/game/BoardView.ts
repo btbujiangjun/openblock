@@ -1,7 +1,7 @@
 import { _decorator, Component, Graphics, UITransform, Node, Label, Color, UIOpacity, Sprite, SpriteFrame, resources } from 'cc';
 import { Grid, Skin, getWatermark, flag, ClearedCell } from '../core';
 import { blockColor, cellEmptyColor, gridOuterColor, gridLineColor, blockMetrics, blockIcon } from './skin/palette';
-import { paintBlockFace, iconFontSize, drawShapeFaces } from './skin/blockPaint';
+import { paintBlockFace, iconFontSize, drawShapeFaces, applyIconLabel } from './skin/blockPaint';
 import { Motion } from './platform/Motion';
 import { VisualFx } from './platform/VisualFx';
 
@@ -436,9 +436,7 @@ export class BoardView extends Component {
                     const l = this.icon(iconN++);
                     l.node.active = true;
                     l.node.setPosition(cellX + cell / 2, cellY + cell / 2, 0);
-                    l.fontSize = fs;
-                    l.lineHeight = fs;
-                    l.string = em;
+                    applyIconLabel(l, em, fs);
                 }
             }
         }
@@ -739,9 +737,7 @@ export class BoardView extends Component {
                         if (em && fs > 0) {
                             const l = this.icon(iconN++);
                             l.node.active = true;
-                            l.string = em;
-                            l.fontSize = fs;
-                            l.lineHeight = fs;
+                            applyIconLabel(l, em, fs);
                             l.node.setPosition(
                                 -half + c.gx * cell + cell / 2,
                                 half - (c.gy + 1) * cell + cell / 2 + yOff,
@@ -762,9 +758,7 @@ export class BoardView extends Component {
                         if (em && fs > 0) {
                             const l = this.icon(iconN++);
                             l.node.active = true;
-                            l.string = em;
-                            l.fontSize = fs;
-                            l.lineHeight = fs;
+                            applyIconLabel(l, em, fs);
                             l.node.setPosition(
                                 -half + gx * cell + cell / 2,
                                 half - (gy2 + 1) * cell + cell / 2,
@@ -854,9 +848,7 @@ export class BoardView extends Component {
                     if (em && fs > 0) {
                         const l = this.icon(iconN++);
                         l.node.active = true;
-                        l.string = em;
-                        l.fontSize = Math.max(1, Math.round(fs * scaleY));
-                        l.lineHeight = l.fontSize;
+                        applyIconLabel(l, em, Math.max(1, Math.round(fs * scaleY)));
                         l.node.setPosition(-half + gx * cell + cell / 2, rowCenterY, 0);
                     }
                 }

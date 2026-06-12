@@ -36,17 +36,27 @@ function extractTrainEpisodeRows(entries) {
     const raw = (entries || []).filter(
         (e) => e && e.event === 'train_episode' && typeof e.episodes === 'number'
     );
+    // 仅在「真正重置」（episode 大幅跌落，例如从头开始一段全新训练）时才另起一段。
+    // 续训从 checkpoint 恢复时 episode 只会小幅回退（保存滞后于已记录局数），
+    // 不应被当作新段而丢弃既有历史，否则刚重启时曲线会因有效点 <2 而消失。
     let segmentStart = 0;
+    let segmentMax = raw.length ? raw[0].episodes : 0;
     for (let i = 1; i < raw.length; i++) {
-        if (raw[i].episodes < raw[i - 1].episodes) {
+        const ep = raw[i].episodes;
+        // 跌破段内峰值的一半视为重置（续训的小幅回退会被容忍）
+        if (ep < segmentMax * 0.5) {
             segmentStart = i;
+            segmentMax = ep;
+        } else if (ep > segmentMax) {
+            segmentMax = ep;
         }
     }
+    // 按 episode 去重（保留最新写入的一条），再升序排列，得到跨续训连续的单调序列。
     const map = new Map();
     for (const r of raw.slice(segmentStart)) {
         map.set(r.episodes, r);
     }
-    return [...map.values()];
+    return [...map.values()].sort((a, b) => a.episodes - b.episodes);
 }
 
 /** 单图 CSS 高度：紧凑展示 8 个同级面板 */

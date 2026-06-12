@@ -17,7 +17,21 @@ const REMOVED_SKIN_ALIASES = {
     neural: 'neonCity',
     lava: 'sunset',
     bubbly: 'ocean',
-    beast: 'forest'
+    beast: 'forest',
+    cyberpunk: 'neonCity',
+    desert: 'sunset',
+    outdoor: 'forest',
+    garden: 'dawn',
+    nordic: 'cafe',
+    doodle: 'dawn',
+    zen: 'cafe',
+    sports: 'fiesta',
+    vehicles: 'neonCity',
+    farm: 'food',
+    zodiac: 'universe',
+    boardgame: 'mahjong',
+    pirate: 'ocean',
+    industrial: 'forbidden',
 };
 
 /** 首次访问或未存储时的默认主题 */
@@ -186,16 +200,17 @@ export const SKINS = {
         id: 'classic',
         name: '✨ 极简经典',
         boardWatermark: { icons: ['🎮', '⭐'], opacity: 0.07, hdIcons: ['🕹️', '🎯', '🏁', '🎴', '🎟️'] },
+        blockIcons: ['🏆', '💎', '🎯', '🎲', '♠️', '♥️', '🃏', '🎰'],
         blockColors: [
-            '#3F6DD8', '#4FB8E8', '#52BC4B', '#FFC428',
-            '#F5851E', '#A848E0', '#65C4F0', '#E84D5C'
+            '#6E90E1', '#4FB8E8', '#52BC4B', '#FFC428',
+            '#F5851E', '#BD74E7', '#65C4F0', '#EC6B77'
         ],
         gridOuter: '#1C2630',
         gridCell:  '#2E3E50',
         gridGap: 1,
         blockInset: 2,
         blockRadius: 4,
-        blockStyle: 'bevel3d',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(220,240,255,0.90)',
         cssBg: '#141C24',
         uiDark: true,
@@ -211,6 +226,7 @@ export const SKINS = {
         id: 'titanium',
         name: '💎 钛晶凝光',
         boardWatermark: { icons: ['💠', '🔷'], opacity: 0.07, hdIcons: ['🔶', '🔺', '🟧', '🟩', '🟦'] },
+        blockIcons: ['⚙️', '🔩', '🛡️', '🔧', '💠', '⚒️', '🛠️', '⛓️'],
         blockColors: [
             '#6AAEE8', '#94BDDF', '#78B8EB', '#A8CCF0',
             '#88D0F0', '#7DBAE2', '#B4D8EC', '#8DB6D8'
@@ -220,7 +236,7 @@ export const SKINS = {
         gridGap: 1,
         blockInset: 2,
         blockRadius: 5,
-        blockStyle: 'metal',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(200,220,245,0.42)',
         cssBg: '#080C18',
         uiDark: true,
@@ -333,6 +349,7 @@ export const SKINS = {
         id: 'sunset',
         name: '🌅 琥珀流光',
         boardWatermark: { icons: ['🌅', '🔆'], opacity: 0.08, hdIcons: ['🌇', '🌞', '🍹', '🥥', '🐚'] },
+        blockIcons: ['🌅', '🏺', '🌼', '🏵️', '🍀', '🪻', '🌺', '🐫'],
         blockColors: [
             '#FF6A50', '#FF8E3A', '#FFB230', '#FFD638',
             '#FF7090', '#E04098', '#A858DC', '#FFAE6A'
@@ -342,7 +359,7 @@ export const SKINS = {
         gridGap: 1,
         blockInset: 2,
         blockRadius: 7,
-        blockStyle: 'glass',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(255,200,140,0.50)',
         cssBg: '#1A0810',
         uiDark: true,
@@ -362,6 +379,7 @@ export const SKINS = {
         id: 'sakura',
         name: '🌸 樱落无声',
         boardWatermark: { icons: ['🌸', '🌺'], opacity: 0.09, hdIcons: ['🌷', '🌹', '🌼', '💐', '🪷'] },
+        blockIcons: ['🌸', '🕊️', '🏯', '🪔', '🧘', '🎑', '🫖', '🪘'],
         blockColors: [
             '#FF4490', '#FF2870', '#FFB0D8', '#78D860',
             '#78B8F0', '#CC60E8', '#FFBA30', '#58D890'
@@ -371,7 +389,7 @@ export const SKINS = {
         gridGap: 1,
         blockInset: 2,
         blockRadius: 8,
-        blockStyle: 'glass',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(255,180,220,0.52)',
         cssBg: '#1A0810',
         uiDark: true,
@@ -457,7 +475,7 @@ export const SKINS = {
         // v10.5：🦘 #FF6098 (与 🐼 #FF5570 同粉色族) → #B85828 袋鼠毛棕，区分两个粉系动物
         blockColors: [
             '#FF5570', '#FF7F11', '#FFD600', '#00C853',
-            '#5590FF', '#DD60FF', '#B85828', '#00BCD4'
+            '#5590FF', '#DD60FF', '#D46D3A', '#00BCD4'
         ],
         // 卡通动物园：🐼熊猫 / 🐨考拉 / 🐘大象 / 🦒长颈鹿 / 🦛河马 / 🦔刺猬 /
         //              🦘袋鼠 / 🦄独角兽
@@ -525,18 +543,18 @@ export const SKINS = {
         // 清晨田野八件套：🐝蜜蜂 / 🌱嫩芽 / 🍯蜂蜜 / 🦗蟋蟀 / 🐞瓢虫 / 🌿蕨叶 / 🪹空巢 / 🐓公鸡
         blockIcons: ['🐝', '🌱', '🍯', '🦗', '🐞', '🌿', '🪹', '🐓'],
         blockColors: [
-            '#E06E62', '#5A92D6', '#D8A84E', '#55A873',
-            '#8D75CE', '#42A7A8', '#D46282', '#6B7DDD'
+            '#DA5244', '#4181D0', '#A67925', '#488D61',
+            '#8970CC', '#378C8C', '#D15578', '#6678DC'
         ],
-        gridOuter: '#F1E3C5',
-        gridCell:  '#FFF3D8',
-        gridLine:  'rgba(130,96,48,0.13)',
+        gridOuter: '#D8C8A4',
+        gridCell:  '#EDE0C4',
+        gridLine:  'rgba(110,80,36,0.28)',
         gridGap: 0,
         blockInset: 3,
         blockRadius: 7,
         blockStyle: 'cartoon',
         clearFlash: 'rgba(255,210,130,0.72)',
-        cssBg: '#F7F0DC',
+        cssBg: '#D4C8AE',
         uiDark: false,
         cssVars: {
             '--text-primary':     '#2A2116',
@@ -559,31 +577,31 @@ export const SKINS = {
      */
     summer: {
         id: 'summer',
-        name: '☀️ 夏日海风',
+        name: '🏖️ 夏日海风',
         boardWatermark: { icons: ['☀️', '🏝️'], opacity: 0.10, hdIcons: ['🍉', '🍹', '🪁', '🧊', '🥥'] },
         // 夏日海滩八件套（全部专属，与现有 30+ 款皮肤无重复）：
         //   🍉西瓜 / 🍦冰淇淋 / 🥥椰子 / 🏝️热带岛 /
         //   🧊冰块 / 🍹饮料 / 🪁风筝 / 🏓乒乓球
         blockIcons: ['🍉', '🍦', '🥥', '🏝️', '🧊', '🍹', '🪁', '🏓'],
         blockColors: [
-            '#E84B5C', // 🍉 西瓜红（夏日水果代表）
-            '#D4A030', // 🍦 芒果黄（冰淇淋甜筒）
-            '#6AB82C', // 🥥 椰青绿（椰树绿叶）
-            '#3A80C8', // 🏝️ 晴空蓝（海岛天空）
-            '#2AB898', // 🧊 薄荷青（冰块清凉）
-            '#C8A820', // 🍹 柠檬黄（冰饮柠檬）
-            '#E85A5A', // 🪁 珊瑚红（风筝与晚霞）
+            '#D81C30', // 🍉 西瓜红（夏日水果代表）
+            '#8B681D', // 🍦 芒果黄（冰淇淋甜筒）
+            '#467A1D', // 🥥 椰青绿（椰树绿叶）
+            '#3271B1', // 🏝️ 晴空蓝（海岛天空）
+            '#1D7E68', // 🧊 薄荷青（冰块清凉）
+            '#826D15', // 🍹 柠檬黄（冰饮柠檬）
+            '#D71E1E', // 🪁 珊瑚红（风筝与晚霞）
             '#8B44B0'  // 🏓 紫罗兰（夏日花丛）
         ],
-        gridOuter: '#A8C4D8',
-        gridCell:  '#C8DCEA',
-        gridLine:  'rgba(40,110,170,0.28)',
+        gridOuter: '#8AAEC8',
+        gridCell:  '#A8C4D8',
+        gridLine:  'rgba(30,80,130,0.32)',
         gridGap: 0,
         blockInset: 2,
         blockRadius: 8,
         blockStyle: 'cartoon',
         clearFlash: 'rgba(255,248,180,0.72)',
-        cssBg: '#B8D2E4',
+        cssBg: '#92B4CC',
         uiDark: false,
         cssVars: {
             '--text-primary':     '#162636',
@@ -614,7 +632,7 @@ export const SKINS = {
         // v10.5：🍔 #D87040 (与 🌮 #E09050 同暖橙) → #B05028 烤肉锈棕，汉堡牛肉色
         blockColors: [
             '#FF5040', '#F09020', '#F8D020', '#60B830',
-            '#E09050', '#B05028', '#F05878', '#C068F0'
+            '#E09050', '#B8542A', '#F05878', '#C068F0'
         ],
         // 各国主食料理（与 candy 甜点完全错开，移除 🍩🎂🍦 三件甜点）
         // 🥑（轻食 / 牛油果吐司）/ 🍣寿司 / 🍞面包 / 🍕披萨 / 🌮塔可 / 🍔汉堡 /
@@ -680,8 +698,8 @@ export const SKINS = {
         boardWatermark: { icons: ['🐶', '🐾'], opacity: 0.09, hdIcons: ['🐱', '🐰', '🐹', '🐤', '🦊'] },
         // v10.5：🐭 深紫区分度；v10.20：整体提亮降艳
         blockColors: [
-            '#C89088', '#B8A090', '#A8A878', '#78A890',
-            '#98B0A8', '#C8B8A0', '#A898B8', '#B8B090'
+            '#B5695E', '#967660', '#7E7E51', '#57876F',
+            '#648379', '#907853', '#89749F', '#877D56'
         ],
         // 家庭小宠（与 toon 动物园 / beast 猛兽完全错开，移除非小宠的 🐸🦜🐢）
         // 🐰兔子 / 🐠观赏鱼 / 🐦小鸟 / 🐱猫 / 🦎宠物蜥蜴 / 🐹仓鼠 / 🐭小白鼠 / 🐶狗
@@ -920,50 +938,8 @@ export const SKINS = {
     },
 
     /* ══════════════════════════════════════════
-     *  文化主题（工业革命 / 中华皇城）
+     *  文化主题（中华皇城）
      * ══════════════════════════════════════════ */
-
-    /**
-     * 古典工业（维多利亚 / 蒸汽朋克）：黄铜、紫铜、铁锈红与钢蓝构成的工业革命调色板，
-     * 焦煤铸铁底烘托金属机械美。Metal 渲染表现齿轮、铆钉、铜管的金属反光质感。
-     */
-    industrial: {
-        id: 'industrial',
-        name: '🏭 蒸汽回响',
-        boardWatermark: { icons: ['🏭', '⚙️'], opacity: 0.08, hdIcons: ['🔩', '🛠️', '⚒️', '🪛', '⛏️'] },
-        // 蒸汽朋克八件套（全部专属，未与现有 16 款 icon 皮肤重复）：
-        //   ⚙️齿轮 / 🔧扳手 / 🔩螺栓 / 🛠️锤扳工具 / ⛓️锁链 /
-        //   🚂蒸汽火车 / 🏭工厂烟囱 / ⚒️锤镐
-        // emoji 多为银/灰/暗调，主色调用「黄铜·紫铜·锈红·暗金」暖金属，单留一格钢蓝
-        // 给 🏭 工厂（白烟+冷蓝厂房意象）；银工具放黄铜/锈红/暗金底反差最强。
-        blockIcons: ['⚙️', '🔧', '🔩', '🛠️', '⛓️', '🚂', '🏭', '⚒️'],
-        // v10.5：⚒️ #D4A848 (与 ⚙️ #D49640 同金属色) → #3A4048 深铸铁灰锤镐
-        //       ⛓️ #B07840 (与 🔩 #B86838 紫铜橙同色族) → #5C2820 暗锈链红，区分锁链与螺栓
-        blockColors: [
-            '#D49640', // ⚙️ 黄铜金（齿轮主体象征）
-            '#C04030', // 🔧 铁锈红（银扳手强反差）
-            '#B86838', // 🔩 紫铜橙（暖金属铆接）
-            '#4F9080', // 🛠️ 铜锈青（patina 翠铜）
-            '#5C2820', // ⛓️ 暗锈链红（锁链氧化深锈，与 🔩 紫铜橙明度强反差）
-            '#B89060', // 🚂 浅卡其铜（暗火车头压亮底）
-            '#6878A0', // 🏭 钢蓝（白烟+冷工厂）
-            '#3A4048'  // ⚒️ 深铸铁灰（黑锤镐↔铁灰，独立中性灰阶）
-        ],
-        gridOuter:   '#0E0904',
-        gridCell:    '#1A140C',
-        gridGap:     1,
-        blockInset:  2,
-        blockRadius: 4,
-        blockStyle:  'cartoon',
-        clearFlash:  'rgba(232,176,80,0.50)',
-        cssBg:       '#080503',
-        uiDark:      true,
-        cssVars: {
-            '--accent-color': '#D49640',
-            '--accent-dark':  '#B86838',
-            '--h1-color':     '#F0BB60'
-        }
-    },
 
     /**
      * 北京皇城（紫禁城 / 故宫）：朱红宫墙 + 龙袍金 + 翡翠玉 + 青花蓝 + 牙白瓷的中式皇家配色，
@@ -980,12 +956,12 @@ export const SKINS = {
         // 绿龙↔朱红、金冠↔翡翠、扇↔青花、红包↔牙白：全部冷暖/明度强反差。
         blockIcons: ['🐲', '👑', '🪭', '🧧', '🥮', '🀄', '📜', '🍵'],
         blockColors: [
-            '#C8222C', // 🐲 朱红宫墙（绿龙颜↔大红 强反差）
+            '#D8252F', // 🐲 朱红宫墙（绿龙颜↔大红 强反差）
             '#1B7E5C', // 👑 翡翠玉绿（金凤冠↔玉绿）
-            '#1F4FA0', // 🪭 青花蓝（多色折扇↔深靛）
+            '#2B6BD6', // 🪭 青花蓝（多色折扇↔深靛）
             '#D8CCB0', // 🧧 牙白瓷（朱红包↔象牙）
             '#E8B83C', // 🥮 龙袍金（暖棕月饼↔金）
-            '#2E7088', // 🀄 龙鳞青（红中↔青）
+            '#317891', // 🀄 龙鳞青（红中↔青）
             '#B8732C', // 📜 琉璃棕黄（米卷轴↔铜黄）
             '#E84068'  // 🍵 桃红（绿茶↔粉红）
         ],
@@ -1062,14 +1038,14 @@ export const SKINS = {
         // 列表前缀用 🀄（红中）提高彩色字形面积；盘面 blockIcons 仍为 U+1F000 八牌（🀅 發 等）
         blockIcons: ['🀀', '🀁', '🀂', '🀃', '🀅', '🀇', '🀙', '🀐'],
         blockColors: [
-            '#3DA88C', // 🀀 东 — 浅碧绿（东方青龙，明亮清透，与绿呢拉开明度）
-            '#C4424C', // 🀁 南 — 朱砂红（南方朱雀，国画传统红，与暖色背景呼应）
+            '#4FC0A1', // 🀀 东 — 浅碧绿（东方青龙，明亮清透，与绿呢拉开明度）
+            '#D9848B', // 🀁 南 — 朱砂红（南方朱雀，国画传统红，与暖色背景呼应）
             '#D4C4A0', // 🀂 西 — 牙白（西方白虎，象牙瓷面，绿呢上最高明度）
-            '#404858', // 🀃 北 — 玄墨蓝灰（北方玄武，深沉天玄）
-            '#2A8870', // 🀅 發 — 翡翠（三元发财，深翡翠，比东更深一档）
-            '#E0A040', // 🀇 一万 — 蜜蜡黄金（红万字烫金，温暖发"赢"色）
-            '#3070C0', // 🀙 一筒 — 青花钴蓝（筒上瓷器经典）
-            '#A8A040'  // 🀐 一索 — 苍竹黄绿（索绿带黄，与翡翠／东错位）
+            '#919BAF', // 🀃 北 — 玄墨蓝灰（北方玄武，深沉天玄）
+            '#36AF90', // 🀅 發 — 翡翠（三元发财，深翡翠，比东更深一档）
+            '#E6B263', // 🀇 一万 — 蜜蜡黄金（红万字烫金，温暖发"赢"色）
+            '#6C9DDA', // 🀙 一筒 — 青花钴蓝（筒上瓷器经典）
+            '#B9B148'  // 🀐 一索 — 苍竹黄绿（索绿带黄，与翡翠／东错位）
         ],
         gridOuter:   '#3D2818',   // 实木台沿（深棕红，茶馆木质牌桌）
         gridCell:    '#2A4A38',   // 经典绿呢（emerald felt，可见空格）
@@ -1088,198 +1064,6 @@ export const SKINS = {
     },
 
     /**
-     * 扑克博弈（v10.17.6/7/8/9/10 共 5 次迭代，本节为 v10.17.10 版）：
-     *   v10.17.6 字符 4×{A,K} → v10.17.7 字符全异 → v10.17.8 全 emoji（含 🎴/💰/💵）
-     *   → v10.17.9 改回严格扑克（5 emoji + 3 字符卡牌）→ v10.17.10 最终版
-     *
-     *   v10.17.9 用 🃟/🂠/🂾 字符扑克牌后，用户反馈"后 3 个与前 5 个风格不一致 — 字符是单色小卡，
-     *   前 5 个是饱满彩色 emoji"，要求 8 个 icon 全部彩色一致 + 辨识度高。
-     *
-     *   现实约束（emoji 标准层面，无法绕开）：
-     *     真正具有"彩色 emoji 字形"的扑克元素只有 5 个 — ♠️ ♥️ ♦️ ♣️ 🃏 （4 花色 + 大王）
-     *     凑足 8 个彩色 emoji，必须扩展到"扑克博弈赌场场景"语境（与主题名"扑克博弈"贯通）。
-     *
-     *   v10.17.10 方案 — "彩色一致 + 扑克博弈场景"：
-     *     扑克核心 5 件（emoji）：♠️ 黑桃 · ♥️ 红心 · ♦️ 方片 · ♣️ 梅花 · 🃏 大王（百搭）
-     *     扑克博弈场景 3 件（emoji）：
-     *       🎴 花札 — 一张红色和风彩色牌，与扑克同属"牌"类
-     *       🎰 老虎机 — 多色赌场标志，扑克博弈的赌场场景
-     *       🎲 骰子 — 白底立体黑点，赌博博弈的核心元素
-     *     8 个 icon 全部为饱满 emoji 字形，风格一致；语义紧扣"扑克博弈" — 4 花色 / 大王 / 牌 /
-     *     赌场 / 赌博，正是赌场扑克的完整语境。
-     *
-     * 与 mahjong（中式国粹纯麻将）形成姊妹皮肤。
-     * 配色沿用旧 8 色（赌场金 / 翡翠 / 天蓝 / 冷银 / 酒红 / 玄墨 / 暗紫 / 象牙），
-     * 按 emoji 主色取互补 / 反差：黑↔金、红↔绿、彩↔深酒红、红和风↔玄墨等。
-     * 盘面用 claret velvet 边框 + poker felt 绿呢 cell + 酒红赌场氛围底，
-     * 与 mahjong 纯绿呢牌桌叙事完全错位。Cartoon 渲染呈现卡牌瓷面光泽。
-     */
-    boardgame: {
-        id: 'boardgame',
-        name: '🃏 牌局风云',
-        boardWatermark: { icons: ['🃏', '♠️'], opacity: 0.055, hdIcons: ['🎰', '♟️', '♣️', '♥️', '♦️'] },
-        // 扑克博弈 8 件套（v10.17.10：8 件全彩 emoji 字形，风格一致）：
-        //   扑克核心 5 件：♠️ 黑桃 · ♥️ 红心 · ♦️ 方片 · ♣️ 梅花 · 🃏 大王（彩色百搭）
-        //   博弈场景 3 件：🎴 花札（红和风牌） · 🎰 老虎机（多色赌场） · 🎲 骰子（立体白点骰）
-        // 8 个 icon 全部彩色饱满，远观辨识度高；语义紧扣"扑克博弈"赌场全场景。
-        blockIcons: ['♠️', '♥️', '♦️', '♣️', '🃏', '🎴', '🎰', '🎲'],
-        blockColors: [
-            '#C89642', // ♠️ 鎏金
-            '#23866A', // ♥️ 翡翠绿
-            '#3E65B8', // ♦️ 牌桌蓝
-            '#A8B3C2', // ♣️ 冷银
-            '#A84A52', // 🃏 酒红
-            '#4F765C', // 🎴 松针绿
-            '#6542A0', // 🎰 霓虹紫
-            '#6E7486'  // 🎲 钢灰
-        ],
-        gridOuter:   '#050711',
-        gridCell:    '#111628',
-        gridLine:    'rgba(180,205,255,0.18)',
-        gridGap:     1,
-        blockInset:  2,
-        blockRadius: 5,
-        blockStyle:  'cartoon',
-        clearFlash:  'rgba(212,152,48,0.46)', // 鎏金筹码闪
-        cssBg:       '#0E0410', // deep wine 赌场氛围
-        uiDark:      true,
-        cssVars: {
-            '--accent-color': '#D49830',
-            '--accent-dark':  '#B07820',
-            '--h1-color':     '#FFD080'
-        }
-    },
-
-    /* ══════════════════════════════════════════
-     *  生活主题（运动 / 交通 / 自然）
-     * ══════════════════════════════════════════ */
-
-    /**
-     * 运动竞技：八大球类 + 奖杯，草绿球场深色底 + 各球本色高饱和块。
-     * Glossy 渲染呈现球体光泽与皮革／合成树脂质感。
-     */
-    sports: {
-        id: 'sports',
-        name: '⚽ 热血赛场',
-        boardWatermark: { icons: ['⚽', '🏆'], opacity: 0.08, hdIcons: ['🏀', '🥇', '🏐', '🏈', '⚾'] },
-        // 八大主流球类全家福（全部专属，无与现有皮肤重复）：
-        //   ⚽足球 / 🏀篮球 / ⚾棒球 / 🎾网球 / 🏐排球 /
-        //   🏈橄榄球 / 🥎垒球 / 🏆奖杯
-        // 球各自有强烈品牌色（橙/白/黄/红线），用补色背景反差最强
-        blockIcons: ['⚽', '🏀', '⚾', '🎾', '🏐', '🏈', '🥎', '🏆'],
-        blockColors: [
-            '#4F9050', // ⚽ 球场草绿（黑白足球↔绿底）
-            '#2858B0', // 🏀 深篮蓝（橙篮球↔互补蓝）
-            '#C04848', // ⚾ 红土场（白棒球+红线↔红土棕）
-            '#905028', // 🎾 赤土网球场（黄绿网球↔暖棕）
-            '#2090C8', // 🏐 排球海蓝（白蓝排球↔深泳池）
-            '#587830', // 🏈 橄榄绿（橙棕橄榄球↔橄榄绿）
-            '#6038A0', // 🥎 紫色场（黄垒球↔紫）
-            '#C82838'  // 🏆 颁奖红毯（金奖杯↔正红）
-        ],
-        gridOuter:   '#0A1408',
-        gridCell:    '#0F1C0A',
-        gridGap:     1,
-        blockInset:  2,
-        blockRadius: 8,
-        blockStyle:  'cartoon',
-        clearFlash:  'rgba(255,235,80,0.55)',
-        cssBg:       '#06100A',
-        uiDark:      true,
-        cssVars: {
-            '--accent-color': '#4F9050',
-            '--accent-dark':  '#78C060',
-            '--h1-color':     '#C8F088'
-        }
-    },
-
-    /**
-     * 户外运动（v10.17.4 新增第 37 款）：与 sports（球类竞技 / 室内场馆）/
-     * forest（静态林木）/ vehicles（机动交通）完全错位 —— 主打「人类亲身参与的山野/水域/雪道运动」。
-     *
-     * 8 件套全谱系覆盖：
-     *   山地：🥾 徒步 / 🧗 攀岩
-     *   林地：⛺ 露营
-     *   公路：🚴 骑行
-     *   水域：🏄 冲浪 / 🛶 皮划艇 / 🎣 垂钓
-     *   雪道：🏂 滑雪
-     *
-     * 配色取自然元素互补色：天空蓝 / 草绿 / 岩棕 / 警示黄 / 落日珊瑚 / 冰川青 / 湖青 / 晨曦紫，
-     * 以「黎明前山谷深蓝」做背景，烘托清晨户外活动出发氛围。
-     * 8 色 minD 满足 v10.5 去重；blockStyle 'cartoon' 满足 v10.8 icon 友好铁律。
-     */
-    outdoor: {
-        id: 'outdoor',
-        name: '🥾 山野之风',
-        boardWatermark: { icons: ['🥾', '⛺'], opacity: 0.10, hdIcons: ['🏔️', '🧗', '🎒', '🧭', '🪃'] },
-        // 户外运动八件套（全部专属，避开 sports/forest/vehicles 已用 emoji）：
-        //   🥾徒步 / ⛺露营 / 🧗攀岩 / 🚴骑行 / 🏄冲浪 / 🏂滑雪 / 🛶皮划艇 / 🎣垂钓
-        blockIcons: ['🥾', '⛺', '🧗', '🚴', '🏄', '🏂', '🛶', '🎣'],
-        blockColors: [
-            '#3878B8', // 🥾 高山天空蓝（棕褐登山靴↔深蓝天）
-            '#3E7848', // ⛺ 草地翠绿（橙红帐篷↔绿草坪）
-            '#7E6048', // 🧗 深岩棕（攀岩者↔砂岩壁，低饱和岩石色）
-            '#E0B040', // 🚴 公路警示黄（自行车↔黄色单车道）
-            '#E08858', // 🏄 落日珊瑚橙(蓝白冲浪板↔暖珊瑚)
-            '#4FA8C8', // 🏂 冰川青蓝（蓝紫滑板↔冰雪青）
-            '#2A8888', // 🛶 深湖青绿（棕木桨↔湖水）
-            '#7068A8'  // 🎣 晨曦薄雾紫（鱼竿↔晨光）
-        ],
-        gridOuter:   '#0A1420',   // 远山黎明深蓝灰（山脊轮廓）
-        gridCell:    '#101C2C',   // 山谷晨雾蓝（可见空格，与方块拉开明度）
-        gridGap:     1,
-        blockInset:  2,
-        blockRadius: 7,
-        blockStyle:  'cartoon',
-        clearFlash:  'rgba(140,200,255,0.50)',  // 晨曦白蓝亮闪
-        cssBg:       '#06101C',   // 黎明前深蓝（户外清晨出发氛围）
-        uiDark:      true,
-        cssVars: {
-            '--accent-color': '#4FA8C8',  // 冰川青蓝（贯穿冲浪/滑雪/天空叙事）
-            '--accent-dark':  '#7CC8E0',
-            '--h1-color':     '#A8E0F0'
-        }
-    },
-
-    /**
-     * 极速引擎：八大现代交通工具，机库深灰底 + 金属反光块。
-     * Metal 渲染呈现飞机/汽车/火箭的金属壳质感。
-     */
-    vehicles: {
-        id: 'vehicles',
-        name: '🏎️ 流光速影',
-        boardWatermark: { icons: ['🏎️', '✈️'], opacity: 0.08, hdIcons: ['🚂', '🚁', '🚤', '🛵', '🚜'] },
-        // 八大现代载具（表意直出；避开 industrial 的 🚂 蒸汽火车）：
-        //   🏎️赛车 / ✈️客机 / 🚀火箭 / 🚁直升机 / 🚢邮轮 / 🛵摩托 / 🚗轿车 / 🚌公交
-        // 多数 emoji 体积大、颜色丰富；用「金属灰/钴蓝/火橙/草绿」分布拉开色相
-        blockIcons: ['🏎️', '✈️', '🚀', '🚁', '🚢', '🛵', '🚗', '🚌'],
-        blockColors: [
-            '#8090A0', // 🏎️ 金属银灰（红车↔冷灰）
-            '#2860C8', // ✈️ 钴蓝长空（白机↔深蓝）
-            '#E84020', // 🚀 火橙（银火箭↔尾焰红）
-            '#3E7E40', // 🚁 直升机迷彩绿
-            '#1E70A8', // 🚢 海蓝
-            '#E8C828', // 🛵 柠黄机身
-            '#5080A8', // 🚗 通勤蓝（车身↔公路蓝）
-            '#6840B0'  // 🚌 紫底（黄/红巴士↔紫）
-        ],
-        gridOuter:   '#0E1218',
-        gridCell:    '#161E2C',
-        gridGap:     1,
-        blockInset:  2,
-        blockRadius: 5,
-        blockStyle:  'cartoon',
-        clearFlash:  'rgba(255,180,40,0.45)',
-        cssBg:       '#080C12',
-        uiDark:      true,
-        cssVars: {
-            '--accent-color': '#E84020',
-            '--accent-dark':  '#FF7040',
-            '--h1-color':     '#FFB870'
-        }
-    },
-
-    /**
      * 山林秘境：树木 / 落叶 / 麦穗 / 木桩 / 鸟巢，苔藓深绿底 + 秋日色块。
      * Glossy 渲染呈现湿润树叶与树皮纹理感。
      */
@@ -1290,14 +1074,14 @@ export const SKINS = {
         // 林木+猛兽融合（吸收 beast 精华 🐺🦅🐻，替换 🌴🍂🪵）
         blockIcons: ['🌳', '🌲', '🐺', '🍁', '🦅', '🌾', '🐻', '🪺'],
         blockColors: [
-            '#8B5828', // 🌳 焦糖棕
-            '#D87838', // 🌲 暖橙树根
-            '#6878A0', // 🐺 钢蓝灰
-            '#4F8048', // 🍁 苔绿
+            '#A5682F', // 🌳 焦糖棕
+            '#D97B3C', // 🌲 暖橙树根
+            '#6B7BA2', // 🐺 钢蓝灰
+            '#518349', // 🍁 苔绿
             '#D4A028', // 🦅 鎏金
-            '#B0386D', // 🌾 紫红
-            '#7C5028', // 🐻 棕熊
-            '#5090C8'  // 🪺 天蓝
+            '#C4497F', // 🌾 紫红
+            '#A36934', // 🐻 棕熊
+            '#5392C9'  // 🪺 天蓝
         ],
         gridOuter:   '#06140A',
         gridCell:    '#0E2010',
@@ -1316,135 +1100,6 @@ export const SKINS = {
     },
 
     /**
-     * 海盗航行：罗盘 / 宝藏 / 鹦鹉 / 海图，深海舷板底 + 木甲板暖棕 + 宝石冷蓝。
-     * Glass 渲染呈现宝石与海水的折射感。
-     */
-    pirate: {
-        id: 'pirate',
-        name: '🦜 海盗诗篇',
-        boardWatermark: { icons: ['🦜', '🏴‍☠️'], opacity: 0.08, hdIcons: ['⚓', '🗺️', '💰', '🛶', '🚣'] },
-        // 大航海八件套（全部专属）：
-        //   ⚓船锚 / 🏴‍☠️海盗旗 / 🪝船钩 / 🦜肩头鹦鹉 /
-        //   ⛵风帆船 / 🗺️藏宝图 / 🧭罗盘 / 💎宝石
-        // 银/黑/木 emoji 占多数，配色用「暗红·米帆·海蓝·甲板棕·绿岛」拉开
-        blockIcons: ['⚓', '🏴‍☠️', '🪝', '🦜', '⛵', '🗺️', '🧭', '💎'],
-        blockColors: [
-            '#B02020', // ⚓ 战旗暗红（银锚↔红）
-            '#D8C4A0', // 🏴‍☠️ 米白破帆布（黑骷髅旗↔米）
-            '#2A6890', // 🪝 海蓝（银钩↔深海）
-            '#6E4828', // 🦜 木甲板棕（多色鹦鹉↔暖棕）
-            '#14406F', // ⛵ 深夜海蓝（白帆↔深蓝）
-            '#2E6F45', // 🗺️ 翠岛绿（米羊皮纸↔绿）
-            '#8C2858', // 🧭 紫红（金罗盘↔紫红）
-            '#C8923C'  // 💎 沉海金（蓝宝石↔金）
-        ],
-        gridOuter:   '#04101F',
-        gridCell:    '#0A1F32',
-        gridGap:     1,
-        blockInset:  2,
-        blockRadius: 6,
-        blockStyle:  'cartoon',
-        clearFlash:  'rgba(255,200,80,0.45)',
-        cssBg:       '#020812',
-        uiDark:      true,
-        cssVars: {
-            '--accent-color': '#C8923C',
-            '--accent-dark':  '#E8B860',
-            '--h1-color':     '#F8D890'
-        }
-    },
-
-    /**
-     * 田园农场：家畜 + 蔬果，浅春绿草地 + 深木栏边框（浅色系，主题一致）。
-     * v10.1：把卡其沙黄底（沙漠味）替换为浅草绿牧场底，与「农场草地」主题一致。
-     * Cartoon 渲染呈现可爱农场绘本风格。
-     * v10.20：方块柔化为灰粉/灰蓝绿等（仍与 emoji 语义对应），避免深色块在浅绿底上成团发黑。
-     */
-    farm: {
-        id: 'farm',
-        name: '🐄 田园牧歌',
-        boardWatermark: { icons: ['🐄', '🌽'], opacity: 0.055, hdIcons: ['🐔', '🥕', '🐑', '🐖', '🥬'] },
-        // 农场八件套（与 pets 家宠/food 主食/toon 动物园全错开）：
-        //   🐄奶牛 / 🐖猪 / 🐑绵羊 / 🐔母鸡 / 🐣雏鸡 /
-        //   🌽玉米 / 🥕胡萝卜 / 🍎苹果
-        blockIcons: ['🐄', '🐖', '🐑', '🐔', '🐣', '🌽', '🥕', '🍎'],
-        blockColors: [
-            '#B85A50', // 🐄 谷仓红
-            '#4E84B8', // 🐖 清水蓝
-            '#4E8A58', // 🐑 牧草绿
-            '#3C98B8', // 🐔 晴空青
-            '#9A66B8', // 🐣 紫藤
-            '#C89438', // 🌽 玉米金
-            '#B06A38', // 🥕 胡萝卜棕
-            '#C04E64'  // 🍎 苹果红
-        ],
-        // v10.6 哑光降饱和：cssBg #D0E5B0 (S=47%) → #DCE5C8 (S=28%) 雾绿替代鲜春绿
-        // v10.7 进一步哑光：cssBg #DCE5C8 (S=28%) → #E6E7DC (S~19%) 骨白带一丝绿
-        gridOuter:   '#07140A',
-        gridCell:    '#102414',
-        gridLine:    'rgba(190,230,185,0.18)',
-        gridGap:     1,
-        blockInset:  2,
-        blockRadius: 5,
-        blockStyle:  'cartoon',
-        clearFlash:  'rgba(170,230,150,0.45)',
-        cssBg:       '#061006',
-        uiDark:      true,
-        cssVars: {
-            '--accent-color': '#78B860',
-            '--accent-dark':  '#4E8A58',
-            '--h1-color':     '#B8E8A8'
-        }
-    },
-
-    /**
-     * 沙漠绿洲：骆驼 / 仙人掌 / 古寺 / 赤陶罐，哑光米沙底 + 低饱和「晒褪陶土 / 灰绿洲」色块。
-     * v10.1：把深蓝夜空底（深海味）替换为沙金主调，让「沙漠」叙事直接通过 page bg 传达。
-     * v10.5–v10.7：cssBg / grid 持续降饱和至浅米中性底。
-     * v10.18：**方块色重做**——旧版为高饱和宝石蓝/品红/电紫；改为低饱和陶土系。
-     * v10.19：**再次提亮**——仍显「黑疙瘩」因渲染降饱和+卡通暗角叠暗；方块改为 **浅陶土/沙尘色**（明度明显高于 v10.18，与 `#E8E2D6` 格面靠近但靠色相仍可辨色），并配合 renderer 浅色盘面减轻压暗。
-     * v10.20：浅色盘面判定改为 **gridCell 亮度**（`isLightBoardSkin`），不再单独特判 desert。
-     * Glossy 渲染呈现日光下沙漠的耀斑与绿洲倒影。
-     */
-    desert: {
-        id: 'desert',
-        name: '🐫 大漠孤烟',
-        boardWatermark: { icons: ['🐫', '🌵'], opacity: 0.055, hdIcons: ['🦂', '🌴', '🏜️', '🐍', '🌶️'] },
-        // 沙漠绿洲八件套（中东/北非/印度异域风物）：
-        //   🐫骆驼 / 🦂蝎子 / 🌵仙人掌 / 🏜️沙丘 / 🪨岩石 /
-        //   🏺赤陶罐 / 🛕古寺 / 🌅日出
-        // 浅色盘面：方块用「浅晒褪陶土」，避免深褐一堆；色相仍分散。
-        blockIcons: ['🐫', '🦂', '🌵', '🏜️', '🪨', '🏺', '🛕', '🌅'],
-        blockColors: [
-            '#4E8EB8', // 🐫 绿洲蓝
-            '#B86A48', // 🦂 陶土橙
-            '#5C9A58', // 🌵 仙人掌绿
-            '#B89648', // 🏜️ 沙丘金
-            '#8A7A68', // 🪨 岩灰褐
-            '#4E9A98', // 🏺 陶青
-            '#B85E58', // 🛕 赭红
-            '#8A6BB8'  // 🌅 暮霞紫
-        ],
-        // v10.6 哑光降饱和：cssBg #C8A868 (S=49%) → #D8C8A8 (S=35%) 米沙替代浓琥珀
-        // v10.7 进一步哑光：cssBg #D8C8A8 (S=35%) → #DAD2C4 (S~21%) 接近中性的浅米
-        gridOuter:   '#130D08',
-        gridCell:    '#24190E',
-        gridLine:    'rgba(230,190,120,0.20)',
-        gridGap:     1,
-        blockInset:  2,
-        blockRadius: 5,
-        blockStyle:  'cartoon',
-        clearFlash:  'rgba(230,180,80,0.45)',
-        cssBg:       '#0E0804',
-        uiDark:      true,
-        cssVars: {
-            '--accent-color': '#C89438',
-            '--accent-dark':  '#8A5A28',
-            '--h1-color':     '#E8C078'
-        }
-    },
-
-    /**
      * 果韵匠心：致敬乔布斯与 Apple 的经典设计哲学。
      * 八色取自 Apple 标志性产品配色——银、深空灰、金、玫瑰金、午夜、远峰蓝、深紫、(PRODUCT)RED。
      * 极窄黑盘面 + glass 渲染模拟精密陶瓷与冷冽玻璃的温润通透，
@@ -1454,14 +1109,15 @@ export const SKINS = {
         id: 'apple',
         name: '🍎 果韵匠心',
         boardWatermark: { icons: ['🍎', '✨'], opacity: 0.05, hdIcons: ['⚪', '⬜', '🔘', '◻️', '🔲'] },
+        blockIcons: ['🍎', '💻', '✈️', '🚀', '📡', '🔋', '💾', '🔌'],
         blockColors: [
             '#C8C8CC', // 银色 — MacBook / iPad 铝合金
             '#8E8E93', // 深空灰 — iPhone / MacBook Pro
             '#D4B88C', // 金色 — iPhone 5S 香槟金
             '#E8B4B8', // 玫瑰金 — iPhone 6S
-            '#4A5A6A', // 午夜 — MacBook Air / iPhone 暗色系
+            '#5F7488', // 午夜 — MacBook Air / iPhone 暗色系
             '#A8BCC8', // 远峰蓝 — iPhone 13 Pro
-            '#5E5CE6', // 深紫色 — iPhone 14 Pro
+            '#6261E7', // 深紫色 — iPhone 14 Pro
             '#E55934'  // (PRODUCT)RED — 经典红
         ],
         gridOuter: '#0E0E12',
@@ -1470,7 +1126,7 @@ export const SKINS = {
         gridGap: 1,
         blockInset: 2,
         blockRadius: 7,
-        blockStyle: 'glass',
+        blockStyle: 'cartoon',
         clearFlash: 'rgba(200,200,220,0.30)',
         cssBg: '#09090D',
         uiDark: true,
@@ -1481,44 +1137,6 @@ export const SKINS = {
         }
     },
 
-    /* ══════════════════════════════════════════
-     *  新增 — 治愈 / 浅色系
-     * ══════════════════════════════════════════ */
-
-    /** 禅意山水：水墨画卷 + 东方美学，浅色系 */
-    zen: {
-        id: 'zen',
-        name: '🍵 禅意山水',
-        boardWatermark: { icons: ['🍵', '🏯'], opacity: 0.10 },
-        blockIcons: ['🏯', '🎍', '🕊️', '🪔', '🧘', '🎑', '🪘', '🫖'],
-        blockColors: [
-            '#6A8A7A', '#8A7A6A', '#5A7A8A', '#A0907A',
-            '#7A9A8A', '#9A8A70', '#6A7A9A', '#8A9A7A'
-        ],
-        gridOuter: '#D8D0C0',
-        gridCell:  '#F0EBE0',
-        gridLine:  'rgba(100,90,70,0.10)',
-        gridGap: 0,
-        blockInset: 3,
-        blockRadius: 6,
-        blockStyle: 'flat',
-        clearFlash: 'rgba(200,190,170,0.60)',
-        cssBg: '#E8E2D6',
-        uiDark: false,
-        cssVars: {
-            '--text-primary':     '#2A2820',
-            '--text-secondary':   '#6A6458',
-            '--accent-color':     '#7A8A6A',
-            '--accent-dark':      '#5A6A4A',
-            '--shadow':           'rgba(80,70,50,0.12)',
-            '--h1-color':         '#5A6A4A',
-            '--stat-surface':     'rgba(240,235,224,0.94)',
-            '--stat-label-color': '#7A7468',
-            '--select-bg':        '#F0EBE0',
-            '--select-border':    'rgba(100,90,70,0.20)'
-        }
-    },
-
     /** 午后咖啡：暖棕治愈 + 书吧氛围，浅色系 */
     cafe: {
         id: 'cafe',
@@ -1526,18 +1144,18 @@ export const SKINS = {
         boardWatermark: { icons: ['☕', '📖'], opacity: 0.10 },
         blockIcons: ['☕', '📖', '🧋', '🪴', '🕯️', '🥐', '🎵', '📝'],
         blockColors: [
-            '#8A6A50', '#6A7A6A', '#A0785A', '#5A8A7A',
-            '#9A7A5A', '#7A8A6A', '#8A6A6A', '#6A8A8A'
+            '#8A6A50', '#6A7A6A', '#997356', '#548172',
+            '#947556', '#707E61', '#8A6A6A', '#617E7E'
         ],
-        gridOuter: '#D8C8B0',
-        gridCell:  '#F2E8D8',
-        gridLine:  'rgba(120,90,60,0.10)',
+        gridOuter: '#C0AC90',
+        gridCell:  '#D8CCBA',
+        gridLine:  'rgba(90,66,38,0.24)',
         gridGap: 0,
         blockInset: 3,
         blockRadius: 8,
         blockStyle: 'cartoon',
         clearFlash: 'rgba(210,180,140,0.65)',
-        cssBg: '#EAE0D0',
+        cssBg: '#C8BAAA',
         uiDark: false,
         cssVars: {
             '--text-primary':     '#2A2018',
@@ -1552,141 +1170,6 @@ export const SKINS = {
             '--select-border':    'rgba(120,90,60,0.22)'
         }
     },
-
-    /** 花园时光：园艺花草 + 阳光明媚，浅色系（长辈友好） */
-    garden: {
-        id: 'garden',
-        name: '🌼 花园时光',
-        boardWatermark: { icons: ['🌼', '🌸'], opacity: 0.10 },
-        blockIcons: ['🌼', '🏵️', '🪻', '🐌', '🐛', '🪣', '🌸', '🍀'],
-        blockColors: [
-            '#C87848', '#5A8A5A', '#D4A040', '#4A80A0',
-            '#9A6A8A', '#6A9A6A', '#C06060', '#4A8A8A'
-        ],
-        gridOuter: '#C8D8C0',
-        gridCell:  '#EAF0E4',
-        gridLine:  'rgba(60,100,60,0.10)',
-        gridGap: 0,
-        blockInset: 2,
-        blockRadius: 10,
-        blockStyle: 'cartoon',
-        clearFlash: 'rgba(200,230,180,0.70)',
-        cssBg: '#E0EAD8',
-        uiDark: false,
-        cssVars: {
-            '--text-primary':     '#1A2A18',
-            '--text-secondary':   '#4A6A48',
-            '--accent-color':     '#5A8A4A',
-            '--accent-dark':      '#3A6A2A',
-            '--shadow':           'rgba(40,70,30,0.12)',
-            '--h1-color':         '#3A6A2A',
-            '--stat-surface':     'rgba(234,240,228,0.94)',
-            '--stat-label-color': '#5A7A50',
-            '--select-bg':        '#EAF0E4',
-            '--select-border':    'rgba(60,100,60,0.22)'
-        }
-    },
-
-    /** 涂鸦课堂：彩笔画板 + 校园趣味，浅色系（儿童友好） */
-    doodle: {
-        id: 'doodle',
-        name: '✏️ 涂鸦课堂',
-        boardWatermark: { icons: ['✏️', '📚'], opacity: 0.10 },
-        blockIcons: ['✏️', '📐', '📏', '🎨', '🖍️', '📚', '🔬', '🎓'],
-        blockColors: [
-            '#E06050', '#3888D8', '#E8B020', '#40A850',
-            '#D060B0', '#30A8B0', '#F08030', '#8868D0'
-        ],
-        gridOuter: '#C8D0E0',
-        gridCell:  '#E8EEF6',
-        gridLine:  'rgba(60,80,120,0.10)',
-        gridGap: 0,
-        blockInset: 2,
-        blockRadius: 8,
-        blockStyle: 'cartoon',
-        clearFlash: 'rgba(200,220,255,0.70)',
-        cssBg: '#DEE4F0',
-        uiDark: false,
-        cssVars: {
-            '--text-primary':     '#1A2030',
-            '--text-secondary':   '#4A5A70',
-            '--accent-color':     '#3878C0',
-            '--accent-dark':      '#2058A0',
-            '--shadow':           'rgba(30,50,80,0.12)',
-            '--h1-color':         '#2858A0',
-            '--stat-surface':     'rgba(232,238,246,0.94)',
-            '--stat-label-color': '#5A6A80',
-            '--select-bg':        '#E8EEF6',
-            '--select-border':    'rgba(60,80,120,0.22)'
-        }
-    },
-
-    /* ══════════════════════════════════════════
-     *  新增 — 科技 / 潮流
-     * ══════════════════════════════════════════ */
-
-    /** 赛博朋克：电路板 + AI + 矩阵代码，深色系 */
-    cyberpunk: {
-        id: 'cyberpunk',
-        name: '🤖 赛博朋克',
-        boardWatermark: { icons: ['🤖', '💻'], opacity: 0.06 },
-        blockIcons: ['🤖', '💻', '🔌', '📡', '🧬', '📊', '🔋', '💾'],
-        blockColors: [
-            '#00FF88', '#FF0066', '#00CCFF', '#FFCC00',
-            '#CC00FF', '#00FFCC', '#FF6600', '#88FF00'
-        ],
-        gridOuter: '#060A10',
-        gridCell:  '#0C1420',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 3,
-        blockStyle: 'neon',
-        clearFlash: 'rgba(0,255,136,0.35)',
-        cssBg: '#040810',
-        uiDark: true,
-        cssVars: {
-            '--accent-color': '#00FF88',
-            '--accent-dark':  '#00CCFF',
-            '--h1-color':     '#88FFCC'
-        }
-    },
-
-    /** 北欧极简：斯堪的纳维亚/冰岛自然极简，浅色纯配色 */
-    nordic: {
-        id: 'nordic',
-        name: '🏔️ 北欧极简',
-        boardWatermark: { icons: ['🏔️', '🌿'], opacity: 0.08 },
-        blockColors: [
-            '#8A9AA8', '#A8B0A0', '#B0A890', '#90A0B0',
-            '#A0B0A0', '#B0A8A0', '#98A8B0', '#A8B0A8'
-        ],
-        gridOuter: '#D0D8DC',
-        gridCell:  '#EAF0F0',
-        gridLine:  'rgba(80,100,110,0.08)',
-        gridGap: 0,
-        blockInset: 3,
-        blockRadius: 6,
-        blockStyle: 'flat',
-        clearFlash: 'rgba(200,210,220,0.55)',
-        cssBg: '#E2EAE8',
-        uiDark: false,
-        cssVars: {
-            '--text-primary':     '#1A2428',
-            '--text-secondary':   '#5A6A70',
-            '--accent-color':     '#5A8A90',
-            '--accent-dark':      '#3A6A70',
-            '--shadow':           'rgba(40,60,70,0.10)',
-            '--h1-color':         '#3A6A70',
-            '--stat-surface':     'rgba(234,240,240,0.94)',
-            '--stat-label-color': '#6A7A80',
-            '--select-bg':        '#EAF0F0',
-            '--select-border':    'rgba(80,100,110,0.18)'
-        }
-    },
-
-    /* ══════════════════════════════════════════
-     *  新增 — 庆典 / 社交
-     * ══════════════════════════════════════════ */
 
     /** 欢庆嘉年：派对 / 节日 / 彩旗 / 烟花，全年龄 */
     fiesta: {
@@ -1714,47 +1197,16 @@ export const SKINS = {
         }
     },
 
-    /** 星座物语：12 星座色谱，深色纯配色 + glass 材质 */
-    zodiac: {
-        id: 'zodiac',
-        name: '♈ 星座物语',
-        boardWatermark: { icons: ['♈', '♌'], opacity: 0.06 },
-        blockColors: [
-            '#E84848', '#D8A030', '#58B868', '#3888D8',
-            '#A048D8', '#E87058', '#48A8B8', '#C860A8'
-        ],
-        gridOuter: '#08081C',
-        gridCell:  '#101028',
-        gridLine:  'rgba(180,160,255,0.12)',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 7,
-        blockStyle: 'glass',
-        clearFlash: 'rgba(140,120,220,0.40)',
-        cssBg: '#060618',
-        uiDark: true,
-        cssVars: {
-            '--accent-color': '#8868D8',
-            '--accent-dark':  '#A888F0',
-            '--h1-color':     '#C8B0FF'
-        }
-    },
 };
 
 export const SKIN_LIST = Object.values(SKINS);
 
 /** 皮肤分类（与 SKINS_CATALOG.md 大类对齐，合并小类以减少选择噪音） */
 export const SKIN_CATEGORIES = [
-    { id: 'classic',   label: '🔰 基础经典', skins: ['classic', 'titanium'] },
-    { id: 'tech',      label: '💡 暗色科技', skins: ['aurora', 'neonCity', 'cyberpunk'] },
-    { id: 'nature',    label: '🌐 自然元素', skins: ['ocean', 'sunset', 'forest', 'desert', 'outdoor'] },
-    { id: 'japanese',  label: '🎎 日系美学', skins: ['sakura', 'koi', 'zen'] },
-    { id: 'cute',      label: '🍡 休闲甜系', skins: ['candy', 'toon', 'pixel8', 'doodle'] },
-    { id: 'light',     label: '🫧 浅色清新', skins: ['dawn', 'summer', 'cafe', 'garden', 'nordic'] },
-    { id: 'life',      label: '🏷️ 生活意象', skins: ['food', 'music', 'pets', 'universe', 'sports', 'vehicles', 'farm'] },
-    { id: 'fantasy',   label: '🧿 奇幻神话', skins: ['fantasy', 'fairy', 'greece', 'demon', 'jurassic'] },
-    { id: 'culture',   label: '🪆 文化主题', skins: ['industrial', 'forbidden', 'mahjong', 'boardgame', 'pirate'] },
-    { id: 'festive',   label: '🎖️ 庆典社交', skins: ['fiesta', 'zodiac', 'apple'] },
+    { id: 'classic',   label: '🔰 经典 · 科技', skins: ['classic', 'titanium', 'aurora', 'neonCity', 'candy', 'toon', 'pixel8'] },
+    { id: 'nature',    label: '🌿 自然 · 清新', skins: ['ocean', 'sunset', 'forest', 'dawn', 'summer', 'cafe', 'sakura'] },
+    { id: 'life',      label: '🏷️ 生活 · 庆典', skins: ['food', 'music', 'pets', 'universe', 'fiesta', 'apple', 'koi'] },
+    { id: 'fantasy',   label: '🧿 奇幻 · 文化', skins: ['fantasy', 'fairy', 'greece', 'demon', 'jurassic', 'forbidden', 'mahjong'] },
 ];
 
 /**

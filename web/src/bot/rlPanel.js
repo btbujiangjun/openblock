@@ -10,7 +10,13 @@ import {
 import { trainSelfPlay, runSelfPlayEpisode, WIN_SCORE_THRESHOLD } from './trainer.js';
 import { rlWinThresholdForEpisode } from './rlCurriculum.js';
 import { isRlPytorchBackendPreferred, isSqliteClientDatabase } from '../config.js';
-import { fetchRlStatus, fetchTrainingLog } from './pytorchBackend.js';
+import {
+    fetchRlStatus,
+    fetchTrainingLog,
+    startBackgroundTraining,
+    stopBackgroundTraining,
+    fetchBackgroundTrainingStatus,
+} from './pytorchBackend.js';
 import { appendBrowserTrainEpisode, getBrowserTrainingLog } from './browserTrainingLog.js';
 import { updateRlTrainingCharts } from './rlTrainingCharts.js';
 import { skipWhenDocumentHidden } from '../lib/pageVisibility.js';
@@ -151,6 +157,14 @@ export function initRLPanel(game) {
     const recentScores = [];
     const recentWins = [];
     let bestScore = 0;
+    // 后端/看板模式下，顶部统计（均分/胜率/最佳）改由服务端日志推导填充；
+    // 浏览器训练时仍优先用本机 recentScores/recentWins/bestScore。
+    let serverStats = { avg: null, win: null, best: null };
+    // 「训练进展」面板内容拆为两段：上方事件消息（logLine 写入，启动/停止/异常等），
+    // 下方实时采集进度（refreshServerTrainingLog 从 train_progress 逐局心跳生成）。
+    // 两者合并渲染，使该面板在稳定训练时也每 ~1-2s 滚动更新（修复「进展没及时返回」）。
+    const eventLogLines = [];
+    let progressFeedLines = [];
     let controller = null;
     let running = false;
     let vizBusy = false;
@@ -197,10 +211,21 @@ export function initRLPanel(game) {
             const st = await fetchRlStatus();
             if (st.available) {
                 const ck = st.checkpoint_loaded ? '已热加载' : '新初始化';
-                outBackendStatus.textContent = `${st.device || '?'} ${ck} ${st.episodes ?? 0} 局`;
-                if (typeof st.episodes === 'number') {
-                    totalEpisodes = Math.max(totalEpisodes, st.episodes);
+                const bgTag = st.bg_training?.running ? ' ▶训练中' : '';
+                // 显示实时局数：内存 episodes 停在 checkpoint，后台训练取 bg_training.episodes_done
+                const liveEp = st.bg_training?.episodes_done;
+                const shownEp = Math.max(
+                    typeof st.episodes === 'number' ? st.episodes : 0,
+                    typeof liveEp === 'number' && Number.isFinite(liveEp) ? liveEp : 0
+                );
+                outBackendStatus.textContent = `${st.device || '?'} ${ck} ${shownEp} 局${bgTag}`;
+                if (shownEp > 0) {
+                    totalEpisodes = Math.max(totalEpisodes, shownEp);
                     updateStats();
+                }
+                // 页面刚打开时如果后台训练在跑，自动恢复"训练中"UI
+                if (st.bg_training?.running && !running && readUseBackend()) {
+                    void _resumeBgTrainingPoll();
                 }
             } else {
                 outBackendStatus.textContent = st.reason ? `不可用：${st.reason}` : '不可用';
@@ -218,8 +243,15 @@ export function initRLPanel(game) {
         }
         try {
             const st = await fetchRlStatus();
-            if (st.available && typeof st.episodes === 'number') {
-                totalEpisodes = Math.max(totalEpisodes, st.episodes);
+            if (st.available) {
+                // 内存 episodes 停在 checkpoint；后台训练实时局数取 bg_training.episodes_done
+                const liveEp = st.bg_training?.episodes_done;
+                if (typeof st.episodes === 'number') {
+                    totalEpisodes = Math.max(totalEpisodes, st.episodes);
+                }
+                if (typeof liveEp === 'number' && Number.isFinite(liveEp)) {
+                    totalEpisodes = Math.max(totalEpisodes, liveEp);
+                }
                 updateStats();
             }
         } catch {
@@ -310,7 +342,9 @@ export function initRLPanel(game) {
             return;
         }
         try {
-            const data = await fetchTrainingLog(60);
+            // 拉取 400 条：train_progress 进度心跳会高频写入，需更大窗口才能保留足够的
+            // train_episode 行用于统计与曲线（约 1:batch 比例）。
+            const data = await fetchTrainingLog(400);
             if (data.exists === false || !data.entries?.length) {
                 outServerLog.textContent =
                     data.exists === false
@@ -318,7 +352,49 @@ export function initRLPanel(game) {
                         : '日志为空';
                 return;
             }
-            const tail = data.entries.slice(-24);
+            // 局数实时跳动：取最新带 episodes 的任意事件（含 train_progress 采集心跳），
+            // 让顶部局数每 ~1-2s 推进，直观判断训练是否在继续。
+            for (let i = data.entries.length - 1; i >= 0; i--) {
+                const ev = data.entries[i].episodes;
+                if (typeof ev === 'number' && Number.isFinite(ev)) {
+                    totalEpisodes = Math.max(totalEpisodes, ev);
+                    break;
+                }
+            }
+            // 从服务端日志推导顶部统计（均分/胜率/最佳），供后端模式填充
+            const epRows = data.entries.filter((e) => e.event === 'train_episode');
+            if (epRows.length) {
+                // 实时局数：Flask /api/rl/status 的 episodes 是内存加载值（停在 checkpoint），
+                // 后台训练推进的是磁盘日志，需用最新 train_episode 的 episodes 同步左侧「局数」。
+                const lastEp = epRows[epRows.length - 1].episodes;
+                if (typeof lastEp === 'number' && Number.isFinite(lastEp)) {
+                    totalEpisodes = Math.max(totalEpisodes, lastEp);
+                }
+                const scoreSlice = epRows.slice(-AVG_WINDOW).map((e) => e.score).filter((v) => typeof v === 'number' && Number.isFinite(v));
+                const winSlice = epRows.slice(-WIN_WINDOW)
+                    .map((e) => (typeof e.win_rate === 'number' ? e.win_rate : typeof e.won === 'boolean' ? (e.won ? 1 : 0) : null))
+                    .filter((v) => v != null);
+                const allScores = epRows.map((e) => e.score).filter((v) => typeof v === 'number' && Number.isFinite(v));
+                serverStats = {
+                    avg: scoreSlice.length ? scoreSlice.reduce((a, b) => a + b, 0) / scoreSlice.length : null,
+                    win: winSlice.length ? winSlice.reduce((a, b) => a + b, 0) / winSlice.length : null,
+                    best: allScores.length ? Math.max(...allScores) : null,
+                };
+                updateStats();
+            }
+            // 采集进度心跳 → 「训练进展」面板（实时滚动，每 ~1-2s 一条）
+            const progRows = data.entries.filter((e) => e.event === 'train_progress');
+            progressFeedLines = [...progRows].slice(-16).reverse().map((e) => {
+                const t = e.ts ? formatLogTime(e.ts) : '?';
+                const ep = e.episodes ?? '?';
+                const sc = typeof e.score === 'number' ? Math.round(e.score) : '?';
+                const stp = typeof e.steps === 'number' ? e.steps : '?';
+                return `${t}·${ep} 采集 分${sc} 步${stp}${e.won ? ' 胜' : ''}`;
+            });
+            renderProgressPanel();
+            // 「训练损失」面板：仅保留真正的 loss 行（train_episode）与结构性事件，
+            // 排除采集进度心跳，避免 loss 数据被刷屏（修复「训练损失数据不对」）。
+            const tail = data.entries.filter((e) => e.event !== 'train_progress').slice(-24);
             const rows = [...tail].reverse().map((e) => {
                 const t = e.ts ? formatLogTime(e.ts) : '?';
                 if (e.event === 'train_episode') {
@@ -347,6 +423,17 @@ export function initRLPanel(game) {
                 if (e.event === 'eval_greedy') {
                     const wr = typeof e.win_rate === 'number' ? `胜率${(e.win_rate * 100).toFixed(0)}%` : '';
                     return `[${t}] 评估：${e.games ?? '?'} 局 ${wr}`;
+                }
+                if (e.event === 'bg_training_start') {
+                    const sims = e.mcts_sims ? ` MCTS×${e.mcts_sims}` : '';
+                    return `[${t}] 后台训练启动：目标 ${e.episodes_target ?? '?'} 局 batch=${e.batch_episodes ?? '?'} workers=${e.n_workers ?? 'auto'}${sims}`;
+                }
+                if (e.event === 'bg_training_end') {
+                    const reason = e.reason === 'completed' ? '已完成' : e.reason === 'stopped' ? '已停止' : `退出(${e.exit_code ?? '?'})`;
+                    return `[${t}] 后台训练结束：${reason}`;
+                }
+                if (e.event === 'bg_training_error') {
+                    return `[${t}] 后台训练异常：${e.error || '未知错误'}`;
                 }
                 return `[${t}] ${JSON.stringify(e).slice(0, 100)}`;
             });
@@ -399,16 +486,26 @@ export function initRLPanel(game) {
         return `｜策略损失 ${lp.toFixed(3)}｜价值损失 ${lv.toFixed(3)}`;
     }
 
-    function logLine(msg) {
+    /** 合并渲染「训练进展」面板：上方保留近期事件消息，下方接实时采集进度心跳。 */
+    function renderProgressPanel() {
         const node = document.getElementById('rl-progress-log');
         if (!node) {
             return;
         }
-        const t = new Date().toLocaleTimeString();
-        const line = `[${t}] ${msg}`;
-        const prev = node.textContent.split('\n').filter((s) => s.length > 0);
-        node.textContent = [line, ...prev.slice(0, EPISODE_LOG_MAX_LINES - 1)].join('\n');
+        const events = eventLogLines.slice(0, 6);
+        const feed = progressFeedLines.slice(0, EPISODE_LOG_MAX_LINES - events.length);
+        const lines = [...events, ...feed];
+        node.textContent = lines.length ? lines.join('\n') : '等待训练数据…';
         node.scrollTop = 0;
+    }
+
+    function logLine(msg) {
+        const t = new Date().toLocaleTimeString();
+        eventLogLines.unshift(`[${t}] ${msg}`);
+        if (eventLogLines.length > 12) {
+            eventLogLines.length = 12;
+        }
+        renderProgressPanel();
     }
 
     /**
@@ -428,7 +525,7 @@ export function initRLPanel(game) {
      * 由 .rl-chart-root overflow-y:auto 提供；只有当面板被严重挤压（剩余 < 一行半曲线）
      * 才主动 collapse。
      */
-    const MIN_METRICS_CONTENT_PX = 90;
+    const MIN_METRICS_CONTENT_PX = 0;
     let autoCollapseScheduled = false;
     /** 标记被脚本主动折叠，避免与用户主动展开形成抖动 */
     let metricsAutoCollapsedByScript = false;
@@ -524,17 +621,18 @@ export function initRLPanel(game) {
             const avg = slice.reduce((a, b) => a + b, 0) / slice.length;
             outAvg.textContent = avg.toFixed(1);
         } else if (outAvg) {
-            outAvg.textContent = '—';
+            outAvg.textContent = serverStats.avg != null ? serverStats.avg.toFixed(1) : '—';
         }
         if (outWin && recentWins.length) {
             const slice = recentWins.slice(-WIN_WINDOW);
             const w = slice.filter(Boolean).length / slice.length;
             outWin.textContent = `${(w * 100).toFixed(1)}%`;
         } else if (outWin) {
-            outWin.textContent = '—';
+            outWin.textContent = serverStats.win != null ? `${(serverStats.win * 100).toFixed(1)}%` : '—';
         }
         if (outBest) {
-            outBest.textContent = String(bestScore);
+            const best = Math.max(bestScore, serverStats.best != null ? serverStats.best : 0);
+            outBest.textContent = String(best);
         }
     }
 
@@ -574,6 +672,47 @@ export function initRLPanel(game) {
         scheduleDashRefresh();
     }
 
+    async function _resumeBgTrainingPoll() {
+        if (running) return;
+        running = true;
+        controller = new AbortController();
+        if (btnStart) btnStart.disabled = true;
+        if (btnEpisode) btnEpisode.disabled = true;
+        if (btnStop) btnStop.disabled = false;
+        syncChartPoll();
+        logLine('检测到后台训练运行中，已接入监控');
+        const pollInterval = 3000;
+        // 需连续两次确认 running:false 才判定结束，避免服务重启瞬间的单次误判导致轮询永久停止
+        let notRunningStreak = 0;
+        try {
+            while (!controller.signal.aborted) {
+                await new Promise((r) => setTimeout(r, pollInterval));
+                if (controller.signal.aborted) break;
+                try {
+                    const st = await fetchBackgroundTrainingStatus();
+                    if (!st.running) {
+                        notRunningStreak += 1;
+                        if (notRunningStreak >= 2) {
+                            logLine(st.error ? `后台训练异常: ${st.error}` : `后台训练已完成 (ep=${st.episodes_done})`);
+                            break;
+                        }
+                    } else {
+                        notRunningStreak = 0;
+                    }
+                } catch { /* 网络/重启抖动：忽略，继续轮询 */ }
+                try { await refreshDashboardFull(); } catch { /* ignore */ }
+            }
+        } finally {
+            running = false;
+            if (btnStart) btnStart.disabled = false;
+            if (btnEpisode) btnEpisode.disabled = false;
+            if (btnStop) btnStop.disabled = true;
+            syncChartPoll();
+            void refreshBackendStatus();
+            void refreshDashboardFull();
+        }
+    }
+
     async function startBatch() {
         if (running) {
             return;
@@ -593,7 +732,7 @@ export function initRLPanel(game) {
         }
         // 训练时默认展开「训练进展 / 训练损失」两个 details，方便实时观察日志输出；
         // 用户中途手动收起后下次开训仍会再次展开（行为保持简单一致）。
-        for (const id of ['rl-progress-log', 'rl-server-log']) {
+        for (const id of ['rl-progress-log', 'rl-server-log', 'rl-chart-root']) {
             const log = document.getElementById(id);
             const det = log?.closest('details');
             if (det && !det.open) {
@@ -635,14 +774,56 @@ export function initRLPanel(game) {
                 console.warn('[RL panel] refreshDashboardFull:', err);
             }
 
-            await trainSelfPlay({
-                agent,
-                episodes: 500000,
-                signal: controller.signal,
-                onEpisode,
-                useBackend,
-                useLookahead,
-            });
+            if (useBackend) {
+                try {
+                    await startBackgroundTraining({
+                        episodes: 500000,
+                        resume: true,
+                        n_workers: 1,
+                        // batch=8：每批更快产出一条 train_episode（约 10s/条 vs batch=16 的 ~30s），
+                        // 配合后端 per-episode 进度心跳，看板每 ~1-2s 即有新日志行。
+                        batch_episodes: 8,
+                        preset: 'performance',
+                        eval_gate_every: 0,
+                        // Lv 价值损失较 Lπ 收敛慢，加权至 1.5 加速 value 拟合，决策更稳
+                        value_coef: 1.5,
+                    });
+                    logLine('后台训练已启动（看板模式：batch=8 / value_coef=1.5 / 逐局进度心跳；评估门关闭）');
+                } catch (err) {
+                    logLine(`后台训练启动失败: ${err.message}`);
+                    return;
+                }
+                // 轮询后台训练状态直到停止或用户中止
+                const pollInterval = 3000;
+                while (!controller.signal.aborted) {
+                    await new Promise((r) => setTimeout(r, pollInterval));
+                    if (controller.signal.aborted) break;
+                    try {
+                        const st = await fetchBackgroundTrainingStatus();
+                        if (!st.running) {
+                            if (st.error) {
+                                logLine(`后台训练异常退出: ${st.error}`);
+                            } else {
+                                logLine(`后台训练已完成 (ep=${st.episodes_done})`);
+                            }
+                            break;
+                        }
+                    } catch {
+                        // 网络异常时继续轮询
+                    }
+                    // 刷新图表和日志
+                    try { await refreshDashboardFull(); } catch { /* ignore */ }
+                }
+            } else {
+                await trainSelfPlay({
+                    agent,
+                    episodes: 500000,
+                    signal: controller.signal,
+                    onEpisode,
+                    useBackend: false,
+                    useLookahead: false,
+                });
+            }
 
             logLine(
                 useBackend
@@ -676,9 +857,17 @@ export function initRLPanel(game) {
         btnStart.onclick = () => void startBatch();
     }
     if (btnStop) {
-        btnStop.onclick = () => {
+        btnStop.onclick = async () => {
             controller?.abort();
             logLine('已请求停止…');
+            if (readUseBackend()) {
+                try {
+                    await stopBackgroundTraining();
+                    logLine('已发送后台停止信号');
+                } catch (err) {
+                    logLine(`停止请求失败: ${err.message}`);
+                }
+            }
         };
     }
     if (btnRefreshLog) {
@@ -763,6 +952,15 @@ export function initRLPanel(game) {
     updateStats();
     void refreshBackendStatus();
     void refreshDashboardFull();
+    // 状态心跳：每 4s 刷新一次后端状态（内部会刷新服务端日志/统计/局数，并在检测到
+    // 后台训练运行但前端轮询已停时自动重启轮询）。即便实时轮询循环因服务重启/网络抖动
+    // 中断，看板也能在数秒内自愈，避免「数据不更新、无法判断训练是否在继续」。
+    setInterval(
+        skipWhenDocumentHidden(() => {
+            void refreshBackendStatus();
+        }),
+        4000
+    );
     void (async () => {
         try {
             const st = await fetchRlStatus();

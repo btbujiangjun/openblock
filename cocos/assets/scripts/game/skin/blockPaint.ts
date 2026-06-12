@@ -45,6 +45,12 @@ export function paintBlockFace(
     const r = Math.max(0, Math.min(radius, size / 2));
     const style = skin.blockStyle || 'cartoon';
 
+    // 带 emoji icon 的皮肤统一走简洁渲染：纯色面 + 轻描边，让 emoji 突出。
+    // Graphics 无渐变能力，复杂高光/色带在小格子上会产生杂乱条纹遮挡 emoji。
+    // 对齐 web v10.9 cartoon 的设计意图："去掉顶部白光层，emoji 100% 清晰"。
+    const hasIcon = !!(skin.blockIcons && skin.blockIcons.length);
+    if (hasIcon) return paintCartoon(g, x, y, size, r, face, alpha, skin);
+
     if (style === 'bevel3d') return paintBevel3d(g, x, y, size, r, face, alpha);
     if (style === 'neon') return paintNeon(g, x, y, size, r, face, alpha, skin);
     if (style === 'metal') return paintMetal(g, x, y, size, r, face, alpha);
@@ -52,7 +58,6 @@ export function paintBlockFace(
     if (style === 'jelly') return paintJelly(g, x, y, size, r, face, alpha);
     if (style === 'pixel8') return paintPixel8(g, x, y, size, face, alpha);
     if (style === 'flat') return paintFlat(g, x, y, size, r, face, alpha);
-    // 默认走 cartoon（覆盖 25+ 皮肤，含 pets / sakura / candy / aurora 等）
     return paintCartoon(g, x, y, size, r, face, alpha, skin);
 }
 
@@ -75,46 +80,29 @@ function paintCartoon(
     face: Color, alpha: number, skin: Skin,
 ): void {
     const lightBoard = isLightBoard(skin);
-    const topLift = lightBoard ? 0.08 : 0.16;
-    const botDark = lightBoard ? 0.04 : 0.12;
-    const botShadeAlpha = lightBoard ? 0.05 : 0.14;
 
-    // 1. 主色面
-    g.fillColor = face;
-    g.roundRect(x, y, size, size, r);
-    g.fill();
+    // 绘制顺序：外描边 → 主色面 → 内描边。
+    // 先画较粗外描边，再 fill 主色覆盖其内侧——主色 fill 边缘的锯齿被外描边遮住，
+    // 外描边外侧的锯齿因颜色接近背景而不可见。这是 Cocos Graphics 消除毛刺的标准技巧。
 
-    // 2. 顶部 lighten 提亮带（占上半的 ~45%，圆角内缩避免溢出 r）
-    const bandInset = Math.max(0.5, r * 0.5);
-    const topH = Math.max(2, size * 0.45);
-    g.fillColor = lightenInto(_tmp, face, topLift);
-    g.roundRect(x + bandInset, y + size - topH, size - bandInset * 2, topH - bandInset, Math.max(0, r - 1));
-    g.fill();
-
-    // 3. 底部 darken 压暗带（与 web 主色渐变底端 ~50% 区域对应）
-    const botH = Math.max(2, size * 0.22);
-    g.fillColor = darkenInto(_tmp, face, botDark);
-    g.fillColor.a = alpha;
-    g.roundRect(x + bandInset, y + bandInset, size - bandInset * 2, botH - bandInset, Math.max(0, r - 1));
-    g.fill();
-
-    // 4. 底部黑色暗角（web `btG` 渐变 0.78→1 的最深处近似为单色低 alpha 带）
-    g.fillColor = col(0, 0, 0, Math.round(alpha * botShadeAlpha));
-    g.roundRect(x + bandInset, y + bandInset, size - bandInset * 2, Math.max(2, size * 0.16), Math.max(0, r - 1));
-    g.fill();
-
-    // 5. 外暗描边（轮廓——浅盘暖棕、深盘黑；alpha 严格按 web）
-    g.lineWidth = 1.35;
-    g.strokeColor = lightBoard
+    // 1. 外暗描边（轮廓——浅盘暖棕、深盘黑）
+    g.lineWidth = 2;
+    g.fillColor = lightBoard
         ? col(68, 56, 40, Math.round(alpha * 0.42))
         : col(0, 0, 0, Math.round(alpha * 0.48));
-    g.roundRect(x + 0.5, y + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+    g.strokeColor = g.fillColor;
+    g.roundRect(x, y, size, size, r);
     g.stroke();
 
-    // 6. 内白描边（bevel 高光——白色而非 face 染色，对齐 web `innerStroke`）
+    // 2. 主色面（略缩进 1px，覆盖外描边内侧，边缘完全被外描边遮住）
+    g.fillColor = face;
+    g.roundRect(x + 1, y + 1, size - 2, size - 2, Math.max(1, r - 1));
+    g.fill();
+
+    // 3. 内白描边（轻高光，对齐 web innerStroke）
     g.lineWidth = 1;
     g.strokeColor = col(255, 255, 255, Math.round(alpha * (lightBoard ? 0.46 : 0.34)));
-    g.roundRect(x + 1, y + 1, size - 2, size - 2, Math.max(0, r - 1));
+    g.roundRect(x + 1.5, y + 1.5, size - 3, size - 3, Math.max(0, r - 1.5));
     g.stroke();
 }
 
@@ -188,22 +176,22 @@ function paintNeon(
     g: Graphics, x: number, y: number, size: number, r: number,
     face: Color, alpha: number, skin: Skin,
 ): void {
-    // 1. 主色（web 用横向 lighten 0.10 → color → darken 0.18 渐变，Graphics 近似为单色）
-    g.fillColor = face;
-    g.roundRect(x, y, size, size, r);
-    g.fill();
-
-    // 2. 亮色加宽描边（霓虹边框感）
+    // 先描边后填充——消除 fill 边缘毛刺
     g.strokeColor = lightenInto(_tmp, face, 0.22);
     g.strokeColor.a = alpha;
-    g.lineWidth = 1.5;
-    g.roundRect(x + 0.5, y + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+    g.lineWidth = 2;
+    g.roundRect(x, y, size, size, r);
     g.stroke();
 
-    // 3. 顶部白色高光（仅无 icon 皮肤；带 icon 的 music 跳过避免洗白 emoji 头部）
+    // 主色面（内缩 1px）
+    g.fillColor = face;
+    g.roundRect(x + 1, y + 1, size - 2, size - 2, Math.max(1, r - 1));
+    g.fill();
+
+    // 顶部白色高光（仅无 icon 皮肤）
     const hasIcon = !!(skin.blockIcons && skin.blockIcons.length);
     if (!hasIcon) {
-        const bandInset = Math.max(0.5, r * 0.5);
+        const bandInset = Math.max(1, r * 0.5);
         const topH = Math.max(2, size * 0.42);
         g.fillColor = col(255, 255, 255, Math.round(alpha * 0.28));
         g.roundRect(x + bandInset, y + size - topH, size - bandInset * 2, topH - bandInset, Math.max(0, r - 1));
@@ -221,24 +209,30 @@ function paintMetal(
     g: Graphics, x: number, y: number, size: number, r: number,
     face: Color, alpha: number,
 ): void {
-    // 主色面（占 bottom 段，会被上方 band 部分覆盖）
+    // 先描边后填充——消除 fill 边缘毛刺
+    g.strokeColor = col(255, 255, 255, Math.round(alpha * 0.55));
+    g.lineWidth = 2;
+    g.roundRect(x, y, size, size, r);
+    g.stroke();
+
+    // 主色面（内缩 1px，边缘被白色外描边遮住）
     g.fillColor = darkenInto(_tmp, face, 0.28);
     g.fillColor.a = alpha;
-    g.roundRect(x, y, size, size, r);
+    g.roundRect(x + 1, y + 1, size - 2, size - 2, Math.max(1, r - 1));
     g.fill();
 
     // 5 段拉丝 band（从顶到底）
-    const bandInset = Math.max(0.5, r * 0.5);
+    const bandInset = Math.max(1, r * 0.5);
     const bands: Array<[number, number]> = [
-        [0.32, 0.12],  // 顶端 lighten 0.32，占 12% 高
-        [0.18, 0.30],  // 0.18 lift，30%
-        [0.38, 0.06],  // 最亮拉丝窄带，6%
-        [0.00, 0.30],  // 主色带，30%
-        [-0.08, 0.22], // 略压暗带，22%（合 darken 0.08）
+        [0.32, 0.12],
+        [0.18, 0.30],
+        [0.38, 0.06],
+        [0.00, 0.30],
+        [-0.08, 0.22],
     ];
-    let cursorH = size;  // cocos y 顶部在 size；从顶向下累计
+    let cursorH = size - 1;
     for (const [lift, frac] of bands) {
-        const h = Math.max(1, size * frac);
+        const h = Math.max(1, (size - 2) * frac);
         const topY = y + cursorH;
         const bandFace = lift >= 0 ? lightenInto(_tmp, face, lift) : darkenInto(_tmp, face, -lift);
         bandFace.a = alpha;
@@ -248,16 +242,10 @@ function paintMetal(
         cursorH -= h;
     }
 
-    // 白色外描边（金属高光感）
-    g.strokeColor = col(255, 255, 255, Math.round(alpha * 0.55));
-    g.lineWidth = 1.2;
-    g.roundRect(x + 0.5, y + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
-    g.stroke();
-
     // 黑色细内框
     g.strokeColor = col(0, 0, 0, Math.round(alpha * 0.32));
     g.lineWidth = 1;
-    g.roundRect(x + 1.2, y + 1.2, size - 2.4, size - 2.4, Math.max(0, r - 1));
+    g.roundRect(x + 1.5, y + 1.5, size - 3, size - 3, Math.max(0, r - 1.5));
     g.stroke();
 }
 
@@ -270,33 +258,31 @@ function paintGlass(
     g: Graphics, x: number, y: number, size: number, r: number,
     face: Color, alpha: number, skin: Skin,
 ): void {
-    // 主色面
-    g.fillColor = face;
+    const dark = !!skin.uiDark;
+
+    // 先描边（外轮廓）再填充——消除 fill 边缘毛刺
+    g.strokeColor = col(255, 255, 255, Math.round(alpha * (dark ? 0.42 : 0.32)));
+    g.lineWidth = 2;
     g.roundRect(x, y, size, size, r);
+    g.stroke();
+
+    // 主色面（内缩 1px）
+    g.fillColor = face;
+    g.roundRect(x + 1, y + 1, size - 2, size - 2, Math.max(1, r - 1));
     g.fill();
 
-    // 顶部白色高光（两段近似 web 的多停渐变）
-    const bandInset = Math.max(0.5, r * 0.5);
-    g.fillColor = col(255, 255, 255, Math.round(alpha * 0.50));
+    // 顶部白色高光（cocos y 向上，"顶部"对应高 y）
+    const bandInset = Math.max(1, r * 0.5);
+    g.fillColor = col(255, 255, 255, Math.round(alpha * 0.35));
     g.roundRect(x + bandInset, y + size * 0.72, size - bandInset * 2, size * 0.28 - bandInset, Math.max(0, r - 1));
     g.fill();
-    g.fillColor = col(255, 255, 255, Math.round(alpha * 0.14));
-    g.roundRect(x + bandInset, y + size * 0.42, size - bandInset * 2, size * 0.30, Math.max(0, r - 1));
-    g.fill();
-
-    // 外描边（玻璃折射感）
-    const dark = !!skin.uiDark;
-    g.strokeColor = col(255, 255, 255, Math.round(alpha * (dark ? 0.42 : 0.32)));
-    g.lineWidth = 1.15;
-    g.roundRect(x + 0.5, y + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
-    g.stroke();
 
     // 内细描边
     g.strokeColor = dark
         ? col(0, 0, 0, Math.round(alpha * 0.10))
         : col(15, 23, 42, Math.round(alpha * 0.20));
     g.lineWidth = 1;
-    g.roundRect(x + 1, y + 1, size - 2, size - 2, Math.max(0, r - 1));
+    g.roundRect(x + 1.5, y + 1.5, size - 3, size - 3, Math.max(0, r - 1.5));
     g.stroke();
 }
 
@@ -308,25 +294,23 @@ function paintJelly(
     g: Graphics, x: number, y: number, size: number, r: number,
     face: Color, alpha: number,
 ): void {
-    g.fillColor = face;
-    g.roundRect(x, y, size, size, r);
-    g.fill();
-
-    const bandInset = Math.max(0.5, r * 0.5);
-    // 顶磨砂白
-    g.fillColor = col(255, 255, 255, Math.round(alpha * 0.60));
-    g.roundRect(x + bandInset, y + size * 0.75, size - bandInset * 2, size * 0.25 - bandInset, Math.max(0, r - 1));
-    g.fill();
-    g.fillColor = col(255, 255, 255, Math.round(alpha * 0.20));
-    g.roundRect(x + bandInset, y + size * 0.45, size - bandInset * 2, size * 0.32, Math.max(0, r - 1));
-    g.fill();
-
-    // 亮内描边（玻璃折射边缘）
+    // 先描边后填充——消除 fill 边缘毛刺
     g.strokeColor = lightenInto(_tmp, face, 0.55);
     g.strokeColor.a = Math.round(alpha * 0.80);
-    g.lineWidth = 1.8;
-    g.roundRect(x + 0.9, y + 0.9, size - 1.8, size - 1.8, Math.max(0, r - 0.9));
+    g.lineWidth = 2;
+    g.roundRect(x, y, size, size, r);
     g.stroke();
+
+    // 主色面（内缩 1px）
+    g.fillColor = face;
+    g.roundRect(x + 1, y + 1, size - 2, size - 2, Math.max(1, r - 1));
+    g.fill();
+
+    // 顶磨砂白
+    const bandInset = Math.max(1, r * 0.5);
+    g.fillColor = col(255, 255, 255, Math.round(alpha * 0.45));
+    g.roundRect(x + bandInset, y + size * 0.75, size - bandInset * 2, size * 0.25 - bandInset, Math.max(0, r - 1));
+    g.fill();
 
     // 深色细轮廓
     g.strokeColor = darkenInto(_tmp, face, 0.30);
@@ -383,18 +367,19 @@ function paintPixel8(
     g.fill();
 }
 
-/** flat —— 纯色 + 极弱描边（对齐 web flat 分支）。 */
+/** flat —— 纯色 + 极弱描边（对齐 web flat 分支）。先描边后填充消除 fill 边缘毛刺。 */
 function paintFlat(
     g: Graphics, x: number, y: number, size: number, r: number,
     face: Color, alpha: number,
 ): void {
-    g.fillColor = face;
-    g.roundRect(x, y, size, size, r);
-    g.fill();
     g.strokeColor = col(0, 0, 0, Math.round(alpha * 0.14));
-    g.lineWidth = 1;
-    g.roundRect(x + 0.5, y + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+    g.lineWidth = 2;
+    g.roundRect(x, y, size, size, r);
     g.stroke();
+
+    g.fillColor = face;
+    g.roundRect(x + 1, y + 1, size - 2, size - 2, Math.max(1, r - 1));
+    g.fill();
 }
 
 /** 方块中心 emoji 字号（对齐 web：约 face×0.56，过小则不画）。 */
@@ -424,7 +409,7 @@ export function iconFontSize(faceSize: number): number {
  *
  * 任何旧 cocos 版本缺少对应字段时（typeof 检查不通过），catch 静默退回原行为。
  */
-function applyIconLabel(l: Label, em: string, fs: number): void {
+export function applyIconLabel(l: Label, em: string, fs: number): void {
     try {
         const anyL = l as unknown as {
             string: string;

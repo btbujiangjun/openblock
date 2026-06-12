@@ -1,6 +1,6 @@
 import { _decorator, Component, Graphics, UITransform, Node, Label, Color, sys } from 'cc';
 import { DockBlock, Skin } from '../core';
-import { drawShapeFaces } from './skin/blockPaint';
+import { drawShapeFaces, ICON_FONT_FAMILY } from './skin/blockPaint';
 import { inheritLayer, screenToLocal } from './ui/uiKit';
 
 const { ccclass, property } = _decorator;
@@ -239,7 +239,8 @@ export class DockView extends Component {
             n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
             l = n.addComponent(Label);
             l.color = new Color(255, 255, 255, 255);
-            // 与 GameController 拖拽 ghost 的 icon 一致：禁 overflow + 双向居中，避免不同字号下 emoji 位置漂移。
+            l.useSystemFont = true;
+            l.fontFamily = ICON_FONT_FAMILY;
             if (Label.Overflow) l.overflow = Label.Overflow.NONE;
             if (Label.HorizontalAlign) l.horizontalAlign = Label.HorizontalAlign.CENTER;
             if (Label.VerticalAlign) l.verticalAlign = Label.VerticalAlign.CENTER;

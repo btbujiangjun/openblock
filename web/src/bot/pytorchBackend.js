@@ -155,6 +155,32 @@ export async function saveRemoteCheckpoint(path) {
     return postJson('/api/rl/save', path ? { path } : {});
 }
 
+/**
+ * 启动后台 train_loop（与离线 python -m rl_pytorch.train 一致）。
+ * @param {object} [opts]
+ * @returns {Promise<object>}
+ */
+export async function startBackgroundTraining(opts = {}) {
+    return postJson('/api/rl/start_training', opts);
+}
+
+/**
+ * 停止后台 train_loop（优雅停止）。
+ * @returns {Promise<object>}
+ */
+export async function stopBackgroundTraining() {
+    return postJson('/api/rl/stop_training', {});
+}
+
+/**
+ * 查询后台训练状态。
+ * @returns {Promise<{ running: boolean, episodes_done: number, error: string | null }>}
+ */
+export async function fetchBackgroundTrainingStatus() {
+    const res = await fetch(`${base()}/api/rl/training_status`, { cache: 'no-store' });
+    return res.json();
+}
+
 async function _loadRemoteCheckpoint(path) {
     return postJson('/api/rl/load', { path });
 }

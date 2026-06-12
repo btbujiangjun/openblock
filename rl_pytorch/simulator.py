@@ -402,8 +402,8 @@ class OpenBlockSimulator:
                 self._apply_online_spawn_result(resp)
                 self._spawn_context["scoreMilestone"] = False
                 return
-            except Exception:
-                _spawn_online.warn_legacy_fallback_once()
+            except Exception as e:
+                _spawn_online.warn_legacy_fallback_once(e)
         self._spawn_dock_legacy()
 
     def _ensure_grid_np(self) -> np.ndarray:

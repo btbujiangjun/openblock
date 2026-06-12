@@ -1,8 +1,8 @@
-import { _decorator, Component, Node, Color, UITransform, Label, Graphics, UIOpacity, Vec3, tween } from 'cc';
-import { Modal, dimBg, card, label, closeX, TapBus, bindEngineClick, inheritLayer } from './uiKit';
-import { SKINS, listSkinIds, Skin, t, getSkinCategories } from '../../core';
-import { blockMetrics, gridOuterColor, cellEmptyColor, blockIcon } from '../skin/palette';
-import { paintBlockFace, iconFontSize } from '../skin/blockPaint';
+import { _decorator, Component, Node, Color, UITransform, Label, Graphics, UIOpacity, Vec3, tween, view, Mask, EventTouch } from 'cc';
+import { Modal, dimBg, card, label, closeX, TapBus, bindEngineClick, inheritLayer, screenToLocal } from './uiKit';
+import { SKINS, listSkinIds, Skin, t, getSkinCategories, tSkinName } from '../../core';
+import { blockColor, gridOuterColor, cellEmptyColor, blockIcon } from '../skin/palette';
+import { iconFontSize } from '../skin/blockPaint';
 import { Motion } from '../platform/Motion';
 
 const { ccclass } = _decorator;
@@ -10,6 +10,9 @@ const { ccclass } = _decorator;
 /**
  * 皮肤选择面板 —— 对齐 web 的「皮肤列表选择器」（#skin-select：列出全部皮肤、可选任意）。
  * 网格陈列所有皮肤的迷你预览（外框 + 数块方块 + emoji），当前皮肤高亮，点选即应用。
+ *
+ * 滚动方案：viewport（Mask 裁剪）+ content（移动 y）+ 透明触摸拦截层（Node.EventType.TOUCH_*）。
+ * 用节点级触摸而非全局 input，避免与 GameController 的全局 input 监听冲突导致原生端收不到 MOVE。
  */
 @ccclass('SkinPanel')
 export class SkinPanel extends Component {
@@ -18,6 +21,18 @@ export class SkinPanel extends Component {
     private _unregs: Array<() => void> = [];
     private swatches: Map<string, { g: Graphics; skin: Skin; w: number; h: number; node: Node }> = new Map();
     private closed = false;
+
+    /** 滚动状态 */
+    private _scrollContent: Node | null = null;
+    private _scrollMin = 0;
+    private _scrollMax = 0;
+    private _scrollLastY = 0;
+    private _scrollVelocity = 0;
+    private _scrollDragging = false;
+    private _touchLayer: Node | null = null;
+    private _viewport: Node | null = null;
+    /** swatch 在 content 本地坐标系中的位置（用于点击判定） */
+    private _swatchRects: Array<{ id: string; cx: number; cy: number; w: number; h: number }> = [];
 
     static show(parent: Node, currentId: string, onPick: (id: string) => void): SkinPanel {
         const root = new Node('SkinPanel');
@@ -51,29 +66,62 @@ export class SkinPanel extends Component {
         const catGap = 14;
         const gridW = cols * swatch + (cols - 1) * gapX;
 
-        let totalH = 0;
+        let totalContentH = 0;
         for (const cat of categories) {
-            totalH += catLabelH + catGap;
+            totalContentH += catLabelH + catGap;
             const catRows = Math.ceil(cat.skins.length / cols);
-            totalH += catRows * swatchH + (catRows - 1) * gapY + catGap;
+            totalContentH += catRows * swatchH + (catRows - 1) * gapY + catGap;
         }
-        const h = totalH + 150;
+
+        const titleBarH = 100;
+        const cardPadBottom = 30;
+        const idealCardH = totalContentH + titleBarH + cardPadBottom;
         const w = gridW + 60;
+
+        const vis = view.getVisibleSize();
+        const maxCardH = vis.height - 80;
+        const cardH = Math.min(idealCardH, maxCardH);
+        const needScroll = idealCardH > maxCardH;
 
         const dim = dimBg(this.node);
         dim.getComponent(UITransform)!.setContentSize(2000, 3000);
         this._unregs.push(TapBus.add(dim, () => this.close()));
 
-        const c = card(this.node, w, h);
-        const topY = h / 2 - 54;
+        const c = card(this.node, w, cardH);
+        const topY = cardH / 2 - 54;
         label(c, t('skin.title'), 38, 0, topY, new Color(255, 220, 130, 255));
-        this._unregs.push(closeX(c, w / 2 - 44, h / 2 - 44, () => this.close()));
+        this._unregs.push(closeX(c, w / 2 - 44, cardH / 2 - 44, () => this.close()));
+
+        const viewportH = cardH - titleBarH - cardPadBottom;
+        const viewportTop = topY - 52;
+
+        const viewport = new Node('viewport');
+        viewport.parent = c;
+        inheritLayer(viewport, c);
+        const vpUit = viewport.addComponent(UITransform);
+        vpUit.setAnchorPoint(0.5, 1);
+        vpUit.setContentSize(w - 20, viewportH);
+        viewport.setPosition(0, viewportTop, 0);
+
+        this._viewport = viewport;
+        if (needScroll) {
+            const mask = viewport.addComponent(Mask);
+            mask.type = Mask.Type.GRAPHICS_RECT;
+        }
+
+        const content = new Node('content');
+        content.parent = viewport;
+        inheritLayer(content, viewport);
+        const contentUit = content.addComponent(UITransform);
+        contentUit.setAnchorPoint(0.5, 1);
+        contentUit.setContentSize(w - 20, totalContentH);
+        content.setPosition(0, 0, 0);
 
         const startX = -gridW / 2 + swatch / 2;
-        let curY = topY - 72;
+        let curY = -catGap / 2;
 
         for (const cat of categories) {
-            label(c, cat.label, 22, 0, curY, new Color(180, 195, 220, 255));
+            label(content, cat.label, 22, 0, curY, new Color(180, 195, 220, 255));
             curY -= catLabelH + catGap;
 
             cat.skins.forEach((skin, i) => {
@@ -81,10 +129,42 @@ export class SkinPanel extends Component {
                 const row = Math.floor(i / cols);
                 const x = startX + col * (swatch + gapX);
                 const y = curY - row * (swatchH + gapY) - swatchH / 2;
-                this.makeSwatch(c, skin, x, y, swatch, swatchH);
+                this.makeSwatch(content, skin, x, y, swatch, swatchH);
             });
             const catRows = Math.ceil(cat.skins.length / cols);
             curY -= catRows * swatchH + (catRows - 1) * gapY + catGap;
+        }
+
+        this._scrollContent = content;
+        if (needScroll) {
+            this._scrollMin = 0;
+            this._scrollMax = totalContentH - viewportH;
+            this._scrollVelocity = 0;
+
+            // 直接在 viewport 上注册触摸事件驱动滚动，不使用 touchLayer 拦截层
+            viewport.on(Node.EventType.TOUCH_START, this._onScrollStart, this);
+            viewport.on(Node.EventType.TOUCH_MOVE, this._onScrollMove, this);
+            viewport.on(Node.EventType.TOUCH_END, this._onScrollEnd, this);
+            viewport.on(Node.EventType.TOUCH_CANCEL, this._onScrollEnd, this);
+            this._touchLayer = viewport;
+
+            // 底部渐变提示
+            const fadeH = 28;
+            const fade = new Node('fade');
+            fade.parent = c;
+            inheritLayer(fade, c);
+            const fadeUit = fade.addComponent(UITransform);
+            fadeUit.setAnchorPoint(0.5, 0);
+            fadeUit.setContentSize(w - 20, fadeH);
+            fade.setPosition(0, viewportTop - viewportH, 0);
+            fade.setSiblingIndex(9998);
+            const fg = fade.addComponent(Graphics);
+            for (let i = 0; i < fadeH; i++) {
+                const a = Math.floor(255 * (1 - i / fadeH));
+                fg.fillColor = new Color(28, 32, 44, a);
+                fg.rect(-(w - 20) / 2, i, w - 20, 1);
+                fg.fill();
+            }
         }
     }
 
@@ -98,33 +178,26 @@ export class SkinPanel extends Component {
 
         const g = n.addComponent(Graphics);
         this.swatches.set(skin.id, { g, skin, w, h, node: n });
+        this._swatchRects.push({ id: skin.id, cx: x, cy: y, w, h });
         this.drawSwatchFrame(g, skin, w, h);
 
-        // 迷你盘面预览（4×4），画在卡片上半部
         const { previewSize, px0, py0 } = this.previewGeom(w, h);
         this.drawMiniBoard(g, skin, px0, py0, previewSize);
-
-        // 迷你预览里的 emoji（如有）用 Label 叠加
         this.drawMiniIcons(n, skin, px0, py0, previewSize);
 
-        // 皮肤名（截断显示）
         const nameNode = new Node('name');
         nameNode.parent = n;
         nameNode.setPosition(0, -h / 2 + 22, 0);
         nameNode.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
         const nl = nameNode.addComponent(Label);
-        nl.string = skin.name;
+        nl.string = tSkinName(skin);
         nl.fontSize = 17;
         nl.lineHeight = 20;
         nl.color = new Color(225, 230, 240, 255);
 
-        // 选中即生效并关闭面板（对齐 web 主端「点皮肤直接切换并收起」体感）：
-        //   - 点击当前皮肤：仅关闭面板（视为"确认当前选择"，无须再触发 onPick 重渲染整个游戏）
-        //   - 点击其它皮肤：先触发 onPick 让宿主立即应用（背景能在面板淡出过程中已切到新皮肤，
-        //     形成"皮肤跟着面板一起换"的连贯感），然后关闭。
-        // 不再在面板内重绘 selected 描边 —— 面板马上消失，描边动画反而显得拖沓。
         const pick = () => {
-            if (this.closed) return; // 防双击重入（连点两下避免触发两次 close + 双重 onPick）
+            if (this.closed) return;
+            if (this._scrollDragging) return;
             if (this.currentId !== skin.id && this.onPick) {
                 this.onPick(skin.id);
             }
@@ -133,6 +206,95 @@ export class SkinPanel extends Component {
         this._unregs.push(TapBus.add(n, pick));
         this._unregs.push(bindEngineClick(n, pick));
     }
+
+    // ────────────────── 节点级触摸滚动 ──────────────────
+
+    /** 累计滑动距离（绝对值），超过阈值才判定为「滚动」而非「点击」。 */
+    private _scrollAccumDist = 0;
+    private static readonly SCROLL_TAP_THRESHOLD = 10;
+
+    private _onScrollStart(e: EventTouch): void {
+        if (!this._scrollContent || this.closed) return;
+        const loc = e.getUILocation();
+        this._scrollLastY = loc.y;
+        this._scrollVelocity = 0;
+        this._scrollDragging = false;
+        this._scrollAccumDist = 0;
+        e.propagationStopped = true;
+    }
+
+    private _onScrollMove(e: EventTouch): void {
+        if (!this._scrollContent || this.closed) return;
+        const loc = e.getUILocation();
+        const dy = loc.y - this._scrollLastY;
+        this._scrollLastY = loc.y;
+        this._scrollAccumDist += Math.abs(dy);
+        if (this._scrollAccumDist > SkinPanel.SCROLL_TAP_THRESHOLD) this._scrollDragging = true;
+        if (!this._scrollDragging) return;
+        this._scrollVelocity = dy * 0.6;
+        this._applyScroll(dy);
+        e.propagationStopped = true;
+    }
+
+    private _onScrollEnd(e: EventTouch): void {
+        e.propagationStopped = true;
+        if (this._scrollDragging) {
+            this.scheduleOnce(() => { this._scrollDragging = false; }, 0.05);
+            return;
+        }
+        if (this.closed || !this._scrollContent?.isValid) return;
+
+        // 将屏幕触摸点转换为 content 的本地坐标，基于布局位置判定命中
+        const loc = e.getLocation();
+        const local = screenToLocal(this._scrollContent, loc.x, loc.y);
+
+        for (const rect of this._swatchRects) {
+            const left = rect.cx - rect.w / 2;
+            const bottom = rect.cy - rect.h / 2;
+            if (local.x >= left && local.x <= left + rect.w &&
+                local.y >= bottom && local.y <= bottom + rect.h) {
+                if (this.currentId !== rect.id && this.onPick) {
+                    this.onPick(rect.id);
+                }
+                this.close();
+                return;
+            }
+        }
+    }
+
+    private _applyScroll(deltaY: number): void {
+        if (!this._scrollContent) return;
+        const pos = this._scrollContent.position;
+        let newY = pos.y + deltaY;
+        if (newY < this._scrollMin) {
+            newY = this._scrollMin + (newY - this._scrollMin) * 0.3;
+        } else if (newY > this._scrollMax) {
+            newY = this._scrollMax + (newY - this._scrollMax) * 0.3;
+        }
+        this._scrollContent.setPosition(pos.x, newY, pos.z);
+    }
+
+    update(dt: number): void {
+        if (!this._scrollContent) return;
+        // 惯性衰减（仅松手后）
+        if (Math.abs(this._scrollVelocity) > 0.5) {
+            this._applyScroll(this._scrollVelocity);
+            this._scrollVelocity *= 0.92;
+        } else {
+            this._scrollVelocity = 0;
+        }
+        // 边界回弹
+        const pos = this._scrollContent.position;
+        if (pos.y < this._scrollMin) {
+            const newY = pos.y + (this._scrollMin - pos.y) * Math.min(1, dt * 8);
+            this._scrollContent.setPosition(pos.x, newY, pos.z);
+        } else if (pos.y > this._scrollMax) {
+            const newY = pos.y + (this._scrollMax - pos.y) * Math.min(1, dt * 8);
+            this._scrollContent.setPosition(pos.x, newY, pos.z);
+        }
+    }
+
+    // ────────────────── 渲染辅助 ──────────────────
 
     private previewGeom(w: number, h: number): { previewSize: number; px0: number; py0: number } {
         const previewSize = Math.min(w - 36, h - 58);
@@ -152,22 +314,34 @@ export class SkinPanel extends Component {
         g.stroke();
     }
 
-    /** 画 4×4 迷你盘面：外框 + 交错填充几块方块，呈现该皮肤的底色/方块风格。 */
+    /** 根据皮肤 id 生成差异化的 4×4 预览布局——不同皮肤展示不同的方块分布。 */
+    private static previewPattern(skin: Skin): number[][] {
+        let h = 0;
+        for (let i = 0; i < skin.id.length; i++) h = (h * 31 + skin.id.charCodeAt(i)) | 0;
+        h = Math.abs(h);
+        const nc = skin.blockColors.length;
+        const grid: number[][] = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+        let placed = 0;
+        for (let i = 0; i < 16 && placed < 8; i++) {
+            const idx = (h + i * 7) % 16;
+            const gy = (idx >> 2) & 3, gx = idx & 3;
+            if (grid[gy][gx] === 0) {
+                grid[gy][gx] = (placed % nc) + 1;
+                placed++;
+            }
+        }
+        return grid;
+    }
+
     private drawMiniBoard(g: Graphics, skin: Skin, x0: number, y0: number, size: number): void {
         const n = 4;
         const cell = size / n;
-        const { inset, radius } = blockMetrics(skin, cell);
-        // 外框
+        const inset = 2;
+        const r = Math.min(5, cell * 0.16);
         g.fillColor = gridOuterColor(skin);
         g.roundRect(x0 - 3, y0 - 3, size + 6, size + 6, 8);
         g.fill();
-        // 预设一个固定图案（对角 + 边），用前若干个色位展示
-        const pattern = [
-            [1, 0, 2, 0],
-            [0, 3, 0, 4],
-            [5, 0, 6, 0],
-            [0, 7, 0, 8],
-        ];
+        const pattern = SkinPanel.previewPattern(skin);
         for (let gy = 0; gy < n; gy++) {
             for (let gx = 0; gx < n; gx++) {
                 const cx = x0 + gx * cell;
@@ -179,14 +353,16 @@ export class SkinPanel extends Component {
                     g.roundRect(cx + 1, cy + 1, inn, inn, Math.min(5, inn * 0.18));
                     g.fill();
                 } else {
+                    // 纯色圆角方块，不走复杂的 paintBlockFace（高光/描边在小预览中太杂乱）
                     const fsize = cell - inset * 2;
-                    paintBlockFace(g, cx + inset, cy + inset, fsize, radius, skin, v - 1);
+                    g.fillColor = blockColor(skin, v - 1);
+                    g.roundRect(cx + inset, cy + inset, fsize, fsize, r);
+                    g.fill();
                 }
             }
         }
     }
 
-    /** 迷你预览里的 emoji 叠加（仅带 icon 皮肤）。 */
     private drawMiniIcons(parent: Node, skin: Skin, x0: number, y0: number, size: number): void {
         if (!skin.blockIcons || !skin.blockIcons.length) return;
         const n = 4;
@@ -222,12 +398,15 @@ export class SkinPanel extends Component {
     close(): void {
         if (this.closed) return;
         this.closed = true;
-        // 立即解绑所有点击回调，避免淡出过程中再触发 pick / dim / closeX
         for (const u of this._unregs) u();
         this._unregs = [];
-        // Modal 状态立即释放，让宿主（GameController）感知到模态已关，不阻塞拖拽等输入
+        if (this._touchLayer?.isValid) {
+            this._touchLayer.off(Node.EventType.TOUCH_START, this._onScrollStart, this);
+            this._touchLayer.off(Node.EventType.TOUCH_MOVE, this._onScrollMove, this);
+            this._touchLayer.off(Node.EventType.TOUCH_END, this._onScrollEnd, this);
+            this._touchLayer.off(Node.EventType.TOUCH_CANCEL, this._onScrollEnd, this);
+        }
         Modal.close();
-        // 与 show() 的开屏动画对称的关屏动画：0.14s 比开屏稍快，让"切换皮肤"的反馈紧凑
         if (Motion.reduced || !this.node.isValid) {
             this.node.destroy();
             return;
@@ -243,5 +422,11 @@ export class SkinPanel extends Component {
     onDestroy(): void {
         for (const u of this._unregs) u();
         this._unregs = [];
+        if (this._touchLayer?.isValid) {
+            this._touchLayer.off(Node.EventType.TOUCH_START, this._onScrollStart, this);
+            this._touchLayer.off(Node.EventType.TOUCH_MOVE, this._onScrollMove, this);
+            this._touchLayer.off(Node.EventType.TOUCH_END, this._onScrollEnd, this);
+            this._touchLayer.off(Node.EventType.TOUCH_CANCEL, this._onScrollEnd, this);
+        }
     }
 }

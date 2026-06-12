@@ -96,9 +96,13 @@ def run_eval_games(
                         if not sim.is_terminal():
                             next_legal = sim.get_legal_actions()
                             if next_legal:
+                                # build_phi_batch 返回的第一个值是 1-D 局面 state [STATE_DIM]
+                                # （一个局面共享一个 state），需补 batch 维成 [1, STATE_DIM]
+                                # 再喂 forward_value；旧代码误用 [0:1] 切片得到 [1] 标量导致
+                                # _encode_state 的 s[:, ...] 抛 IndexError（eval gate 每 2000 局崩溃）。
                                 next_state_np, _ = build_phi_batch(sim, next_legal)
-                                if next_state_np.shape[0] > 0 and callable(getattr(net, "forward_value", None)):
-                                    st = tensor_to_device(torch.from_numpy(next_state_np[0:1]), device)
+                                if next_state_np.size > 0 and callable(getattr(net, "forward_value", None)):
+                                    st = tensor_to_device(torch.from_numpy(next_state_np[None, :]), device)
                                     v = float(net.forward_value(st).reshape(-1)[0].item())
                         q_scores.append(r + search_gamma * v)
                     sim.restore_state(snap)

@@ -9,6 +9,13 @@ export interface GameOverFact { label: string; value: string; }
 /** 次级链接；keepOpen=true 时点击不关闭面板（如分享）。 */
 export interface GameOverLink { label: string; onClick: () => void; keepOpen?: boolean; }
 
+export interface ReviveButton {
+    label: string;
+    color: Color;
+    primary?: boolean;
+    onClick: () => void | boolean;
+}
+
 export interface GameOverOptions {
     /** 模式标签：游戏结束 / 关卡完成 等。 */
     title: string;
@@ -34,6 +41,10 @@ export interface GameOverOptions {
     onAgain: () => void;
     /** 次级链接（菜单 / 回放 / 分享）。 */
     links?: GameOverLink[];
+    /** 复活按钮（整合在结算卡内，避免两次弹框）。为空则不显示复活区域。 */
+    reviveButtons?: ReviveButton[];
+    /** 复活区域提示文案（如「继续游戏？」）。 */
+    reviveHint?: string | null;
 }
 
 /**
@@ -79,6 +90,8 @@ export class GameOverPanel extends Component {
     private static readonly BTN_BLUE = new Color(33, 150, 243, 255);     // #2196f3
     private static readonly NEAR_MISS = new Color(220, 38, 38, 255);     // red-600 (web D3)
     private static readonly NEAR_MISS_MILD = new Color(211, 84, 0, 255); // orange (web D2)
+    private static readonly REVIVE_HINT = new Color(70, 130, 90, 255);
+    private static readonly REVIVE_SEP = new Color(148, 163, 184, 100);
 
     static show(parent: Node, opts: GameOverOptions): GameOverPanel {
         const root = new Node('GameOver');
@@ -112,6 +125,15 @@ export class GameOverPanel extends Component {
         const hasSub = !!opts.subtitle;
         const hasXp = !!opts.xpText;
         const hasNearMiss = !!opts.nearMissBanner;
+        const hasRevive = !!opts.reviveButtons?.length;
+        const reviveCount = opts.reviveButtons?.length ?? 0;
+        const reviveH = hasRevive
+            ? 28                            // hint text
+            + reviveCount * 68              // buttons
+            + 12                            // gap before separator
+            + 2                             // separator line
+            + 12                            // gap after separator
+            : 0;
         const digestH = 36 + rows * 38 + 18;
         const H = 38                       // pad top
             + 34                            // title
@@ -123,6 +145,7 @@ export class GameOverPanel extends Component {
             + 16                            // gap
             + digestH
             + 22                            // gap
+            + reviveH                       // revive section
             + 86                            // button
             + 14                            // gap
             + 38                            // links
@@ -172,6 +195,37 @@ export class GameOverPanel extends Component {
         // 本局战报子卡
         this.buildDigest(card, W - 56, digestH, y, opts.digestTitle, opts.facts);
         y -= digestH + 22;
+        // 复活区域（看广告复活 / 金币复活），整合在结算卡内避免两次弹框
+        if (hasRevive) {
+            if (opts.reviveHint) {
+                this.mkLabel(card, opts.reviveHint, 20, 0, y - 12, GameOverPanel.REVIVE_HINT, 0.5);
+            }
+            y -= 28;
+            for (const rb of opts.reviveButtons!) {
+                const btn = button(card, rb.label, 0, y - 26, 24,
+                    () => {
+                        const keep = rb.onClick();
+                        if (keep === false) return;
+                        this.close();
+                    },
+                    rb.color, { primary: rb.primary, minWidth: 320 });
+                this._unregs.push(() => { if (btn?.node?.isValid) btn.node.destroy(); });
+                y -= 68;
+            }
+            // 分隔线
+            const sepNode = new Node('reviveSep');
+            sepNode.parent = card;
+            inheritLayer(sepNode, card);
+            sepNode.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+            const sepG = sepNode.addComponent(Graphics);
+            sepG.lineWidth = 1;
+            sepG.strokeColor = GameOverPanel.REVIVE_SEP;
+            sepG.moveTo(-W / 2 + 60, 0);
+            sepG.lineTo(W / 2 - 60, 0);
+            sepG.stroke();
+            sepNode.setPosition(0, y - 12 - 1, 0);
+            y -= 26;
+        }
         // 主 CTA「再来一局」
         const again = button(card, opts.againLabel, 0, y - 43, 28,
             () => this.act(opts.onAgain),

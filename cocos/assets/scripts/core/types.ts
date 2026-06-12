@@ -64,6 +64,10 @@ export interface Skin {
     /** 方块 emoji 图标（带 icon 皮肤；用于同 icon 消行 bonus 判定与后续 icon 渲染） */
     blockIcons?: string[];
     uiDark?: boolean;
+    /** UI 强调色（hex），用于 HUD 数值、技能按钮激活态、功能按钮描边等 —— 与 web `--accent-color` 同源。 */
+    uiAccent?: string;
+    /** UI 强调色深色变体（hex），用于按钮渐变/hover 态 —— 与 web `--accent-dark` 同源。 */
+    uiAccentDark?: string;
 }
 
 /** 近满线（差一格即可消除），用于 near-miss 体感反馈 */

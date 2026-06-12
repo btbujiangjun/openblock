@@ -347,7 +347,7 @@ body.block-drag-active #app {
     border-radius: 10px;
     font-size: 17px;
     line-height: 1;
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    border: 1px solid color-mix(in srgb, var(--accent-color, #38bdf8) 16%, rgba(255, 255, 255, 0.10));
     background: rgba(22, 26, 38, 0.78);
     color: #f1f5f9;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
@@ -397,12 +397,14 @@ body.block-drag-active #app {
 .feedback-toggle-btn[aria-pressed="true"]:not(#quality-toggle),
 #quality-toggle[data-quality="high"],
 .feedback-toggle-btn--decision-flow.is-active {
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.34), rgba(168, 85, 247, 0.34));
-    border-color: color-mix(in srgb, #38bdf8 50%, rgba(255, 255, 255, 0.14));
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--accent-color, #38bdf8) 34%, transparent),
+        color-mix(in srgb, var(--accent-dark, #a855f7) 34%, transparent));
+    border-color: color-mix(in srgb, var(--accent-color, #38bdf8) 50%, rgba(255, 255, 255, 0.14));
     box-shadow:
-        0 0 10px rgba(56, 189, 248, 0.40),
+        0 0 10px color-mix(in srgb, var(--accent-color, #38bdf8) 40%, transparent),
         0 2px 8px rgba(0, 0, 0, 0.12),
-        0 0 0 1px rgba(56, 189, 248, 0.22) inset;
+        0 0 0 1px color-mix(in srgb, var(--accent-color, #38bdf8) 22%, transparent) inset;
     color: #f0f9ff;
 }
 
@@ -410,11 +412,13 @@ body.block-drag-active #app {
 .feedback-toggle-btn[aria-pressed="true"]:not(#quality-toggle):hover,
 #quality-toggle[data-quality="high"]:hover,
 .feedback-toggle-btn--decision-flow.is-active:hover {
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.46), rgba(168, 85, 247, 0.46));
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--accent-color, #38bdf8) 46%, transparent),
+        color-mix(in srgb, var(--accent-dark, #a855f7) 46%, transparent));
     box-shadow:
-        0 0 14px rgba(56, 189, 248, 0.55),
+        0 0 14px color-mix(in srgb, var(--accent-color, #38bdf8) 55%, transparent),
         0 3px 10px rgba(0, 0, 0, 0.16),
-        0 0 0 1px rgba(56, 189, 248, 0.35) inset;
+        0 0 0 1px color-mix(in srgb, var(--accent-color, #38bdf8) 35%, transparent) inset;
 }
 
 /* v1.55.8 非激活态统一浅灰底色
@@ -455,10 +459,12 @@ body.block-drag-active #app {
 /* DFV 关闭时 hover：用蓝紫渐变预览暗示"这是 DFV 入口，点开会变激活态"，
  * 与其他普通按钮 hover 的"浅灰加深"形成入口辨识。 */
 .feedback-toggle-btn--decision-flow:not(.is-active):hover {
-    background: linear-gradient(135deg, rgba(56, 189, 248, 0.28), rgba(168, 85, 247, 0.28));
-    border-color: color-mix(in srgb, #38bdf8 38%, rgba(255, 255, 255, 0.14));
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--accent-color, #38bdf8) 28%, transparent),
+        color-mix(in srgb, var(--accent-dark, #a855f7) 28%, transparent));
+    border-color: color-mix(in srgb, var(--accent-color, #38bdf8) 38%, rgba(255, 255, 255, 0.14));
     box-shadow:
-        0 0 10px rgba(56, 189, 248, 0.35),
+        0 0 10px color-mix(in srgb, var(--accent-color, #38bdf8) 35%, transparent),
         0 3px 10px rgba(0, 0, 0, 0.16);
 }
 
@@ -2627,8 +2633,10 @@ body.game-over-active .first-win-banner {
     padding: 0;
     color: rgba(255,255,255,0.92);
     background:
-        linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.08));
-    border: 1px solid rgba(255,255,255,0.18);
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--accent-color, #38bdf8) 18%, rgba(255,255,255,0.18)),
+            color-mix(in srgb, var(--accent-color, #38bdf8) 8%, rgba(255,255,255,0.06)));
+    border: 1px solid color-mix(in srgb, var(--accent-color, #38bdf8) 24%, rgba(255,255,255,0.14));
     box-shadow:
         0 1px 0 rgba(255,255,255,0.16) inset,
         0 2px 6px rgba(0,0,0,0.18);
@@ -2641,7 +2649,9 @@ body.game-over-active .first-win-banner {
 
 .skill-btn:hover:not(:disabled):not(.is-disabled) {
     background:
-        linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0.12));
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--accent-color, #38bdf8) 28%, rgba(255,255,255,0.22)),
+            color-mix(in srgb, var(--accent-color, #38bdf8) 14%, rgba(255,255,255,0.10)));
     transform: translateY(-1px);
 }
 .skill-btn:active      { transform: translateY(1px); filter: brightness(0.9); }
@@ -7780,12 +7790,16 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
     border-radius: 18px;
     text-align: center;
     background: var(--cell-empty, #fff);
-    color: var(--text-primary, #1e293b);
+    color: #1e293b;
     box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
 }
 .chest-card--rare {
     background: linear-gradient(180deg, #c0d8ff 0%, #fff 100%);
+    color: #1a3a5c;
 }
+.chest-card--rare .chest-title { color: #1a3a5c; }
+.chest-card--rare .chest-reward { color: #3d5a80; }
+.chest-card--rare .chest-hint { color: #5a7a9e; }
 .chest-card--epic {
     background: linear-gradient(180deg, #ffd160 0%, #fff 100%);
 }
@@ -7794,10 +7808,10 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
 .chest-card--epic .chest-hint { color: #8b6914; }
 .chest-icon { font-size: 64px; margin-bottom: 12px; }
 .chest-title { margin: 0 0 8px; font-size: 22px; font-weight: 700; }
-.chest-reward { font-size: 14px; color: var(--text-secondary, #64748b); margin-bottom: 10px; line-height: 1.6; }
+.chest-reward { font-size: 14px; color: #64748b; margin-bottom: 10px; line-height: 1.6; }
 .chest-hint {
     font-size: 12px;
-    color: var(--text-muted, #94a3b8);
+    color: #94a3b8;
     margin: 0 0 16px;
     line-height: 1.45;
 }

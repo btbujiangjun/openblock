@@ -39,89 +39,83 @@ const SAMPLE_RATE = 22050;
 const DEBUG_AUDIO = false;
 
 const SFX_TONES: Record<string, ToneSpec[]> = {
-    place: [{ freq: 320, dur: 0.08, type: 'triangle', gain: 0.12 }],
-    // 清屏音（对齐 web audioFx `_toneClear` / `_toneMulti`）：纯 sine 上扬滑音 + 高频尾音层，
-    // 取代旧版 square 方波——方波谐波尖锐，烘焙成 WAV 在 iOS 上会"撕裂刺耳"；sine 平滑悦耳。
-    // 单行=主滑音+亮色层+低频落地+双高频尾音；多行随消行数递增更长更亮，强化"消除爽感"。
+    // 落块：温暖木质轻叩——低频 sine 主体 + 极短高频泛音模拟马林巴琴的"哒"
+    place: [
+        { freq: 220, dur: 0.06, type: 'sine', gain: 0.10 },
+        { freq: 440, dur: 0.03, type: 'sine', gain: 0.04 },
+    ],
+    // 消除音：柔和和弦琶音（C-E-G 大三和弦上行），sine 波平滑不刺耳。
+    // 消行数越多，琶音越长越饱满，强化"满足感"而非"冲击感"。
     clear1: [
-        { freq: 360, dur: 0.26, type: 'sine', gain: 0.15, slideTo: 1020 },
-        { freq: 540, dur: 0.20, type: 'sine', gain: 0.08, slideTo: 1580, when: 0.04 },
-        { freq: 92, dur: 0.11, type: 'sine', gain: 0.07, slideTo: 52 },
-        { freq: 1180, dur: 0.20, type: 'sine', gain: 0.055, when: 0.10 },
-        { freq: 1760, dur: 0.16, type: 'sine', gain: 0.038, when: 0.14 },
+        { freq: 262, dur: 0.18, type: 'sine', gain: 0.10 },
+        { freq: 330, dur: 0.16, type: 'sine', gain: 0.09, when: 0.06 },
+        { freq: 392, dur: 0.20, type: 'sine', gain: 0.08, when: 0.12 },
     ],
     clear2: [
-        { freq: 400, dur: 0.22, type: 'sine', gain: 0.15, slideTo: 1080 },
-        { freq: 580, dur: 0.20, type: 'sine', gain: 0.12, slideTo: 1320, when: 0.10 },
-        { freq: 1280, dur: 0.12, type: 'sine', gain: 0.06, slideTo: 2100, when: 0.06 },
-        { freq: 1040, dur: 0.22, type: 'sine', gain: 0.05, when: 0.13 },
-        { freq: 1560, dur: 0.18, type: 'sine', gain: 0.036, when: 0.20 },
+        { freq: 294, dur: 0.16, type: 'sine', gain: 0.10 },
+        { freq: 370, dur: 0.16, type: 'sine', gain: 0.09, when: 0.06 },
+        { freq: 440, dur: 0.18, type: 'sine', gain: 0.08, when: 0.12 },
+        { freq: 524, dur: 0.20, type: 'sine', gain: 0.07, when: 0.20 },
     ],
     clear3: [
-        { freq: 440, dur: 0.22, type: 'sine', gain: 0.15, slideTo: 1180 },
-        { freq: 660, dur: 0.20, type: 'sine', gain: 0.12, slideTo: 1480, when: 0.10 },
-        { freq: 1320, dur: 0.14, type: 'sine', gain: 0.06, slideTo: 2200, when: 0.06 },
-        { freq: 1100, dur: 0.22, type: 'sine', gain: 0.05, when: 0.14 },
-        { freq: 1760, dur: 0.20, type: 'sine', gain: 0.04, when: 0.22 },
-        { freq: 2093, dur: 0.18, type: 'sine', gain: 0.03, when: 0.30 },
+        { freq: 330, dur: 0.16, type: 'sine', gain: 0.10 },
+        { freq: 392, dur: 0.16, type: 'sine', gain: 0.09, when: 0.06 },
+        { freq: 494, dur: 0.16, type: 'sine', gain: 0.08, when: 0.12 },
+        { freq: 588, dur: 0.18, type: 'sine', gain: 0.07, when: 0.20 },
+        { freq: 660, dur: 0.22, type: 'sine', gain: 0.06, when: 0.28 },
     ],
     clear4: [
-        { freq: 523, dur: 0.22, type: 'sine', gain: 0.15, slideTo: 1240 },
-        { freq: 784, dur: 0.20, type: 'sine', gain: 0.12, slideTo: 1560, when: 0.10 },
-        { freq: 1046, dur: 0.16, type: 'sine', gain: 0.07, slideTo: 2300, when: 0.06 },
-        // 顶部琶音闪光（E6→G6→C7 上行，triangle 增亮但仍柔和）—— 四消的庆祝尾巴。
-        { freq: 1318, dur: 0.16, type: 'triangle', gain: 0.05, when: 0.16 },
-        { freq: 1568, dur: 0.16, type: 'triangle', gain: 0.045, when: 0.24 },
-        { freq: 2093, dur: 0.22, type: 'sine', gain: 0.04, when: 0.32 },
+        { freq: 262, dur: 0.14, type: 'sine', gain: 0.10 },
+        { freq: 330, dur: 0.14, type: 'sine', gain: 0.09, when: 0.05 },
+        { freq: 392, dur: 0.14, type: 'sine', gain: 0.09, when: 0.10 },
+        { freq: 524, dur: 0.16, type: 'sine', gain: 0.08, when: 0.16 },
+        { freq: 660, dur: 0.16, type: 'sine', gain: 0.07, when: 0.24 },
+        { freq: 784, dur: 0.24, type: 'sine', gain: 0.06, when: 0.32 },
     ],
-    // 连击庆祝音（对齐 web audioFx `_toneComboCelebration`）：低频垫底 + C5 起的三角琶音上行
-    // （每级 ×1.22 滑音、逐级增亮）+ 高频甜尾。取代旧版单 sawtooth 锯齿滑音——锯齿谐波密集，
-    // 烘焙成 WAV 后同样"嗡/毛刺"，三角波平滑悦耳。连击越高琶音越长（combo2/3/4 = 3/4/5 级）。
+    // 连击庆祝音：低频温暖垫底 + 柔和 sine 琶音上行（取代 triangle，更圆润）
     combo2: [
-        { freq: 196, dur: 0.12, type: 'sine', gain: 0.035, slideTo: 174.61 },
-        { freq: 523.25, dur: 0.085, type: 'triangle', gain: 0.065, slideTo: 638.37 },
-        { freq: 617.44, dur: 0.085, type: 'triangle', gain: 0.076, slideTo: 753.28, when: 0.115 },
-        { freq: 711.62, dur: 0.085, type: 'triangle', gain: 0.087, slideTo: 868.18, when: 0.23 },
-        { freq: 1396.91, dur: 0.2, type: 'sine', gain: 0.066, slideTo: 2093, when: 0.365 },
+        { freq: 165, dur: 0.14, type: 'sine', gain: 0.04 },
+        { freq: 330, dur: 0.10, type: 'sine', gain: 0.07, when: 0.04 },
+        { freq: 392, dur: 0.10, type: 'sine', gain: 0.07, when: 0.14 },
+        { freq: 494, dur: 0.10, type: 'sine', gain: 0.06, when: 0.24 },
+        { freq: 588, dur: 0.18, type: 'sine', gain: 0.05, when: 0.34 },
     ],
     combo3: [
-        { freq: 196, dur: 0.12, type: 'sine', gain: 0.035, slideTo: 174.61 },
-        { freq: 523.25, dur: 0.085, type: 'triangle', gain: 0.065, slideTo: 638.37 },
-        { freq: 617.44, dur: 0.085, type: 'triangle', gain: 0.076, slideTo: 753.28, when: 0.115 },
-        { freq: 711.62, dur: 0.085, type: 'triangle', gain: 0.087, slideTo: 868.18, when: 0.23 },
-        { freq: 805.81, dur: 0.085, type: 'triangle', gain: 0.098, slideTo: 982.78, when: 0.345 },
-        { freq: 1396.91, dur: 0.2, type: 'sine', gain: 0.066, slideTo: 2093, when: 0.48 },
+        { freq: 165, dur: 0.14, type: 'sine', gain: 0.04 },
+        { freq: 330, dur: 0.10, type: 'sine', gain: 0.07, when: 0.04 },
+        { freq: 392, dur: 0.10, type: 'sine', gain: 0.07, when: 0.12 },
+        { freq: 494, dur: 0.10, type: 'sine', gain: 0.07, when: 0.20 },
+        { freq: 588, dur: 0.10, type: 'sine', gain: 0.06, when: 0.28 },
+        { freq: 660, dur: 0.20, type: 'sine', gain: 0.05, when: 0.38 },
     ],
     combo4: [
-        { freq: 196, dur: 0.12, type: 'sine', gain: 0.035, slideTo: 174.61 },
-        { freq: 523.25, dur: 0.085, type: 'triangle', gain: 0.065, slideTo: 638.37 },
-        { freq: 617.44, dur: 0.085, type: 'triangle', gain: 0.076, slideTo: 753.28, when: 0.115 },
-        { freq: 711.62, dur: 0.085, type: 'triangle', gain: 0.087, slideTo: 868.18, when: 0.23 },
-        { freq: 805.81, dur: 0.085, type: 'triangle', gain: 0.098, slideTo: 982.78, when: 0.345 },
-        { freq: 899.99, dur: 0.085, type: 'triangle', gain: 0.109, slideTo: 1097.99, when: 0.46 },
-        { freq: 1396.91, dur: 0.2, type: 'sine', gain: 0.066, slideTo: 2093, when: 0.595 },
+        { freq: 165, dur: 0.14, type: 'sine', gain: 0.04 },
+        { freq: 330, dur: 0.10, type: 'sine', gain: 0.07, when: 0.04 },
+        { freq: 392, dur: 0.10, type: 'sine', gain: 0.07, when: 0.10 },
+        { freq: 494, dur: 0.10, type: 'sine', gain: 0.07, when: 0.18 },
+        { freq: 588, dur: 0.10, type: 'sine', gain: 0.06, when: 0.26 },
+        { freq: 660, dur: 0.10, type: 'sine', gain: 0.06, when: 0.34 },
+        { freq: 784, dur: 0.22, type: 'sine', gain: 0.05, when: 0.42 },
     ],
+    // perfect：柔和 C 大调上行琶音（C5-E5-G5-C6），sine 波更温暖
     perfect: [
-        { freq: 523, dur: 0.16, type: 'triangle', gain: 0.16 },
-        { freq: 659, dur: 0.16, type: 'triangle', gain: 0.16, when: 0.08 },
-        { freq: 784, dur: 0.16, type: 'triangle', gain: 0.16, when: 0.16 },
-        { freq: 1047, dur: 0.16, type: 'triangle', gain: 0.16, when: 0.24 },
+        { freq: 524, dur: 0.16, type: 'sine', gain: 0.10 },
+        { freq: 660, dur: 0.16, type: 'sine', gain: 0.10, when: 0.08 },
+        { freq: 784, dur: 0.16, type: 'sine', gain: 0.10, when: 0.16 },
+        { freq: 1048, dur: 0.20, type: 'sine', gain: 0.08, when: 0.24 },
     ],
-    gameover: [{ freq: 330, dur: 0.5, type: 'sine', gain: 0.16, slideTo: 110 }],
-    skill: [{ freq: 660, dur: 0.12, type: 'square', gain: 0.12, slideTo: 990 }],
-    invalid: [{ freq: 180, dur: 0.1, type: 'sawtooth', gain: 0.1, slideTo: 120 }],
-    // 与 web audioFx `tick`：880Hz sine 30ms。用于 UI 微反馈（hint/技能切换/小拒绝）。
-    tick: [{ freq: 880, dur: 0.03, type: 'sine', gain: 0.1 }],
-    // 与 web audioFx `unlock`：600→1200Hz 上扬，约 220ms。宝箱展示、换肤、成就、转盘中奖统一用。
+    gameover: [{ freq: 262, dur: 0.5, type: 'sine', gain: 0.12, slideTo: 110 }],
+    skill: [{ freq: 440, dur: 0.10, type: 'sine', gain: 0.10, slideTo: 660 }],
+    invalid: [{ freq: 165, dur: 0.12, type: 'sine', gain: 0.08, slideTo: 110 }],
+    tick: [{ freq: 660, dur: 0.03, type: 'sine', gain: 0.08 }],
     unlock: [
-        { freq: 600, dur: 0.16, type: 'triangle', gain: 0.16, slideTo: 1200 },
-        { freq: 800, dur: 0.18, type: 'sine', gain: 0.12, slideTo: 1600, when: 0.06 },
+        { freq: 392, dur: 0.16, type: 'sine', gain: 0.10, slideTo: 784 },
+        { freq: 524, dur: 0.18, type: 'sine', gain: 0.08, slideTo: 1048, when: 0.06 },
     ],
-    // 与 web audioFx `bonus`：双层爆炸+欢呼上扬，约 0.55s。同色/icon bonus 行用。
     bonus: [
-        { freq: 240, dur: 0.18, type: 'sawtooth', gain: 0.18, slideTo: 660 },
-        { freq: 520, dur: 0.22, type: 'triangle', gain: 0.14, slideTo: 880, when: 0.06 },
-        { freq: 880, dur: 0.24, type: 'square', gain: 0.1, slideTo: 1320, when: 0.18 },
+        { freq: 196, dur: 0.16, type: 'sine', gain: 0.10, slideTo: 392 },
+        { freq: 330, dur: 0.18, type: 'sine', gain: 0.09, slideTo: 524, when: 0.06 },
+        { freq: 524, dur: 0.22, type: 'sine', gain: 0.07, slideTo: 784, when: 0.16 },
     ],
 };
 

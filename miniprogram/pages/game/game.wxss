@@ -108,7 +108,7 @@
 }
 
 .score-theme-row .stat-value--accent {
-  color: #1c9b5f;
+  color: var(--accent, #1c9b5f);
   text-shadow:
     0 1rpx 0 rgba(255, 255, 255, 0.22),
     0 0 20rpx rgba(90, 212, 135, 0.28);
@@ -227,7 +227,7 @@
   background:
     radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.24), transparent 48%),
     rgba(12, 16, 34, 0.68);
-  border: 1rpx solid rgba(255, 255, 255, 0.14);
+  border: 1rpx solid rgba(255, 255, 255, 0.18);
   box-shadow:
     0 2rpx 0 rgba(255, 255, 255, 0.10) inset,
     0 8rpx 16rpx rgba(0, 0, 0, 0.24);
@@ -239,8 +239,9 @@
 .fx-toggle--on {
   background:
     radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.30), transparent 48%),
-    rgba(32, 104, 68, 0.78);
-  border-color: rgba(90, 212, 135, 0.38);
+    var(--accent, #5ad487);
+  border-color: var(--accent-glow, rgba(90, 212, 135, 0.38));
+  opacity: 0.82;
 }
 
 .fx-toggle--off {

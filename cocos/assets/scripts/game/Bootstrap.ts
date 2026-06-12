@@ -237,7 +237,20 @@ export class Bootstrap extends Component {
         const metaPanel = this.attach(this.node, 'MetaPanel', 0, 0, MetaPanel);
 
         const ctrl = this.node.addComponent(GameController);
-        ctrl.wire({ model, meta, board, ambientFx, lineFx, fx, overlayFx, dock, hud, ghost, skillBar, metaPanel, shakeTarget: play, bgNode, playerCtx, profile, spawner });
+        ctrl.wire({
+            model, meta, board, ambientFx, lineFx, fx, overlayFx, dock, hud, ghost,
+            skillBar, metaPanel, shakeTarget: play, bgNode, playerCtx, profile, spawner,
+            onSkinAccentChange: (accent, _dark) => {
+                for (const n of this._buttons) {
+                    const pb = n.getComponent(PillButton);
+                    if (pb) pb.setSkinStroke(accent);
+                }
+                if (this._wheelBtn) {
+                    const wb = this._wheelBtn.getComponent(PillButton);
+                    if (wb) wb.setSkinStroke(accent);
+                }
+            },
+        });
         // 结束结算卡「菜单」链接 → 回主菜单（对齐 web `.game-over-links` 菜单项）。
         ctrl.onRequestMenu = () => this.showMainMenu(ctrl, model, model.mode, 0);
         this._ctrl = ctrl;

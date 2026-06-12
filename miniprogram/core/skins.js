@@ -7,14 +7,14 @@ const STORAGE_KEY = 'openblock_skin';
 const DEFAULT_SKIN_ID = "titanium";
 
 const CLASSIC_PALETTE = [
-  "#3F6DD8",
+  "#6E90E1",
   "#4FB8E8",
   "#52BC4B",
   "#FFC428",
   "#F5851E",
-  "#A848E0",
+  "#BD74E7",
   "#65C4F0",
-  "#E84D5C"
+  "#EC6B77"
 ];
 
 const SKINS = {
@@ -22,21 +22,31 @@ const SKINS = {
     "id": "classic",
     "name": "✨ 极简经典",
     "blockColors": [
-      "#3F6DD8",
+      "#6E90E1",
       "#4FB8E8",
       "#52BC4B",
       "#FFC428",
       "#F5851E",
-      "#A848E0",
+      "#BD74E7",
       "#65C4F0",
-      "#E84D5C"
+      "#EC6B77"
+    ],
+    "blockIcons": [
+      "🏆",
+      "💎",
+      "🎯",
+      "🎲",
+      "♠️",
+      "♥️",
+      "🃏",
+      "🎰"
     ],
     "gridOuter": "#1C2630",
     "gridCell": "#2E3E50",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 4,
-    "blockStyle": "bevel3d",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(220,240,255,0.90)"
   },
   "titanium": {
@@ -52,12 +62,22 @@ const SKINS = {
       "#B4D8EC",
       "#8DB6D8"
     ],
+    "blockIcons": [
+      "⚙️",
+      "🔩",
+      "🛡️",
+      "🔧",
+      "💠",
+      "⚒️",
+      "🛠️",
+      "⛓️"
+    ],
     "gridOuter": "#0A1020",
     "gridCell": "#182030",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 5,
-    "blockStyle": "metal",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(200,220,245,0.42)"
   },
   "aurora": {
@@ -166,12 +186,22 @@ const SKINS = {
       "#A858DC",
       "#FFAE6A"
     ],
+    "blockIcons": [
+      "🌅",
+      "🏺",
+      "🌼",
+      "🏵️",
+      "🍀",
+      "🪻",
+      "🌺",
+      "🐫"
+    ],
     "gridOuter": "#241019",
     "gridCell": "#341628",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 7,
-    "blockStyle": "glass",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(255,200,140,0.50)"
   },
   "sakura": {
@@ -187,12 +217,22 @@ const SKINS = {
       "#FFBA30",
       "#58D890"
     ],
+    "blockIcons": [
+      "🌸",
+      "🕊️",
+      "🏯",
+      "🪔",
+      "🧘",
+      "🎑",
+      "🫖",
+      "🪘"
+    ],
     "gridOuter": "#241018",
     "gridCell": "#321628",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 8,
-    "blockStyle": "glass",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(255,180,220,0.52)"
   },
   "koi": {
@@ -267,7 +307,7 @@ const SKINS = {
       "#00C853",
       "#5590FF",
       "#DD60FF",
-      "#B85828",
+      "#D46D3A",
       "#00BCD4"
     ],
     "blockIcons": [
@@ -323,14 +363,14 @@ const SKINS = {
     "id": "dawn",
     "name": "☀️ 晨光微曦",
     "blockColors": [
-      "#E06E62",
-      "#5A92D6",
-      "#D8A84E",
-      "#55A873",
-      "#8D75CE",
-      "#42A7A8",
-      "#D46282",
-      "#6B7DDD"
+      "#DA5244",
+      "#4181D0",
+      "#A67925",
+      "#488D61",
+      "#8970CC",
+      "#378C8C",
+      "#D15578",
+      "#6678DC"
     ],
     "blockIcons": [
       "🐝",
@@ -342,8 +382,8 @@ const SKINS = {
       "🪹",
       "🐓"
     ],
-    "gridOuter": "#F1E3C5",
-    "gridCell": "#FFF3D8",
+    "gridOuter": "#D8C8A4",
+    "gridCell": "#EDE0C4",
     "gridGap": 0,
     "blockInset": 3,
     "blockRadius": 7,
@@ -352,15 +392,15 @@ const SKINS = {
   },
   "summer": {
     "id": "summer",
-    "name": "☀️ 夏日海风",
+    "name": "🏖️ 夏日海风",
     "blockColors": [
-      "#E84B5C",
-      "#D4A030",
-      "#6AB82C",
-      "#3A80C8",
-      "#2AB898",
-      "#C8A820",
-      "#E85A5A",
+      "#D81C30",
+      "#8B681D",
+      "#467A1D",
+      "#3271B1",
+      "#1D7E68",
+      "#826D15",
+      "#D71E1E",
       "#8B44B0"
     ],
     "blockIcons": [
@@ -373,8 +413,8 @@ const SKINS = {
       "🪁",
       "🏓"
     ],
-    "gridOuter": "#A8C4D8",
-    "gridCell": "#C8DCEA",
+    "gridOuter": "#8AAEC8",
+    "gridCell": "#A8C4D8",
     "gridGap": 0,
     "blockInset": 2,
     "blockRadius": 8,
@@ -390,7 +430,7 @@ const SKINS = {
       "#F8D020",
       "#60B830",
       "#E09050",
-      "#B05028",
+      "#B8542A",
       "#F05878",
       "#C068F0"
     ],
@@ -447,14 +487,14 @@ const SKINS = {
     "id": "pets",
     "name": "🐶 萌宠时光",
     "blockColors": [
-      "#C89088",
-      "#B8A090",
-      "#A8A878",
-      "#78A890",
-      "#98B0A8",
-      "#C8B8A0",
-      "#A898B8",
-      "#B8B090"
+      "#B5695E",
+      "#967660",
+      "#7E7E51",
+      "#57876F",
+      "#648379",
+      "#907853",
+      "#89749F",
+      "#877D56"
     ],
     "blockIcons": [
       "🐰",
@@ -660,47 +700,16 @@ const SKINS = {
     "blockStyle": "cartoon",
     "clearFlash": "rgba(240,150,240,0.52)"
   },
-  "industrial": {
-    "id": "industrial",
-    "name": "🏭 蒸汽回响",
-    "blockColors": [
-      "#D49640",
-      "#C04030",
-      "#B86838",
-      "#4F9080",
-      "#5C2820",
-      "#B89060",
-      "#6878A0",
-      "#3A4048"
-    ],
-    "blockIcons": [
-      "⚙️",
-      "🔧",
-      "🔩",
-      "🛠️",
-      "⛓️",
-      "🚂",
-      "🏭",
-      "⚒️"
-    ],
-    "gridOuter": "#0E0904",
-    "gridCell": "#1A140C",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 4,
-    "blockStyle": "cartoon",
-    "clearFlash": "rgba(232,176,80,0.50)"
-  },
   "forbidden": {
     "id": "forbidden",
     "name": "👑 紫禁浮光",
     "blockColors": [
-      "#C8222C",
+      "#D8252F",
       "#1B7E5C",
-      "#1F4FA0",
+      "#2B6BD6",
       "#D8CCB0",
       "#E8B83C",
-      "#2E7088",
+      "#317891",
       "#B8732C",
       "#E84068"
     ],
@@ -726,14 +735,14 @@ const SKINS = {
     "id": "mahjong",
     "name": "🀄 牌影江湖",
     "blockColors": [
-      "#3DA88C",
-      "#C4424C",
+      "#4FC0A1",
+      "#D9848B",
       "#D4C4A0",
-      "#404858",
-      "#2A8870",
-      "#E0A040",
-      "#3070C0",
-      "#A8A040"
+      "#919BAF",
+      "#36AF90",
+      "#E6B263",
+      "#6C9DDA",
+      "#B9B148"
     ],
     "blockIcons": [
       "🀀",
@@ -753,142 +762,18 @@ const SKINS = {
     "blockStyle": "cartoon",
     "clearFlash": "rgba(180,220,150,0.50)"
   },
-  "boardgame": {
-    "id": "boardgame",
-    "name": "🃏 牌局风云",
-    "blockColors": [
-      "#C89642",
-      "#23866A",
-      "#3E65B8",
-      "#A8B3C2",
-      "#A84A52",
-      "#4F765C",
-      "#6542A0",
-      "#6E7486"
-    ],
-    "blockIcons": [
-      "♠️",
-      "♥️",
-      "♦️",
-      "♣️",
-      "🃏",
-      "🎴",
-      "🎰",
-      "🎲"
-    ],
-    "gridOuter": "#050711",
-    "gridCell": "#111628",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 5,
-    "blockStyle": "cartoon",
-    "clearFlash": "rgba(212,152,48,0.46)"
-  },
-  "sports": {
-    "id": "sports",
-    "name": "⚽ 热血赛场",
-    "blockColors": [
-      "#4F9050",
-      "#2858B0",
-      "#C04848",
-      "#905028",
-      "#2090C8",
-      "#587830",
-      "#6038A0",
-      "#C82838"
-    ],
-    "blockIcons": [
-      "⚽",
-      "🏀",
-      "⚾",
-      "🎾",
-      "🏐",
-      "🏈",
-      "🥎",
-      "🏆"
-    ],
-    "gridOuter": "#0A1408",
-    "gridCell": "#0F1C0A",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 8,
-    "blockStyle": "cartoon",
-    "clearFlash": "rgba(255,235,80,0.55)"
-  },
-  "outdoor": {
-    "id": "outdoor",
-    "name": "🥾 山野之风",
-    "blockColors": [
-      "#3878B8",
-      "#3E7848",
-      "#7E6048",
-      "#E0B040",
-      "#E08858",
-      "#4FA8C8",
-      "#2A8888",
-      "#7068A8"
-    ],
-    "blockIcons": [
-      "🥾",
-      "⛺",
-      "🧗",
-      "🚴",
-      "🏄",
-      "🏂",
-      "🛶",
-      "🎣"
-    ],
-    "gridOuter": "#0A1420",
-    "gridCell": "#101C2C",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 7,
-    "blockStyle": "cartoon",
-    "clearFlash": "rgba(140,200,255,0.50)"
-  },
-  "vehicles": {
-    "id": "vehicles",
-    "name": "🏎️ 流光速影",
-    "blockColors": [
-      "#8090A0",
-      "#2860C8",
-      "#E84020",
-      "#3E7E40",
-      "#1E70A8",
-      "#E8C828",
-      "#5080A8",
-      "#6840B0"
-    ],
-    "blockIcons": [
-      "🏎️",
-      "✈️",
-      "🚀",
-      "🚁",
-      "🚢",
-      "🛵",
-      "🚗",
-      "🚌"
-    ],
-    "gridOuter": "#0E1218",
-    "gridCell": "#161E2C",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 5,
-    "blockStyle": "cartoon",
-    "clearFlash": "rgba(255,180,40,0.45)"
-  },
   "forest": {
     "id": "forest",
     "name": "🌳 荒野秘境",
     "blockColors": [
-      "#8B5828",
-      "#D87838",
-      "#6878A0",
-      "#4F8048",
+      "#A5682F",
+      "#D97B3C",
+      "#6B7BA2",
+      "#518349",
       "#D4A028",
-      "#B0386D",
-      "#7C5028",
-      "#5090C8"
+      "#C4497F",
+      "#A36934",
+      "#5392C9"
     ],
     "blockIcons": [
       "🌳",
@@ -908,99 +793,6 @@ const SKINS = {
     "blockStyle": "cartoon",
     "clearFlash": "rgba(180,255,160,0.45)"
   },
-  "pirate": {
-    "id": "pirate",
-    "name": "🦜 海盗诗篇",
-    "blockColors": [
-      "#B02020",
-      "#D8C4A0",
-      "#2A6890",
-      "#6E4828",
-      "#14406F",
-      "#2E6F45",
-      "#8C2858",
-      "#C8923C"
-    ],
-    "blockIcons": [
-      "⚓",
-      "🏴‍☠️",
-      "🪝",
-      "🦜",
-      "⛵",
-      "🗺️",
-      "🧭",
-      "💎"
-    ],
-    "gridOuter": "#04101F",
-    "gridCell": "#0A1F32",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 6,
-    "blockStyle": "cartoon",
-    "clearFlash": "rgba(255,200,80,0.45)"
-  },
-  "farm": {
-    "id": "farm",
-    "name": "🐄 田园牧歌",
-    "blockColors": [
-      "#B85A50",
-      "#4E84B8",
-      "#4E8A58",
-      "#3C98B8",
-      "#9A66B8",
-      "#C89438",
-      "#B06A38",
-      "#C04E64"
-    ],
-    "blockIcons": [
-      "🐄",
-      "🐖",
-      "🐑",
-      "🐔",
-      "🐣",
-      "🌽",
-      "🥕",
-      "🍎"
-    ],
-    "gridOuter": "#07140A",
-    "gridCell": "#102414",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 5,
-    "blockStyle": "cartoon",
-    "clearFlash": "rgba(170,230,150,0.45)"
-  },
-  "desert": {
-    "id": "desert",
-    "name": "🐫 大漠孤烟",
-    "blockColors": [
-      "#4E8EB8",
-      "#B86A48",
-      "#5C9A58",
-      "#B89648",
-      "#8A7A68",
-      "#4E9A98",
-      "#B85E58",
-      "#8A6BB8"
-    ],
-    "blockIcons": [
-      "🐫",
-      "🦂",
-      "🌵",
-      "🏜️",
-      "🪨",
-      "🏺",
-      "🛕",
-      "🌅"
-    ],
-    "gridOuter": "#130D08",
-    "gridCell": "#24190E",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 5,
-    "blockStyle": "cartoon",
-    "clearFlash": "rgba(230,180,80,0.45)"
-  },
   "apple": {
     "id": "apple",
     "name": "🍎 果韵匠心",
@@ -1009,49 +801,28 @@ const SKINS = {
       "#8E8E93",
       "#D4B88C",
       "#E8B4B8",
-      "#4A5A6A",
+      "#5F7488",
       "#A8BCC8",
-      "#5E5CE6",
+      "#6261E7",
       "#E55934"
+    ],
+    "blockIcons": [
+      "🍎",
+      "💻",
+      "✈️",
+      "🚀",
+      "📡",
+      "🔋",
+      "💾",
+      "🔌"
     ],
     "gridOuter": "#0E0E12",
     "gridCell": "#1A1A20",
     "gridGap": 1,
     "blockInset": 2,
     "blockRadius": 7,
-    "blockStyle": "glass",
+    "blockStyle": "cartoon",
     "clearFlash": "rgba(200,200,220,0.30)"
-  },
-  "zen": {
-    "id": "zen",
-    "name": "🍵 禅意山水",
-    "blockColors": [
-      "#6A8A7A",
-      "#8A7A6A",
-      "#5A7A8A",
-      "#A0907A",
-      "#7A9A8A",
-      "#9A8A70",
-      "#6A7A9A",
-      "#8A9A7A"
-    ],
-    "blockIcons": [
-      "🏯",
-      "🎍",
-      "🕊️",
-      "🪔",
-      "🧘",
-      "🎑",
-      "🪘",
-      "🫖"
-    ],
-    "gridOuter": "#D8D0C0",
-    "gridCell": "#F0EBE0",
-    "gridGap": 0,
-    "blockInset": 3,
-    "blockRadius": 6,
-    "blockStyle": "flat",
-    "clearFlash": "rgba(200,190,170,0.60)"
   },
   "cafe": {
     "id": "cafe",
@@ -1059,12 +830,12 @@ const SKINS = {
     "blockColors": [
       "#8A6A50",
       "#6A7A6A",
-      "#A0785A",
-      "#5A8A7A",
-      "#9A7A5A",
-      "#7A8A6A",
+      "#997356",
+      "#548172",
+      "#947556",
+      "#707E61",
       "#8A6A6A",
-      "#6A8A8A"
+      "#617E7E"
     ],
     "blockIcons": [
       "☕",
@@ -1076,127 +847,13 @@ const SKINS = {
       "🎵",
       "📝"
     ],
-    "gridOuter": "#D8C8B0",
-    "gridCell": "#F2E8D8",
+    "gridOuter": "#C0AC90",
+    "gridCell": "#D8CCBA",
     "gridGap": 0,
     "blockInset": 3,
     "blockRadius": 8,
     "blockStyle": "cartoon",
     "clearFlash": "rgba(210,180,140,0.65)"
-  },
-  "garden": {
-    "id": "garden",
-    "name": "🌼 花园时光",
-    "blockColors": [
-      "#C87848",
-      "#5A8A5A",
-      "#D4A040",
-      "#4A80A0",
-      "#9A6A8A",
-      "#6A9A6A",
-      "#C06060",
-      "#4A8A8A"
-    ],
-    "blockIcons": [
-      "🌼",
-      "🏵️",
-      "🪻",
-      "🐌",
-      "🐛",
-      "🪣",
-      "🌸",
-      "🍀"
-    ],
-    "gridOuter": "#C8D8C0",
-    "gridCell": "#EAF0E4",
-    "gridGap": 0,
-    "blockInset": 2,
-    "blockRadius": 10,
-    "blockStyle": "cartoon",
-    "clearFlash": "rgba(200,230,180,0.70)"
-  },
-  "doodle": {
-    "id": "doodle",
-    "name": "✏️ 涂鸦课堂",
-    "blockColors": [
-      "#E06050",
-      "#3888D8",
-      "#E8B020",
-      "#40A850",
-      "#D060B0",
-      "#30A8B0",
-      "#F08030",
-      "#8868D0"
-    ],
-    "blockIcons": [
-      "✏️",
-      "📐",
-      "📏",
-      "🎨",
-      "🖍️",
-      "📚",
-      "🔬",
-      "🎓"
-    ],
-    "gridOuter": "#C8D0E0",
-    "gridCell": "#E8EEF6",
-    "gridGap": 0,
-    "blockInset": 2,
-    "blockRadius": 8,
-    "blockStyle": "cartoon",
-    "clearFlash": "rgba(200,220,255,0.70)"
-  },
-  "cyberpunk": {
-    "id": "cyberpunk",
-    "name": "🤖 赛博朋克",
-    "blockColors": [
-      "#00FF88",
-      "#FF0066",
-      "#00CCFF",
-      "#FFCC00",
-      "#CC00FF",
-      "#00FFCC",
-      "#FF6600",
-      "#88FF00"
-    ],
-    "blockIcons": [
-      "🤖",
-      "💻",
-      "🔌",
-      "📡",
-      "🧬",
-      "📊",
-      "🔋",
-      "💾"
-    ],
-    "gridOuter": "#060A10",
-    "gridCell": "#0C1420",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 3,
-    "blockStyle": "neon",
-    "clearFlash": "rgba(0,255,136,0.35)"
-  },
-  "nordic": {
-    "id": "nordic",
-    "name": "🏔️ 北欧极简",
-    "blockColors": [
-      "#8A9AA8",
-      "#A8B0A0",
-      "#B0A890",
-      "#90A0B0",
-      "#A0B0A0",
-      "#B0A8A0",
-      "#98A8B0",
-      "#A8B0A8"
-    ],
-    "gridOuter": "#D0D8DC",
-    "gridCell": "#EAF0F0",
-    "gridGap": 0,
-    "blockInset": 3,
-    "blockRadius": 6,
-    "blockStyle": "flat",
-    "clearFlash": "rgba(200,210,220,0.55)"
   },
   "fiesta": {
     "id": "fiesta",
@@ -1228,27 +885,6 @@ const SKINS = {
     "blockRadius": 8,
     "blockStyle": "cartoon",
     "clearFlash": "rgba(255,220,100,0.85)"
-  },
-  "zodiac": {
-    "id": "zodiac",
-    "name": "♈ 星座物语",
-    "blockColors": [
-      "#E84848",
-      "#D8A030",
-      "#58B868",
-      "#3888D8",
-      "#A048D8",
-      "#E87058",
-      "#48A8B8",
-      "#C860A8"
-    ],
-    "gridOuter": "#08081C",
-    "gridCell": "#101028",
-    "gridGap": 1,
-    "blockInset": 2,
-    "blockRadius": 7,
-    "blockStyle": "glass",
-    "clearFlash": "rgba(140,120,220,0.40)"
   }
 };
 
@@ -1435,28 +1071,6 @@ function getSkinListMeta() {
   return SKIN_LIST.map((s) => ({ id: s.id, name: s.name }));
 }
 
-const SKIN_CATEGORIES = [
-  { id: 'classic',   label: '🔰 基础经典', skins: ['classic', 'titanium'] },
-  { id: 'tech',      label: '💡 暗色科技', skins: ['aurora', 'neonCity', 'cyberpunk'] },
-  { id: 'nature',    label: '🌐 自然元素', skins: ['ocean', 'sunset', 'forest', 'desert', 'outdoor'] },
-  { id: 'japanese',  label: '🎎 日系美学', skins: ['sakura', 'koi', 'zen'] },
-  { id: 'cute',      label: '🍡 休闲甜系', skins: ['candy', 'toon', 'pixel8', 'doodle'] },
-  { id: 'light',     label: '🫧 浅色清新', skins: ['dawn', 'summer', 'cafe', 'garden', 'nordic'] },
-  { id: 'life',      label: '🏷️ 生活意象', skins: ['food', 'music', 'pets', 'universe', 'sports', 'vehicles', 'farm'] },
-  { id: 'fantasy',   label: '🧿 奇幻神话', skins: ['fantasy', 'fairy', 'greece', 'demon', 'jurassic'] },
-  { id: 'culture',   label: '🪆 文化主题', skins: ['industrial', 'forbidden', 'mahjong', 'boardgame', 'pirate'] },
-  { id: 'festive',   label: '🎖️ 庆典社交', skins: ['fiesta', 'zodiac', 'apple'] },
-];
-
-function getSkinCategories() {
-  return SKIN_CATEGORIES
-    .map((cat) => ({
-      ...cat,
-      skins: cat.skins.filter((id) => SKINS[id]).map((id) => ({ id, name: SKINS[id].name })),
-    }))
-    .filter((cat) => cat.skins.length > 0);
-}
-
 module.exports = {
   STORAGE_KEY,
   DEFAULT_SKIN_ID,
@@ -1468,5 +1082,4 @@ module.exports = {
   getBlockColors,
   setActiveSkinId,
   getSkinListMeta,
-  getSkinCategories,
 };

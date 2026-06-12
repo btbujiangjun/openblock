@@ -8,16 +8,24 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { createServer } from 'vite';
 
+// stdout 是与 Python 通信的 JSON 协议专用通道：任何模块（含 Vite/依赖）的
+// console.* 都必须改写到 stderr，否则会污染响应行，导致对端 JSON 解析失败/请求错位。
+for (const level of ['log', 'info', 'warn', 'debug']) {
+    console[level] = (...args) => process.stderr.write(`${args.map(String).join(' ')}\n`);
+}
+
 const _root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const server = await createServer({
     configFile: false,
     root: _root,
     appType: 'custom',
+    logLevel: 'silent',
     server: { middlewareMode: true, hmr: false, ws: false },
 });
 const { spawnDockOnlineSnapshot } = await server.ssrLoadModule('/web/src/bot/rlSpawnBridge.js');
 
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+// 不传 output，避免 readline 对输入行产生任何回显写入 stdout。
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
 
 function reply(obj) {
     process.stdout.write(`${JSON.stringify(obj)}\n`);
