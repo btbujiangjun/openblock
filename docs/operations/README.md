@@ -25,6 +25,7 @@
 - [留存信号跨平台分析](./RETENTION_SIGNALS_CROSS_PLATFORM.md) —— iOS×Android 16个行为信号与D7留存的Pearson-r相关矩阵，6项跨平台关键发现、8项P0/P1/P2落地策略
 - [留存优化快赢清单](./RETENTION_SIGNALS_CROSS_PLATFORM.md#留存优化快赢清单) —— 上述策略的工程落地方案：精确到文件/函数/行号/改动前后代码的10项优化（总计9人日）
 - [运营看板指标审计](./OPS_DASHBOARD_METRICS_AUDIT.md) —— `/ops` 数据库接入确认、指标SQL口径审计（DAU实际为WAU等）、写路径审计
+- [能力偏好分析（离线画像工具）](../algorithms/ALGORITHMS_PLAYER_MODEL.md#十九离线聚合画像与偏好分析playeranalytics) —— 跨局复盘画像：能力6维+时序特质+软概率偏好+出块建议；入口首页菜单卡「📈 能力偏好分析」（`/player-analytics.html?autorun=1`），产品/UI语义见 [`PANEL_PARAMETERS.md §A.6`](../player/PANEL_PARAMETERS.md#a6-离线能力偏好分析页playeranalytics)
 
 ### 分——架构参考
 

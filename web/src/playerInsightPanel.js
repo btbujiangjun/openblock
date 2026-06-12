@@ -390,6 +390,32 @@ function _shapeWeightChartHtml(shapeWeightsTop = []) {
     );
 }
 
+const _PRIOR_MODE_CN = { comply: '顺偏好', train: '练弱项', none: '未启用' };
+const _PRIOR_WEAKNESS_CN = {
+    holeBurden: '空洞负担', holeRepair: '修洞能力', holeGrowth: '空洞增长',
+    flatness: '平整度', concaveControl: '凹角控制', regionCohesion: '区域连贯',
+};
+
+function _spawnPriorCardHtml(insight) {
+    const pa = insight?.spawnPriorApplied;
+    if (!pa) return '';
+    const modeLabel = _PRIOR_MODE_CN[pa.mode] || pa.mode || '—';
+    const lambdaPct = Number.isFinite(pa.lambda) ? `${(pa.lambda * 100).toFixed(0)}%` : '—';
+    const wkLabel = pa.weakness ? (_PRIOR_WEAKNESS_CN[pa.weakness] || pa.weakness) : '—';
+    const tip = '离线画像先验注入：基于「能力偏好分析」对 shapeWeights 做风味偏置。'
+        + '顺偏好=擅长项升权（救济/爽感）；练弱项=擅长项降权（训练）。λ 是偏置强度。';
+    return (
+        `<div class="shape-weight-chart" title="${_attrTitle(tip)}">` +
+            `<div class="shape-weight-chart__head"><span>🧬 画像先验</span></div>` +
+            `<div class="shape-weight-grid">` +
+                `<div class="shape-weight-item" title="偏置模式"><span class="shape-weight-label">模式</span><span class="shape-weight-pct">${modeLabel}</span></div>` +
+                `<div class="shape-weight-item" title="偏置强度 λ"><span class="shape-weight-label">强度</span><span class="shape-weight-pct">${lambdaPct}</span></div>` +
+                `<div class="shape-weight-item" title="拓扑短板"><span class="shape-weight-label">短板</span><span class="shape-weight-pct">${wkLabel}</span></div>` +
+            `</div>` +
+        `</div>`
+    );
+}
+
 function _decisionCell(label, value, tooltip) {
     return (
         `<span class="spawn-decision-cell" title="${_attrTitle(tooltip || '')}">` +
@@ -1253,6 +1279,12 @@ function _buildWhyLines(insight, profile) {
     if (insight.profileAtSpawn?.afkCount > 0) {
         lines.push(`窗口内 ${insight.profileAtSpawn.afkCount} 次 AFK（>15s）已排除出指标计算。`);
     }
+    const pa = insight.spawnPriorApplied;
+    if (pa && pa.mode !== 'none') {
+        const modeCn = _PRIOR_MODE_CN[pa.mode] || pa.mode;
+        const wkCn = pa.weakness ? (_PRIOR_WEAKNESS_CN[pa.weakness] || pa.weakness) : '无';
+        lines.push(`画像先验 ${modeCn}（λ=${Number.isFinite(pa.lambda) ? pa.lambda.toFixed(2) : '—'}）：基于离线画像对 shapeWeights 做风味偏置，拓扑短板「${wkCn}」。`);
+    }
     return lines;
 }
 
@@ -1757,11 +1789,13 @@ function _render(game) {
             ...metricPills,
             ...diagPills
         ];
+        const priorCard = _spawnPriorCardHtml(ins);
         const allRows = [
             fallbackRow,
             allPills.length ? `<div class="insight-weights insight-weights--compact">${allPills.join('')}</div>` : '',
             spawnDecisionCard,
-            shapeWeightChart
+            shapeWeightChart,
+            priorCard
         ].filter(Boolean).join('');
 
         elSpawn.innerHTML = `<div class="insight-spawn-stack" style="text-align:left">${allRows}</div>`;

@@ -5690,6 +5690,21 @@ body.doc-visibility-hidden #menu * {
     border-color: color-mix(in srgb, #ffffff 32%, rgba(37, 99, 235, 0.55));
 }
 
+/* 📈 能力偏好分析：以"洞察/分析"语义为基调（靛蓝 → 紫 → 品红），
+ * 与 profile-audit 的青绿体检色、spawn-eval 的绿青紫形成区分，
+ * 同属冷色阶上排工具入口家族，整体协调。 */
+.menu-card--menu-secondary.menu-card--player-analytics {
+    background: linear-gradient(145deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%);
+    border: 1px solid color-mix(in srgb, #ffffff 24%, rgba(124, 58, 237, 0.5));
+    box-shadow:
+        0 4px 18px rgba(139, 92, 246, 0.38),
+        0 1px 0 rgba(255, 255, 255, 0.26) inset;
+}
+.menu-card--menu-secondary.menu-card--player-analytics:hover {
+    background: linear-gradient(145deg, #818cf8 0%, #a78bfa 50%, #e879f9 100%);
+    border-color: color-mix(in srgb, #ffffff 32%, rgba(217, 70, 239, 0.55));
+}
+
 .menu-card--menu-secondary.menu-card--native-exit {
     background: linear-gradient(145deg, #94a3b8, #334155 48%, #0f172a 100%);
     border: 1px solid color-mix(in srgb, #ffffff 18%, rgba(15, 23, 42, 0.5));
@@ -5704,6 +5719,7 @@ body.doc-visibility-hidden #menu * {
 .menu-card--menu-secondary.menu-card--ops .menu-card-icon,
 .menu-card--menu-secondary.menu-card--spawn-eval .menu-card-icon,
 .menu-card--menu-secondary.menu-card--profile-audit .menu-card-icon,
+.menu-card--menu-secondary.menu-card--player-analytics .menu-card-icon,
 .menu-card--menu-secondary.menu-card--daily-master .menu-card-icon,
 .menu-card--menu-secondary.menu-card--db-debug .menu-card-icon,
 .menu-card--menu-secondary.menu-card--native-exit .menu-card-icon {

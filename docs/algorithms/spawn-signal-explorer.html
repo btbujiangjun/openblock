@@ -1128,6 +1128,7 @@ const CAT_COLORS = {
   '构造式预扫描':          '#ff7b72',
   '约束验证':              '#c07a38',
   '输出':                  '#6e7681',
+  'PriorInjection·离线画像':'#14b8a6',
 };
 
 const SIGNALS = [
@@ -1887,6 +1888,32 @@ const SIGNALS = [
  source:'adaptiveSpawn:445',
  consumers:['L3 augmentPool novelty 乘子']},
 
+// ─ L2: PriorInjection·离线画像先验 ──────────────────────────────────────
+{id:'spawnPrior',name:'spawnPrior (离线画像先验)',layer:2,cat:'PriorInjection·离线画像',sign:'?',
+ semantic:'playerAnalytics.buildSpawnPrior() 的精简产物；端侧 localStorage 持久化，game.init→_loadSpawnPrior 注入 spawnContext.spawnPrior',
+ formula:'buildSpawnPrior(analyzePlayer(sessions))\n→ { v, strength, shapeBias{7键}, topoWeakness, starvationThreshold, comfortFill, … }',
+ range:'object | null (数据不足)',
+ source:'playerAnalytics.js:1319 (buildSpawnPrior)',
+ consumers:['applySpawnPrior shapeWeights 偏置','isDelightStarved 个性化阈值']},
+{id:'prior_shapeBias',name:'shapeBias{7键}',layer:2,cat:'PriorInjection·离线画像',sign:'?',
+ semantic:'中性方向形状适配度 bias_k ∈ [-0.5,0.5]（>0 擅长/适合多投）。由 shapeCompetence(9类) 映射 + topoWeakness 微调合成',
+ formula:'1) shapeCompetence → SHAPE_CAT_TO_WEIGHT_KEYS → (competence-0.5)/keys.length\n2) TOPO_WEAKNESS_SHAPE_NUDGE[weakness] → ±0.15\n3) clamp([-0.5, 0.5])',
+ range:'[-0.5, 0.5] per key',
+ source:'playerAnalytics.js:1324-1344',
+ consumers:['applySpawnPrior multiplier']},
+{id:'prior_apply',name:'applySpawnPrior()',layer:2,cat:'PriorInjection·离线画像',sign:'?',
+ semantic:'resolveAdaptiveStrategy 末尾后处理：weight_k *= clamp(1 + λ·sign·bias_k, 1-cap, 1+cap)。sign 由 spawnIntent 决定：comply(+1) 或 train(-1)',
+ formula:'λ = clamp01(strength) × maxStrength\nsign: relief/harvest/sprint/pressure → comply(+1)\n      engage/flow/maintain && !distressed && trainingEnabled → train(-1)\nweight_k *= clamp(1 + λ·sign·bias_k, 1-cap, 1+cap)\n各键 ≥ 0',
+ range:'finalShapeWeights{7键}',
+ source:'adaptiveSpawn.js:1154 (applySpawnPrior)',
+ consumers:['shapeWeights → L3 形状评分','_spawnPriorApplied 诊断']},
+{id:'prior_relief',name:'isDelightStarved 个性化',layer:2,cat:'PriorInjection·离线画像',sign:'-',
+ semantic:'把 isDelightStarved 的固定平台阈值(5/7)个性化为 per-player（只会更早救济、永不延后）',
+ formula:'personalized = platformDefault + λ·(starvationThreshold − platformDefault)\nthreshold = clamp(round(personalized), floor=2, platformDefault)\nstarved = roundsSinceLastDelight ≥ threshold',
+ range:'boolean',
+ source:'playerProfile.js:219 (isDelightStarved)',
+ consumers:['spawnIntent relief 触发（delight_starved 规则）']},
+
 // ─ L3: Pipeline ──────────────────────────────────────────────────────────
 {id:'l3_perceive',name:'Stage 0a: 盘面感知',layer:3,cat:'前置感知',
  semantic:'入场即分析盘面拓扑，并通过 monoFlushRound 节流，决定本轮特殊预算',
@@ -2486,7 +2513,7 @@ function renderStressTables() {
 // ─── Flow view ─────────────────────────────────────────────────────────────────
 function renderFlowView() {
   const L1_CATS = ['盘面几何','玩家状态','跨轮上下文','局间历史'];
-  const L2_CATS = ['能力向量(AbilityVector)','Stress分量·基础','Stress分量·后置调制','出块意图(IntentRules)','SpawnHints'];
+  const L2_CATS = ['能力向量(AbilityVector)','Stress分量·基础','Stress分量·后置调制','出块意图(IntentRules)','SpawnHints','PriorInjection·离线画像'];
   const L3_CATS = ['形状评分','形状选拔','构造式预扫描','约束验证','输出'];
 
   function buildFlowCol(cats, colEl) {

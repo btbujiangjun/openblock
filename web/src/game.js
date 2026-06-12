@@ -276,6 +276,8 @@ export class Game {
     });
 
         /** 跨轮出块上下文：传给 adaptiveSpawn + blockSpawn 的三层信号 */
+        /** 离线画像先验（端侧资产，init→_loadSpawnPrior 填充）。 */
+        this._spawnPrior = null;
         this._spawnContext = {
             lastClearCount: 0, roundsSinceClear: 0, recentCategories: [], totalRounds: 0, scoreMilestone: false,
             bottleneckTrough: Infinity, bottleneckSolutionTrough: Infinity, bottleneckSamples: 0,
@@ -290,6 +292,8 @@ export class Game {
             dupInjectUsed: 0, roundsSinceDupInject: 0,
             /* v1.67 构造式出块跨 dock 状态：冷却计数 + 先铺后清待兑现目标线。 */
             constructCooldown: 0, pendingClearTarget: null,
+            /* 离线画像先验（init 时由 _loadSpawnPrior 填充；adaptiveSpawn 透传消费）。 */
+            spawnPrior: this._spawnPrior ?? null,
         };
 
         this.behaviors = [];
@@ -625,6 +629,26 @@ export class Game {
      *
      * 与现有 `getCandidatePlacementSolutionSnapshot()` 共享缓存（依赖 dock 签名变化）。
      */
+    /**
+     * 加载离线画像先验（端侧资产，由「能力偏好分析」页跑出后写入 localStorage）。
+     * 注入 this._spawnPrior（→ spawnContext.spawnPrior）与 playerProfile（→ isDelightStarved 个性化）。
+     * 失败/缺失时静默回退，不影响出块。
+     */
+    _loadSpawnPrior() {
+        try {
+            if (typeof localStorage === 'undefined') return;
+            const raw = localStorage.getItem(`openblock_spawn_prior:${this.db?.userId ?? 'default'}`)
+                || localStorage.getItem('openblock_spawn_prior');
+            if (!raw) return;
+            const prior = JSON.parse(raw);
+            if (!prior || typeof prior !== 'object' || Array.isArray(prior)
+                || (prior.v && prior.v > 1)) return;
+            this._spawnPrior = prior;
+            if (this._spawnContext) this._spawnContext.spawnPrior = prior;
+            this.playerProfile?.setSpawnPrior?.(prior);
+        } catch { /* localStorage/JSON 异常时按无先验处理 */ }
+    }
+
     _updateBottleneckTrough() {
         if (!this._spawnContext) return;
         const snap = this.getCandidatePlacementSolutionSnapshot();
@@ -731,7 +755,8 @@ export class Game {
              * stressMeter "识别到密集消行机会" 与玩家操作后盘面错位的"快照滞后"问题。
              * 注意：此对象由 deriveSpawnIntent 直接消费（除 geometry 子字段外），不要在
              * game.js 内做"语义改写"，避免与 resolveAdaptiveStrategy 内的口径漂移。 */
-            _intentInputs: layered._intentInputs ? { ...layered._intentInputs } : null
+            _intentInputs: layered._intentInputs ? { ...layered._intentInputs } : null,
+            spawnPriorApplied: layered._spawnPriorApplied ?? null
         };
         const m = p.metrics;
         this._lastAdaptiveInsight.profileAtSpawn = {
@@ -793,6 +818,7 @@ export class Game {
             serverPb = Number(await this.db.getBestScore()) || 0;
             const stats = await this.db.getStats();
             this.playerProfile.ingestHistoricalStats(stats);
+            this._loadSpawnPrior();
         } catch (err) {
             /* v1.61.14 离线优先 PB：服务端不可达（安卓 / iOS 原生离线、网络异常）时
              * 不再把 bestScore 清零——改由 _resolveBestScore 用本地分桶 / legacy PB 兜底，
@@ -1779,6 +1805,8 @@ export class Game {
             dupInjectUsed: 0, roundsSinceDupInject: 0,
             /* v1.67 构造式出块跨 dock 状态（与 game 构造同步） */
             constructCooldown: 0, pendingClearTarget: null,
+            /* 离线画像先验（与 game 构造同步；init 已加载到 this._spawnPrior） */
+            spawnPrior: this._spawnPrior ?? null,
             };
             try {
                 if (typeof localStorage !== 'undefined') {

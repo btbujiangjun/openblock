@@ -55,6 +55,7 @@
 - [**玩家画像与能力评估手册**](./ALGORITHMS_PLAYER_MODEL.md) —— 玩家建模子系统**统一权威文档**：能力建模公式、特征、参数、`AbilityVector`、建模方法与评估指标（§1–§16），并整合：
   - [§17 画像指标自评估与自我优化（profileAudit）](./ALGORITHMS_PLAYER_MODEL.md#十七画像指标自评估与自我优化profileaudit) —— 四层评估 + 预期关系契约 + 健康分 + 全库自闭环工具链
   - [§18 实时状态历史序列分析](./ALGORITHMS_PLAYER_MODEL.md#十八实时状态历史序列分析) —— 基于 `move_sequences.frames[*].ps` 的历史实时状态分布、互操作关系与 stress 分量贡献
+  - [§19 离线聚合画像与偏好分析（playerAnalytics）](./ALGORITHMS_PLAYER_MODEL.md#十九离线聚合画像与偏好分析playeranalytics) —— 跨局聚合的能力 6 维 + 时序特质（trend/endurance/clutch）+ 软概率偏好 + `spawnAdvice` 出块建议层，及其与实时 `adaptiveSpawn` 的同质性对比；入口「📈 能力偏好分析」
 
 ## 分——强化学习专题
 

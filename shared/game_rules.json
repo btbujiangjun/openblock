@@ -198,6 +198,31 @@
   "adaptiveSpawn": {
     "comment": "自适应出块系统：综合玩家实时能力画像（技能水平、心流状态、节奏相位、挫败感、差一点效应、新手标识）动态选择出块权重档位 + spawnHints，维持心流体验、延长停留时间。",
     "enabled": true,
+    "priorInjection": {
+      "comment": "离线画像先验注入（playerAnalytics.buildSpawnPrior → spawnContext.spawnPrior → applySpawnPrior）。⚠️ 先验非强制：实时 stress 仍主导当帧难度，本层只对 shapeWeights 做风味偏置 + 个性化 relief/delight 阈值。所有幅度 ×λ（λ=strength×maxStrength，低置信自动退化）。详见 docs/algorithms/ADAPTIVE_SPAWN.md「离线画像先验注入」。",
+      "enabled": true,
+      "maxStrength": 0.6,
+      "shapeBias": {
+        "comment": "按 spawnIntent 决定符号：救济(relief/pressure)、爽感(harvest/sprint) 顺玩家(sign+1)；训练(engage/flow/maintain 且非困境) 逆玩家练弱项(sign-1，需 trainingEnabled)。weight_k *= clamp(1 + λ·sign·bias_k, 1-cap, 1+cap)。",
+        "baseGain": 1.0,
+        "cap": 0.35,
+        "trainingEnabled": true
+      },
+      "reliefPersonalization": {
+        "comment": "把 isDelightStarved 的固定平台阈值(5/7)个性化为 per-player（只会更早救济、不晚于平台默认）。",
+        "enabled": true,
+        "floor": 2
+      },
+      "comfortFill": {
+        "comment": "P1：把局初 fillRatio 锚到玩家舒适填充带下沿。默认关闭，灰度验证后再开。",
+        "anchorInitialFill": false
+      },
+      "targetStressBias": {
+        "comment": "P2 降级项：targetStress 与实时 stress 高度同质，默认关闭，避免与 25 分量 stress 冲突。开启时仅作受 budget 钳制的软偏置。",
+        "enabled": false,
+        "budget": 0.05
+      }
+    },
     "profileWindow": 15,
     "smoothingFactor": 0.15,
     "fastConvergenceWindow": 5,
@@ -777,6 +802,141 @@
       "minConfidence": 0.25,
       "riskThreshold": 0.62,
       "stressRelief": -0.08
+    }
+  },
+  "playerAnalysis": {
+    "comment": "玩家能力·偏好离线/聚合分析器（web/src/analysis/playerAnalytics.js）的全部权重、分位锚点与门控阈值。与实时 playerAbilityModel 互补：后者每帧即时值用于自适应出块；本模块消费 move_sequences 的 frames[].ps 聚合时序，产出带置信度的『能力 5 维 + 软概率偏好』画像，用于复盘、运营分群与冷启动先验。所有数值集中此处，禁止在 playerAnalytics.js 写裸魔术数。",
+    "version": 2,
+    "calibrationNote": "anchors 的 p10/p50/p90 当前是基于产品体感的初始猜测；建议运营离线跑 sql/move_sequences 求各信号真实分位再回填，使全玩家分布大致 N(0.5,0.15)。锚定映射：x=p10→0.1, x=p50→0.5, x=p90→0.9，分段线性并 clamp[0,1]。v2 新增：能力第 6 维 consistency；descriptive traits（trend/endurance/clutch）；spawnAdvice（供 adaptiveSpawn / spawn 寻参直接消费的出块建议）。",
+    "minObservations": 8,
+    "confidenceN0": 40,
+    "ability": {
+      "weights": { "topology": 0.22, "scoring": 0.20, "execution": 0.20, "reaction": 0.14, "survival": 0.12, "consistency": 0.12 },
+      "topology": {
+        "comment": "拓扑形态维度：v2 把笼统的 fragmentation 拆成 concaveControl(凹角控制) + regionCohesion(空间连贯)，并新增 holeRepair(空洞修复)，更细地刻画玩家维持盘面形态的能力。所有子项越高越好。",
+        "weights": { "holeBurden": 0.22, "holeGrowth": 0.14, "flatness": 0.16, "concaveControl": 0.14, "regionCohesion": 0.12, "holeRepair": 0.10, "nearClearConversion": 0.12 },
+        "anchors": {
+          "avgHoles": [0.2, 1.5, 5.0],
+          "holeGrowthPerStep": [-0.05, 0.04, 0.18],
+          "avgConcave": [1.0, 4.0, 10.0],
+          "avgRegions": [1.0, 3.0, 7.0]
+        }
+      },
+      "scoring": {
+        "weights": { "leverage": 0.38, "combo": 0.22, "multiLine": 0.24, "bonus": 0.16 },
+        "anchors": {
+          "scoreLeverage": [1.0, 2.2, 5.0],
+          "maxCombo": [1.0, 3.0, 7.0]
+        },
+        "multiClearRateMax": 0.5,
+        "comboRateMax": 0.45,
+        "bonus": { "perfectClearRateMax": 0.15 }
+      },
+      "execution": {
+        "weights": { "moveQuality": 0.62, "miss": 0.38 },
+        "missRateMax": 0.3,
+        "moveQuality": {
+          "neutral": 0.4,
+          "clearReward": 0.4,
+          "holeDeltaMax": 3,
+          "holeDeltaPenalty": 0.3,
+          "regionDeltaMax": 3,
+          "regionDeltaPenalty": 0.2,
+          "repairBonus": 0.1
+        }
+      },
+      "reaction": {
+        "weights": { "speed": 0.45, "decisiveness": 0.35, "apm": 0.20 },
+        "anchors": { "pickToPlaceMs": [400, 1400, 4200] },
+        "cvCap": 1.2,
+        "apmMax": 18
+      },
+      "survival": {
+        "weights": { "survivedSteps": 0.42, "recovery": 0.30, "lockAvoidance": 0.28 },
+        "anchors": { "placements": [10, 30, 80] },
+        "highFillThreshold": 0.8,
+        "recoveryHorizon": 2
+      },
+      "consistency": {
+        "comment": "稳定性：局间分数离散度低 + 步级方块质量方差小 → 表现稳定可预测（越高越好，计入 skillScore）。",
+        "weights": { "scoreCv": 0.5, "moveQualityStd": 0.5 },
+        "scoreCvMax": 0.8,
+        "moveQualityStdMax": 0.32,
+        "minSessions": 2
+      },
+      "bands": { "expert": 0.78, "advanced": 0.58, "developing": 0.36 }
+    },
+    "traits": {
+      "comment": "时序特质（有符号、描述性，不计入 skillScore）：刻画玩家随时间/局内的动态变化。",
+      "trend": {
+        "comment": "跨局成长趋势：每局『每步得分』随开局时间的回归斜率，按 anchorSlope 映射到 [-1,1]。",
+        "anchorSlope": [-0.6, 0.0, 0.6],
+        "minSessions": 3,
+        "improvingThreshold": 0.15,
+        "decliningThreshold": -0.15
+      },
+      "endurance": {
+        "comment": "局内耐力：每局后半段方块质量相对前半段的保持率（>1 截断为 1，<0.6 视为明显疲劳）。",
+        "minMovesPerHalf": 4,
+        "fatigueThreshold": 0.8
+      },
+      "clutch": {
+        "comment": "高压表现：盘面填充 ≥ highFill 时的平均方块质量（抗压/逆境处理）。",
+        "highFill": 0.7,
+        "minSamples": 3
+      }
+    },
+    "spawnAdvice": {
+      "comment": "出块算法建议层：把画像翻译成 adaptiveSpawn / spawn 寻参可直接消费的旋钮先验。所有阈值集中此处。⚠️ 这是『建议』而非强制——adaptiveSpawn 仍以实时信号为主，本层只提供跨局先验与个性化强度上限。",
+      "difficulty": { "hardSkill": 0.62, "normalSkill": 0.40 },
+      "personalizationStrength": { "confidenceFloor": 0.2, "max": 1.0 },
+      "targetStress": {
+        "base": 0.10, "skillK": 0.50, "riskK": 0.20, "fragilityK": 0.30, "min": -0.30, "max": 0.60,
+        "bands": { "high": 0.30, "low": 0.0 }
+      },
+      "relief": {
+        "comment": "救济敏感度：局内连续未消行（drought）平均长度越大 → 越需提早 relief。建议在 ceil(droughtP50)+1 轮内保证一次消行机会。",
+        "droughtMax": 6
+      },
+      "delight": {
+        "comment": "爽感节奏：相邻两次『爽感事件』(多消/清屏，近似 scoreDelta ≥ scoreMultThreshold×baseUnit) 的平均间隔轮数。供 isDelightStarved 阈值个性化。",
+        "scoreMultThreshold": 2.0,
+        "starvationFallback": 6
+      },
+      "comfortFill": {
+        "comment": "舒适填充带：把 prevBoardFill 分桶，取平均方块质量最高的桶为玩家最擅长的盘面满度区间，spawn 可据此把盘面维持在此带。",
+        "buckets": [0.2, 0.35, 0.5, 0.65, 0.8, 1.0]
+      },
+      "shapeCompetence": {
+        "comment": "形状胜任度：每类形状的落子消行率 + 平均得分增量 → competence[0,1]。低胜任=玩家不擅长该形状，spawn 救济时应少投、训练时可多投；高胜任=可作为爽感兑现块。",
+        "minAttempts": 2
+      }
+    },
+    "preference": {
+      "playstyle": {
+        "beta": 4.0,
+        "balancedPrior": 0.4,
+        "anchors": {
+          "perfectClearRateMax": 0.15,
+          "multiClearRateMax": 0.5,
+          "comboRateMax": 0.45
+        },
+        "survival": { "clearRateWeight": 0.7, "fillToleranceWeight": 0.3 }
+      },
+      "riskAppetite": {
+        "weights": { "fillBeforePlace": 0.45, "nearMiss": 0.20, "multiClear": 0.20, "fillVelocity": 0.15 },
+        "anchors": {
+          "fillBeforePlace": [0.30, 0.50, 0.72],
+          "fillVelocity": [0.01, 0.06, 0.16]
+        },
+        "bands": { "aggressive": 0.62, "conservative": 0.40 }
+      },
+      "tempo": {
+        "anchors": { "thinkMs": [800, 2600, 7000] },
+        "bands": { "snappyMaxMs": 1500, "deliberateMinMs": 5000 }
+      },
+      "shapeAffinity": { "topN": 3 },
+      "colorAffinity": { "topN": 3 }
     }
   },
   "rlTrainingStrategyId": "normal",

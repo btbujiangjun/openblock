@@ -1,7 +1,7 @@
 # 玩家画像与能力评估：算法工程师手册
 
 > 本文是 OpenBlock **玩家建模子系统**的统一算法手册。
-> 范围：实时玩家状态推断（`PlayerProfile`）与 `AbilityVector` 的公式、超参、配置和决策树。
+> 范围：实时玩家状态推断（`PlayerProfile`）与 `AbilityVector` 的公式、超参、配置和决策树；以及**离线聚合画像 `playerAnalytics`**（§十九）——消费 `move_sequences.frames[].ps` 时序，产出带置信度的「能力 6 维 + 时序特质 + 软概率偏好 + 出块建议」跨局画像，与实时画像互补（实时驱动当帧出块，离线产出复盘/分群/冷启动先验）。
 > 与现有文档的关系：本文是玩家能力算法的权威事实来源；`PANEL_PARAMETERS.md 附录` 只保留产品语义和接入说明，`PANEL_PARAMETERS.md` 只维护 UI 字段解释。
 > 若需要横向理解 PlayerProfile / AbilityVector 与 RL、Spawn、商业化、LTV 的模型契约，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
@@ -27,6 +27,7 @@
 16. [演进与开放问题](#十六演进与开放问题)
 17. [画像指标自评估与自我优化](#十七画像指标自评估与自我优化profileaudit)
 18. [实时状态历史序列分析](#十八实时状态历史序列分析)
+19. [离线聚合画像与偏好分析（playerAnalytics）](#十九离线聚合画像与偏好分析playeranalytics)
 
 ---
 
@@ -2088,6 +2089,130 @@ npm run spawn:realtime-tune -- --sqlite openblock.db --apply --pretty
 - `reactionAdjust` 非零率是否稳定在 5%–12%，避免变成主导分量。
 - `feedbackBiasDampingAdjust` 是否只在困境帧出现，避免削弱顺局正反馈。
 
+---
+
+## 十九、离线聚合画像与偏好分析（playerAnalytics）
+
+> 实现：`web/src/analysis/playerAnalytics.js`（核心模型）+ `web/src/playerAnalyticsApp.js`（可视化）+ `web/player-analytics.html`（页面）。
+> 配置：`shared/game_rules.json → playerAnalysis`（version 2）。测试：`tests/playerAnalytics.test.js`。
+> 入口：首页菜单卡「📈 能力偏好分析」→ `/player-analytics.html?autorun=1`（前端直接发起分析）。
+
+### 19.1 定位：与实时画像的分工
+
+`PlayerProfile` / `AbilityVector`（§二–§十三）是**局内实时、逐帧、滑窗**的瞬时估计，直接驱动当帧出块；`playerAnalytics` 是**跨局离线聚合**——消费 `Database.listReplaySessions()` 返回的 `move_sequences.frames[].ps` 时序快照，产出**带置信度的稳定画像**。两者是「**先验 × 实时**」两层，不是二选一。
+
+| 维度 | 实时 `PlayerProfile` / `AbilityVector` | 离线 `playerAnalytics` |
+|------|---------------------------------------|------------------------|
+| 时间尺度 | 局内滑窗（8/12/16 步） | 跨局聚合（多 session） |
+| 触发 | 每步重算 | 复盘 / 运营按需跑 |
+| 输出 | 即时标量，驱动 stress/shapeWeights | 画像报告 + spawnAdvice 先验 |
+| 置信度 | 滑窗样本 | 跨局样本量 `1-e^{-n/n_0}` |
+| 主要用途 | 当帧 DDA | 复盘、分群、冷启动先验、形状/形态短板定位 |
+
+### 19.2 数据流
+
+```mermaid
+flowchart TD
+    db["Database.listReplaySessions()"] --> ext["extractMoveObservations()<br/>frames[].ps → 步级观测序列"]
+    ext --> agg["sessionAggregates / buildSessionSummaries<br/>会话级摘要（含开局时间序）"]
+    agg --> ability["能力 6 维"]
+    agg --> traits["时序特质 trait"]
+    agg --> pref["软概率偏好"]
+    ability --> advice["spawnAdvice 出块建议层"]
+    traits --> advice
+    pref --> advice
+    ability --> summary["buildSummary 白话总结 + explain"]
+    advice --> ui["playerAnalyticsApp 可视化<br/>6 维雷达 + 卡片 + 形状胜任度表"]
+```
+
+每个 `place` 帧的 `ps` 快照被展平为观测（`extractMoveObservations`）：`holes / flatness / contiguousRegions / concaveCorners / nearFullLines / boardFill / score / pickToPlaceMs / multiClearRate` 等，并用最近 `spawn` 帧的 dock 把 `place.i` 映射到 `shapeCategory / colorIdx`。
+
+### 19.3 数学工具
+
+| 工具 | 公式 | 用途 |
+|------|------|------|
+| `anchorNorm(x, [p10,p50,p90], invert?)` | 分位锚点分段线性：`x=p10→0.1, p50→0.5, p90→0.9`，clamp[0,1] | 把任意物理量归一到全玩家 ~N(0.5,0.15) |
+| `softmax(values, β)` | `e^{βv_i}/Σe^{βv_j}` | 玩法风格软概率分布 |
+| `slopePerStep(xs)` | 最小二乘斜率 | 局内空洞增长 / 跨局成长趋势 |
+| `sampleConfidence(n, n0)` | `1 - e^{-n/n_0}` | 样本量驱动的置信度 |
+
+> **校准**：`playerAnalysis.calibrationNote` 标注所有 anchors 的 p10/p50/p90 目前是产品体感初值；建议运营离线跑 `move_sequences` 求各信号真实分位再回填（与 §13.7-(6)、§15.6 的 `AbilityVector` 校准框架同一套方法论）。
+
+### 19.4 能力 6 维（计入 `skillScore`）
+
+`ability.dims`，每维含 `value / parts / confidence`，按 `ability.weights` 合成 `skillScore`，再由 `bands` 分 `expert/advanced/developing/beginner`。
+
+| 维度 | 权重 | 子信号（parts） |
+|------|:---:|------|
+| `topology` 拓扑形态 | 0.22 | holeBurden / holeGrowth / flatness / **concaveControl** / **regionCohesion** / **holeRepair** / nearClearConversion |
+| `scoring` 计分掌控 | 0.20 | leverage(分数杠杆) / combo / multiLine / bonus(清屏) |
+| `execution` 执行质量 | 0.20 | moveQuality(方块质量) / miss |
+| `reaction` 反应节奏 | 0.14 | speed / decisiveness / apm |
+| `survival` 生存韧性 | 0.12 | survivedSteps / recovery / lockAvoidance |
+| `consistency` 稳定性 | 0.12 | 局间分数离散度(CV) + 步级方块质量方差，越低越稳 |
+
+**拓扑形态深化（v2）**：原笼统的 `fragmentation` 拆为 `concaveControl`（凹角控制，按 `avgConcave` 锚定）+ `regionCohesion`（空间连贯，按 `avgRegions` 锚定），并新增 `holeRepair`（已有空洞时下一步真正减少空洞的比例）。`topology.raw.formWeakness` 输出**最薄弱的形态子项**，透传给 `spawnAdvice.topologyForm.weakness` 供出块定向施压/规避。
+
+**「用户方块质量」推导**：`execution.moveQuality` 用相邻两步的拓扑增量反推单步贡献——
+```
+q_t = neutral + clearReward·1[cleared]
+    - clamp(Δholes/holeDeltaMax)·holeDeltaPenalty
+    - clamp(Δregions/regionDeltaMax)·regionDeltaPenalty
+    + repairBonus·1[Δholes<0]
+```
+
+### 19.5 时序特质 traits（描述性，不计入 `skillScore`）
+
+| 特质 | 含义 | 计算 |
+|------|------|------|
+| `trend` 成长趋势 | 跨局表现走向 | 每局「每步得分」对开局时间的回归斜率 → anchorSlope 映射 [-1,1] → improving/stable/declining |
+| `endurance` 局内耐力 | 后程是否疲劳 | 每局后半段方块质量 / 前半段（>1 截断），`fatigue` = 低于阈值 |
+| `clutch` 高压表现 | 逆境处理 | 盘面填充 ≥ highFill(0.7) 时的平均方块质量 |
+
+### 19.6 偏好（软概率）
+
+`preference`：`playstyle`（softmax 分布 + dominant + commitment）、`riskAppetite`（aggressive/balanced/conservative）、`tempo`（snappy/measured/deliberate）、`shapeAffinity` / `colorAffinity`（Top-N）、`motivation`（综合动机标签）。
+
+### 19.7 spawnAdvice：出块算法建议层
+
+把画像翻译成 `adaptiveSpawn` / spawn 寻参可消费的旋钮先验。⚠️ 是**建议而非强制**——adaptiveSpawn 仍以实时信号为主。
+
+| 字段 | 含义 | 与实时出块的同质性 |
+|------|------|--------------------|
+| `recommendedDifficulty` | 按 skillScore 分 easy/normal/hard | 🔴 高（实时 skillScore 更细）→ 仅冷启动/分群用 |
+| `targetStress.{value,band}` | skill/risk/fragility 合成的目标压力先验 | 🔴 最高（实时 25+ 分量 stress 更准）→ 仅作 cap/bias，**勿喂回实时主路径** |
+| `personalizationStrength` | 置信度驱动的个性化强度上限 | 🟠 中（实时已用 confidence 门控，口径不同） |
+| `relief.reliefAfterRounds` | drought P50+1 → 救济节奏 | 🟢 互补：实时 `isDelightStarved` 用**固定 5/7**，此处给 **per-player** 阈值 |
+| `delight.suggestedStarvationThreshold` | 个性化「爽感饥渴」阈值 | 🟢 互补，同上 |
+| `comfortFillBand` | 发挥最好的盘面满度区间 | 🟢 新维：adaptiveSpawn 无此概念 |
+| `shapeCompetence[]` | 每类形状的消行率+得分增量→胜任度 | 🟢 **增量最高**：adaptiveSpawn 的 shapeWeights 按 stress 插值、**不读 shapeCategory** |
+| `topologyForm.weakness` | 拓扑形态最薄弱子项 | 🟢 新维：concave/regions 实时仅落库给 RL，未进 stress 主路径 |
+| `colorPriors[]` | 颜色染色先验 | 🟢 低同质，价值一般 |
+
+> **同质性结论**：同质集中在「能力/难度/压力」这类实时侧本就更强的指标上（属先验 vs 实时的合理分层）；`shapeCompetence`、`comfortFillBand`、`topologyForm.weakness`、个性化 relief/delight 阈值是 adaptiveSpawn 的**空白区**，无同质化、增量明确。接入时：高同质项降级为「仅展示 / 运营用」，真增量项可直接被 `isDelightStarved` 与 `shapeWeights` 消费。
+>
+> **已落地（先验注入 P0）**：`buildSpawnPrior(result)` 把上述真增量项精简为 `spawnPrior` → 端侧持久化 → `adaptiveSpawn.applySpawnPrior` 对 `shapeWeights` 做有界风味偏置 + `isDelightStarved` 阈值个性化。完整公式、配置与护栏见 [ADAPTIVE_SPAWN.md §十二 离线画像先验注入](./ADAPTIVE_SPAWN.md#十二离线画像先验注入playeranalytics--adaptivespawn)。
+
+### 19.8 可读性设计
+
+- `summary`：自动拼装的白话总结（综合能力分+段位、强项/弱项、打法/风险/节奏、成长趋势、出块建议）。
+- `explain[]`：≤8 条洞察句。
+- `ANALYTICS_GLOSSARY`（导出常量）：指标释义词典，核心模块与 UI 共用，避免两处口径漂移；前端 hover tooltip 直接取用。
+- 可视化：6 维能力雷达（居中扩展 viewBox 防标签裁切）+ 维度拆解 + 时序特质卡 + 出块建议网格 + 形状胜任度表。
+
+### 19.9 配置（`shared/game_rules.json → playerAnalysis`，v2）
+
+| 分组 | 关键字段 |
+|------|----------|
+| 顶层 | `version=2` / `minObservations=8` / `confidenceN0=40` / `calibrationNote` |
+| `ability` | `weights`（6 维含 consistency）、各维 `anchors`/`weights`、`bands` |
+| `ability.topology`（v2） | `weights` 7 子项 + `anchors.{avgHoles,holeGrowthPerStep,avgConcave,avgRegions}` |
+| `traits` | `trend.anchorSlope` / `endurance.{minMovesPerHalf,fatigueThreshold}` / `clutch.highFill` |
+| `spawnAdvice` | `difficulty` / `personalizationStrength` / `targetStress`（base/skillK/riskK/fragilityK）/ `relief.droughtMax` / `delight.scoreMultThreshold` / `comfortFill.buckets` / `shapeCompetence.minAttempts` |
+| `preference` | `playstyle`(softmax β/anchors) / `riskAppetite` / `tempo` / `shapeAffinity` / `colorAffinity` |
+
+> 所有数值集中此处，禁止在 `playerAnalytics.js` 写裸魔术数（与 `AbilityVector` 的「配置即真理」原则一致）。
+
 ## 关联文档
 
 | 文档 | 关系 |
@@ -2097,10 +2222,10 @@ npm run spawn:realtime-tune -- --sqlite openblock.db --apply --pretty
 | [`PANEL_PARAMETERS.md`](../player/PANEL_PARAMETERS.md) | UI 指标解释 |
 | [`REALTIME_STRATEGY.md`](./REALTIME_STRATEGY.md) | PlayerProfile → AdaptiveSpawn 全链路 |
 | [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](./REALTIME_STRATEGY.md#玩法偏好识别与出块联动) | 玩法风格分类 |
-| [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) | 出块系统的画像消费 |
+| [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) | 出块系统的画像消费；§十九 spawnAdvice 与其同质性对比；**§十二 离线画像先验注入**（spawnPrior → shapeWeights/relief） |
 | [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | 商业化对画像的消费 |
 
 ---
 
-> 最后更新：2026-05-04 · 增加建模方法对比、AbilityVector 应用示例与 ML loss 口径
+> 最后更新：2026-06-13 · 新增 §十九 离线聚合画像与偏好分析（playerAnalytics）：能力 6 维 + 时序特质 + 软概率偏好 + spawnAdvice 出块建议层及其与实时出块的同质性对比；落地先验注入 P0（buildSpawnPrior → adaptiveSpawn.applySpawnPrior + isDelightStarved 个性化，详见 ADAPTIVE_SPAWN §十二）
 > 维护：算法工程团队

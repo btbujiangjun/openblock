@@ -57,6 +57,7 @@
  - [10.11.8 最终输出与诊断快照](#10118-最终输出与诊断快照)
  - [10.11.9 全链路信号流向图（三层汇总）](#10119-全链路信号流向图三层汇总)
 - [11. 后续迭代方向](#11-后续迭代方向)
+- [**12. 离线画像先验注入（playerAnalytics → adaptiveSpawn）**](#十二离线画像先验注入playeranalytics--adaptivespawn)
 
 ---
 
@@ -5636,3 +5637,118 @@ game.js 染色层（§10.8.10）
 - [ ] **玩家分群**：基于 `user_stats` 聚类不同玩家类型（休闲/竞技/社交），差异化策略
 - [ ] **RL + 出块协同**：让 RL 模型学会在自适应出块环境下最优决策
 - [ ] **实时 A/B 框架**：无需重启即可对不同玩家群体切换参数
+
+---
+
+## 十二、离线画像先验注入（playerAnalytics → adaptiveSpawn）
+
+> **定位**：把「能力偏好分析」页（`playerAnalytics`，离线聚合画像，见 [玩家模型手册 §十九](./ALGORITHMS_PLAYER_MODEL.md)）跑出的**跨局稳定偏好**，作为**先验**轻量注入实时出块，对 `shapeWeights` 做风味偏置、并把 relief/delight 阈值个性化。本层是 §3 实时 `PlayerProfile` 之上的**补充**，**不替代**实时 stress 决策。
+
+### 12.1 设计原则
+
+1. **先验 × 实时分层**：实时 25+ 分量 `stress` 仍**主导**当帧难度；先验只在产出 `shapeWeights` **之后**做有界后处理，不进入 stress 合成。
+2. **只注入真增量**：经同质性分析（见 [§十九 spawnAdvice 同质表](./ALGORITHMS_PLAYER_MODEL.md)），仅引入实时层缺失的信号——**形状胜任度 / 拓扑形态短板 / 个性化爽感间隔**。`targetStress`、`recommendedDifficulty` 与实时高度同质，**默认不参与实时覆盖**。
+3. **置信门控 + opt-in**：所有幅度 ×λ，`λ = clamp01(strength) × maxStrength`；低置信样本 `strength→0` 自动退化为现状。
+4. **安全护栏**：偏置后各键 ≥ 0，仍交由下游硬约束验证层兜底可解性；relief 个性化**只会更早救济、永不晚于平台默认**。
+5. **向后兼容**：未注入先验 / 配置关闭 → 全链路回退原行为。
+
+### 12.2 数据通路
+
+```mermaid
+flowchart LR
+  A["能力偏好分析页<br/>analyzePlayer(sessions)"] --> B["buildSpawnPrior(result)<br/>精简为 spawnPrior"]
+  B -->|localStorage<br/>openblock_spawn_prior:uid| C["game.init()<br/>_loadSpawnPrior()"]
+  C --> D1["_spawnContext.spawnPrior"]
+  C --> D2["playerProfile.setSpawnPrior()"]
+  D1 --> E["resolveAdaptiveStrategy<br/>applySpawnPrior(shapeWeights, …)"]
+  D2 --> F["isDelightStarved()<br/>个性化阈值"]
+  E --> G["finalShapeWeights → 出块流水线"]
+  F --> H["intentResolver 'delight_starved' → relief"]
+```
+
+- **生成**：`web/src/analysis/playerAnalytics.js` 的 `buildSpawnPrior(analysis)`（纯函数）。
+- **持久化**：端侧资产（与 PlayerProfile 同哲学，§12.3 不走 HTTP）。`web/src/playerAnalyticsApp.js` 在分析**本人**数据后写 `localStorage['openblock_spawn_prior:<userId>']`。
+- **加载**：`web/src/game.js` `_loadSpawnPrior()`（`init()` 内，`ingestHistoricalStats` 之后）注入 `_spawnContext.spawnPrior` 与 `playerProfile`。
+- **消费**：`web/src/adaptiveSpawn.js` `applySpawnPrior()` + `playerProfile.isDelightStarved()`。
+
+### 12.3 接入契约（spawnPrior）
+
+`buildSpawnPrior` 产出的精简对象（数据不足返回 `null`）：
+
+| 字段 | 含义 | 消费方 |
+|---|---|---|
+| `strength` | 个性化强度 ∈[0,1]（=画像置信度映射） | 全局 λ 门控 |
+| `confidence` | 总体置信度 | 诊断 |
+| `shapeBias{7键}` | **中性方向**形状适配度 ∈[-0.5,0.5]（>0 擅长/适合多投） | `applySpawnPrior` |
+| `topoWeakness` | 最弱拓扑子项（如 `concaveControl`） | 诊断 / 形状族微调来源 |
+| `comfortFill{low,high}` | 舒适填充带 | P1（默认关闭） |
+| `starvationThreshold` | 个性化爽感饥渴轮阈 | `isDelightStarved` |
+| `reliefAfterRounds` | 个性化救济轮阈 | P1 |
+| `targetStress` / `recommendedDifficulty` | 同质降级项 | P2（默认关闭） |
+
+`shapeBias` 由两步合成：① `shapeCompetence`（9 类）经 `SHAPE_CAT_TO_WEIGHT_KEYS` 映射到出块 7 键（L/J、T/Z 合并类平摊），`bias += competence-0.5`；② `topoWeakness` 经 `TOPO_WEAKNESS_SHAPE_NUDGE` 对相关形状族 ±`topoNudgeGain`（默认 0.15）；末尾 clamp 到 [-0.5,0.5]。
+
+### 12.4 shapeWeights 偏置公式（applySpawnPrior）
+
+在 `resolveAdaptiveStrategy` 产出插值 `shapeWeights`、确定 `spawnIntent` **之后**、`return` **之前**调用：
+
+```
+weight_k *= clamp(1 + λ · sign · bias_k, 1 - cap, 1 + cap)
+```
+
+- `λ = clamp01(prior.strength) × priorInjection.maxStrength`（默认 maxStrength=0.6）；
+- `cap = priorInjection.shapeBias.cap`（默认 0.35），单键乘子限幅；
+- `sign` 由出块意图决定：
+  - **comply（+1，顺玩家）**：`spawnIntent ∈ {relief, harvest, sprint, …}` 或处于困境帧 → 擅长项升权、弱项降权（爽感/救济顺滑）；
+  - **train（-1，逆玩家）**：`spawnIntent ∈ {engage, flow, maintain}` 且**非困境**且 `trainingEnabled` → 方向取反，定向暴露弱项促成长；
+  - **困境帧**（`spawnIntent==='relief'` / `forceReliefIntent` / 高 frustration / `needsRecovery`）强制 comply，绝不在玩家难受时加压。
+
+诊断字段 `_spawnPriorApplied = { mode, lambda, weakness }` 随策略返回，供面板观测。
+
+### 12.5 relief / delight 阈值个性化
+
+`playerProfile.isDelightStarved()` 读 `_spawnPrior.starvationThreshold`：
+
+```
+personalized = platformDefault + λ · (starvationThreshold − platformDefault)
+threshold    = clamp(round(personalized), floor, platformDefault)   // 只会更早救济
+```
+
+`platformDefault` = Android 5 / iOS·web 7；`floor` 默认 2。clamp 上界为平台默认，保证个性化**永不延后**救济。
+
+### 12.6 配置（`shared/game_rules.json` → `adaptiveSpawn.priorInjection`）
+
+```jsonc
+"priorInjection": {
+  "enabled": true,
+  "maxStrength": 0.6,
+  "shapeBias":            { "baseGain": 1.0, "cap": 0.35, "trainingEnabled": true },
+  "reliefPersonalization":{ "enabled": true, "floor": 2 },
+  "comfortFill":          { "anchorInitialFill": false },   // P1
+  "targetStressBias":     { "enabled": false, "budget": 0.05 } // P2 同质降级
+}
+```
+
+### 12.7 实现落点 & 测试
+
+| 层 | 文件 | 改动 |
+|---|---|---|
+| 先验生成 | `web/src/analysis/playerAnalytics.js` | `buildSpawnPrior` + 映射表 + `SPAWN_PRIOR_VERSION` |
+| 偏置后处理 | `web/src/adaptiveSpawn.js` | `applySpawnPrior` + `resolveAdaptiveStrategy` 末尾接入 + `_spawnPriorApplied` |
+| relief 个性化 | `web/src/playerProfile.js` | `setSpawnPrior` + `isDelightStarved` 读 prior |
+| 加载注入 | `web/src/game.js` | `_loadSpawnPrior` + 两处 `_spawnContext.spawnPrior` |
+| 持久化 | `web/src/playerAnalyticsApp.js` | 分析本人后 `persistSpawnPrior` 写 localStorage |
+| 配置 | `shared/game_rules.json` | `adaptiveSpawn.priorInjection` |
+| 测试 | `tests/spawnPriorInjection.test.js` | buildSpawnPrior 结构/钳制、applySpawnPrior 方向/限幅/门控、isDelightStarved 个性化 |
+
+### 12.8 分阶段路线
+
+- **P0（本次落地）**：`shapeBias` 偏置（救济/爽感顺玩家 + 训练逆玩家）、`isDelightStarved` 个性化、全局 λ 门控、端侧持久化、诊断字段、单测。
+- **P1**：`comfortFill` 锚定局初 fillRatio、`reliefAfterRounds` 个性化 `clearGuarantee` 阶梯。灰度验证后开 `anchorInitialFill`。
+- **P2**：`targetStress` 软偏置（受 budget 钳制）、`recommendedDifficulty` 冷启动建议。默认关闭，仅在确认与实时 stress 无冲突后评估。
+
+### 12.9 风险与开放问题
+
+- **双重个性化**：实时层已有 frustration/flow 自适应，先验叠加需靠 `maxStrength`/`cap` 限幅，避免过拟合历史而牺牲当下手感。
+- **画像漂移**：玩家成长后旧先验会偏保守；`strength` 随置信度衰减 + 重新分析覆盖可缓解，后续可加 TTL。
+- **跨端同步**：当前为 web 端侧资产；小程序/原生若需复用，可走配置同步 + 各端 `_loadSpawnPrior` 镜像（见 §11.2 服务端画像同步）。

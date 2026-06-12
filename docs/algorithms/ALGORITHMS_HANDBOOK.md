@@ -13,7 +13,7 @@
 | **算法工程师 · 新人** | 本手册 § 2~4 → [`MODEL_SYSTEMS_FOUR_MODELS.md`](./MODEL_SYSTEMS_FOUR_MODELS.md) → [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) / [`ALGORITHMS_SPAWN.md`（§13）](./ALGORITHMS_SPAWN.md#十三出块建模双轨实现与设计-rationale) | 商业化（除非负责） |
 | **算法工程师 · 优化训练** | [`ALGORITHMS_RL.md`（§21）](./ALGORITHMS_RL.md#21-rl-契约与在线服务) §一 / [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | [`ALGORITHMS_RL.md`（§22）](./ALGORITHMS_RL.md#22-rl-训练监控与排障) | 历史实验记录 |
 | **算法工程师 · 商业化/CRM** | [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md) § 8~9 + [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) + [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | [`MONETIZATION.md`（商业化策略定制指南）](../operations/MONETIZATION.md#商业化策略定制指南) | RL |
-| **数据/分析** | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) + [`ALGORITHMS_PLAYER_MODEL.md`（§18）](./ALGORITHMS_PLAYER_MODEL.md#十八实时状态历史序列分析) + [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | KPI 章节于 [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | RL 训练细节 |
+| **数据/分析** | [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) + [`ALGORITHMS_PLAYER_MODEL.md`（§18）](./ALGORITHMS_PLAYER_MODEL.md#十八实时状态历史序列分析) + [`ALGORITHMS_PLAYER_MODEL.md`（§19 离线聚合画像）](./ALGORITHMS_PLAYER_MODEL.md#十九离线聚合画像与偏好分析playeranalytics) + [`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md) | KPI 章节于 [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | RL 训练细节 |
 | **游戏/玩法工程师** | [`ALGORITHMS_SPAWN.md`](./ALGORITHMS_SPAWN.md) + [`ADAPTIVE_SPAWN.md`](./ADAPTIVE_SPAWN.md) + [`CLEAR_SCORING.md`](../product/CLEAR_SCORING.md) | [`ALGORITHMS_PLAYER_MODEL.md`（§18）](./ALGORITHMS_PLAYER_MODEL.md#十八实时状态历史序列分析) / [`ALGORITHMS_PLAYER_MODEL.md`](./ALGORITHMS_PLAYER_MODEL.md) | RL/商业化 |
 | **运营** | [`MONETIZATION_TRAINING_PANEL.md`](../operations/MONETIZATION_TRAINING_PANEL.md) | [`STRATEGY_GUIDE.md`](../engineering/STRATEGY_GUIDE.md) | 公式细节 |
 
@@ -173,6 +173,8 @@ OpenBlock 内部存在**五个有边界的算法子系统**：
   Δ = clearRate(后半窗) - clearRate(前半窗)
   momentum = clamp(Δ / 0.3, -1, 1)
 ```
+
+**离线聚合画像 playerAnalytics**（跨局，[§19](./ALGORITHMS_PLAYER_MODEL.md#十九离线聚合画像与偏好分析playeranalytics)）：消费 `move_sequences.frames[].ps` 时序，产出带置信度的 **能力 6 维**（topology/scoring/execution/reaction/survival/consistency）+ **时序特质**（trend/endurance/clutch）+ **软概率偏好** + **`spawnAdvice` 出块建议层**（shapeCompetence / comfortFillBand / topologyForm.weakness / 个性化 relief·delight 阈值）。与实时画像互补：实时驱动当帧出块，离线产出复盘/分群/冷启动先验。
 
 ### 5.3 商业化推断（[`ALGORITHMS_MONETIZATION.md`](./ALGORITHMS_MONETIZATION.md)）
 

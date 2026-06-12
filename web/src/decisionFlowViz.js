@@ -1569,6 +1569,10 @@ class DecisionFlowViz {
                             <div class="dfv-sec-title">${T.secHints} <span class="dfv-sec-sub">${T.secHintsSub}</span></div>
                             <ul class="dfv-list dfv-list--three-col dfv-list--hints" id="dfv-hints-list"></ul>
                         </div>
+                        <div class="dfv-section" id="dfv-prior-section" style="display:none">
+                            <div class="dfv-sec-title">🧬 画像先验 <span class="dfv-sec-sub">离线偏好 → shapeWeights 偏置</span></div>
+                            <ul class="dfv-list dfv-list--three-col" id="dfv-prior-list"></ul>
+                        </div>
                     </div>
                 </div>
                 <div class="dfv-sparks" id="dfv-sparks"></div>
@@ -1640,6 +1644,7 @@ class DecisionFlowViz {
             shape:      host.querySelector('#dfv-shape-list'),
             target:     host.querySelector('#dfv-target-list'),
             hints:      host.querySelector('#dfv-hints-list'),
+            prior:      host.querySelector('#dfv-prior-list'),
             phase:      host.querySelector('#dfv-phase-list'),
             /* v1.59.20：顶部决策摘要叙事条（A+B 的 B 部分） */
             summary:    host.querySelector('#dfv-decision-summary'),
@@ -4132,6 +4137,30 @@ class DecisionFlowViz {
                 return `<li title="${_escapeAttr(tip)}"><span class="dfv-li-key">${label}</span><span class="dfv-li-val">${dispV}</span></li>`;
             }).join('');
         els.hints.innerHTML = anchorHtml + hintItemsHtml;
+
+        /* 离线画像先验注入诊断（_spawnPriorApplied） */
+        const priorSection = els.prior?.closest?.('.dfv-section');
+        if (els.prior) {
+            const pa = insight?.spawnPriorApplied;
+            if (pa && pa.mode !== 'none') {
+                if (priorSection) priorSection.style.display = '';
+                const PRIOR_MODE_CN = { comply: '顺偏好', train: '练弱项' };
+                const PRIOR_WK_CN = {
+                    holeBurden: '空洞负担', holeRepair: '修洞能力', holeGrowth: '空洞增长',
+                    flatness: '平整度', concaveControl: '凹角控制', regionCohesion: '区域连贯',
+                };
+                const modeCn = PRIOR_MODE_CN[pa.mode] || pa.mode;
+                const lambdaPct = Number.isFinite(pa.lambda) ? (pa.lambda * 100).toFixed(0) + '%' : '—';
+                const wkCn = pa.weakness ? (PRIOR_WK_CN[pa.weakness] || pa.weakness) : '—';
+                els.prior.innerHTML =
+                    `<li title="离线画像先验注入：对 shapeWeights 做风味偏置"><span class="dfv-li-key">画像</span><span class="dfv-li-val">${modeCn}</span></li>` +
+                    `<li title="偏置强度 λ = strength × maxStrength"><span class="dfv-li-key">λ</span><span class="dfv-li-val">${lambdaPct}</span></li>` +
+                    (pa.weakness ? `<li title="最弱拓扑子项"><span class="dfv-li-key">短板</span><span class="dfv-li-val">${wkCn}</span></li>` : '');
+            } else {
+                els.prior.innerHTML = '';
+                if (priorSection) priorSection.style.display = 'none';
+            }
+        }
 
         /* v1.59.20：A+B 组合的 B 部分——顶部"决策摘要"叙事条。
          * 用一句自然语言把"压力 → 意图 → 偏好 → 3 块"翻译给玩家，与左侧球状图

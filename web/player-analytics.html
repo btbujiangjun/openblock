@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenBlock 玩家能力·偏好分析</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f172a; --panel: #111827; --panel-2: #1f2937;
+      --text: #e5e7eb; --muted: #9ca3af; --line: #374151;
+      --accent: #60a5fa; --good: #34d399; --warn: #fbbf24; --bad: #f87171;
+      --muted-bar: #475569;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    main { width: min(1240px, calc(100vw - 32px)); margin: 0 auto; padding: 28px 0 56px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-end; border-bottom: 1px solid var(--line); padding-bottom: 18px; margin-bottom: 20px; }
+    h1 { font-size: 23px; margin: 0; }
+    h3 { font-size: 14px; margin: 0 0 12px; color: var(--accent); }
+    p { color: var(--muted); line-height: 1.6; margin: 4px 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; }
+
+    .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 14px; }
+    .toolbar label { display: inline-flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+    .toolbar select, .toolbar input { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; font-size: 13px; }
+    .toolbar select { min-width: 280px; }
+    .toolbar input { width: 90px; }
+    button { background: var(--accent); color: #0f172a; border: 0; border-radius: 6px; padding: 8px 18px; font-weight: 700; cursor: pointer; font-size: 13px; }
+    button:hover { filter: brightness(1.1); }
+    button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+
+    #pa-status { padding: 10px 14px; background: var(--panel-2); border-radius: 8px; font-size: 13px; color: var(--muted); min-height: 38px; margin-bottom: 16px; font-family: ui-monospace, monospace; }
+
+    .pa-hero { display: flex; gap: 24px; align-items: center; padding: 18px 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+    .pa-score { text-align: center; padding-right: 24px; border-right: 1px solid var(--line); }
+    .pa-score-num { font-size: 46px; font-weight: 800; color: var(--good); line-height: 1; }
+    .pa-score-lbl { font-size: 13px; color: var(--text); margin-top: 6px; }
+    .pa-score-conf { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .pa-meta { display: flex; flex-wrap: wrap; gap: 22px; }
+    .pa-meta div { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+    .pa-meta span { color: var(--muted); font-size: 11px; }
+    .pa-meta b { color: var(--text); font-size: 15px; }
+
+    .pa-warn-banner { background: rgba(251,191,36,0.12); border: 1px solid var(--warn); color: var(--warn); border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px; }
+
+    .pa-summary { background: linear-gradient(145deg, rgba(99,102,241,0.14), rgba(217,70,239,0.08)); border: 1px solid color-mix(in srgb, #8b5cf6 40%, var(--line)); border-radius: 12px; padding: 14px 18px; margin-bottom: 14px; font-size: 14px; line-height: 1.8; color: var(--text); }
+    .pa-summary-tag { display: inline-block; background: #8b5cf6; color: #fff; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 2px 8px; margin-right: 10px; vertical-align: middle; }
+
+    .pa-trend { text-align: right; font-size: 13px; }
+    .pa-trend em { font-style: normal; color: var(--muted); margin-left: 6px; font-size: 12px; }
+
+    .pa-card--advice { border-color: color-mix(in srgb, #8b5cf6 35%, var(--line)); }
+    .pa-card--advice h3 { color: #c4b5fd; }
+    .pa-advice-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .pa-advice-item { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: help; }
+    .pa-advice-item span { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .pa-advice-item b { font-size: 15px; color: var(--text); }
+    .pa-advice-sub h4 { font-size: 13px; color: var(--muted); margin: 6px 0 8px; font-weight: 600; cursor: help; }
+
+    .pa-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px; }
+    .pa-table th, .pa-table td { padding: 5px 8px; text-align: left; border-bottom: 1px solid var(--line); }
+    .pa-table th { color: var(--muted); font-weight: 600; font-size: 11px; }
+    .pa-table td:nth-child(2), .pa-table td:nth-child(3), .pa-table td:last-child { color: var(--muted); }
+
+    .pa-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+    @media (max-width: 860px) { .pa-grid { grid-template-columns: 1fr; } }
+
+    .pa-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+    .pa-card--radar { display: flex; flex-direction: column; align-items: center; }
+    .pa-radar-wrap { display: flex; justify-content: center; }
+    .pa-radar { max-width: 100%; }
+    .pa-sub { font-size: 12px; margin: 0 0 10px; }
+
+    .pa-bar { flex: 1; height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }
+    .pa-bar > span { display: block; height: 100%; border-radius: 999px; }
+
+    .pa-dim { border-bottom: 1px solid var(--line); }
+    .pa-dim:last-child { border-bottom: 0; }
+    .pa-dim > summary { display: grid; grid-template-columns: 90px 1fr 38px 64px; gap: 10px; align-items: center; padding: 9px 0; cursor: pointer; list-style: none; }
+    .pa-dim > summary::-webkit-details-marker { display: none; }
+    .pa-dim-name { font-size: 13px; }
+    .pa-dim-val { font-size: 13px; font-weight: 700; text-align: right; color: var(--accent); }
+    .pa-conf { font-size: 10px; color: var(--muted); text-align: right; }
+    .pa-parts { padding: 4px 0 12px; }
+    .pa-part { display: grid; grid-template-columns: 90px 1fr 36px; gap: 10px; align-items: center; padding: 3px 0; font-size: 12px; color: var(--muted); }
+    .pa-part em { font-style: normal; text-align: right; }
+    .pa-empty { font-size: 12px; color: var(--muted); }
+
+    .pa-style-row, .pa-kv { display: grid; grid-template-columns: 110px 1fr 78px; gap: 10px; align-items: center; padding: 5px 0; font-size: 13px; }
+    .pa-style-row.is-dom .pa-style-name { color: var(--good); font-weight: 700; }
+    .pa-style-row em, .pa-kv em { font-style: normal; text-align: right; font-size: 12px; color: var(--muted); }
+
+    .pa-affinity-group { margin-top: 10px; }
+    .pa-affinity-title { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+    .pa-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pa-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-size: 12px; }
+    .pa-chip em { font-style: normal; color: var(--accent); }
+    .pa-chip i { font-style: normal; color: var(--muted); font-size: 11px; }
+    .pa-swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+    .pa-insights { margin: 0; padding-left: 20px; }
+    .pa-insights li { font-size: 13px; line-height: 1.7; color: var(--text); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>📊 玩家能力·偏好分析</h1>
+        <p>消费 <code>move_sequences.frames[].ps</code> 聚合时序 → 能力 5 维 + 软概率偏好 + 置信度</p>
+      </div>
+      <div style="text-align:right">
+        <p style="margin:0">核心库：<code>web/src/analysis/playerAnalytics.js</code></p>
+        <p style="margin:0">数据源：<code>/api/replay-sessions</code>（SQLite）</p>
+      </div>
+    </header>
+
+    <div class="toolbar">
+      <label>用户
+        <select id="pa-user"><option>加载中…</option></select>
+      </label>
+      <label>近 N 局
+        <input id="pa-limit" type="number" min="1" max="500" value="80">
+      </label>
+      <button id="pa-run-btn">分析</button>
+      <button id="pa-reload-users" class="ghost">刷新用户</button>
+      <button id="pa-demo-btn" class="ghost" title="无后端 / 无回放时用合成数据预览">载入演示数据</button>
+    </div>
+
+    <div id="pa-status">初始化…</div>
+    <div id="pa-report"></div>
+  </main>
+
+  <script type="module">
+    import { initPlayerAnalyticsApp } from './src/playerAnalyticsApp.js';
+    initPlayerAnalyticsApp();
+  </script>
+</body>
+</html>

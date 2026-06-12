@@ -756,3 +756,27 @@ adaptiveSpawn stress 修正 + playerInsightPanel 展示 + moveSequence 回放快
 | AbilityVector 有界、风险随高填充上升 | `npm test -- tests/playerAbilityModel.test.js` |
 | 出块消费能力向量不破坏可解性 | `npm test -- tests/adaptiveSpawn.test.js tests/blockSpawn.test.js` |
 | 面板无空字段 | 手动打开玩家洞察面板，观察能力卡和解释行 |
+
+### A.6 离线能力偏好分析页（playerAnalytics）
+
+> 与上述**实时**玩家洞察面板（局内逐帧）互补：本页是**跨局离线复盘画像**，消费 `move_sequences` 历史，产出带置信度的稳定画像与出块建议。算法权威说明见 [`ALGORITHMS_PLAYER_MODEL.md §19`](../algorithms/ALGORITHMS_PLAYER_MODEL.md#十九离线聚合画像与偏好分析playeranalytics)。
+
+| 属性 | 值 |
+|------|-----|
+| **入口** | 首页菜单卡「📈 能力偏好分析」→ `/player-analytics.html?autorun=1`（自动发起分析） |
+| **代码** | `web/src/playerAnalyticsApp.js` + `web/player-analytics.html` + 核心 `web/src/analysis/playerAnalytics.js` |
+| **数据源** | `Database.listReplaySessions()` → `frames[].ps`；后端不可用时可「载入演示数据」预览 |
+| **配置** | `shared/game_rules.json → playerAnalysis`（v2） |
+
+页面区块（产品语义）：
+
+| 区块 | 内容 | 怎么读 |
+|------|------|--------|
+| 一句话画像 | 白话总结：综合分+段位、强弱项、打法/风险/节奏、成长趋势、出块建议 | 给运营/产品的“这人是谁”速读 |
+| 能力雷达（6 维） | topology / scoring / execution / reaction / survival / consistency | 越靠外越强；每维可展开看子项 |
+| 时序特质 | 成长趋势(trend) / 局内耐力(endurance) / 高压表现(clutch) | 描述性，不计入综合分 |
+| 软概率偏好 | 玩法风格分布 / 风险偏好 / 节奏 / 形状·颜色亲和 / 动机 | 看玩家“喜欢怎么玩” |
+| 🎯 出块算法建议 | 推荐难度 / 目标压力 / 个性化强度 / 救济节奏 / 爽感节奏 / 舒适填充带 / 拓扑短板 | 供 spawn 个性化的先验 |
+| 形状胜任度表 | 各类形状的落子数 / 消行率 / 胜任度 | 低胜任=救济少投·训练多投，高=可作爽感兑现块 |
+
+> 所有指标 hover tooltip 与释义统一取自核心模块导出的 `ANALYTICS_GLOSSARY`，与算法口径一致。
