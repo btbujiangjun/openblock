@@ -268,6 +268,19 @@ export default {
     'skin.name.farm': '🐄 田园农场',
     'skin.name.desert': '🐫 沙漠绿洲',
 
+    'skin.name.arcadeCabinet': '📺 复古街机',
+    'skin.name.circuitBoard': '🧲 电路矩阵',
+    'skin.name.toyBox': '🧸 玩具箱子',
+    'skin.name.mineralCave': '💍 宝石矿洞',
+    'skin.name.alchemyLab': '⚗️ 炼金工坊',
+    'skin.name.botanicalStudy': '🥀 植物标本',
+    'skin.name.spaceDock': '🛰️ 太空船坞',
+    'skin.name.dungeonLoot': '🪤 地牢宝藏',
+    'skin.name.origamiPaper': '✉️ 折纸纸艺',
+    'skin.name.museumRelic': '⚱️ 博物遗珍',
+    'skin.name.winterCabin': '🪵 冬日木屋',
+    'skin.name.rainyWindow': '🌧️ 雨窗夜灯',
+
     'boot.fileProtocol': '游戏脚本未加载。Web 调试请执行 npm run dev；Android/iOS 离线模式请执行 npm run mobile:build 后重装最新安装包。',
 
     // ============ 玩家生命周期与成熟度系统 ============

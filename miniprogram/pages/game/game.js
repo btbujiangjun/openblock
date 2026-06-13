@@ -129,6 +129,7 @@ Page({
     if (query.skin) setActiveSkinId(query.skin);
     this._skin = getActiveSkin();
     this._audio = createAudioFx();
+    this._audio.setSkinTheme?.(this._skin?.id);
     const audioPrefs = this._audio.getPrefs?.() || { sound: true };
     if (audioPrefs.sound) this._audio.warmup(['tick', 'place', 'clear']);
     const bestKey = `openblock_best_${strategyId}`;
@@ -200,12 +201,11 @@ Page({
     const current = this._audio.getPrefs?.() || { sound: true };
     const next = !current.sound;
     this._audio.setEnabled(next);
+    this._audio.setHaptic?.(next);
     this.setData({ audioOn: next });
     if (next) {
-      this._audio.warmup(['tick', 'place', 'clear']);
+      this._audio.warmup(['tick', 'place', 'clear', 'unlock']);
       this._audio.play('tick');
-    } else {
-      this._audio.vibrate('tick');
     }
   },
 

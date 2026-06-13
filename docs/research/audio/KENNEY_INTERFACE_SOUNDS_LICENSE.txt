@@ -1,0 +1,6 @@
+OpenBlock research audio imports
+
+Kenney Interface Sounds, CC0 1.0, https://kenney.nl/assets/interface-sounds
+Kenney UI Audio, CC0 1.0, https://kenney.nl/assets/ui-audio
+
+Usage: research/test audio overrides. Replace before production if project policy requires curated assets.

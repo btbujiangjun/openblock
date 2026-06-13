@@ -111,6 +111,7 @@ function createFeedbackToggles({ renderer, onChange } = {}) {
     const next = QUALITY_MODES.includes(mode) ? mode : 'high';
     qualityMode = next;
     renderer?.setQualityMode?.(next);
+    renderer?.clearFx?.();
     if (persist) saveQualityPrefs({ mode: next });
     emit();
   };

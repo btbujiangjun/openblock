@@ -43,10 +43,11 @@ Page({
   onLoad() {
     this._audio = createAudioFx();
     this._syncAudioState();
-    if (this.data.audioOn) this._audio.warmup(['tick', 'select', 'place']);
     this._refreshText();
     const skins = getSkinListMeta();
     const active = getActiveSkinId();
+    this._audio.setSkinTheme?.(active);
+    if (this.data.audioOn) this._audio.warmup(['tick', 'select', 'place']);
     let skinIndex = skins.findIndex((s) => s.id === active);
     if (skinIndex < 0) skinIndex = 0;
     const languages = getLanguageList();
@@ -84,12 +85,11 @@ Page({
     const current = this._audio.getPrefs?.() || { sound: true };
     const next = !current.sound;
     this._audio.setEnabled(next);
+    this._audio.setHaptic?.(next);
     this.setData({ audioOn: next });
     if (next) {
-      this._audio.warmup(['tick', 'select', 'place']);
+      this._audio.warmup(['tick', 'select', 'place', 'unlock']);
       this._audio.play('tick');
-    } else {
-      this._audio.vibrate('tick');
     }
   },
 
@@ -148,9 +148,10 @@ Page({
     const skin = cats[catIdx]?.skins[skinIdx];
     if (skin) {
       setActiveSkinId(skin.id);
+      this._audio?.setSkinTheme?.(skin.id);
       const skins = this.data.skins;
       const flatIdx = skins.findIndex((s) => s.id === skin.id);
-      this._audio?.feedback('select');
+      this._audio?.feedback('unlock', { force: true });
       this.setData({
         skinIndex: flatIdx >= 0 ? flatIdx : 0,
         selectedSkinName: skin.name,

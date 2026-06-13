@@ -1,0 +1,1962 @@
+{
+  "checked_files": 326,
+  "errors": [],
+  "rows": [
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/mahjong/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack5.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/mahjong/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-casino-audio/cardSlide3.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/mahjong/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack2.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/mahjong/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/mahjong/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack4.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/mahjong/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/kenney-casino-audio/cardPlace1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/mahjong/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-casino-audio/chipLay1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/mahjong/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/_themes/mahjong/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack5.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/_themes/mahjong/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-casino-audio/cardSlide3.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/_themes/mahjong/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack2.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/_themes/mahjong/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/_themes/mahjong/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack4.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/_themes/mahjong/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/kenney-casino-audio/cardPlace1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/_themes/mahjong/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-casino-audio/chipLay1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "web/public/audio/skins/_themes/mahjong/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/mahjong/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack5.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/mahjong/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-casino-audio/cardSlide3.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/mahjong/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack2.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/mahjong/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/kenney-casino-audio/cardShove1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/mahjong/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/mahjong/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack4.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/mahjong/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/kenney-casino-audio/cardPlace1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/mahjong/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/kenney-casino-audio/cardSlide1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/mahjong/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-casino-audio/chipLay1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/mahjong/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/_groups/mahjong/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack5.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/_groups/mahjong/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-casino-audio/cardSlide3.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/_groups/mahjong/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack2.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/_groups/mahjong/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/kenney-casino-audio/cardShove1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/_groups/mahjong/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/_groups/mahjong/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack4.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/_groups/mahjong/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/kenney-casino-audio/cardPlace1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/_groups/mahjong/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/kenney-casino-audio/cardSlide1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/_groups/mahjong/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-casino-audio/chipLay1.ogg"
+    },
+    {
+      "theme": "mahjong",
+      "target": "miniprogram/assets/audio/skins/_groups/mahjong/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle1.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/jurassic/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/jurassic/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_05.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/jurassic/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_06.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/jurassic/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_03.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/jurassic/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/jurassic/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_01.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/jurassic/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_01.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/jurassic/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/_themes/jungle/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/_themes/jungle/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_05.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/_themes/jungle/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_06.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/_themes/jungle/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_03.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/_themes/jungle/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/_themes/jungle/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_01.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/_themes/jungle/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_01.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "web/public/audio/skins/_themes/jungle/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/jurassic/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/jurassic/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_05.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/jurassic/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_06.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/jurassic/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_10.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/jurassic/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_03.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/jurassic/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/jurassic/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_01.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/jurassic/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_02.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/jurassic/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_01.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/jurassic/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/_groups/jungle/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/_groups/jungle/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_05.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/_groups/jungle/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_06.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/_groups/jungle/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_10.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/_groups/jungle/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_03.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/_groups/jungle/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/_groups/jungle/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_01.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/_groups/jungle/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_02.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/_groups/jungle/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_01.ogg"
+    },
+    {
+      "theme": "jurassic",
+      "target": "miniprogram/assets/audio/skins/_groups/jungle/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/forest/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/forest/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/forest/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_07.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/forest/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_04.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/forest/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/forest/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_02.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/forest/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_03.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/forest/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/_themes/forest/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/_themes/forest/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/_themes/forest/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_07.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/_themes/forest/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_04.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/_themes/forest/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/_themes/forest/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_02.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/_themes/forest/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_03.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "web/public/audio/skins/_themes/forest/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/forest/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/forest/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/forest/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_07.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/forest/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_10.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/forest/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_04.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/forest/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/forest/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_02.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/forest/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_04.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/forest/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_03.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/forest/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/_groups/nature/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/_groups/nature/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/_groups/nature/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_07.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/_groups/nature/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_10.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/_groups/nature/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_04.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/_groups/nature/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/_groups/nature/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/bug_02.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/_groups/nature/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_04.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/_groups/nature/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_03.ogg"
+    },
+    {
+      "theme": "forest",
+      "target": "miniprogram/assets/audio/skins/_groups/nature/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/pets/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_10.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/pets/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_04.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/pets/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_07.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/pets/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_06.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/pets/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/pets/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_01.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/pets/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_02.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/pets/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/_themes/pet/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_10.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/_themes/pet/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_04.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/_themes/pet/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_07.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/_themes/pet/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_06.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/_themes/pet/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/_themes/pet/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_01.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/_themes/pet/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_02.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "web/public/audio/skins/_themes/pet/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/pets/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_10.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/pets/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_04.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/pets/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_07.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/pets/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/pets/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_06.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/pets/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/pets/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_01.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/pets/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/rubberduck-creature-sfx/nose.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/pets/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_02.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/pets/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/_groups/cute/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_10.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/_groups/cute/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_04.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/_groups/cute/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_07.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/_groups/cute/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_08.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/_groups/cute/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_06.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/_groups/cute/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_09.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/_groups/cute/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_01.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/_groups/cute/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/rubberduck-creature-sfx/nose.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/_groups/cute/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-creature-sfx/cute_02.ogg"
+    },
+    {
+      "theme": "pets",
+      "target": "miniprogram/assets/audio/skins/_groups/cute/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-creature-sfx/ooh.ogg"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fairy/bonus.wav",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_006.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fairy/clear.wav",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fairy/combo.wav",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_004.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fairy/multi.wav",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_003.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fairy/perfect.wav",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_005.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fairy/place.wav",
+      "event": "place",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_001.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fairy/tick.wav",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fairy/unlock.wav",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-interface-sounds/drop_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/fairy/bonus.wav",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_006.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/fairy/clear.wav",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/fairy/combo.wav",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_004.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/fairy/multi.wav",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_003.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/fairy/perfect.wav",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_005.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/fairy/place.wav",
+      "event": "place",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_001.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/fairy/tick.wav",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/fairy/unlock.wav",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-interface-sounds/drop_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fantasy/bonus.wav",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_006.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fantasy/clear.wav",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fantasy/combo.wav",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_004.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fantasy/multi.wav",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_003.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fantasy/perfect.wav",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_005.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fantasy/place.wav",
+      "event": "place",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_001.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fantasy/tick.wav",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/fantasy/unlock.wav",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-interface-sounds/drop_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/spell/bonus.wav",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_006.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/spell/clear.wav",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/spell/combo.wav",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_004.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/spell/multi.wav",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_003.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/spell/perfect.wav",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_005.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/spell/place.wav",
+      "event": "place",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_001.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/spell/tick.wav",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "web/public/audio/skins/_themes/spell/unlock.wav",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-interface-sounds/drop_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fairy/bonus.wav",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_006.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fairy/clear.wav",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fairy/combo.wav",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_004.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fairy/gameOver.wav",
+      "event": "gameOver",
+      "source": "docs/research/audio/kenney-interface-sounds/drop_001.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fairy/multi.wav",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_003.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fairy/perfect.wav",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_005.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fairy/place.wav",
+      "event": "place",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_001.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fairy/select.wav",
+      "event": "select",
+      "source": "docs/research/audio/kenney-interface-sounds/select_006.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fairy/tick.wav",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fairy/unlock.wav",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-interface-sounds/drop_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fantasy/bonus.wav",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_006.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fantasy/clear.wav",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fantasy/combo.wav",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_004.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fantasy/gameOver.wav",
+      "event": "gameOver",
+      "source": "docs/research/audio/kenney-interface-sounds/drop_001.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fantasy/multi.wav",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_003.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fantasy/perfect.wav",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_005.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fantasy/place.wav",
+      "event": "place",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_001.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fantasy/select.wav",
+      "event": "select",
+      "source": "docs/research/audio/kenney-interface-sounds/select_006.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fantasy/tick.wav",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/fantasy/unlock.wav",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-interface-sounds/drop_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/_groups/magic/bonus.wav",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_006.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/_groups/magic/clear.wav",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/_groups/magic/combo.wav",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_004.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/_groups/magic/gameOver.wav",
+      "event": "gameOver",
+      "source": "docs/research/audio/kenney-interface-sounds/drop_001.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/_groups/magic/multi.wav",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_003.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/_groups/magic/perfect.wav",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-interface-sounds/glass_005.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/_groups/magic/place.wav",
+      "event": "place",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_001.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/_groups/magic/select.wav",
+      "event": "select",
+      "source": "docs/research/audio/kenney-interface-sounds/select_006.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/_groups/magic/tick.wav",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-interface-sounds/pluck_002.wav"
+    },
+    {
+      "theme": "fairy",
+      "target": "miniprogram/assets/audio/skins/_groups/magic/unlock.wav",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-interface-sounds/drop_002.wav"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/ocean/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_14.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/ocean/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_03.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/ocean/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_09.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/ocean/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_06.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/ocean/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_12.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/ocean/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/ocean/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_02.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/ocean/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/loop_water_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/koi/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_14.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/koi/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_03.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/koi/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_09.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/koi/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_06.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/koi/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_12.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/koi/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/koi/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_02.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/koi/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/loop_water_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/summer/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_14.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/summer/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_03.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/summer/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_09.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/summer/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_06.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/summer/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_12.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/summer/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/summer/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_02.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/summer/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/loop_water_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/rainyWindow/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_14.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/rainyWindow/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_03.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/rainyWindow/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_09.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/rainyWindow/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_06.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/rainyWindow/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_12.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/rainyWindow/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/rainyWindow/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_02.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/rainyWindow/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/loop_water_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/bubble/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_14.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/bubble/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_03.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/bubble/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_09.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/bubble/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_06.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/bubble/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_12.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/bubble/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/bubble/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_02.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/bubble/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/loop_water_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/beach/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_14.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/beach/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_03.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/beach/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_09.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/beach/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_06.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/beach/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_12.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/beach/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/beach/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_02.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/beach/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/loop_water_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/koi/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_14.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/koi/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_03.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/koi/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_09.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/koi/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_06.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/koi/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_12.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/koi/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/koi/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_02.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "web/public/audio/skins/_themes/koi/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/loop_water_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "miniprogram/assets/audio/skins/_groups/water/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_14.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "miniprogram/assets/audio/skins/_groups/water/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_03.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "miniprogram/assets/audio/skins/_groups/water/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_09.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "miniprogram/assets/audio/skins/_groups/water/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/loop_rain.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "miniprogram/assets/audio/skins/_groups/water/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_06.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "miniprogram/assets/audio/skins/_groups/water/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/splash_12.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "miniprogram/assets/audio/skins/_groups/water/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_01.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "miniprogram/assets/audio/skins/_groups/water/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_03.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "miniprogram/assets/audio/skins/_groups/water/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/bubble_02.ogg"
+    },
+    {
+      "theme": "water",
+      "target": "miniprogram/assets/audio/skins/_groups/water/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/rubberduck-water-splash-slime/loop_water_01.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/demon/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle5.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/demon/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-casino-audio/cardShove2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/demon/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack3.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/demon/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/demon/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle4.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/demon/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/kenney-casino-audio/cardPlace2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/demon/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-casino-audio/chipLay2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/demon/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle6.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/dungeonLoot/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle5.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/dungeonLoot/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-casino-audio/cardShove2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/dungeonLoot/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack3.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/dungeonLoot/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/dungeonLoot/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle4.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/dungeonLoot/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/kenney-casino-audio/cardPlace2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/dungeonLoot/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-casino-audio/chipLay2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/dungeonLoot/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle6.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/_themes/underworld/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle5.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/_themes/underworld/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-casino-audio/cardShove2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/_themes/underworld/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack3.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/_themes/underworld/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/_themes/underworld/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle4.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/_themes/underworld/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/kenney-casino-audio/cardPlace2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/_themes/underworld/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-casino-audio/chipLay2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "web/public/audio/skins/_themes/underworld/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle6.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/demon/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle5.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/demon/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-casino-audio/cardShove2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/demon/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack3.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/demon/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/kenney-casino-audio/cardShove3.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/demon/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/demon/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle4.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/demon/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/kenney-casino-audio/cardPlace2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/demon/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/kenney-casino-audio/cardSlide2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/demon/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-casino-audio/chipLay2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/demon/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle6.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/dungeonLoot/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle5.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/dungeonLoot/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-casino-audio/cardShove2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/dungeonLoot/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack3.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/dungeonLoot/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/kenney-casino-audio/cardShove3.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/dungeonLoot/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/dungeonLoot/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle4.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/dungeonLoot/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/kenney-casino-audio/cardPlace2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/dungeonLoot/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/kenney-casino-audio/cardSlide2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/dungeonLoot/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-casino-audio/chipLay2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/dungeonLoot/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle6.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/_groups/dark/bonus.ogg",
+      "event": "bonus",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle5.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/_groups/dark/clear.ogg",
+      "event": "clear",
+      "source": "docs/research/audio/kenney-casino-audio/cardShove2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/_groups/dark/combo.ogg",
+      "event": "combo",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack3.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/_groups/dark/gameOver.ogg",
+      "event": "gameOver",
+      "source": "docs/research/audio/kenney-casino-audio/cardShove3.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/_groups/dark/multi.ogg",
+      "event": "multi",
+      "source": "docs/research/audio/kenney-casino-audio/chipsStack2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/_groups/dark/perfect.ogg",
+      "event": "perfect",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle4.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/_groups/dark/place.ogg",
+      "event": "place",
+      "source": "docs/research/audio/kenney-casino-audio/cardPlace2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/_groups/dark/select.ogg",
+      "event": "select",
+      "source": "docs/research/audio/kenney-casino-audio/cardSlide2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/_groups/dark/tick.ogg",
+      "event": "tick",
+      "source": "docs/research/audio/kenney-casino-audio/chipLay2.ogg"
+    },
+    {
+      "theme": "dark",
+      "target": "miniprogram/assets/audio/skins/_groups/dark/unlock.ogg",
+      "event": "unlock",
+      "source": "docs/research/audio/kenney-casino-audio/chipsHandle6.ogg"
+    }
+  ]
+}

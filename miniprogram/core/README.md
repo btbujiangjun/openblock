@@ -42,7 +42,7 @@
 - 持久化通过 `adapters/storageShim.js` 在 `app.js onLaunch` 阶段把 `wx.*StorageSync` 注册成 `globalThis.localStorage`，因此画像源代码无需修改即可在小程序运行时跨局保留技能、会话历史和模式偏好。
 - 皮肤在 `skins.js` 中进行手机端二次优化：白色系盘面、方块对比度、主题水印和 emoji 图标可读性。
 - 皮肤名由 `i18n.js` 提供 `zh-CN` / `en` 翻译，`getSkinListMeta()` 会按当前语言返回名称。
-- 音效与触觉反馈在 `utils/audioFx.js`，主菜单与游戏页共享 `openblock_audiofx_v1` 偏好。
+- 音效与触觉反馈在 `utils/audioFx.js`，主菜单与游戏页共享 `openblock_audiofx_v1` 偏好；`setSkinTheme(skinId)` 会按当前皮肤 profile（根音、分组、texture 频段）重建程序化 WAV 音色，主菜单切肤与游戏页 query skin 均会同步调用。
 
 ## 皮肤同步
 

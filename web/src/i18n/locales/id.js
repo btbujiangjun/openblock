@@ -95,5 +95,18 @@ export default {
     'skin.name.farm': '🐄 Pertanian',
     'skin.name.desert': '🐫 Oasis',
 
+    'skin.name.arcadeCabinet': '📺 Arcade Cabinet',
+    'skin.name.circuitBoard': '🧲 Circuit Board',
+    'skin.name.toyBox': '🧸 Toy Box',
+    'skin.name.mineralCave': '💍 Mineral Cave',
+    'skin.name.alchemyLab': '⚗️ Alchemy Lab',
+    'skin.name.botanicalStudy': '🥀 Botanical Study',
+    'skin.name.spaceDock': '🛰️ Space Dock',
+    'skin.name.dungeonLoot': '🪤 Dungeon Loot',
+    'skin.name.origamiPaper': '✉️ Origami Paper',
+    'skin.name.museumRelic': '⚱️ Museum Relic',
+    'skin.name.winterCabin': '🪵 Winter Cabin',
+    'skin.name.rainyWindow': '🌧️ Rainy Window',
+
     'boot.fileProtocol': 'Skrip tidak dimuat. Jalankan npm run dev di akar proyek dan buka URL lokal dari terminal; jangan gunakan file://.',
 };

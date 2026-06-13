@@ -2,7 +2,7 @@
  * v1.49 (2026-05) — 全量皮肤 HD 模式"emoji 换装"单测
  *
  * 历史背景：mahjong 是 v1.49 首批接入"HD emoji 换装"机制的皮肤，本文件最初
- * 仅覆盖 mahjong；v1.49 终版扩展为全量 34 个皮肤都接入，本文件相应扩充为
+ * 仅覆盖 mahjong；v1.49 终版扩展为全量现役皮肤都接入，本文件相应扩充为
  * "麻将专属约束 + 全量皮肤通用约束"两块。
  *
  * v1.49 v4 终版（"水印图片不得重复"修复）：
@@ -12,10 +12,10 @@
  *   保证盘面上同时显示的 5 个水印 emoji 两两不同。
  *
  * 全量约束（防止任何皮肤违反"换皮不换轨"+"图片不重复"双重产品契约）：
- *   1. 所有 34 个皮肤都必须声明 hdIcons（HD 模式 emoji 换装）
+ *   1. 所有现役皮肤都必须声明 hdIcons（HD 模式 emoji 换装）
  *   2. 每个皮肤 hdIcons 数量 = 5（默认锚点数，保证盘面 5 个水印两两不同）
  *   3. 每个皮肤 hdIcons 与该皮肤基础 icons 不重叠（HD 必须真正"换装"）
- *   4. 全局 hdIcons emoji 唯一（任意两个皮肤的 hdIcons 不交，34×5=170 全互异）
+ *   4. 全局 hdIcons emoji 唯一（任意两个皮肤的 hdIcons 不交，全量互异）
  *   5. hdIcons emoji 不在任何皮肤的基础 icons 全集里（避免与基础水印混淆）
  *   6. 所有皮肤都不引入 hdOpacity / hdScale / hdAnchors（仅替换 emoji，与所有皮肤共享漂浮节奏）
  *   7. 小程序 hdIcons 与 web 完全一致（防止 sync 脚本漏改）
@@ -190,7 +190,7 @@ describe('_renderBoardWatermark — HD 模式切换与 fallback', () => {
     });
 
     it('未启用 HD 套装的虚拟皮肤（无 hdIcons）即使在 HD 模式也回退到基础 icons', () => {
-        // v1.49 终版：所有 34 个真实皮肤都有 hdIcons，因此此处用虚拟皮肤验证 fallback 行为
+        // v1.49 终版：所有真实皮肤都有 hdIcons，因此此处用虚拟皮肤验证 fallback 行为
         const fakeWm = { icons: ['A', 'B'], opacity: 0.08 };
         const cfg = pickWatermarkConfig('high', fakeWm);
         expect(cfg.usedHd).toBe(false);
@@ -238,11 +238,12 @@ describe('mahjong 与 boardgame 姊妹皮肤的 HD 水印做错位', () => {
         expect(hdIcons).toContain('🎲');
     });
 
-    it('boardgame HD 5 件套 = 老虎机 🎰 + 棋子 ♟️ + 三花色（与 mahjong 不同 emoji，错位叙事）', () => {
-        const wm = WEB_SKINS.boardgame.boardWatermark;
-        // v4 终版：5 件套覆盖 5 锚点；扑克博弈用老虎机 + 国象棋子 + 梅花/红心/方片
-        expect(wm.hdIcons).toEqual(['🎰', '♟️', '♣️', '♥️', '♦️']);
-        // 与 mahjong 完全不同的 emoji，全局唯一性约束（在 §4 全量 describe 块中校验）
+    it('boardgame 历史皮肤若存在，HD 水印需与 mahjong 错位', () => {
+        const wm = WEB_SKINS.boardgame?.boardWatermark;
+        if (!wm) {
+            expect(WEB_SKINS.boardgame).toBeUndefined();
+            return;
+        }
         const mahjongHd = WEB_SKINS.mahjong.boardWatermark.hdIcons;
         const intersect = wm.hdIcons.filter((e) => mahjongHd.includes(e));
         expect(intersect).toEqual([]);
@@ -250,18 +251,18 @@ describe('mahjong 与 boardgame 姊妹皮肤的 HD 水印做错位', () => {
 });
 
 /* ============================================================================
- * 4. 全量 34 个皮肤 HD emoji 换装约束（v1.49 终版）
+ * 4. 全量 40 个皮肤 HD emoji 换装约束（v10.34 扩充后）
  *
  * 这是本文件的核心约束：所有皮肤共享同一套"换皮不换轨"产品契约。
  * 任意单个皮肤违反以下约束将立即失败，防止后续 PR 不小心引入回归。
  * ============================================================================ */
 
 describe('全量皮肤 HD emoji 换装 — v1.49 终版统一约束', () => {
-    /** 收集所有皮肤的 boardWatermark 视图（仅含有 boardWatermark 的皮肤；当前应为 34/34）。 */
+    /** 收集所有皮肤的 boardWatermark 视图（仅含有 boardWatermark 的皮肤；当前应为 40/40）。 */
     const allSkins = Object.entries(WEB_SKINS).filter(([, s]) => s.boardWatermark);
 
-    it('应该有 34 个皮肤都定义了 boardWatermark', () => {
-        expect(allSkins.length).toBe(34);
+    it('应该有 40 个皮肤都定义了 boardWatermark', () => {
+        expect(allSkins.length).toBe(40);
     });
 
     it('约束 1：每个皮肤都必须声明 hdIcons（HD 模式 emoji 换装）', () => {
@@ -343,7 +344,7 @@ describe('全量皮肤 HD emoji 换装 — v1.49 终版统一约束', () => {
         const table = Object.fromEntries(
             allSkins.map(([id, s]) => [id, s.boardWatermark.hdIcons]),
         );
-        // 锁定 v1.49 终版设计；后续如调整，需同步更新 CHANGELOG / SKINS_CATALOG
+        // 锁定当前 40 款 HD 水印设计；后续如调整，需同步更新 CHANGELOG / SKINS_CATALOG
         expect(table).toMatchSnapshot();
     });
 });

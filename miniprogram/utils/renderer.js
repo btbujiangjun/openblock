@@ -137,6 +137,7 @@ class GameRenderer {
     this._ctx = canvas.getContext('2d');
     this._dpr = dpr;
     this._skin = DEFAULT_SKIN;
+    this._iconAssetCache = new Map();
     /** @type {Array<{x:number,y:number,vx:number,vy:number,color:string,life:number,lifeMax?:number,lifeDecay?:number,size:number,gravityMul?:number}>} */
     this.particles = [];
     // beginBonusColorGush 状态（与 web `_colorGushLines/_colorGushStart/_colorGushEnd` 对齐）
@@ -662,7 +663,6 @@ class GameRenderer {
     if (!icons || !icons.length || safeSize < 14) return;
     const icon = icons[colorIdx % icons.length];
     if (!icon) return;
-    const canvasIcon = normalizeCanvasIcon(icon);
     const ctx = this._ctx;
     const skin = this._skin;
     const ins = this._cellInset(size);
@@ -671,6 +671,18 @@ class GameRenderer {
     const s = Math.max(1, size - ins * 2);
     const r = this._cellRadius(s);
     ctx.save();
+    const assetUrl = Array.isArray(skin.blockIconAssets) ? skin.blockIconAssets[colorIdx % skin.blockIconAssets.length] : null;
+    const assetImg = this._getBlockIconAsset(assetUrl);
+    if (assetImg) {
+      roundRect(ctx, bx, by, s, s, r);
+      ctx.clip();
+      const pad = Math.max(2, s * 0.18);
+      ctx.globalAlpha = 1.0;
+      ctx.drawImage(assetImg, bx + pad, by + pad, s - pad * 2, s - pad * 2);
+      ctx.restore();
+      return;
+    }
+    const canvasIcon = normalizeCanvasIcon(icon);
     if (skin.id === 'mahjong') {
       roundRect(ctx, bx, by, s, s, r);
       ctx.clip();
@@ -697,6 +709,20 @@ class GameRenderer {
       ctx.fillText(canvasIcon, ccx, ccy);
     }
     ctx.restore();
+  }
+
+  _getBlockIconAsset(url) {
+    if (!url || !this._canvas || typeof this._canvas.createImage !== 'function') return null;
+    let entry = this._iconAssetCache.get(url);
+    if (!entry) {
+      const img = this._canvas.createImage();
+      entry = { img, ready: false, failed: false };
+      img.onload = () => { entry.ready = true; };
+      img.onerror = () => { entry.failed = true; };
+      img.src = url;
+      this._iconAssetCache.set(url, entry);
+    }
+    return entry.ready && !entry.failed ? entry.img : null;
   }
 
   /** 绘制候选块（dock 区域中的小预览） */

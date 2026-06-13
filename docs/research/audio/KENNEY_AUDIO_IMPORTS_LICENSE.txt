@@ -1,0 +1,9 @@
+OpenBlock research audio imports
+
+Kenney Interface Sounds, CC0 1.0, https://kenney.nl/assets/interface-sounds
+Kenney UI Audio, CC0 1.0, https://kenney.nl/assets/ui-audio
+Kenney Casino Audio, CC0 1.0, https://kenney.nl/assets/casino-audio
+rubberduck Water/Splash/Slime SFX, CC0, https://opengameart.org/content/40-cc0-water-splash-slime-sfx
+rubberduck Creature SFX, CC0, https://opengameart.org/content/80-cc0-creature-sfx
+
+Usage: research/test audio overrides. Replace before production if project policy requires curated assets.

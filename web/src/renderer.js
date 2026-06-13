@@ -207,6 +207,22 @@ function roundRectPath(ctx, x, y, w, h, r) {
  * 单层轻阴影，避免多描边造成「叠影/重影」。
  * @param {CanvasRenderingContext2D} ctx
  */
+const _iconAssetCache = new Map();
+
+function _getBlockIconAsset(url) {
+    if (!url || typeof Image !== 'function') return null;
+    let entry = _iconAssetCache.get(url);
+    if (!entry) {
+        const img = new Image();
+        entry = { img, ready: false, failed: false };
+        img.onload = () => { entry.ready = true; };
+        img.onerror = () => { entry.failed = true; };
+        img.src = url;
+        _iconAssetCache.set(url, entry);
+    }
+    return entry.ready && !entry.failed ? entry.img : null;
+}
+
 function _paintIcon(ctx, bx, by, size, r, color, skin) {
     if (!skin.blockIcons || size < 14) return;
     const colorIdx = skin.blockColors ? skin.blockColors.indexOf(color) : -1;
@@ -214,6 +230,20 @@ function _paintIcon(ctx, bx, by, size, r, color, skin) {
         ? skin.blockIcons[colorIdx % skin.blockIcons.length]
         : skin.blockIcons[0];
     if (!icon) return;
+    const assetUrl = Array.isArray(skin.blockIconAssets) && colorIdx >= 0
+        ? skin.blockIconAssets[colorIdx % skin.blockIconAssets.length]
+        : null;
+    const assetImg = _getBlockIconAsset(assetUrl);
+    if (assetImg) {
+        ctx.save();
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.clip();
+        const pad = Math.max(2, size * 0.18);
+        ctx.globalAlpha = 1.0;
+        ctx.drawImage(assetImg, bx + pad, by + pad, size - pad * 2, size - pad * 2);
+        ctx.restore();
+        return;
+    }
     // 麻将：象牙立体牌 + 传统设色阴刻（仍用 U+1F000 字符，不经彩色 emoji 叠画）
     if (skin.id === 'mahjong') {
         ctx.save();
@@ -2019,10 +2049,7 @@ export class Renderer {
     renderClearCells(cells) {
         if (!cells || cells.length === 0) return;
         const skin = getActiveSkin();
-        const inset = skin.blockInset ?? 2;
         const pulse = 0.65 + 0.35 * Math.abs(Math.sin(Date.now() * 0.008));
-        /* 轻微抬起：不用 epoch 高频 sin，避免高亮阶段过长时「跳动」 */
-        const lift = (1.05 - pulse * 0.4) * (2.2 + 2.8 * pulse);
 
         this.ctx.save();
         this.ctx.translate(this.shakeOffset.x, this.shakeOffset.y);

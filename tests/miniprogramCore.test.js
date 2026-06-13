@@ -76,6 +76,21 @@ const {
   RELIEF_FILL_FLOOR_MILD: MP_RELIEF_FILL_FLOOR_MILD,
   RELIEF_HOLE_FILL_MIN: MP_RELIEF_HOLE_FILL_MIN,
 } = requireCjs('../miniprogram/core/bot/blockSpawn.js');
+
+const EXTERNAL_UI_SKIN_IDS = [
+  'arcadeCabinet',
+  'circuitBoard',
+  'toyBox',
+  'mineralCave',
+  'alchemyLab',
+  'botanicalStudy',
+  'spaceDock',
+  'dungeonLoot',
+  'origamiPaper',
+  'museumRelic',
+  'winterCabin',
+  'rainyWindow',
+];
 const { getAllShapes: mpGetAllShapes } = requireCjs('../miniprogram/core/shapes.js');
 
 function hexToRgb(hex) {
@@ -262,8 +277,8 @@ describe('miniprogram core parity', () => {
     }
   });
 
-  it('keeps all 34 miniprogram skins mobile optimized and readable', () => {
-    expect(SKIN_LIST).toHaveLength(34);
+  it('keeps all 40 miniprogram skins mobile optimized and readable', () => {
+    expect(SKIN_LIST).toHaveLength(40);
     for (const skin of SKIN_LIST) {
       expect(skin.mobileOptimized).toBe(true);
       expect(skin.blockColors).toHaveLength(8);
@@ -277,6 +292,21 @@ describe('miniprogram core parity', () => {
         expect(lum).toBeGreaterThanOrEqual(0.25);
         expect(lum).toBeLessThanOrEqual(0.70);
         expect(Math.abs(lum - gridLuma)).toBeGreaterThanOrEqual(0.26);
+      }
+    }
+  });
+
+  it('syncs external UI icon assets for newly expanded skins', () => {
+    for (const id of EXTERNAL_UI_SKIN_IDS) {
+      const skin = SKIN_LIST.find((item) => item.id === id);
+      expect(skin, id).toBeDefined();
+      expect(skin.blockIconAssets, id).toHaveLength(8);
+      for (const asset of skin.blockIconAssets) {
+        expect(asset).toMatch(/^\/assets\/skins\/[^/]+\/block-[0-7]\.svg$/);
+        const webAsset = path.resolve(__dirname, '..', 'web/public', asset.replace(/^\//, ''));
+        const mpAsset = path.resolve(__dirname, '..', 'miniprogram', asset.replace(/^\//, ''));
+        expect(fs.existsSync(webAsset), webAsset).toBe(true);
+        expect(fs.existsSync(mpAsset), mpAsset).toBe(true);
       }
     }
   });
@@ -319,10 +349,49 @@ describe('miniprogram core parity', () => {
       const next = toggles.cycleQualityMode();
       expect(QUALITY_MODES.includes(next)).toBe(true);
       expect(renderer._q).toBe(next);
+      expect(calls.cleared).toBeGreaterThanOrEqual(2);
       expect(JSON.parse(store.get('openblock_quality_v1'))).toEqual({ mode: next });
 
       const reborn = createFeedbackToggles({ renderer: { setEffectsEnabled() {}, setQualityMode() {}, clearFx() {} } });
       expect(reborn.getState()).toEqual({ visualEnabled: false, qualityMode: next });
+    } finally {
+      if (originalWx === undefined) delete globalThis.wx;
+      else globalThis.wx = originalWx;
+    }
+  });
+
+  it('mirrors web audio prefs, unlock event, and external asset lookup contract', () => {
+    const store = new Map();
+    const originalWx = globalThis.wx;
+    globalThis.wx = {
+      getStorageSync: (k) => (store.has(k) ? store.get(k) : ''),
+      setStorageSync: (k, v) => { store.set(k, v); },
+      removeStorageSync: (k) => { store.delete(k); },
+      clearStorageSync: () => store.clear(),
+      setInnerAudioOption: () => {},
+    };
+    try {
+      const { createAudioFx } = requireCjs('../miniprogram/utils/audioFx.js');
+      const audio = createAudioFx();
+
+      expect(audio.getPrefs()).toMatchObject({ sound: true, haptic: true, volume: 0.55 });
+      audio.setEnabled(false);
+      expect(audio.getPrefs()).toMatchObject({ sound: false, haptic: false });
+      audio.setHaptic(true);
+      expect(audio.getPrefs()).toMatchObject({ sound: false, haptic: false });
+      audio.setEnabled(true);
+      expect(audio.getPrefs()).toMatchObject({ sound: true, haptic: true });
+
+      audio.setSkinTheme('fairy');
+      expect(audio._soundDefs.unlock).toBeTruthy();
+      audio.warmup(['unlock']);
+      expect(audio._warmupQueue).toContain('unlock');
+      expect(audio._externalSoundSrc('unlock')).toBe('assets/audio/skins/fairy/unlock.ogg');
+      audio._assetMissing['assets/audio/skins/fairy/unlock.ogg'] = true;
+      audio._assetMissing['assets/audio/skins/fairy/unlock.mp3'] = true;
+      audio._assetMissing['assets/audio/skins/fairy/unlock.wav'] = true;
+      audio._assetMissing['assets/audio/skins/fairy/unlock.m4a'] = true;
+      expect(audio._externalSoundSrc('unlock')).toBe('assets/audio/skins/_themes/magic/unlock.ogg');
     } finally {
       if (originalWx === undefined) delete globalThis.wx;
       else globalThis.wx = originalWx;

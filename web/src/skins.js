@@ -79,6 +79,7 @@ export const CLASSIC_PALETTE = [
  *   name: string,
  *   blockColors: string[],
  *   blockIcons?: string[],
+ *   blockIconAssets?: string[],
  *   boardWatermark?: BoardWatermark,
  *   gridOuter: string,
  *   gridCell: string,
@@ -96,7 +97,7 @@ export const CLASSIC_PALETTE = [
  */
 
 /**
- * 皮肤总量：42 款（v10.33 删除 bubbly/beast 2 款，新增 zen/cafe/garden/doodle/cyberpunk/nordic/fiesta/zodiac 8 款；
+ * 皮肤总量：40 款（v10.33 删除 bubbly/beast 2 款，新增 zen/cafe/garden/doodle/cyberpunk/nordic/fiesta/zodiac 8 款；
  *               v10.32 剔除 `neural`→`neonCity` 与 `lava`→`sunset`，sunset 升级为「琥珀流光」glass 风格）
  * 盘面设计基准：参考 neonCity —— gridOuter（极深）+ gridCell（深色可见空格）
  * 方块须与 gridCell 形成明显明度/色相反差。
@@ -410,7 +411,7 @@ export const SKINS = {
         //                  🏮红灯笼 / 🎐风铃 / 🐟池中鲤
         // 移除与深海重复的 🦈🐡🐙🐠，全部换成日本意象专属 emoji
         // 蓝浪/蓝鲤放暖红底，红鸟居/红灯笼放蓝青底，全互补色
-        blockIcons: ['🎋', '🌊', '🏵️', '⛩️', '🐟', '🏮', '🎐', '🎏'],
+        blockIcons: ['🎋', '🌊', '🪷', '⛩️', '🐟', '🏮', '🎐', '🎏'],
         // v10.5：🪷 #3A9EC8 (与 🏮 #38A8B8 同色族) → #4070D8 莲花池蓝，区分度提升
         blockColors: [
             '#FF5040', '#F07828', '#F0C820', '#4070D8',
@@ -579,7 +580,7 @@ export const SKINS = {
     summer: {
         id: 'summer',
         name: '🏖️ 夏日海风',
-        boardWatermark: { icons: ['☀️', '🏝️'], opacity: 0.10, hdIcons: ['🍉', '🍹', '🏄', '🍧', '🥥'] },
+        boardWatermark: { icons: ['☀️', '🏝️'], opacity: 0.10, hdIcons: ['🍉', '🩴', '🏄', '🍧', '🪸'] },
         // 夏日海滩八件套（全部专属，与现有 30+ 款皮肤无重复）：
         //   🍉西瓜 / 🍦冰淇淋 / 🥥椰子 / 🏝️热带岛 /
         //   🍧刨冰 / 🍹饮料 / 🏄冲浪 / 🏓乒乓球
@@ -908,7 +909,7 @@ export const SKINS = {
     fairy: {
         id: 'fairy',
         name: '🧚 花语星梦',
-        boardWatermark: { icons: ['🧚', '🌸'], opacity: 0.08, hdIcons: ['🦌', '🐿️', '🍄', '🍂', '🌰'] },
+        boardWatermark: { icons: ['🧚', '🌸'], opacity: 0.08, hdIcons: ['🦌', '🐿️', '🪻', '🍂', '🌰'] },
         // 花仙系专属：🧚花仙子 / 🦋蝶仙 / 🌹玫瑰 / 🌷郁金香 / 🌻向日葵 / 🍃嫩叶 / 🪄魔棒 / 🌈彩虹
         // 黄向日葵/绿嫩叶/红玫瑰落紫/粉/品红底 → 强冷暖反差；蝴蝶蓝放粉底，樱花粉换为玫瑰
         blockIcons: ['🌻', '🦋', '🌹', '🍃', '🌟', '🌷', '🌈', '🧚'],
@@ -949,7 +950,7 @@ export const SKINS = {
     forbidden: {
         id: 'forbidden',
         name: '👑 紫禁浮光',
-        boardWatermark: { icons: ['👑', '🐲'], opacity: 0.08, hdIcons: ['🎭', '🧧', '🏮', '🥢', '🍵'] },
+        boardWatermark: { icons: ['👑', '🐲'], opacity: 0.08, hdIcons: ['🎐', '🧧', '🏮', '🥢', '🍵'] },
         // 紫禁城八件套（全部专属，注意 🐲 龙颜 ≠ jurassic 的 🐉 翼龙）：
         //   🐲龙颜 / 👑凤冠皇冠 / 🪭折扇 / 🧧红包 / 🥮月饼 /
         //   🀄麻将红中 / 📜圣旨卷轴 / 🍵御茶
@@ -1072,17 +1073,17 @@ export const SKINS = {
         id: 'forest',
         name: '🌳 荒野秘境',
         boardWatermark: { icons: ['🌳', '🍁'], opacity: 0.08, hdIcons: ['🌲', '🐻', '🐗', '🦔', '🍇'] },
-        // 林木+猛兽融合（吸收 beast 精华 🐺🦅🐻，替换 🌴🍂🪵）
-        blockIcons: ['🌳', '🌲', '🐺', '🍁', '🦅', '🌾', '🐻', '🍄'],
+        // 林木+猛兽融合（吸收 beast 精华并改用 🦝🦅🐻，替换 🌴🍂🪵）
+        blockIcons: ['🌳', '🌲', '🦝', '🍁', '🦅', '🌾', '🐻', '🪺'],
         blockColors: [
             '#A5682F', // 🌳 焦糖棕
             '#D97B3C', // 🌲 暖橙树根
-            '#6B7BA2', // 🐺 钢蓝灰
+            '#6B7BA2', // 🦝 钢蓝灰
             '#518349', // 🍁 苔绿
             '#D4A028', // 🦅 鎏金
             '#C4497F', // 🌾 紫红
             '#A36934', // 🐻 棕熊
-            '#5392C9'  // 🍄 天蓝
+            '#5392C9'  // 🪺 天蓝
         ],
         gridOuter:   '#06140A',
         gridCell:    '#0E2010',
@@ -1142,7 +1143,7 @@ export const SKINS = {
     cafe: {
         id: 'cafe',
         name: '☕ 午后咖啡',
-        boardWatermark: { icons: ['☕', '📖'], opacity: 0.10 },
+        boardWatermark: { icons: ['☕', '📖'], opacity: 0.10, hdIcons: ['🥯', '🍮', '🥄', '🪑', '🧺'] },
         blockIcons: ['☕', '📖', '🥤', '🌵', '🕯️', '🥐', '🎵', '📝'],
         blockColors: [
             '#8A6A50', '#6A7A6A', '#997356', '#548172',
@@ -1172,11 +1173,335 @@ export const SKINS = {
         }
     },
 
+
+    /** 复古街机柜：CRT 像素屏、投币灯箱与经典 UI 标牌 */
+    arcadeCabinet: {
+        id: 'arcadeCabinet',
+        name: '📺 复古街机',
+        boardWatermark: { icons: ['📺', '📻'], opacity: 0.055, hdIcons: ['🖲️', '🔳', '📠', '🧮', '🔣'] },
+        blockIcons: ['📺', '📟', '💽', '📀', '💿', '📼', '🎚️', '🎛️'],
+        blockIconAssets: ['/assets/skins/arcadeCabinet/block-0.svg', '/assets/skins/arcadeCabinet/block-1.svg', '/assets/skins/arcadeCabinet/block-2.svg', '/assets/skins/arcadeCabinet/block-3.svg', '/assets/skins/arcadeCabinet/block-4.svg', '/assets/skins/arcadeCabinet/block-5.svg', '/assets/skins/arcadeCabinet/block-6.svg', '/assets/skins/arcadeCabinet/block-7.svg'],
+        blockColors: ['#35E06F', '#FF3B6B', '#20C8FF', '#FFD13D', '#B05CFF', '#FF8A24', '#40E0D0', '#F4F4F8'],
+        gridOuter: '#050815',
+        gridCell: '#10172A',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'pixel8',
+        clearFlash: 'rgba(90,240,180,0.78)',
+        cssBg: '#060914',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#35E06F',
+            '--accent-dark':  '#FF3B6B',
+            '--h1-color':     '#B8FFE0'
+        }
+    },
+
+    /** 电路板：深绿 PCB、铜线与信号节点 */
+    circuitBoard: {
+        id: 'circuitBoard',
+        name: '🧲 电路矩阵',
+        boardWatermark: { icons: ['🧲', '📶'], opacity: 0.048, hdIcons: ['⌁', '⎍', '⏚', '⟟', '⟠'] },
+        blockIcons: ['🧲', '📶', '🟢', '🟣', '🟡', '🟤', '🪛', '🪫'],
+        blockIconAssets: ['/assets/skins/circuitBoard/block-0.svg', '/assets/skins/circuitBoard/block-1.svg', '/assets/skins/circuitBoard/block-2.svg', '/assets/skins/circuitBoard/block-3.svg', '/assets/skins/circuitBoard/block-4.svg', '/assets/skins/circuitBoard/block-5.svg', '/assets/skins/circuitBoard/block-6.svg', '/assets/skins/circuitBoard/block-7.svg'],
+        blockColors: ['#2FE68A', '#48B8FF', '#D6F75A', '#A978FF', '#F5A642', '#B07848', '#6EE7C8', '#FF5E7A'],
+        gridOuter: '#061A12',
+        gridCell: '#0D2A1D',
+        gridLine: 'rgba(82, 255, 170, 0.16)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'neon',
+        clearFlash: 'rgba(80,255,180,0.62)',
+        cssBg: '#03100C',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#2FE68A',
+            '--accent-dark':  '#D6F75A',
+            '--h1-color':     '#B8FFD8'
+        }
+    },
+
+    /** 玩具箱：积木、拼图和童年游乐场的软糖色块 */
+    toyBox: {
+        id: 'toyBox',
+        name: '🧸 玩具箱子',
+        boardWatermark: { icons: ['🧸', '🧩'], opacity: 0.078, hdIcons: ['🛼', '🥏', '🪇', '🪈', '🪗'] },
+        blockIcons: ['🧸', '🪀', '🪁', '🧩', '🪆', '🛝', '🛴', '🎳'],
+        blockIconAssets: ['/assets/skins/toyBox/block-0.svg', '/assets/skins/toyBox/block-1.svg', '/assets/skins/toyBox/block-2.svg', '/assets/skins/toyBox/block-3.svg', '/assets/skins/toyBox/block-4.svg', '/assets/skins/toyBox/block-5.svg', '/assets/skins/toyBox/block-6.svg', '/assets/skins/toyBox/block-7.svg'],
+        blockColors: ['#E8527A', '#F38C32', '#F7D04A', '#58C56A', '#42A7E8', '#9B72F0', '#F06DB8', '#38C8BE'],
+        gridOuter: '#CCB88C',
+        gridCell: '#F4E8CE',
+        gridLine: 'rgba(110, 82, 42, 0.18)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 9,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,220,120,0.75)',
+        cssBg: '#EFE1C2',
+        uiDark: false,
+        cssVars: {
+            '--text-primary':     '#2B2118',
+            '--text-secondary':   '#7A6248',
+            '--accent-color':     '#E8527A',
+            '--accent-dark':      '#42A7E8',
+            '--shadow':           'rgba(102, 72, 38, 0.14)',
+            '--h1-color':         '#B84468',
+            '--stat-surface':     'rgba(255,248,232,0.94)',
+            '--stat-label-color': '#7A6248',
+            '--select-bg':        '#FFF4DC',
+            '--select-border':    'rgba(132, 92, 52, 0.22)'
+        }
+    },
+
+    /** 宝石矿洞：岩层、晶簇、矿灯与低饱和矿物光 */
+    mineralCave: {
+        id: 'mineralCave',
+        name: '💍 宝石矿洞',
+        boardWatermark: { icons: ['💍', '🔦'], opacity: 0.052, hdIcons: ['◾', '◽', '▪️', '▫️', '⬛'] },
+        blockIcons: ['💍', '🔦', '🧱', '🟫', '🟪', '🟨', '🔸', '🔹'],
+        blockIconAssets: ['/assets/skins/mineralCave/block-0.svg', '/assets/skins/mineralCave/block-1.svg', '/assets/skins/mineralCave/block-2.svg', '/assets/skins/mineralCave/block-3.svg', '/assets/skins/mineralCave/block-4.svg', '/assets/skins/mineralCave/block-5.svg', '/assets/skins/mineralCave/block-6.svg', '/assets/skins/mineralCave/block-7.svg'],
+        blockColors: ['#54D3D8', '#B38AF6', '#D6A15C', '#8C6A4A', '#7A54D6', '#D8BC4C', '#E06A3A', '#4A8EE8'],
+        gridOuter: '#12131C',
+        gridCell: '#202132',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(160,230,255,0.58)',
+        cssBg: '#0A0B12',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#54D3D8',
+            '--accent-dark':  '#B38AF6',
+            '--h1-color':     '#C8F7FF'
+        }
+    },
+
+    /** 炼金工坊：瓶罐、粉末与铜绿实验台 */
+    alchemyLab: {
+        id: 'alchemyLab',
+        name: '⚗️ 炼金工坊',
+        boardWatermark: { icons: ['⚗️', '🧪'], opacity: 0.052, hdIcons: ['☣️', '☢️', '♨️', '⚕️', '☤'] },
+        blockIcons: ['⚗️', '🧪', '🧫', '🧴', '🧂', '🪶', '🧵', '🫙'],
+        blockIconAssets: ['/assets/skins/alchemyLab/block-0.svg', '/assets/skins/alchemyLab/block-1.svg', '/assets/skins/alchemyLab/block-2.svg', '/assets/skins/alchemyLab/block-3.svg', '/assets/skins/alchemyLab/block-4.svg', '/assets/skins/alchemyLab/block-5.svg', '/assets/skins/alchemyLab/block-6.svg', '/assets/skins/alchemyLab/block-7.svg'],
+        blockColors: ['#8BD450', '#4AC7C0', '#C06BE8', '#D8B04A', '#B87333', '#58A6E8', '#E06088', '#6DAA60'],
+        gridOuter: '#17120A',
+        gridCell: '#2A2112',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(180,255,140,0.60)',
+        cssBg: '#100C08',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#8BD450',
+            '--accent-dark':  '#D8B04A',
+            '--h1-color':     '#D8F8B0'
+        }
+    },
+
+    /** 植物标本馆：纸张、标本签、温室与柔和自然色 */
+    botanicalStudy: {
+        id: 'botanicalStudy',
+        name: '🥀 植物标本',
+        boardWatermark: { icons: ['🥀', '🫛'], opacity: 0.10, hdIcons: ['🫐', '🥦', '🍅', '🍆', '🥒'] },
+        blockIcons: ['🥀', '🫛', '🫒', '🍓', '🫚', '🪴', '🪲', '🫘'],
+        blockIconAssets: ['/assets/skins/botanicalStudy/block-0.svg', '/assets/skins/botanicalStudy/block-1.svg', '/assets/skins/botanicalStudy/block-2.svg', '/assets/skins/botanicalStudy/block-3.svg', '/assets/skins/botanicalStudy/block-4.svg', '/assets/skins/botanicalStudy/block-5.svg', '/assets/skins/botanicalStudy/block-6.svg', '/assets/skins/botanicalStudy/block-7.svg'],
+        blockColors: ['#8C4A5A', '#4F7F55', '#6C9B4A', '#B24F5A', '#9C7240', '#5F8A68', '#486A50', '#8A6A4B'],
+        gridOuter: '#BFC7A8',
+        gridCell: '#E7E8D8',
+        gridLine: 'rgba(82, 98, 58, 0.18)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 8,
+        blockStyle: 'flat',
+        clearFlash: 'rgba(170,220,130,0.62)',
+        cssBg: '#D9DDC8',
+        uiDark: false,
+        cssVars: {
+            '--text-primary':     '#202818',
+            '--text-secondary':   '#607048',
+            '--accent-color':     '#5F8A68',
+            '--accent-dark':      '#486A50',
+            '--shadow':           'rgba(70, 86, 48, 0.14)',
+            '--h1-color':         '#3F6848',
+            '--stat-surface':     'rgba(245,246,232,0.94)',
+            '--stat-label-color': '#6A7658',
+            '--select-bg':        '#F4F2DC',
+            '--select-border':    'rgba(82, 98, 58, 0.22)'
+        }
+    },
+
+    /** 太空船坞：离子蓝、泊位灯、舱门与轨道设施 */
+    spaceDock: {
+        id: 'spaceDock',
+        name: '🛰️ 太空船坞',
+        boardWatermark: { icons: ['🛰️', '🧑‍🚀'], opacity: 0.045, hdIcons: ['✦', '✧', '✹', '✺', '✷'] },
+        blockIcons: ['🛰️', '🧑‍🚀', '👨‍🚀', '👩‍🚀', '🛞', '🧯', '🗜️', '📍'],
+        blockIconAssets: ['/assets/skins/spaceDock/block-0.svg', '/assets/skins/spaceDock/block-1.svg', '/assets/skins/spaceDock/block-2.svg', '/assets/skins/spaceDock/block-3.svg', '/assets/skins/spaceDock/block-4.svg', '/assets/skins/spaceDock/block-5.svg', '/assets/skins/spaceDock/block-6.svg', '/assets/skins/spaceDock/block-7.svg'],
+        blockColors: ['#4AD8FF', '#8C7CFF', '#56E6A4', '#F6C84A', '#EF6A7A', '#6FA8FF', '#B6E6FF', '#D48BFF'],
+        gridOuter: '#06101F',
+        gridCell: '#101A30',
+        gridLine: 'rgba(120, 190, 255, 0.14)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'neon',
+        clearFlash: 'rgba(120,220,255,0.70)',
+        cssBg: '#030814',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#4AD8FF',
+            '--accent-dark':  '#8C7CFF',
+            '--h1-color':     '#B8ECFF'
+        }
+    },
+
+    /** 地牢宝藏：暗石地牢、金币反光与探险道具 */
+    dungeonLoot: {
+        id: 'dungeonLoot',
+        name: '🪤 地牢宝藏',
+        boardWatermark: { icons: ['🪤', '🕳️'], opacity: 0.05, hdIcons: ['⛓', '⌬', '⟡', '⟢', '✶'] },
+        blockIcons: ['🪤', '🕳️', '🪓', '🧰', '📦', '⚜️', '🏚️', '🪦'],
+        blockIconAssets: ['/assets/skins/dungeonLoot/block-0.svg', '/assets/skins/dungeonLoot/block-1.svg', '/assets/skins/dungeonLoot/block-2.svg', '/assets/skins/dungeonLoot/block-3.svg', '/assets/skins/dungeonLoot/block-4.svg', '/assets/skins/dungeonLoot/block-5.svg', '/assets/skins/dungeonLoot/block-6.svg', '/assets/skins/dungeonLoot/block-7.svg'],
+        blockColors: ['#B88438', '#686070', '#B84A3A', '#4F8A70', '#8C6A42', '#C6A64A', '#B04A68', '#586078'],
+        gridOuter: '#0F0C10',
+        gridCell: '#1D1720',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,210,110,0.62)',
+        cssBg: '#09070A',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#B88438',
+            '--accent-dark':  '#C6A64A',
+            '--h1-color':     '#F0D49A'
+        }
+    },
+
+    /** 折纸纸艺：柔色纸面、折线和安静和风 */
+    origamiPaper: {
+        id: 'origamiPaper',
+        name: '✉️ 折纸纸艺',
+        boardWatermark: { icons: ['✉️', '📄'], opacity: 0.11, hdIcons: ['▱', '△', '◇', '□', '▽'] },
+        blockIcons: ['✉️', '📄', '🏷️', '🔖', '🧾', '📰', '📑', '📃'],
+        blockIconAssets: ['/assets/skins/origamiPaper/block-0.svg', '/assets/skins/origamiPaper/block-1.svg', '/assets/skins/origamiPaper/block-2.svg', '/assets/skins/origamiPaper/block-3.svg', '/assets/skins/origamiPaper/block-4.svg', '/assets/skins/origamiPaper/block-5.svg', '/assets/skins/origamiPaper/block-6.svg', '/assets/skins/origamiPaper/block-7.svg'],
+        blockColors: ['#D86A88', '#E29B52', '#D8C86A', '#78A870', '#64A8C8', '#9B7AC8', '#C47AA0', '#8CA0B8'],
+        gridOuter: '#C9BFAE',
+        gridCell: '#ECE5D8',
+        gridLine: 'rgba(100, 82, 60, 0.18)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 4,
+        blockStyle: 'flat',
+        clearFlash: 'rgba(255,235,190,0.66)',
+        cssBg: '#DED3C2',
+        uiDark: false,
+        cssVars: {
+            '--text-primary':     '#2A241C',
+            '--text-secondary':   '#706452',
+            '--accent-color':     '#D86A88',
+            '--accent-dark':      '#8CA0B8',
+            '--shadow':           'rgba(92, 70, 48, 0.13)',
+            '--h1-color':         '#A85468',
+            '--stat-surface':     'rgba(250,244,232,0.94)',
+            '--stat-label-color': '#766A58',
+            '--select-bg':        '#F7EEDF',
+            '--select-border':    'rgba(100, 82, 60, 0.22)'
+        }
+    },
+
+    /** 博物馆遗物：展柜暗金、考古标签与时间尘埃 */
+    museumRelic: {
+        id: 'museumRelic',
+        name: '⚱️ 博物遗珍',
+        boardWatermark: { icons: ['⚱️', '🔎'], opacity: 0.052, hdIcons: ['⌛', '⏳', '♜', '♞', '♝'] },
+        blockIcons: ['⚱️', '🔎', '🗄️', '🖼️', '🪞', '📏', '🧭', '🪙'],
+        blockIconAssets: ['/assets/skins/museumRelic/block-0.svg', '/assets/skins/museumRelic/block-1.svg', '/assets/skins/museumRelic/block-2.svg', '/assets/skins/museumRelic/block-3.svg', '/assets/skins/museumRelic/block-4.svg', '/assets/skins/museumRelic/block-5.svg', '/assets/skins/museumRelic/block-6.svg', '/assets/skins/museumRelic/block-7.svg'],
+        blockColors: ['#B0703C', '#8A6A48', '#506A78', '#9B4F4A', '#7A6AA0', '#C0A05A', '#4F8068', '#8C7850'],
+        gridOuter: '#17120C',
+        gridCell: '#281F14',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(230,190,120,0.58)',
+        cssBg: '#0E0A06',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#C0A05A',
+            '--accent-dark':  '#B0703C',
+            '--h1-color':     '#E8D0A0'
+        }
+    },
+
+    /** 冬日木屋：雪窗、暖炉、羊毛织物和松木香气 */
+    winterCabin: {
+        id: 'winterCabin',
+        name: '🪵 冬日木屋',
+        boardWatermark: { icons: ['🪵', '🧤'], opacity: 0.08, hdIcons: ['🪡', '🧶', '🥾', '🫎', '🫕'] },
+        blockIcons: ['🪵', '🧤', '🧣', '🧦', '🛷', '🔥', '🫖', '🏕️'],
+        blockIconAssets: ['/assets/skins/winterCabin/block-0.svg', '/assets/skins/winterCabin/block-1.svg', '/assets/skins/winterCabin/block-2.svg', '/assets/skins/winterCabin/block-3.svg', '/assets/skins/winterCabin/block-4.svg', '/assets/skins/winterCabin/block-5.svg', '/assets/skins/winterCabin/block-6.svg', '/assets/skins/winterCabin/block-7.svg'],
+        blockColors: ['#7A5130', '#B04A4A', '#2F6F88', '#C09854', '#556B84', '#D06A38', '#6F8A70', '#A05A48'],
+        gridOuter: '#E0D7C8',
+        gridCell: '#F3EFE6',
+        gridLine: 'rgba(90, 72, 52, 0.16)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 8,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(210,235,255,0.66)',
+        cssBg: '#D8D0C2',
+        uiDark: false,
+        cssVars: {
+            '--text-primary':     '#221C16',
+            '--text-secondary':   '#6A5A48',
+            '--accent-color':     '#A05A48',
+            '--accent-dark':      '#2F6F88',
+            '--shadow':           'rgba(78, 56, 36, 0.14)',
+            '--h1-color':         '#7A5130',
+            '--stat-surface':     'rgba(250,246,238,0.94)',
+            '--stat-label-color': '#7A6754',
+            '--select-bg':        '#F8F1E6',
+            '--select-border':    'rgba(96, 72, 52, 0.22)'
+        }
+    },
+
+    /** 雨窗夜灯：玻璃雨滴、街灯反射和柔暗蓝灰 */
+    rainyWindow: {
+        id: 'rainyWindow',
+        name: '🌧️ 雨窗夜灯',
+        boardWatermark: { icons: ['🌧️', '☔'], opacity: 0.05, hdIcons: ['♒', '≋', '∿', '∽', '◌'] },
+        blockIcons: ['🌧️', '☔', '💧', '💦', '🪟', '🌂', '☁️', '💡'],
+        blockIconAssets: ['/assets/skins/rainyWindow/block-0.svg', '/assets/skins/rainyWindow/block-1.svg', '/assets/skins/rainyWindow/block-2.svg', '/assets/skins/rainyWindow/block-3.svg', '/assets/skins/rainyWindow/block-4.svg', '/assets/skins/rainyWindow/block-5.svg', '/assets/skins/rainyWindow/block-6.svg', '/assets/skins/rainyWindow/block-7.svg'],
+        blockColors: ['#4C8FB8', '#6AA0D0', '#3FC0D0', '#58D0B8', '#A8B8C8', '#8A74C8', '#6A7A90', '#D8B858'],
+        gridOuter: '#07101A',
+        gridCell: '#101C2A',
+        gridLine: 'rgba(120, 180, 220, 0.12)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(140,210,255,0.58)',
+        cssBg: '#050B12',
+        uiDark: true,
+        cssVars: {
+            '--accent-color': '#6AA0D0',
+            '--accent-dark':  '#D8B858',
+            '--h1-color':     '#B8D8F0'
+        }
+    },
+
     /** 欢庆嘉年：派对 / 节日 / 彩旗 / 烟花，全年龄 */
     fiesta: {
         id: 'fiesta',
         name: '🎉 欢庆嘉年',
-        boardWatermark: { icons: ['🎉', '🎊'], opacity: 0.08 },
+        boardWatermark: { icons: ['🎉', '🎊'], opacity: 0.08, hdIcons: ['🎇', '🎫', '🎗️', '📯', '🎆'] },
         blockIcons: ['🎉', '🎊', '🎈', '🎠', '🥳', '🎁', '🧨', '🎪'],
         blockColors: [
             '#FF3058', '#FF9020', '#FFD028', '#30D850',
@@ -1204,10 +1529,10 @@ export const SKIN_LIST = Object.values(SKINS);
 
 /** 皮肤分类（与 SKINS_CATALOG.md 大类对齐，合并小类以减少选择噪音） */
 export const SKIN_CATEGORIES = [
-    { id: 'classic',   label: '🔰 经典 · 科技', skins: ['classic', 'titanium', 'aurora', 'neonCity', 'candy', 'toon', 'pixel8'] },
-    { id: 'nature',    label: '🌿 自然 · 清新', skins: ['ocean', 'sunset', 'forest', 'dawn', 'summer', 'cafe', 'sakura'] },
-    { id: 'life',      label: '🏷️ 生活 · 庆典', skins: ['food', 'music', 'pets', 'universe', 'fiesta', 'apple', 'koi'] },
-    { id: 'fantasy',   label: '🧿 奇幻 · 文化', skins: ['fantasy', 'fairy', 'greece', 'demon', 'jurassic', 'forbidden', 'mahjong'] },
+    { id: 'classic',   label: '🔰 经典 · 科技', skins: ['classic', 'titanium', 'aurora', 'neonCity', 'candy', 'toon', 'pixel8', 'arcadeCabinet', 'circuitBoard', 'spaceDock'] },
+    { id: 'nature',    label: '🌿 自然 · 清新', skins: ['ocean', 'sunset', 'forest', 'dawn', 'summer', 'cafe', 'sakura', 'botanicalStudy', 'mineralCave', 'winterCabin', 'rainyWindow'] },
+    { id: 'life',      label: '🏷️ 生活 · 庆典', skins: ['food', 'music', 'pets', 'universe', 'fiesta', 'apple', 'koi', 'toyBox'] },
+    { id: 'fantasy',   label: '🧿 奇幻 · 文化', skins: ['fantasy', 'fairy', 'greece', 'demon', 'jurassic', 'forbidden', 'mahjong', 'alchemyLab', 'dungeonLoot', 'origamiPaper', 'museumRelic'] },
 ];
 
 /**

@@ -95,5 +95,18 @@ export default {
     'skin.name.farm': '🐄 مزرعة',
     'skin.name.desert': '🐫 واحة صحراوية',
 
+    'skin.name.arcadeCabinet': '📺 Arcade Cabinet',
+    'skin.name.circuitBoard': '🧲 Circuit Board',
+    'skin.name.toyBox': '🧸 Toy Box',
+    'skin.name.mineralCave': '💍 Mineral Cave',
+    'skin.name.alchemyLab': '⚗️ Alchemy Lab',
+    'skin.name.botanicalStudy': '🥀 Botanical Study',
+    'skin.name.spaceDock': '🛰️ Space Dock',
+    'skin.name.dungeonLoot': '🪤 Dungeon Loot',
+    'skin.name.origamiPaper': '✉️ Origami Paper',
+    'skin.name.museumRelic': '⚱️ Museum Relic',
+    'skin.name.winterCabin': '🪵 Winter Cabin',
+    'skin.name.rainyWindow': '🌧️ Rainy Window',
+
     'boot.fileProtocol': 'لم يُحمّل السكربت. نفّذ npm run dev من جذر المشروع وافتح عنوان المتصفّح المحلي؛ لا تستخدم file://.',
 };

@@ -95,5 +95,18 @@ export default {
     'skin.name.farm': '🐄 ฟาร์ม',
     'skin.name.desert': '🐫 โอเอซิส',
 
+    'skin.name.arcadeCabinet': '📺 Arcade Cabinet',
+    'skin.name.circuitBoard': '🧲 Circuit Board',
+    'skin.name.toyBox': '🧸 Toy Box',
+    'skin.name.mineralCave': '💍 Mineral Cave',
+    'skin.name.alchemyLab': '⚗️ Alchemy Lab',
+    'skin.name.botanicalStudy': '🥀 Botanical Study',
+    'skin.name.spaceDock': '🛰️ Space Dock',
+    'skin.name.dungeonLoot': '🪤 Dungeon Loot',
+    'skin.name.origamiPaper': '✉️ Origami Paper',
+    'skin.name.museumRelic': '⚱️ Museum Relic',
+    'skin.name.winterCabin': '🪵 Winter Cabin',
+    'skin.name.rainyWindow': '🌧️ Rainy Window',
+
     'boot.fileProtocol': 'สคริปต์ไม่โหลด ให้รัน npm run dev ที่รากโปรเจ็กต์แล้วเปิด URL ในเทอร์มินัล อย่าใช้ file://',
 };

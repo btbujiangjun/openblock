@@ -95,5 +95,18 @@ export default {
     'skin.name.farm': '🐄 농장',
     'skin.name.desert': '🐫 오아시스',
 
+    'skin.name.arcadeCabinet': '📺 Arcade Cabinet',
+    'skin.name.circuitBoard': '🧲 Circuit Board',
+    'skin.name.toyBox': '🧸 Toy Box',
+    'skin.name.mineralCave': '💍 Mineral Cave',
+    'skin.name.alchemyLab': '⚗️ Alchemy Lab',
+    'skin.name.botanicalStudy': '🥀 Botanical Study',
+    'skin.name.spaceDock': '🛰️ Space Dock',
+    'skin.name.dungeonLoot': '🪤 Dungeon Loot',
+    'skin.name.origamiPaper': '✉️ Origami Paper',
+    'skin.name.museumRelic': '⚱️ Museum Relic',
+    'skin.name.winterCabin': '🪵 Winter Cabin',
+    'skin.name.rainyWindow': '🌧️ Rainy Window',
+
     'boot.fileProtocol': '스크립트가 로드되지 않았습니다. 프로젝트 루트에서 npm run dev를 실행하고 터미널의 로컬 주소를 여세요. file://로 열지 마세요.',
 };

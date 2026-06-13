@@ -8,70 +8,74 @@ const src = fs.readFileSync(srcPath, 'utf8');
 const defaultSkinMatch = src.match(/export const DEFAULT_SKIN_ID = '([^']+)'/);
 const defaultSkinId = defaultSkinMatch ? defaultSkinMatch[1] : 'titanium';
 
-const marker = 'export const SKINS = {';
-const start = src.indexOf(marker);
-if (start < 0) {
-  throw new Error('SKINS marker not found');
-}
+function extractExportLiteral(name, opener, closer) {
+  const marker = `export const ${name} = ${opener}`;
+  const start = src.indexOf(marker);
+  if (start < 0) {
+    throw new Error(`${name} marker not found`);
+  }
 
-let i = start + marker.length - 1;
-let depth = 0;
-let inSingle = false;
-let inDouble = false;
-let inTemplate = false;
-let escaped = false;
-let end = -1;
+  let i = start + marker.length - 1;
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inTemplate = false;
+  let escaped = false;
+  let end = -1;
 
-for (; i < src.length; i++) {
-  const ch = src[i];
-  if (escaped) {
-    escaped = false;
-    continue;
-  }
-  if (ch === '\\') {
-    escaped = true;
-    continue;
-  }
-  if (inSingle) {
-    if (ch === "'") inSingle = false;
-    continue;
-  }
-  if (inDouble) {
-    if (ch === '"') inDouble = false;
-    continue;
-  }
-  if (inTemplate) {
-    if (ch === '`') inTemplate = false;
-    continue;
-  }
-  if (ch === "'") {
-    inSingle = true;
-    continue;
-  }
-  if (ch === '"') {
-    inDouble = true;
-    continue;
-  }
-  if (ch === '`') {
-    inTemplate = true;
-    continue;
-  }
-  if (ch === '{') depth++;
-  if (ch === '}') {
-    depth--;
-    if (depth === 0) {
-      end = i;
-      break;
+  for (; i < src.length; i++) {
+    const ch = src[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (inSingle) {
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+    if (inTemplate) {
+      if (ch === '`') inTemplate = false;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      continue;
+    }
+    if (ch === '`') {
+      inTemplate = true;
+      continue;
+    }
+    if (ch === opener) depth++;
+    if (ch === closer) {
+      depth--;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
     }
   }
+
+  if (end < 0) {
+    throw new Error(`${name} block end not found`);
+  }
+
+  return src.slice(start + marker.length - 1, end + 1);
 }
 
-if (end < 0) {
-  throw new Error('SKINS block end not found');
-}
-
-const objectLiteral = src.slice(start + marker.length - 1, end + 1);
-const webSkins = vm.runInNewContext(`(${objectLiteral})`);
+const webSkins = vm.runInNewContext(`(${extractExportLiteral('SKINS', '{', '}')})`);
+const webCategories = vm.runInNewContext(`(${extractExportLiteral('SKIN_CATEGORIES', '[', ']')})`);
 
 const keep = {};
 for (const [key, skin] of Object.entries(webSkins)) {
@@ -80,6 +84,7 @@ for (const [key, skin] of Object.entries(webSkins)) {
     name: skin.name,
     blockColors: skin.blockColors,
     blockIcons: skin.blockIcons,
+    blockIconAssets: skin.blockIconAssets,
     gridOuter: skin.gridOuter,
     gridCell: skin.gridCell,
     gridGap: skin.gridGap,
@@ -92,6 +97,11 @@ for (const [key, skin] of Object.entries(webSkins)) {
 }
 
 const classicPalette = (keep.classic && keep.classic.blockColors) || [];
+const keepCategories = webCategories.map((cat) => ({
+  id: cat.id,
+  label: cat.label,
+  skins: (cat.skins || []).filter((id) => keep[id]),
+})).filter((cat) => cat.skins.length > 0);
 const mobileOptimizer = `
 function _hexToRgb(hex) {
   const m = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex || '');
@@ -200,9 +210,9 @@ const BOARD_WATERMARKS = {
   greece: { icons: ['🏛️', '⚡'], opacity: 0.048, hdIcons: ['🦉', '🏺', '🗿', '🏹', '🐎'] },
   demon: { icons: ['😈', '💀'], opacity: 0.045, hdIcons: ['👻', '🦇', '🕷️', '🕸️', '👹'] },
   jurassic: { icons: ['🦕', '🦖'], opacity: 0.048, hdIcons: ['🦴', '🌋', '🥚', '🗻', '🦎'] },
-  fairy: { icons: ['🧚', '🌸'], opacity: 0.05, hdIcons: ['🦌', '🐿️', '🍄', '🍂', '🌰'] },
+  fairy: { icons: ['🧚', '🌸'], opacity: 0.05, hdIcons: ['🦌', '🐿️', '🪻', '🍂', '🌰'] },
   industrial: { icons: ['🏭', '⚙️'], opacity: 0.045, hdIcons: ['🔩', '🛠️', '⚒️', '🔧', '⛏️'] },
-  forbidden: { icons: ['👑', '🐲'], opacity: 0.048, hdIcons: ['🎭', '🧧', '🏮', '🥢', '🍵'] },
+  forbidden: { icons: ['👑', '🐲'], opacity: 0.048, hdIcons: ['🎐', '🧧', '🏮', '🥢', '🍵'] },
   // v1.49 (2026-05) — mahjong HD 模式"麻将特色 emoji 换装"（5 件套终版）：
   //   基础 ['🀅','🀀'] → HD ['🎲','🀐','🀙','🀇','🀄']（骰子 + 一索/幺鸡 + 一筒 + 一万 + 红中），
   //   5 件 = 默认锚点数，保证盘面上 5 个水印两两不同（杜绝 i%2 循环导致的"3 个 🎲 重复"）。
@@ -222,8 +232,22 @@ const BOARD_WATERMARKS = {
   pirate: { icons: ['🦜', '☠️'], opacity: 0.048, hdIcons: ['⚓', '🗺️', '💰', '🛶', '🚣'] },
   farm: { icons: ['🐄', '🌽'], opacity: 0.04, hdIcons: ['🐔', '🥕', '🐑', '🐖', '🥬'] },
   desert: { icons: ['🐫', '🌵'], opacity: 0.04, hdIcons: ['🦂', '🌴', '🏜️', '🐍', '🌶️'] },
-  summer: { icons: ['☀️', '🏝️'], opacity: 0.06, hdIcons: ['🍉', '🍹', '🏄', '🍧', '🥥'] },
+  summer: { icons: ['☀️', '🏝️'], opacity: 0.06, hdIcons: ['🍉', '🩴', '🏄', '🍧', '🪸'] },
   apple: { icons: ['🍎', '✨'], opacity: 0.04, hdIcons: ['⚪', '⬜', '🔘', '◻️', '🔲'] },
+  cafe: { icons: ['☕', '📖'], opacity: 0.10, hdIcons: ['🥯', '🍮', '🥄', '🪑', '🧺'] },
+  fiesta: { icons: ['🎉', '🎊'], opacity: 0.08, hdIcons: ['🎇', '🎫', '🎗️', '📯', '🎆'] },
+  arcadeCabinet: { icons: ['📺', '📻'], opacity: 0.055, hdIcons: ['🖲️', '🔳', '📠', '🧮', '🔣'] },
+  circuitBoard: { icons: ['🧲', '📶'], opacity: 0.048, hdIcons: ['⌁', '⎍', '⏚', '⟟', '⟠'] },
+  toyBox: { icons: ['🧸', '🧩'], opacity: 0.078, hdIcons: ['🛼', '🥏', '🪇', '🪈', '🪗'] },
+  mineralCave: { icons: ['💍', '🔦'], opacity: 0.052, hdIcons: ['◾', '◽', '▪️', '▫️', '⬛'] },
+  alchemyLab: { icons: ['⚗️', '🧪'], opacity: 0.052, hdIcons: ['☣️', '☢️', '♨️', '⚕️', '☤'] },
+  botanicalStudy: { icons: ['🥀', '🫛'], opacity: 0.10, hdIcons: ['🫐', '🥦', '🍅', '🍆', '🥒'] },
+  spaceDock: { icons: ['🛰️', '🧑‍🚀'], opacity: 0.045, hdIcons: ['✦', '✧', '✹', '✺', '✷'] },
+  dungeonLoot: { icons: ['🪤', '🕳️'], opacity: 0.05, hdIcons: ['⛓', '⌬', '⟡', '⟢', '✶'] },
+  origamiPaper: { icons: ['✉️', '📄'], opacity: 0.11, hdIcons: ['▱', '△', '◇', '□', '▽'] },
+  museumRelic: { icons: ['⚱️', '🔎'], opacity: 0.052, hdIcons: ['⌛', '⏳', '♜', '♞', '♝'] },
+  winterCabin: { icons: ['🪵', '🧤'], opacity: 0.08, hdIcons: ['🪡', '🧶', '🥾', '🫎', '🫕'] },
+  rainyWindow: { icons: ['🌧️', '☔'], opacity: 0.05, hdIcons: ['♒', '≋', '∿', '∽', '◌'] },
 };
 
 function _optimizeSkinForMobile(skin) {
@@ -260,6 +284,8 @@ const CLASSIC_PALETTE = ${JSON.stringify(classicPalette, null, 2)};
 
 const SKINS = ${JSON.stringify(keep, null, 2)};
 
+const SKIN_CATEGORIES = ${JSON.stringify(keepCategories, null, 2)};
+
 ${mobileOptimizer}
 
 const SKIN_LIST = Object.values(SKINS);
@@ -288,17 +314,26 @@ function getSkinListMeta() {
   return SKIN_LIST.map((s) => ({ id: s.id, name: s.name }));
 }
 
+function getSkinCategories() {
+  return SKIN_CATEGORIES.map((cat) => ({
+    ...cat,
+    skins: cat.skins.filter((id) => SKINS[id]).map((id) => ({ id, name: SKINS[id].name })),
+  })).filter((cat) => cat.skins.length > 0);
+}
+
 module.exports = {
   STORAGE_KEY,
   DEFAULT_SKIN_ID,
   CLASSIC_PALETTE,
   SKINS,
   SKIN_LIST,
+  SKIN_CATEGORIES,
   getActiveSkinId,
   getActiveSkin,
   getBlockColors,
   setActiveSkinId,
   getSkinListMeta,
+  getSkinCategories,
 };
 `;
 

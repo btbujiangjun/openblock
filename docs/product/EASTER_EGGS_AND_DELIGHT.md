@@ -10,7 +10,8 @@
 
 | 编号 | 模块 | 文件 | 体感 | 工时 |
 |------|------|------|------|------|
-| S1.1 | 程序化音效 | `web/src/effects/audioFx.js` | 8 种音色（place/clear/multi/combo/perfect/bonus/unlock/tick），无音频资产 | 1d |
+| S1.1 | 程序化音效 | `web/src/effects/audioFx.js` | 8 种基础事件（place/clear/multi/combo/perfect/bonus/unlock/tick），无音频资产 | 1d |
+| S1.1 | 皮肤主题声效 | `web/src/effects/skinSoundPalettes.js` / `miniprogram/utils/audioFx.js` | 每款皮肤按主题生成材质点击、消行音阶、连击递进、主题动机与解锁音色，并随皮肤同步切换 | 0.5d |
 | S1.1 | 设备震动 | `web/src/effects/audioFx.js` | 6 种触觉模式，移动端默认开 | 0.2d |
 | S1.1 | 用户偏好开关 | `web/src/effects/audioFx.js` + `game.cheat` | 音效 / 触觉 / 音量三档 localStorage 持久化 | 0.3d |
 | S1.2 | 皮肤切换转场 | `web/src/effects/skinTransition.js` | 0.6s 主题色一闪 + 淡入淡出 + unlock 音效 | 0.5d |
@@ -102,6 +103,101 @@ window.__audioFx.getPrefs();          // { sound, haptic, volume }
 ```
 
 存储 key：`openblock_audiofx_v1`。
+
+#### 皮肤主题声效（`skinSoundPalettes.js`）
+
+`skinSoundPalettes.js` 不再只为少数皮肤手写 `clear/combo/bonus`，而是为每款当前皮肤声明一条 `SKIN_SOUND_THEMES` 配置，并在运行时生成 8 个核心事件的音色函数：
+
+- `place`：根据主题材质生成落子确认音，如金属、玻璃、水滴、木质、像素、麻将牌、软弹玩具。
+- `clear / multi / combo`：根据主题根音与音阶生成单消、多消、连击递进，连击段数随 `streak` 增长。
+- `perfect / bonus`：保留最高奖励感，但使用当前皮肤的音阶、空气噪声和冲击层，避免所有皮肤听起来一样。
+- `unlock / tick`：皮肤切换转场中的 `unlock` 和 UI 点击也跟随主题，保证“换了一个世界”的听感闭环。
+- **主题动机音**：不克隆商业素材，只参考业内经典声效的功能语义，原创合成麻将双击牌声、海洋气泡滑音、森林鸟鸣/叶响、紫禁城锣尾、像素短方波、宇宙上扫、咖啡杯木质轻敲等短动机。
+
+同步机制：
+
+1. `main.js` 创建 `audioFx` 后调用 `initSkinSoundPalettes({ audioFx })`。
+2. 初始化时读取 `getActiveSkinId()`，立即安装当前皮肤的主题音色。
+3. 订阅 `onSkinAfterApply`，在 `setActiveSkinId()` 真正应用主题后替换 `audioFx._tonePlace/_toneClear/...`。
+4. `skinTransition.js` 在 `applyImmediate()` 之后播放 `unlock`，因此转场解锁音会使用新皮肤音色。
+
+小程序端同步：
+
+- `miniprogram/utils/audioFx.js` 提供 `setSkinTheme(skinId)` / `getSkinTheme()`，按当前皮肤重建程序化 WAV 的 sound defs。
+- 主菜单 `pages/index/index.js` 在 `onLoad` 和 `onSkinChange` 调用 `setSkinTheme()`；游戏页 `pages/game/game.js` 在读取 query skin / 当前皮肤后调用。
+- 切换主题会清空已生成音效缓存，下一次 warmup/play 使用新皮肤音色重新生成 WAV。
+- 小程序 `sound` 与 `haptic` 跟随 Web 契约联动：关闭音效即关闭触觉；重新开启音效同时恢复触觉。
+- 切换皮肤时小程序同样播放 `unlock`，与 Web `skinTransition.js` 的换肤仪式声保持事件一致。
+
+维护规则：
+
+- 新增皮肤时必须在 `SKIN_SOUND_THEMES` 中补一条配置，单测会校验所有 `SKINS` 都有声音主题。
+- 优先复用 `PRESETS`（如 `water / metal / cute / magic / royal`），只有主题听感真的不同才新增 preset。
+- 声音主题只描述“材质 + 根音 + 音阶”，不要在玩法模块里直接判断皮肤 id。
+- 不直接复制/克隆业内游戏的受版权保护音频；若后续引入音频文件，必须使用自制或授权素材，并保持程序化音效作为 fallback。
+
+#### 外部音频测试覆盖层
+
+为了便于调研阶段 A/B 听感，Web 与小程序都支持“外部文件优先、程序化音效兜底”：
+
+Web 端目录约定（Vite public 根）：
+
+```text
+web/public/audio/skins/<skinId>/<event>.ogg
+web/public/audio/skins/<skinId>/<event>.mp3
+web/public/audio/skins/<skinId>/<event>.wav
+web/public/audio/skins/<skinId>/<event>.m4a
+web/public/audio/skins/_themes/<motif>/<event>.ogg
+web/public/audio/skins/_themes/<motif>/<event>.mp3
+web/public/audio/skins/_themes/<motif>/<event>.wav
+web/public/audio/skins/_themes/<motif>/<event>.m4a
+```
+
+小程序端目录约定（包内静态资源）：
+
+```text
+miniprogram/assets/audio/skins/<skinId>/<event>.ogg
+miniprogram/assets/audio/skins/<skinId>/<event>.mp3
+miniprogram/assets/audio/skins/<skinId>/<event>.wav
+miniprogram/assets/audio/skins/<skinId>/<event>.m4a
+miniprogram/assets/audio/skins/_themes/<group>/<event>.ogg
+miniprogram/assets/audio/skins/_themes/<group>/<event>.mp3
+miniprogram/assets/audio/skins/_themes/<group>/<event>.wav
+miniprogram/assets/audio/skins/_themes/<group>/<event>.m4a
+miniprogram/assets/audio/skins/_groups/<group>/<event>.ogg
+miniprogram/assets/audio/skins/_groups/<group>/<event>.mp3
+miniprogram/assets/audio/skins/_groups/<group>/<event>.wav
+miniprogram/assets/audio/skins/_groups/<group>/<event>.m4a
+```
+
+事件名：`place / clear / multi / combo / perfect / bonus / unlock / tick`；小程序额外支持 `select / gameOver`。小程序会优先查 `<skinId>`，再查 `_themes/<group>`，最后兼容旧 `_groups/<group>`。
+
+运行逻辑：
+
+- Web：`skinSoundPalettes.js` 在首次有 `AudioContext` 后尝试解码候选文件；已解码文件优先播放，缺失则用程序化版本。
+- 小程序：`audioFx.js` 先尝试包内文件（扩展名顺序与 Web 对齐为 `.ogg/.mp3/.wav/.m4a`），`InnerAudioContext.onError` 后记录缺失并回退生成 WAV。
+- 调试关闭：设置 `window.__openBlockDisableExternalAudioAssets = true`（Web）或 `globalThis.__openBlockDisableExternalAudioAssets = true`（小程序）。
+- 自定义根目录：设置 `window.__openBlockAudioAssetBase` / `globalThis.__openBlockAudioAssetBase`。
+
+当前研究素材：
+
+- 已导入 Kenney Interface Sounds（CC0 1.0），原始包保存在 `docs/research/audio/kenney-interface-sounds/`。
+- 已导入 Kenney UI Audio（CC0 1.0），原始包保存在 `docs/research/audio/kenney-ui-audio/`。
+- 已导入 Kenney Casino Audio（CC0 1.0），原始包保存在 `docs/research/audio/kenney-casino-audio/`；麻将主题只允许柔和桌面物件声（`cardPlace/cardSlide/chipLay/chipsStack/chipsHandle`），高频 `place/tick/select/clear` 禁止 `chipsCollide/diceThrow/dieThrow`。
+- 已导入 rubberduck Water/Splash/Slime SFX（CC0），原始包保存在 `docs/research/audio/rubberduck-water-splash-slime/`；用于 `ocean / koi / summer / water` 等水域主题的气泡、水花和短水声反馈。
+- 已导入 rubberduck Creature SFX（CC0），原始包保存在 `docs/research/audio/rubberduck-creature-sfx/`；用于 `pets / forest / jurassic` 等自然、动物、拟人主题的 `cute/bug/ooh/nose` 等柔和短声，普通反馈禁用 `misc/bark/barking/howl/monster/roar/scream/hurt/cough/burp/snore/breath/burble/spit` 以及 `poof/pfft/fart/deflate/balloon` 这类气球泄气感来源。
+- `fairy / fantasy / magic` 主题单独使用 Kenney Interface 的 `pluck/glass/select/drop` 清亮素材，`place/tick/select/clear` 不再使用任何 creature、宠物声、长空气噪声或 `confirmation/open` 这类阶梯式成功提示音，避免花仙梦境出现狗叫感、魔幻秘境消行出现气球泄气感或琶音感。
+- 统一许可说明保存在 `docs/research/audio/KENNEY_AUDIO_IMPORTS_LICENSE.txt`。
+- 筛选规则保存在 `docs/research/audio/CURATION_NOTES.md`。
+- 当前全局筛选 manifest 保存在 `docs/research/audio/audio_mapping_manifest.json`，主题重映射清单保存在 `docs/research/audio/theme_audio_mapping_manifest.json`，审计结果保存在 `docs/research/audio/theme_audio_audit_report.json`。
+- 审计/重映射脚本：`docs/research/audio/audit_theme_audio.py` 与 `docs/research/audio/remap_theme_audio.py`。
+- Web 映射文件位于 `web/public/audio/skins/`，小程序映射文件位于 `miniprogram/assets/audio/skins/`。
+- 这些文件用于研究试听与 A/B 调参；可直接替换同名事件文件以测试其它来源素材。
+- 当前映射规则偏“清脆、明亮、悦耳”：过滤 `glitch/scratch/error/bong/close/minimize/back`，避免把 `click/tick` 命名素材用于映射，也排除 `misc/bark/barking/breath/burble/spit/poof/pfft/fart/deflate/balloon` 这类粗糙、拟动物、气球泄气或噗呲感来源，并要求最短时长阈值（`place` ≥ 120ms，`tick/select` ≥ 100ms，`clear` ≥ 160ms，`combo/perfect/bonus` 更长），以移除短促刺耳、过度低沉和廉价泄气感反馈。
+- 当前主题映射偏“内容相关”：麻将只取牌桌/瓷牌/软筹码放置声；水域主题只取 bubble/splash/water/rain，常规落子不使用 slime；恐龙与森林分离，`jurassic` 只用 jungle/wood/leaf/soft creature 语义，`forest` 使用 leaf/bird/wood/bug/cute 语义；宠物使用 cute/nose/ooh，不用 bark/howl/monster；暗黑主题只保留张力，不用低沉收束或嘶哑怪叫作为高频反馈。
+- 程序化 fallback 也遵循同一标准：主题奖励不再使用低通低频冲击层，非暗黑主题避免向下低频扫动，奖励尾音以短促上扬层和轻空气颗粒为主。
+- 全局移除琶音类反馈：不使用分解和弦、连续阶梯上行音、score-lift arp 或自带阶梯成功提示感的外部素材；需要奖励感时使用同时起音的短和弦、玻璃闪光或材质尾音。
+- 高奖励事件即使命中外部文件，也会叠加程序化上扬层：`multi/combo/perfect/bonus` 的 score lift 会随 combo/bonus 规模增加段数和空气感。
 
 ---
 
@@ -343,9 +439,9 @@ CSS 在 `web/public/styles/main.css` 末尾的彩蛋系统 UI 章节。
 | **社交** | `web/src/social/asyncPkStub.js` | 异步盘面挑战（P2 骨架 — 待 server.py 表 + URL 路由）|
 | **社交** | `web/src/social/replayAlbumStub.js` | Top 10 棋谱本地保存（P2 骨架 — 真回放重现待补）|
 | **特效** | `web/src/effects/firstUnlockCelebration.js` | 首次切到某皮肤时 perfect flash + bonus 闪光 + 飘字 |
-| **特效** | `web/src/effects/skinSoundPalettes.js` | 皮肤专属音色：6 款示范（music 钢琴 / forest 鸟鸣 / industrial 金属 / ocean 水滴 / sakura 古琴 / demon 战鼓）|
+| **特效** | `web/src/effects/skinSoundPalettes.js` | 皮肤主题声效生成器：所有现役皮肤按材质、根音、音阶生成 `place/clear/multi/combo/perfect/bonus/unlock/tick` |
 | **特效** | `web/src/effects/seasonalBorder.js` | 节日盘面边缘流动彩带（春节 / 圣诞 / 万圣 / 跨年等 11 个节日）|
-| **特效** | `web/src/effects/bgmStub.js` | BGM 主题循环（P2 骨架 — 待 36 款 OGG 音频资产）|
+| **特效** | `web/src/effects/bgmStub.js` | 程序化皮肤氛围层：首次交互后低音量播放水泡、森林、麻将、宇宙、节庆等短环境动机，并随皮肤切换 |
 | **成就** | `web/src/achievements/extremeAchievements.js` | 6 项极限挑战（神之手 / 万象 / 雷光 / 荣誉 / 百战 / 千锤）|
 | **图鉴** | `web/src/lore/skinLore.js` | 36 款皮肤剧情背景故事图鉴 + 翻页 UI |
 | **玩法** | `web/src/playmodes/rotationStub.js` | 旋转方块（P2 骨架 — game.js 集成与 hintEngine 重训待）|
