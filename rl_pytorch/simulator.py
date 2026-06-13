@@ -221,6 +221,27 @@ class OpenBlockSimulator:
         self._search_mode: bool = False
         self.reset()
 
+    def _difficulty_target_for_spawn(self) -> float:
+        """将当前局面状态映射为出块难度目标 [0, 1]。
+
+        综合考虑：
+        - max_scd（难度桶课程上限）→ 基础难度带
+        - 填充率 → 高填充时偏向送爽（避免怼死）
+        - 得分进度 → 接近胜利时适度加压
+        """
+        base = max(0.0, min(1.0, self.max_scd))
+        fill = sum(
+            1 for row in self.grid.cells for c in row if c is not None
+        ) / max(self.grid.size * self.grid.size, 1)
+        if fill >= 0.75:
+            base = max(0.0, base - 0.2 * (fill - 0.75) / 0.25)
+        thr = getattr(self, "win_score_threshold", WIN_SCORE_THRESHOLD)
+        if thr > 0 and self.score > 0:
+            progress = min(1.0, self.score / thr)
+            if progress > 0.7:
+                base = min(1.0, base + 0.1 * (progress - 0.7) / 0.3)
+        return max(0.0, min(1.0, base))
+
     @staticmethod
     def _create_spawn_context(best_score: int) -> dict:
         return {
@@ -288,9 +309,15 @@ class OpenBlockSimulator:
         bias = mono_near_full_line_color_weights(self.grid, _RL_BONUS_ICONS)
         dock_colors = pick_three_dock_colors(bias, n_colors=n_colors)
         all_shapes = get_all_shapes()
-        shapes = generate_blocks_for_grid(self.grid, self.strategy_config)
+        dt = self._difficulty_target_for_spawn()
+        shapes = generate_blocks_for_grid(
+            self.grid, self.strategy_config, difficulty_target=dt,
+        )
         shapes = self._resample_for_difficulty_cap(
-            shapes, lambda: generate_blocks_for_grid(self.grid, self.strategy_config)
+            shapes,
+            lambda: generate_blocks_for_grid(
+                self.grid, self.strategy_config, difficulty_target=dt,
+            ),
         )
         self.dock = []
         for i in range(3):
@@ -312,8 +339,12 @@ class OpenBlockSimulator:
         # 故若首抽超过 max_scd 上限，则切换到本地 legacy 生成器循环重抽
         # （仅压缩 difficulty 分布，与最优策略无关）。
         if self.max_scd < 1.0 and shapes:
+            dt = self._difficulty_target_for_spawn()
             shapes = self._resample_for_difficulty_cap(
-                shapes, lambda: generate_blocks_for_grid(self.grid, self.strategy_config)
+                shapes,
+                lambda: generate_blocks_for_grid(
+                    self.grid, self.strategy_config, difficulty_target=dt,
+                ),
             )
         self.dock = []
         for i in range(3):

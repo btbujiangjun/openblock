@@ -544,7 +544,11 @@
       "lookaheadDepth": 1,
       "completerBudget": 4000,
       "setupBudget": 6000,
-      "setupPerShapePlacementCap": 40
+      "setupPerShapePlacementCap": 40,
+      "crowdedMultiClearComment": "v1.70 拥挤多消构造（偶发性爽感兑现）：盘面又挤又乱（computeBoardCrowding 复合分=fill×0.4+contiguousRegions/8×0.25+enclosedVoidCells/10×0.25+(row+col)Transitions/40×0.1 ≥ crowdedMultiClearMinCrowding）的紧张时刻，按概率投放能一手多消（≥2 行/列）的块，让盘面瞬间清爽。跨所有压力相位生效，与 C1/C2/C3 互斥，受 cooldownDocks 冷却约束。触发概率 p = pMultiClearCrowded × (0.5 + crowding) × (1 + delightBoost×0.5)，clamp 到 pMultiClearCrowdedCap，delightBoost 接入既有爽感闭环（含 isDelightStarved 抬升）。",
+      "crowdedMultiClearMinCrowding": 0.55,
+      "pMultiClearCrowded": 0.35,
+      "pMultiClearCrowdedCap": 0.85
     },
     "spawnStepDifficulty": {
       "comment": "单步出块难度（spawn step difficulty）统一分。无尽模式无『题目』概念，难度最小单元是『当前盘面 × 本轮候选三块』，由确定性特征逐步算出。本块把分散的原语（boardDifficulty / DFS solutionMetrics / 几何 scd）consolidate 成 0~1 难度分 + 5 档桶（trivial/easy/standard/hard/extreme），随 spawn 帧 spawnMeta.stepDifficulty 落库，供离线『难度桶 × 算法』聚合与 RL 数据集标注。实现见 web/src/spawnStepDifficulty.js，Python 镜像 rl_pytorch/spawn_step_difficulty.py。详见 docs/algorithms/ALGORITHMS_SPAWN.md §14.二。",

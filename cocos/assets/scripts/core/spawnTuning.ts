@@ -27,8 +27,18 @@ export interface AdaptiveProfile {
     recordPlace?(cleared: boolean, linesCleared: number, boardFill: number): void;
     recordMiss?(): void;
     recordDelight?(kind: 'multiClear' | 'pcClear' | 'comboHigh' | 'monoFlush'): void;
+    recordSessionEnd?(gameStats: {
+        score: number;
+        placements: number;
+        clears: number;
+        misses: number;
+        maxCombo: number;
+        mode?: string;
+    }): void;
     tickRoundForDelight?(): void;
     save?(): void;
+    recordMoveQuality?(mq: unknown): void;
+    recordRoundQuality?(rq: unknown): void;
 }
 
 /**

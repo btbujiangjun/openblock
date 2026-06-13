@@ -1,7 +1,8 @@
 import { _decorator, Component, Graphics, UITransform, Node, Label, Color, UIOpacity, Sprite, SpriteFrame, resources } from 'cc';
 import { Grid, Skin, getWatermark, flag, ClearedCell } from '../core';
+import { inheritLayer } from './ui/uiKit';
 import { blockColor, cellEmptyColor, gridOuterColor, gridLineColor, blockMetrics, blockIcon } from './skin/palette';
-import { paintBlockFace, iconFontSize, drawShapeFaces, applyIconLabel } from './skin/blockPaint';
+import { paintBlockFace, iconFontSize, drawShapeFaces, applyIconLabel, ICON_FONT_FAMILY } from './skin/blockPaint';
 import { Motion } from './platform/Motion';
 import { VisualFx } from './platform/VisualFx';
 
@@ -339,9 +340,15 @@ export class BoardView extends Component {
         if (!l) {
             const n = new Node('ic');
             n.parent = this._iconRoot!;
+            inheritLayer(n, this._iconRoot!);
             n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
             l = n.addComponent(Label);
             l.color = new Color(255, 255, 255, 255);
+            l.useSystemFont = true;
+            l.fontFamily = ICON_FONT_FAMILY;
+            if (Label.Overflow) l.overflow = Label.Overflow.NONE;
+            if (Label.HorizontalAlign) l.horizontalAlign = Label.HorizontalAlign.CENTER;
+            if (Label.VerticalAlign) l.verticalAlign = Label.VerticalAlign.CENTER;
             this._icons[i] = l;
         }
         return l;
@@ -518,9 +525,12 @@ export class BoardView extends Component {
             if (!l) {
                 const n = new Node('wm');
                 n.parent = root;
+                inheritLayer(n, root);
                 n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
                 l = n.addComponent(Label);
                 l.color = new Color(255, 255, 255, 255);
+                l.useSystemFont = true;
+                l.fontFamily = ICON_FONT_FAMILY;
                 this._wm[i] = l;
             }
             l.node.active = true;

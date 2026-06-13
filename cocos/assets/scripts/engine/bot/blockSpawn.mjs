@@ -815,6 +815,31 @@ function bestMultiClearPotential(grid, shapeData) {
 }
 
 /**
+ * v1.70 盘面「拥挤 + 杂乱」复合分 ∈ [0,1]（爽感构造多消的触发信号）。
+ *
+ * 设计意图：表征玩家视角「盘面又挤又乱、快撑不住」的紧张时刻——这正是偶发性
+ * 投放多消、让盘面瞬间清爽的最佳兑现点。融合两类几何信号：
+ *   - **拥挤（空间密度）**：`fill`（占用率，主信号）
+ *   - **杂乱（碎片化）**：`contiguousRegions`（空格被切碎的分量数）、
+ *     `enclosedVoidCells`（被填块圈住的小空腔）、`rowTransitions+colTransitions`（轮廓锯齿度）
+ *
+ * 各项归一化后加权求和，权重之和=1，输出已 clamp 到 [0,1]。
+ *
+ * @param {ReturnType<typeof analyzeBoardTopology>} topo
+ * @param {number} fill 占用率（= topo.fillRatio，调用方已算好直接透传）
+ * @returns {number}
+ */
+function computeBoardCrowding(topo, fill) {
+    const f = Math.max(0, Math.min(1, Number(fill) || 0));
+    const regions = Math.max(0, Math.min(1, (Number(topo?.contiguousRegions) || 0) / 8));
+    const voids = Math.max(0, Math.min(1, (Number(topo?.enclosedVoidCells) || 0) / 10));
+    const transitions = Math.max(0, Math.min(1,
+        ((Number(topo?.rowTransitions) || 0) + (Number(topo?.colTransitions) || 0)) / 40));
+    const score = f * 0.4 + regions * 0.25 + voids * 0.25 + transitions * 0.1;
+    return Math.max(0, Math.min(1, score));
+}
+
+/**
  * 检测棋盘是否处于"清屏准备"状态：
  * 若将所有临消行/列（≤2 格空缺）补全后消除，棋盘会否清空。
  *
@@ -2540,10 +2565,61 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         cooldownActive: false,
         fromPending: false,
         pendingClearTarget: null,
+        crowding: 0,
+        crowdMultiClearCount: 0,
         delivered: false
     };
     let constructedSeatNeed = 0;
-    if (_consCfg.enabled && _phaseExplicit && pressurePhase !== 'high') {
+
+    /* ---------- v1.70 拥挤多消构造（偶发性爽感兑现）----------
+     * 产品意图：盘面又挤又乱、玩家快撑不住的紧张时刻，按低概率「偶发」投放能一手
+     * 多消（≥2 行/列）的块，让盘面瞬间变清爽 → 关键性爽感峰值。与 C1/C2/C3 互斥
+     * （命中即跳过其余构造分支），跨所有压力相位生效（拥挤本身就是触发条件，高压
+     * 盘面的多消兑现爽感最强），但严格受冷却 + 低基础概率约束，避免「系统连发喂解」。
+     *
+     * 触发链：crowding ≥ 阈值 且 存在 multiClear≥2 候选 且 rng < p。
+     *   p = pBase × (0.5 + crowding) × (1 + delightBoost×0.5)，clamp 到 pCap。
+     *   delightBoost（来自 adaptiveSpawn 爽感派生，含 isDelightStarved 抬升）越高越易触发，
+     *   把「拥挤多消」自然接入既有爽感闭环。 */
+    let crowdMcFired = false;
+    if (_consCfg.enabled && _phaseExplicit) {
+        const _cdMc = Math.max(0, Number(ctx?.constructCooldown) || 0);
+        const crowding = computeBoardCrowding(topo, fill);
+        constructive.crowding = crowding;
+        const _crowdMin = Number.isFinite(_consCfg.crowdedMultiClearMinCrowding)
+            ? _consCfg.crowdedMultiClearMinCrowding : 0.55;
+        if (_cdMc === 0 && crowding >= _crowdMin) {
+            const _mcCandidates = scored.filter(
+                (s) => !isSpecialShapeId(s.shape.id) && (s.multiClear ?? 0) >= 2
+            );
+            if (_mcCandidates.length > 0) {
+                const _pBase = Number.isFinite(_consCfg.pMultiClearCrowded) ? _consCfg.pMultiClearCrowded : 0.35;
+                const _pCap = Number.isFinite(_consCfg.pMultiClearCrowdedCap) ? _consCfg.pMultiClearCrowdedCap : 0.85;
+                const _pMc = Math.min(_pCap, Math.max(0, _pBase * (0.5 + crowding) * (1 + delightBoost * 0.5)));
+                if (_pMc > 0 && _consRng() < _pMc) {
+                    crowdMcFired = true;
+                    constructive.kind = 'multiClear';
+                    /* 选 multiClear 最高者；并列时大块优先（清掉更多 → 更清爽）。 */
+                    _mcCandidates.sort((a, b) =>
+                        ((b.multiClear ?? 0) - (a.multiClear ?? 0))
+                        || (shapeCellCount(b.shape.data) - shapeCellCount(a.shape.data)));
+                    const _take = Math.max(1, Number(_consCfg.maxConstructedPerDock) || 1);
+                    let _placed = 0;
+                    for (const sc of _mcCandidates) {
+                        if (_placed >= _take) break;
+                        sc._constructed = 'multiClear';
+                        if (!clearCandidates.includes(sc)) clearCandidates.unshift(sc);
+                        _placed++;
+                    }
+                    constructive.crowdMultiClearCount = _placed;
+                    clearCandidates.sort((a, b) => (b._constructed ? 1 : 0) - (a._constructed ? 1 : 0));
+                    constructedSeatNeed = Math.min(_take, clearCandidates.filter((s) => s._constructed).length);
+                }
+            }
+        }
+    }
+
+    if (!crowdMcFired && _consCfg.enabled && _phaseExplicit && pressurePhase !== 'high') {
         const _cd = Math.max(0, Number(ctx?.constructCooldown) || 0);
         if (_cd > 0) {
             constructive.cooldownActive = true;
@@ -2625,7 +2701,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
      * 合法落点最少）以 pOrderHigh 概率标记为顺序锚，在 augmentPool 额外加权，让顺序刚性
      * 更易在解空间命中。高压顺序主力仍是 phaseFreq orderBoost + 截断兜底（上版已落地），本层为补充。 */
     let orderAnchorId = null;
-    if (_consCfg.enabled && _phaseExplicit && pressurePhase === 'high') {
+    if (!crowdMcFired && _consCfg.enabled && _phaseExplicit && pressurePhase === 'high') {
         const _cdHigh = Math.max(0, Number(ctx?.constructCooldown) || 0);
         const _pOrder = Number.isFinite(_consCfg.pOrderHigh) ? _consCfg.pOrderHigh : 0.4;
         if (_cdHigh === 0 && _pOrder > 0 && _consRng() < _pOrder) {

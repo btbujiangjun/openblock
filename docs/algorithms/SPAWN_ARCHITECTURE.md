@@ -219,7 +219,7 @@ _commitSpawn()（颜色分配）
 - **颜色侧软目标**：当盘面存在"近满且已同 icon/同色"的行列时，提升相关色在当前 3 个候选块中的出现概率；
 - **随机性保留**：采用无放回加权抽样而非硬指定，避免玩家感知"被喂牌过重"。
 
-**RL 训练环境（PyTorch / MLX，v1.68+）**：形状生成默认经 `scripts/rl-spawn-worker.mjs` → `web/src/bot/rlSpawnBridge.js`，与真人规则轨 `adaptiveSpawn` + `blockSpawn` 一致；`RL_SPAWN_ONLINE=0` 时回退 `rl_pytorch/block_spawn.py`。dock 颜色由 `rl_pytorch/dock_color_bias.py`（及 `rl_mlx` 副本）与 `clearScoring` 偏置对齐。三条路径对照见 [`RL_CONTRACT_AND_SERVICE.md` §2.6](./RL_CONTRACT_AND_SERVICE.md#26-rl-训练机制三条路径对照权威)。
+**RL 训练环境（PyTorch / MLX，v1.68+）**：形状生成默认经 `scripts/rl-spawn-worker.mjs` → `web/src/bot/rlSpawnBridge.js`，与真人规则轨 `adaptiveSpawn` + `blockSpawn` 一致；`RL_SPAWN_ONLINE=0` 时回退 `rl_pytorch/block_spawn.py`（**v2+v3**：融合 `_BoardAnalysis` 盘面拓扑 + 消行得分潜力 + `difficulty_target` 产品目标对齐 + 构造式出块引擎 `spawn_construction.py` 四构造器：多消/清屏/同花消/顺序约束）。dock 颜色由 `rl_pytorch/dock_color_bias.py`（及 `rl_mlx` 副本）与 `clearScoring` 偏置对齐。三条路径对照见 [`RL_CONTRACT_AND_SERVICE.md` §2.6](./RL_CONTRACT_AND_SERVICE.md#26-rl-训练机制三条路径对照权威)。
 
 ### 2.4 策略 → 出块翻译机制
 

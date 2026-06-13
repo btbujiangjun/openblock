@@ -1354,6 +1354,19 @@ export class GameController extends Component {
 
         const score = this.model.score;
         this.playerCtx.recordGameOver(score);
+
+        // 与 web game.js endGame() 对齐：写入 sessionHistory/trend/confidence 等长周期信号。
+        try {
+            this.profile?.recordSessionEnd?.({
+                score,
+                placements: this.game.placements,
+                clears: this.game.clears,
+                misses: this.game.misses,
+                maxCombo: this.game.maxCombo,
+                mode: this.model.mode ?? 'endless',
+            });
+        } catch { /* ignore */ }
+        try { this.profile?.save?.(); } catch { /* ignore */ }
         // 每日大师题收尾（移植 web _onChallengeEnd）：记录战绩（每日一次去重依据）+ 撤销种子 + 完成提示。
         if (DailyMaster.isActive()) {
             DailyMaster.markPlayed(score);

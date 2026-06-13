@@ -172,6 +172,19 @@ class PlayerProfile {
         this._roundsSinceLastDelight = 0;
         this._lastDelightKind = null;
         this._lastDelightTs = 0;
+
+        /* 离线画像先验（playerAnalytics.buildSpawnPrior）。由 game 在 init 时注入，
+         * 用于把 isDelightStarved 的固定平台阈值个性化为 per-player（只会更早救济）。
+         * 未注入时全部回退现状，向后兼容。 */
+        this._spawnPrior = null;
+    }
+
+    /**
+     * 注入离线画像先验（端侧资产，来自最近一次能力偏好分析）。
+     * @param {object|null} prior buildSpawnPrior 的产物
+     */
+    setSpawnPrior(prior) {
+        this._spawnPrior = (prior && typeof prior === 'object' && !Array.isArray(prior)) ? prior : null;
     }
 
     /* ================================================================== */
@@ -204,7 +217,22 @@ class PlayerProfile {
      * @returns {boolean}
      */
     isDelightStarved() {
-        const threshold = isAndroidLike() ? 5 : 7;
+        const platformDefault = isAndroidLike() ? 5 : 7;
+        let threshold = platformDefault;
+        // 离线先验个性化：用玩家历史爽感间隔收紧阈值（受 strength 门控，且永不晚于平台默认）。
+        const prior = this._spawnPrior;
+        const priorCfg = GAME_RULES.adaptiveSpawn?.priorInjection ?? {};
+        const reliefCfg = priorCfg.reliefPersonalization ?? {};
+        if (priorCfg.enabled !== false && reliefCfg.enabled !== false
+            && prior && Number.isFinite(Number(prior.starvationThreshold))) {
+            const strength = Math.max(0, Math.min(1, Number(prior.strength) || 0))
+                * (Number(priorCfg.maxStrength) || 0);
+            const personalized = platformDefault
+                + strength * (Number(prior.starvationThreshold) - platformDefault);
+            const floor = Number.isFinite(Number(reliefCfg.floor)) ? Number(reliefCfg.floor) : 2;
+            // 只允许更早救济：clamp 到 [floor, platformDefault]
+            threshold = Math.max(floor, Math.min(platformDefault, Math.round(personalized)));
+        }
         return (this._roundsSinceLastDelight ?? 0) >= threshold;
     }
 

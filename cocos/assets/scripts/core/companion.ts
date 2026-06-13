@@ -47,6 +47,10 @@ const COMPANIONS: Record<string, CompanionMeta> = {
     farm: { icon: '🐄', name: '小牛' },
     desert: { icon: '🐫', name: '骆驼' },
     food: { icon: '🍕', name: '披萨君' },
+    summer: { icon: '🍉', name: '西瓜' },
+    apple: { icon: '🍎', name: '果子' },
+    cafe: { icon: '☕', name: '拿铁' },
+    fiesta: { icon: '🎉', name: '嘉年' },
 };
 
 /** 取某皮肤的伙伴；未配置时回退到通用占位。 */

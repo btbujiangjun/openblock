@@ -100,8 +100,25 @@ class OpenBlockSimulator:
         self._rounds_since_last_clear: float = float("inf")
         self._spawn_dock()
 
+    def _difficulty_target_for_spawn(self) -> float:
+        """将当前局面状态映射为出块难度目标 [0, 1]（与 rl_pytorch 版同口径）。"""
+        base = max(0.0, min(1.0, getattr(self, "max_scd", 0.5)))
+        n = self.grid.size
+        fill = sum(
+            1 for row in self.grid.cells for c in row if c is not None
+        ) / max(n * n, 1)
+        if fill >= 0.75:
+            base = max(0.0, base - 0.2 * (fill - 0.75) / 0.25)
+        thr = WIN_SCORE_THRESHOLD
+        if thr > 0 and self.score > 0:
+            progress = min(1.0, self.score / thr)
+            if progress > 0.7:
+                base = min(1.0, base + 0.1 * (progress - 0.7) / 0.3)
+        return max(0.0, min(1.0, base))
+
     def _spawn_dock(self) -> None:
-        shapes = generate_blocks_for_grid(self.grid, self.strategy_config)
+        dt = self._difficulty_target_for_spawn()
+        shapes = generate_blocks_for_grid(self.grid, self.strategy_config, difficulty_target=dt)
         n_colors = int(self.strategy_config.get("color_count", 8))
         bias = mono_near_full_line_color_weights(self.grid, _RL_BONUS_ICONS)
         dock_colors = pick_three_dock_colors(bias, n_colors=n_colors)

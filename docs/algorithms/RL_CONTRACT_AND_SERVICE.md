@@ -73,7 +73,7 @@
    - **dock 染色偏置**：依据盘面近满线几何 + `rlBonusScoring` 调用 `monoNearFullLineColorWeights` / `pickThreeDockColors`（与 `web/src/bot/simulator.js` 一致）；观测 φ **不得**含 spawnHints 等出块内部状态。
    - **出块形状（v1.68+）**：
      - **浏览器 RL**（`OpenBlockSimulator`）：`resolveAdaptiveStrategy` + `generateDockShapes`，与真人规则轨一致。
-     - **Python 离线训练**（默认）：`scripts/rl-spawn-worker.mjs`（Vite SSR）→ `web/src/bot/rlSpawnBridge.js`，与线上一致；维护 `spawnContext` + `PlayerProfileLite`。环境变量 **`RL_SPAWN_ONLINE=0`** 或 worker 不可用时回退 `rl_pytorch/block_spawn.py`（启发式，非线上分布）。
+     - **Python 离线训练**（默认）：`scripts/rl-spawn-worker.mjs`（Vite SSR）→ `web/src/bot/rlSpawnBridge.js`，与线上一致；维护 `spawnContext` + `PlayerProfileLite`。环境变量 **`RL_SPAWN_ONLINE=0`** 或 worker 不可用时回退 `rl_pytorch/block_spawn.py`（**v2+v3**：启发式 + 盘面拓扑分析 + 消行得分 + `difficulty_target` 产品目标对齐 + 构造式出块引擎 `spawn_construction.py` 四构造器；非线上分布但出块质量优于 v1）。
      - **策略条件化**：`featureEncoding.strategyIds` 的 **3 维 one-hot** 拼入 state 标量尾；**训练**每局从 `rlTraining.strategyIds` 均匀采样；**推理**（面板「评估一局」等）使用界面所选 `game.strategy`。
 3. **观测编码（与策略网络绑定）**：`web/src/bot/features.js`、`rl_pytorch/features.py`；向量维度与语义由 `featureEncoding` 约束（**v1.68：190 维 state** = 51 标量[含 **3 维策略 one-hot**] + 64 棋盘 + 75 dock；**phi=205**）。**若改 stateDim/actionDim 或特征公式，旧 checkpoint 失效，需重训。**
 4. **RL 训练入口（不直接碰棋盘）**：`web/src/bot/gameEnvironment.js` 的 `RlGameplayEnvironment`、`web/src/bot/trainer.js` 中的自博弈循环。

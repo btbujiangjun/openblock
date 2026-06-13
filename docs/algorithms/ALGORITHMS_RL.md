@@ -124,7 +124,7 @@ OpenBlock RL 在工程上呈现 **三条路径**（完整对照表、Mermaid 图
 
 **机制要点（避免常见误解）**
 
-- **出块**：A 在 v1.68 默认与 B/C 规则轨一致（`rl-spawn-worker`）；仅 `RL_SPAWN_ONLINE=0` 时 A 退回启发式 `block_spawn.py`，与线上分布分叉。
+- **出块**：A 在 v1.68 默认与 B/C 规则轨一致（`rl-spawn-worker`）；仅 `RL_SPAWN_ONLINE=0` 时 A 退回 `block_spawn.py`（**v2+v3**：盘面拓扑 + 消行得分 + `difficulty_target` 产品目标对齐 + 构造式出块引擎 `spawn_construction.py` 四构造器：多消/清屏/同花消/顺序约束），与线上分布分叉但出块质量显著优于 v1。
 - **落子**：A 的 MCTS/beam 蒸馏远强于 B 的默认采样；B 的 `teacher_q_coverage` 依赖 lookahead + `q_teacher`。
 - **策略条件化**：训练随机 `easy|normal|hard`；面板「评估一局」与线上一致，固定为 `game.strategy`。
 - **BlockPool**：仅 C（经 `main.js`）有；A/B 训练局无此包装，部署 Bot 时仍有轻微分布差。

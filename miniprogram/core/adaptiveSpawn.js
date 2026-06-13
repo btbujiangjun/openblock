@@ -1134,6 +1134,47 @@ function deriveTargetVisualClutter(stress, cfg, fill) {
  * @param {object} [spawnContext] 来自 game.js 的跨轮上下文
  * @returns {object} 策略对象 + spawnHints
  */
+/** 离线画像先验消费的 7 类形状权重键（与 shared/shapes.json categoryOrder 一致）。 */
+const _SPAWN_PRIOR_KEYS = ['lines', 'rects', 'squares', 'tshapes', 'zshapes', 'lshapes', 'jshapes'];
+
+/**
+ * 离线画像先验（spawnPrior.shapeBias）对插值后 shapeWeights 的偏置后处理。
+ *
+ * 公式：weight_k *= clamp(1 + λ·sign·bias_k, 1-cap, 1+cap)
+ *   - bias_k ∈ [-0.5,0.5] 是「中性方向」的形状胜任/适配度（>0 擅长/适合多投）；
+ *   - sign 由出块意图决定：救济/爽感「顺玩家」(+1)，训练「逆玩家练弱项」(-1)；
+ *   - 困境帧（distressed）禁止训练，只允许顺玩家方向，避免在玩家难受时加压。
+ * 纯函数，不就地修改入参；偏置后各键 ≥ 0，仍交由下游约束验证层兜底可解性。
+ *
+ * @param {Record<string,number>} shapeWeights 插值后的 7 类权重
+ * @param {object|null} spawnPrior 注入的 spawnContext.spawnPrior
+ * @param {{ intent?: string, distressed?: boolean, lambda?: number, cap?: number, trainingEnabled?: boolean }} [opts]
+ * @returns {{ shapeWeights: Record<string,number>, mode: string, lambda: number }}
+ */
+function applySpawnPrior(shapeWeights, spawnPrior, opts = {}) {
+    const out = { ...shapeWeights };
+    const bias = spawnPrior && spawnPrior.shapeBias;
+    const lambda = clamp01(Number(opts.lambda ?? 0));
+    if (!bias || lambda <= 0) return { shapeWeights: out, mode: 'none', lambda };
+
+    const cap = Number.isFinite(opts.cap) ? Math.max(0, Math.min(1, opts.cap)) : 0.35;
+    const intent = opts.intent || 'maintain';
+    let mode = 'comply'; // sign +1：顺玩家（救济/爽感/默认）
+    if (!opts.distressed && opts.trainingEnabled
+        && (intent === 'engage' || intent === 'flow' || intent === 'maintain')) {
+        mode = 'train'; // sign -1：逆玩家，定向暴露弱项促成长
+    }
+    const sign = mode === 'train' ? -1 : 1;
+
+    for (const k of _SPAWN_PRIOR_KEYS) {
+        const b = Number(bias[k]) || 0;
+        if (!b || !Number.isFinite(out[k])) continue;
+        const m = Math.max(1 - cap, Math.min(1 + cap, 1 + lambda * sign * b));
+        out[k] = Math.max(0, out[k] * m);
+    }
+    return { shapeWeights: out, mode, lambda };
+}
+
 function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boardFill, spawnContext) {
     const cfg = GAME_RULES.adaptiveSpawn;
     if (!cfg?.enabled || !cfg.profiles?.length || !profile) {
@@ -3003,9 +3044,33 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         _evalTargetSolutionRelax = 1;
     }
 
+    /* ---------- 离线画像先验注入：对 shapeWeights 做风味偏置（不改 stress 主路径） ---------- */
+    const priorCfg = cfg.priorInjection ?? {};
+    let finalShapeWeights = shapeWeights;
+    let _spawnPriorApplied = null;
+    const _spawnPrior = ctx.spawnPrior;
+    if (priorCfg.enabled !== false && _spawnPrior && priorCfg.shapeBias?.enabled !== false) {
+        const lambda = clamp01(Number(_spawnPrior.strength) || 0) * (Number(priorCfg.maxStrength) || 0);
+        if (lambda > 0) {
+            const distressed = spawnIntent === 'relief'
+                || ctx.forceReliefIntent === true
+                || (profile.frustrationLevel ?? 0) >= (eng.frustrationThreshold ?? 4)
+                || profile.needsRecovery === true;
+            const r = applySpawnPrior(shapeWeights, _spawnPrior, {
+                intent: spawnIntent,
+                distressed,
+                lambda,
+                cap: priorCfg.shapeBias?.cap,
+                trainingEnabled: priorCfg.shapeBias?.trainingEnabled,
+            });
+            finalShapeWeights = r.shapeWeights;
+            _spawnPriorApplied = { mode: r.mode, lambda: Math.round(r.lambda * 1000) / 1000, weakness: _spawnPrior.topoWeakness ?? null };
+        }
+    }
+
     return {
         ...base,
-        shapeWeights,
+        shapeWeights: finalShapeWeights,
         fillRatio,
         spawnHints: {
             clearGuarantee: Math.max(0, Math.min(3, clearGuarantee)),
@@ -3154,6 +3219,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         _pbBrake: pbCurve.pbBrake,
         _pbRelease: pbCurve.pbRelease,
         _pbPhase: pbCurve.pbPhase,
+        _spawnPriorApplied,
         _spawnIntent: spawnIntent,
         /* v1.57.4：决策侧不变量快照——供 game.js _refreshIntentSnapshot() 在玩家每次
          * 放置后用同一套规则、配合实时几何（snapshotInsightGeometry）重判 spawnIntent。
@@ -3178,4 +3244,4 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     };
 }
 
-module.exports = { DEFAULT_SPAWN_PARAMS_PB_CURVE, denormalizeStress, derivePbCurve, deriveSpawnIntent, MIN_BEST_FOR_MILESTONE_TOAST, normalizeStress, resetAdaptiveMilestone, resolveAdaptiveStrategy, snapshotInsightGeometry, SPAWN_PARAM_KEYS, STRESS_NORM_OFFSET, STRESS_NORM_SCALE };
+module.exports = { applySpawnPrior, DEFAULT_SPAWN_PARAMS_PB_CURVE, denormalizeStress, derivePbCurve, deriveSpawnIntent, MIN_BEST_FOR_MILESTONE_TOAST, normalizeStress, resetAdaptiveMilestone, resolveAdaptiveStrategy, snapshotInsightGeometry, SPAWN_PARAM_KEYS, STRESS_NORM_OFFSET, STRESS_NORM_SCALE };

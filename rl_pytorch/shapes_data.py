@@ -25,12 +25,26 @@ for cat in ORDER:
             }
         )
 
+SPECIAL_SHAPE_IDS: frozenset[str] = frozenset(_BUNDLE.get("specialShapeIds", []))
 
-def get_all_shapes():
+
+def is_special_shape(shape_id: str) -> bool:
+    return shape_id in SPECIAL_SHAPE_IDS
+
+
+def get_all_shapes(*, include_special: bool = True) -> list[dict]:
     out = []
     for k in ORDER:
-        out.extend(SHAPES[k])
+        for s in SHAPES[k]:
+            if not include_special and s["id"] in SPECIAL_SHAPE_IDS:
+                continue
+            out.append(s)
     return out
+
+
+def get_regular_shapes() -> list[dict]:
+    """仅常规形状（排除事件注入用 special 形状），与 web getRegularShapes 同口径。"""
+    return get_all_shapes(include_special=False)
 
 
 def shape_category(shape_id: str) -> str:
@@ -41,16 +55,21 @@ def shape_category(shape_id: str) -> str:
     return "squares"
 
 
-def pick_random_shape_weighted(shape_weights: dict[str, float] | None = None) -> dict:
-    """与 web pickShapeByCategoryWeights 一致：按类别权重选一条形状。"""
-    all_shapes = get_all_shapes()
-    if not all_shapes:
+def pick_random_shape_weighted(
+    shape_weights: dict[str, float] | None = None,
+    *,
+    include_special: bool = False,
+) -> dict:
+    """与 web pickShapeByCategoryWeights 一致：按类别权重选一条形状。
+    默认排除 special 形状（与 web 行为对齐）。"""
+    pool = get_all_shapes(include_special=include_special)
+    if not pool:
         raise RuntimeError("shapes.json 无形状")
     sw = shape_weights or {}
-    total = sum(sw.get(shape_category(s["id"]), 1.0) for s in all_shapes)
+    total = sum(sw.get(shape_category(s["id"]), 1.0) for s in pool)
     r = random.random() * total
-    for s in all_shapes:
+    for s in pool:
         r -= sw.get(shape_category(s["id"]), 1.0)
         if r <= 0:
             return s
-    return all_shapes[0]
+    return pool[0]

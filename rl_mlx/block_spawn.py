@@ -1,4 +1,14 @@
-"""候选块出块算法：与 web/src/bot/blockSpawn.js、rl_pytorch/block_spawn.py 对齐。"""
+"""候选块出块算法 v2-lite：不依赖 fast_grid 的轻量版 v2 升级。
+
+v1 → v2-lite 升级（与 rl_pytorch/block_spawn.py v2 对齐，无 numpy 依赖）：
+1. difficulty_target ∈ [0,1] 参数支持（产品目标对齐）
+2. pick_weighted 边界修复（空池 + 非正权重）
+3. 消行潜力评估（_best_clear_count_pure：纯 Python，无 fast_grid）
+4. 消行得分感知加权（_compute_shape_score 简化版）
+
+NOTE: rl_pytorch/block_spawn.py v2+v3 具有完整的盘面拓扑分析（_BoardAnalysis via fast_grid）
+和构造式出块引擎（spawn_construction.py），MLX 侧因缺少 fast_grid 采用轻量替代。
+"""
 
 from __future__ import annotations
 
@@ -125,14 +135,150 @@ def _min_placements_of(chosen: list[dict[str, Any]]) -> int:
     return min(c["placements"] for c in chosen)
 
 
-def generate_dock_shapes(grid: Grid, strategy_config: dict) -> list[dict]:
+# ---------------------------------------------------------------------------
+# v2-lite: 纯 Python 消行潜力评估（无 fast_grid 依赖）
+# ---------------------------------------------------------------------------
+
+def _count_clears_at(grid: Grid, shape_data: list[list[int]], gx: int, gy: int) -> int:
+    """模拟放置并计算消行数（不修改原 grid）。"""
+    n = grid.size
+    row_counts = [0] * n
+    col_counts = [0] * n
+    for y in range(n):
+        for x in range(n):
+            if grid.cells[y][x] is not None:
+                row_counts[y] += 1
+                col_counts[x] += 1
+    for sy, row in enumerate(shape_data):
+        for sx, v in enumerate(row):
+            if v:
+                py, px = gy + sy, gx + sx
+                if 0 <= py < n and 0 <= px < n and grid.cells[py][px] is None:
+                    row_counts[py] += 1
+                    col_counts[px] += 1
+    clears = sum(1 for r in row_counts if r >= n) + sum(1 for c in col_counts if c >= n)
+    return clears
+
+
+def _best_clear_count_pure(grid: Grid, shape_data: list[list[int]]) -> int:
+    """纯 Python 版：该形状在所有合法位置的最大消行数。"""
+    n = grid.size
+    best = 0
+    for gy in range(n):
+        for gx in range(n):
+            if not grid.can_place(shape_data, gx, gy):
+                continue
+            c = _count_clears_at(grid, shape_data, gx, gy)
+            if c > best:
+                best = c
+    return best
+
+
+def _scoring_potential_lite(best_clears: int, scoring: dict) -> float:
+    """由最大消行数估算得分潜力（与 rl_pytorch 版一致）。"""
+    if best_clears <= 0:
+        return 0.0
+    base_unit = float(scoring.get("single_line", 20))
+    return base_unit * best_clears * best_clears
+
+
+# ---------------------------------------------------------------------------
+# v2-lite: 综合权重计算
+# ---------------------------------------------------------------------------
+
+def _compute_shape_score(
+    entry: dict[str, Any],
+    scoring: dict,
+    difficulty_target: float,
+    chosen_meta: list[dict[str, Any]],
+    fill: float,
+    mob_target: int,
+) -> float:
+    """v2-lite 综合权重（与 rl_pytorch 版逻辑对齐，无拓扑因子）。"""
+    w = float(entry["weight"])
+    pc = int(entry["placements"])
+    shape_data = entry["shape"]["data"]
+    cells = _shape_cell_count(shape_data)
+
+    mobility_factor = 1.0 + math.log1p(pc) * (0.35 + fill * 0.55)
+    if fill > 0.45 and _min_placements_of(chosen_meta) < mob_target + 2:
+        mobility_factor *= 1.0 + pc / (8.0 + fill * 24.0)
+
+    if int(entry.get("pc_potential") or 0) == 2:
+        w *= 18.0
+
+    max_clears = int(entry.get("best_clears", 0))
+    score_pot = float(entry.get("scoring_potential", 0))
+
+    clear_factor = 1.0
+    if max_clears > 0:
+        clear_factor += 0.5 * max_clears
+        if max_clears >= 2:
+            clear_factor += 0.8 * (max_clears - 1)
+
+    dt = max(0.0, min(1.0, difficulty_target))
+    relief = 1.0 - dt
+    pressure = dt
+
+    size_mod = 1.0
+    if relief > 0.5:
+        if cells <= 4:
+            size_mod = 1.0 + 0.4 * (relief - 0.5)
+        elif cells >= 7:
+            size_mod = 1.0 - 0.3 * (relief - 0.5)
+    elif pressure > 0.5:
+        if cells >= 5:
+            size_mod = 1.0 + 0.25 * (pressure - 0.5)
+        elif cells <= 2:
+            size_mod = 1.0 - 0.2 * (pressure - 0.5)
+
+    clear_emphasis = 1.0
+    if relief > 0.3:
+        clear_emphasis = 1.0 + 0.6 * relief * min(max_clears, 3)
+    elif pressure > 0.6:
+        if max_clears == 0 and fill < 0.7:
+            clear_emphasis = 1.0 + 0.3 * pressure
+
+    gap_fill_bonus = 1.0
+    gap_fills = int(entry.get("gap_fills", 0))
+    if gap_fills > 0 and relief > 0.2:
+        gap_fill_bonus = 1.0 + 0.2 * gap_fills * relief
+
+    complement_factor = 1.0
+    if chosen_meta:
+        bulky = sum(_shape_cell_count(m["shape"]["data"]) for m in chosen_meta)
+        want_small = fill > 0.52 and bulky >= 10
+        if want_small:
+            if cells <= 4:
+                complement_factor *= 1.65
+            elif cells >= 8:
+                complement_factor *= 0.72
+        chosen_has_clear = any(m.get("best_clears", 0) > 0 for m in chosen_meta)
+        if not chosen_has_clear and max_clears > 0 and relief > 0.3:
+            complement_factor *= 1.4
+
+    total = (
+        w * mobility_factor * clear_factor
+        * size_mod * clear_emphasis * gap_fill_bonus * complement_factor
+    )
+    return max(0.001, total)
+
+
+def generate_dock_shapes(
+    grid: Grid,
+    strategy_config: dict,
+    *,
+    difficulty_target: float = 0.5,
+) -> list[dict]:
+    """返回最多 3 个形状（v2-lite：支持 difficulty_target）。"""
     weights = strategy_config.get("shape_weights") or {}
     fill = _fill_ratio(grid)
+    scoring = strategy_config.get("scoring") or {"single_line": 20}
 
     scored: list[dict[str, Any]] = []
     occupied = sum(1 for y in range(grid.size) for x in range(grid.size) if grid.cells[y][x] is not None)
     eval_perfect_clear = occupied <= 22 or fill <= 0.46
-    for shape in get_all_shapes():
+    for shape in get_all_shapes(include_special=False):
         data = shape["data"]
         can = grid.can_place_anywhere(data)
         gap_fills = grid.count_gap_fills(data) if can else 0
@@ -140,26 +286,37 @@ def generate_dock_shapes(grid: Grid, strategy_config: dict) -> list[dict]:
         w = float(weights.get(cat, 1.0))
         placements = _count_legal_placements(grid, data) if can else 0
         pc_potential = _best_perfect_clear_potential(grid, data) if can and eval_perfect_clear else 0
-        scored.append(
-            {
-                "shape": shape,
-                "can_place": can,
-                "gap_fills": gap_fills,
-                "weight": w,
-                "category": cat,
-                "placements": placements,
-                "pc_potential": pc_potential,
-            }
-        )
+        best_clears = _best_clear_count_pure(grid, data) if can else 0
+        entry: dict[str, Any] = {
+            "shape": shape,
+            "can_place": can,
+            "gap_fills": gap_fills,
+            "weight": w,
+            "category": cat,
+            "placements": placements,
+            "pc_potential": pc_potential,
+            "best_clears": best_clears,
+            "scoring_potential": _scoring_potential_lite(best_clears, scoring),
+        }
+        scored.append(entry)
 
     scored = [s for s in scored if s["can_place"]]
     if not scored:
         return []
 
-    scored.sort(key=lambda s: (s["pc_potential"], s["gap_fills"]), reverse=True)
+    scored.sort(
+        key=lambda s: (s["pc_potential"], s["best_clears"], s["gap_fills"], s["scoring_potential"]),
+        reverse=True,
+    )
+
+    dt = max(0.0, min(1.0, difficulty_target))
 
     def pick_weighted(pool: list[tuple[dict[str, Any], float]]) -> dict[str, Any]:
+        if not pool:
+            raise ValueError("pick_weighted called with empty pool")
         total_w = sum(w for _, w in pool)
+        if total_w <= 0:
+            return pool[0][0]
         r = random.random() * total_w
         sel = pool[0][0]
         for entry, w in pool:
@@ -175,50 +332,64 @@ def generate_dock_shapes(grid: Grid, strategy_config: dict) -> list[dict]:
         chosen_meta: list[dict[str, Any]] = []
         mob_target = _min_mobility_target(fill, attempt)
 
-        clear_candidates = [s for s in scored if s["gap_fills"] > 0 or s["pc_potential"] == 2]
-        if clear_candidates:
-            k = min(3, len(clear_candidates))
+        clear_candidates = [
+            s for s in scored
+            if s["gap_fills"] > 0 or s["pc_potential"] == 2 or s["best_clears"] >= 1
+        ]
+        if clear_candidates and dt < 0.8:
             perfect_candidates = [s for s in clear_candidates if s["pc_potential"] == 2]
-            first = random.choice(perfect_candidates[:3]) if perfect_candidates else clear_candidates[random.randint(0, k - 1)]
+            multi_clear = [s for s in clear_candidates if s["best_clears"] >= 2]
+            if perfect_candidates:
+                first = random.choice(perfect_candidates[:3])
+            elif multi_clear and dt < 0.6:
+                multi_clear.sort(key=lambda s: s["scoring_potential"], reverse=True)
+                first = random.choice(multi_clear[:3])
+            else:
+                k = min(3, len(clear_candidates))
+                first = clear_candidates[random.randint(0, k - 1)]
             blocks.append(first["shape"])
             used_ids.add(first["shape"]["id"])
-            chosen_meta.append({"shape": first["shape"], "placements": first["placements"]})
-
-        def augment_pool(lst: list[dict[str, Any]]) -> list[tuple[dict[str, Any], float]]:
-            bulky = sum(_shape_cell_count(m["shape"]["data"]) for m in chosen_meta)
-            want_small = fill > 0.52 and bulky >= 10
-            out: list[tuple[dict[str, Any], float]] = []
-            for s in lst:
-                w = float(s["weight"])
-                pc = int(s["placements"])
-                w *= 1 + math.log1p(pc) * (0.35 + fill * 0.55)
-                if fill > 0.45 and _min_placements_of(chosen_meta) < mob_target + 2:
-                    w *= 1 + pc / (8 + fill * 24)
-                if int(s.get("pc_potential") or 0) == 2:
-                    w *= 18.0
-                if want_small:
-                    cells = _shape_cell_count(s["shape"]["data"])
-                    if cells <= 4:
-                        w *= 1.65
-                    elif cells >= 8:
-                        w *= 0.72
-                out.append((s, w))
-            return out
+            chosen_meta.append({
+                "shape": first["shape"],
+                "placements": first["placements"],
+                "best_clears": first.get("best_clears", 0),
+            })
+        elif clear_candidates:
+            k = min(3, len(clear_candidates))
+            first = clear_candidates[random.randint(0, k - 1)]
+            blocks.append(first["shape"])
+            used_ids.add(first["shape"]["id"])
+            chosen_meta.append({
+                "shape": first["shape"],
+                "placements": first["placements"],
+                "best_clears": first.get("best_clears", 0),
+            })
 
         remaining = [s for s in scored if s["shape"]["id"] not in used_ids]
 
         while len(blocks) < 3 and remaining:
-            pool = augment_pool(remaining)
+            pool = [
+                (s, _compute_shape_score(s, scoring, dt, chosen_meta, fill, mob_target))
+                for s in remaining
+            ]
             pick = pick_weighted(pool)
             used_ids.add(pick["shape"]["id"])
             blocks.append(pick["shape"])
-            chosen_meta.append({"shape": pick["shape"], "placements": pick["placements"]})
+            chosen_meta.append({
+                "shape": pick["shape"],
+                "placements": pick["placements"],
+                "best_clears": pick.get("best_clears", 0),
+            })
             remaining = [s for s in scored if s["shape"]["id"] not in used_ids]
 
         while len(blocks) < 3:
             p = pick_random_shape_weighted(weights)
             blocks.append(p)
-            chosen_meta.append({"shape": p, "placements": _count_legal_placements(grid, p["data"])})
+            chosen_meta.append({
+                "shape": p,
+                "placements": _count_legal_placements(grid, p["data"]),
+                "best_clears": 0,
+            })
 
         triplet = blocks[:3]
         if len(triplet) < 3:
@@ -243,23 +414,39 @@ def generate_dock_shapes(grid: Grid, strategy_config: dict) -> list[dict]:
 
         return triplet
 
+    # Fallback
     blocks = []
-    used_ids: set[str] = set()
-    clear_candidates = [s for s in scored if s["gap_fills"] > 0 or s["pc_potential"] == 2]
+    used_ids_fb: set[str] = set()
+    clear_candidates = [
+        s for s in scored
+        if s["gap_fills"] > 0 or s["pc_potential"] == 2 or s["best_clears"] >= 1
+    ]
     if clear_candidates:
+        clear_candidates.sort(
+            key=lambda s: (s["pc_potential"], s["best_clears"], s["scoring_potential"]),
+            reverse=True,
+        )
         blocks.append(clear_candidates[0]["shape"])
-        used_ids.add(clear_candidates[0]["shape"]["id"])
-    rem = [s for s in scored if s["shape"]["id"] not in used_ids]
+        used_ids_fb.add(clear_candidates[0]["shape"]["id"])
+    rem = [s for s in scored if s["shape"]["id"] not in used_ids_fb]
     while len(blocks) < 3 and rem:
-        pool = [(s, float(s["weight"]) * (1 + math.log1p(s["placements"]))) for s in rem]
+        pool = [
+            (s, _compute_shape_score(s, scoring, dt, [], fill, 1))
+            for s in rem
+        ]
         pick = pick_weighted(pool)
         blocks.append(pick["shape"])
-        used_ids.add(pick["shape"]["id"])
-        rem = [s for s in scored if s["shape"]["id"] not in used_ids]
+        used_ids_fb.add(pick["shape"]["id"])
+        rem = [s for s in scored if s["shape"]["id"] not in used_ids_fb]
     while len(blocks) < 3:
         blocks.append(pick_random_shape_weighted(weights))
     return blocks[:3]
 
 
-def generate_blocks_for_grid(grid: Grid, strategy_config: dict) -> list[dict]:
-    return generate_dock_shapes(grid, strategy_config)
+def generate_blocks_for_grid(
+    grid: Grid,
+    strategy_config: dict,
+    *,
+    difficulty_target: float = 0.5,
+) -> list[dict]:
+    return generate_dock_shapes(grid, strategy_config, difficulty_target=difficulty_target)

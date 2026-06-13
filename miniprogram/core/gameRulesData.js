@@ -18,15 +18,15 @@ module.exports = {
       "enabled": true,
       "stages": [
         {
-          "untilEpisode": 4000,
+          "untilEpisode": 2000,
           "maxScd": 0.4
         },
         {
-          "untilEpisode": 12000,
+          "untilEpisode": 6000,
           "maxScd": 0.6
         },
         {
-          "untilEpisode": 30000,
+          "untilEpisode": 15000,
           "maxScd": 0.8
         },
         {
@@ -37,10 +37,10 @@ module.exports = {
       "retryCap": 6
     },
     "quantile": {
-      "comment": "v11.2 分位数模式参数。p=70 → 目标 win_rate=30%（比 v11 的 50% 更保守，保证稳定训练信号）。windowEpisodes=500 平衡响应速度与抖动。emaAlpha=0.05 ≈ 14 局衰减一半，抑制单局极值影响。bootstrap 期（前 100 局）使用 winThresholdStart=40 同值。floor/ceil 是兜底夹紧，正常不会触发。",
-      "p": 70,
-      "windowEpisodes": 500,
-      "emaAlpha": 0.05,
+      "comment": "v11.4 温和加压课程参数。p=60 → 目标 win_rate=40%（介于 v11.2 的 30% 与过激的 50% 之间）。windowEpisodes=300 平衡响应速度与抖动。emaAlpha=0.08 ≈ 8 局衰减一半，追踪能力提升但不过激（v11.3 的 0.15 配合弱在线学习器导致门槛爬升过快、得分退化）。bootstrap 期（前 100 局）使用 winThresholdStart=40 同值。floor/ceil 是兜底夹紧，正常不会触发。",
+      "p": 60,
+      "windowEpisodes": 300,
+      "emaAlpha": 0.08,
       "bootstrapEpisodes": 100,
       "bootstrapThreshold": 40,
       "floor": 40,
@@ -279,6 +279,31 @@ module.exports = {
   "adaptiveSpawn": {
     "comment": "自适应出块系统：综合玩家实时能力画像（技能水平、心流状态、节奏相位、挫败感、差一点效应、新手标识）动态选择出块权重档位 + spawnHints，维持心流体验、延长停留时间。",
     "enabled": true,
+    "priorInjection": {
+      "comment": "离线画像先验注入（playerAnalytics.buildSpawnPrior → spawnContext.spawnPrior → applySpawnPrior）。⚠️ 先验非强制：实时 stress 仍主导当帧难度，本层只对 shapeWeights 做风味偏置 + 个性化 relief/delight 阈值。所有幅度 ×λ（λ=strength×maxStrength，低置信自动退化）。详见 docs/algorithms/ADAPTIVE_SPAWN.md「离线画像先验注入」。",
+      "enabled": true,
+      "maxStrength": 0.6,
+      "shapeBias": {
+        "comment": "按 spawnIntent 决定符号：救济(relief/pressure)、爽感(harvest/sprint) 顺玩家(sign+1)；训练(engage/flow/maintain 且非困境) 逆玩家练弱项(sign-1，需 trainingEnabled)。weight_k *= clamp(1 + λ·sign·bias_k, 1-cap, 1+cap)。",
+        "baseGain": 1,
+        "cap": 0.35,
+        "trainingEnabled": true
+      },
+      "reliefPersonalization": {
+        "comment": "把 isDelightStarved 的固定平台阈值(5/7)个性化为 per-player（只会更早救济、不晚于平台默认）。",
+        "enabled": true,
+        "floor": 2
+      },
+      "comfortFill": {
+        "comment": "P1：把局初 fillRatio 锚到玩家舒适填充带下沿。默认关闭，灰度验证后再开。",
+        "anchorInitialFill": false
+      },
+      "targetStressBias": {
+        "comment": "P2 降级项：targetStress 与实时 stress 高度同质，默认关闭，避免与 25 分量 stress 冲突。开启时仅作受 budget 钳制的软偏置。",
+        "enabled": false,
+        "budget": 0.05
+      }
+    },
     "profileWindow": 15,
     "smoothingFactor": 0.15,
     "fastConvergenceWindow": 5,
@@ -771,7 +796,11 @@ module.exports = {
       "lookaheadDepth": 1,
       "completerBudget": 4000,
       "setupBudget": 6000,
-      "setupPerShapePlacementCap": 40
+      "setupPerShapePlacementCap": 40,
+      "crowdedMultiClearComment": "v1.70 拥挤多消构造（偶发性爽感兑现）：盘面又挤又乱（computeBoardCrowding 复合分=fill×0.4+contiguousRegions/8×0.25+enclosedVoidCells/10×0.25+(row+col)Transitions/40×0.1 ≥ crowdedMultiClearMinCrowding）的紧张时刻，按概率投放能一手多消（≥2 行/列）的块，让盘面瞬间清爽。跨所有压力相位生效，与 C1/C2/C3 互斥，受 cooldownDocks 冷却约束。触发概率 p = pMultiClearCrowded × (0.5 + crowding) × (1 + delightBoost×0.5)，clamp 到 pMultiClearCrowdedCap，delightBoost 接入既有爽感闭环（含 isDelightStarved 抬升）。",
+      "crowdedMultiClearMinCrowding": 0.55,
+      "pMultiClearCrowded": 0.35,
+      "pMultiClearCrowdedCap": 0.85
     },
     "spawnStepDifficulty": {
       "comment": "单步出块难度（spawn step difficulty）统一分。无尽模式无『题目』概念，难度最小单元是『当前盘面 × 本轮候选三块』，由确定性特征逐步算出。本块把分散的原语（boardDifficulty / DFS solutionMetrics / 几何 scd）consolidate 成 0~1 难度分 + 5 档桶（trivial/easy/standard/hard/extreme），随 spawn 帧 spawnMeta.stepDifficulty 落库，供离线『难度桶 × 算法』聚合与 RL 数据集标注。实现见 web/src/spawnStepDifficulty.js，Python 镜像 rl_pytorch/spawn_step_difficulty.py。详见 docs/algorithms/ALGORITHMS_SPAWN.md §14.二。",
@@ -1306,6 +1335,274 @@ module.exports = {
       "stressRelief": -0.08
     }
   },
+  "playerAnalysis": {
+    "comment": "玩家能力·偏好离线/聚合分析器（web/src/analysis/playerAnalytics.js）的全部权重、分位锚点与门控阈值。与实时 playerAbilityModel 互补：后者每帧即时值用于自适应出块；本模块消费 move_sequences 的 frames[].ps 聚合时序，产出带置信度的『能力 5 维 + 软概率偏好』画像，用于复盘、运营分群与冷启动先验。所有数值集中此处，禁止在 playerAnalytics.js 写裸魔术数。",
+    "version": 2,
+    "calibrationNote": "anchors 的 p10/p50/p90 当前是基于产品体感的初始猜测；建议运营离线跑 sql/move_sequences 求各信号真实分位再回填，使全玩家分布大致 N(0.5,0.15)。锚定映射：x=p10→0.1, x=p50→0.5, x=p90→0.9，分段线性并 clamp[0,1]。v2 新增：能力第 6 维 consistency；descriptive traits（trend/endurance/clutch）；spawnAdvice（供 adaptiveSpawn / spawn 寻参直接消费的出块建议）。",
+    "minObservations": 8,
+    "confidenceN0": 40,
+    "ability": {
+      "weights": {
+        "topology": 0.22,
+        "scoring": 0.2,
+        "execution": 0.2,
+        "reaction": 0.14,
+        "survival": 0.12,
+        "consistency": 0.12
+      },
+      "topology": {
+        "comment": "拓扑形态维度：v2 把笼统的 fragmentation 拆成 concaveControl(凹角控制) + regionCohesion(空间连贯)，并新增 holeRepair(空洞修复)，更细地刻画玩家维持盘面形态的能力。所有子项越高越好。",
+        "weights": {
+          "holeBurden": 0.22,
+          "holeGrowth": 0.14,
+          "flatness": 0.16,
+          "concaveControl": 0.14,
+          "regionCohesion": 0.12,
+          "holeRepair": 0.1,
+          "nearClearConversion": 0.12
+        },
+        "anchors": {
+          "avgHoles": [
+            0.2,
+            1.5,
+            5
+          ],
+          "holeGrowthPerStep": [
+            -0.05,
+            0.04,
+            0.18
+          ],
+          "avgConcave": [
+            1,
+            4,
+            10
+          ],
+          "avgRegions": [
+            1,
+            3,
+            7
+          ]
+        }
+      },
+      "scoring": {
+        "weights": {
+          "leverage": 0.38,
+          "combo": 0.22,
+          "multiLine": 0.24,
+          "bonus": 0.16
+        },
+        "anchors": {
+          "scoreLeverage": [
+            1,
+            2.2,
+            5
+          ],
+          "maxCombo": [
+            1,
+            3,
+            7
+          ]
+        },
+        "multiClearRateMax": 0.5,
+        "comboRateMax": 0.45,
+        "bonus": {
+          "perfectClearRateMax": 0.15
+        }
+      },
+      "execution": {
+        "weights": {
+          "moveQuality": 0.62,
+          "miss": 0.38
+        },
+        "missRateMax": 0.3,
+        "moveQuality": {
+          "neutral": 0.4,
+          "clearReward": 0.4,
+          "holeDeltaMax": 3,
+          "holeDeltaPenalty": 0.3,
+          "regionDeltaMax": 3,
+          "regionDeltaPenalty": 0.2,
+          "repairBonus": 0.1
+        }
+      },
+      "reaction": {
+        "weights": {
+          "speed": 0.45,
+          "decisiveness": 0.35,
+          "apm": 0.2
+        },
+        "anchors": {
+          "pickToPlaceMs": [
+            400,
+            1400,
+            4200
+          ]
+        },
+        "cvCap": 1.2,
+        "apmMax": 18
+      },
+      "survival": {
+        "weights": {
+          "survivedSteps": 0.42,
+          "recovery": 0.3,
+          "lockAvoidance": 0.28
+        },
+        "anchors": {
+          "placements": [
+            10,
+            30,
+            80
+          ]
+        },
+        "highFillThreshold": 0.8,
+        "recoveryHorizon": 2
+      },
+      "consistency": {
+        "comment": "稳定性：局间分数离散度低 + 步级方块质量方差小 → 表现稳定可预测（越高越好，计入 skillScore）。",
+        "weights": {
+          "scoreCv": 0.5,
+          "moveQualityStd": 0.5
+        },
+        "scoreCvMax": 0.8,
+        "moveQualityStdMax": 0.32,
+        "minSessions": 2
+      },
+      "bands": {
+        "expert": 0.78,
+        "advanced": 0.58,
+        "developing": 0.36
+      }
+    },
+    "traits": {
+      "comment": "时序特质（有符号、描述性，不计入 skillScore）：刻画玩家随时间/局内的动态变化。",
+      "trend": {
+        "comment": "跨局成长趋势：每局『每步得分』随开局时间的回归斜率，按 anchorSlope 映射到 [-1,1]。",
+        "anchorSlope": [
+          -0.6,
+          0,
+          0.6
+        ],
+        "minSessions": 3,
+        "improvingThreshold": 0.15,
+        "decliningThreshold": -0.15
+      },
+      "endurance": {
+        "comment": "局内耐力：每局后半段方块质量相对前半段的保持率（>1 截断为 1，<0.6 视为明显疲劳）。",
+        "minMovesPerHalf": 4,
+        "fatigueThreshold": 0.8
+      },
+      "clutch": {
+        "comment": "高压表现：盘面填充 ≥ highFill 时的平均方块质量（抗压/逆境处理）。",
+        "highFill": 0.7,
+        "minSamples": 3
+      }
+    },
+    "spawnAdvice": {
+      "comment": "出块算法建议层：把画像翻译成 adaptiveSpawn / spawn 寻参可直接消费的旋钮先验。所有阈值集中此处。⚠️ 这是『建议』而非强制——adaptiveSpawn 仍以实时信号为主，本层只提供跨局先验与个性化强度上限。",
+      "difficulty": {
+        "hardSkill": 0.62,
+        "normalSkill": 0.4
+      },
+      "personalizationStrength": {
+        "confidenceFloor": 0.2,
+        "max": 1
+      },
+      "targetStress": {
+        "base": 0.1,
+        "skillK": 0.5,
+        "riskK": 0.2,
+        "fragilityK": 0.3,
+        "min": -0.3,
+        "max": 0.6,
+        "bands": {
+          "high": 0.3,
+          "low": 0
+        }
+      },
+      "relief": {
+        "comment": "救济敏感度：局内连续未消行（drought）平均长度越大 → 越需提早 relief。建议在 ceil(droughtP50)+1 轮内保证一次消行机会。",
+        "droughtMax": 6
+      },
+      "delight": {
+        "comment": "爽感节奏：相邻两次『爽感事件』(多消/清屏，近似 scoreDelta ≥ scoreMultThreshold×baseUnit) 的平均间隔轮数。供 isDelightStarved 阈值个性化。",
+        "scoreMultThreshold": 2,
+        "starvationFallback": 6
+      },
+      "comfortFill": {
+        "comment": "舒适填充带：把 prevBoardFill 分桶，取平均方块质量最高的桶为玩家最擅长的盘面满度区间，spawn 可据此把盘面维持在此带。",
+        "buckets": [
+          0.2,
+          0.35,
+          0.5,
+          0.65,
+          0.8,
+          1
+        ]
+      },
+      "shapeCompetence": {
+        "comment": "形状胜任度：每类形状的落子消行率 + 平均得分增量 → competence[0,1]。低胜任=玩家不擅长该形状，spawn 救济时应少投、训练时可多投；高胜任=可作为爽感兑现块。",
+        "minAttempts": 2
+      }
+    },
+    "preference": {
+      "playstyle": {
+        "beta": 4,
+        "balancedPrior": 0.4,
+        "anchors": {
+          "perfectClearRateMax": 0.15,
+          "multiClearRateMax": 0.5,
+          "comboRateMax": 0.45
+        },
+        "survival": {
+          "clearRateWeight": 0.7,
+          "fillToleranceWeight": 0.3
+        }
+      },
+      "riskAppetite": {
+        "weights": {
+          "fillBeforePlace": 0.45,
+          "nearMiss": 0.2,
+          "multiClear": 0.2,
+          "fillVelocity": 0.15
+        },
+        "anchors": {
+          "fillBeforePlace": [
+            0.3,
+            0.5,
+            0.72
+          ],
+          "fillVelocity": [
+            0.01,
+            0.06,
+            0.16
+          ]
+        },
+        "bands": {
+          "aggressive": 0.62,
+          "conservative": 0.4
+        }
+      },
+      "tempo": {
+        "anchors": {
+          "thinkMs": [
+            800,
+            2600,
+            7000
+          ]
+        },
+        "bands": {
+          "snappyMaxMs": 1500,
+          "deliberateMinMs": 5000
+        }
+      },
+      "shapeAffinity": {
+        "topN": 3
+      },
+      "colorAffinity": {
+        "topN": 3
+      }
+    }
+  },
   "rlTrainingStrategyId": "normal",
   "rlTraining": {
     "comment": "RL 训练随机采样策略 ID（顺序须与 featureEncoding.strategyIds one-hot 一致）；推理时以界面所选 difficulty 编码进 state。",
@@ -1407,16 +1704,17 @@ module.exports = {
       "holeWeight": -0.4,
       "transitionWeight": -0.08,
       "wellWeight": -0.15,
-      "closeToFullWeight": 0.35,
-      "mobilityWeight": 0.12,
+      "closeToFullWeight": 0.4,
+      "mobilityWeight": 0.2,
       "adhesionWeight": -0.12
     },
     "outcomeValueMix": {
-      "comment": "v6 混合价值目标：mix=0.5 → V 从 GAE returns 学逐步评估 + outcome 提供稳定锚点。v9.2 默认用 log1p(score)/log1p(threshold) 并放宽 clip，避免 400-500 分段 score/threshold 过早饱和。",
+      "comment": "v6 混合价值目标：mix=0.5 → V 从 GAE returns 学逐步评估 + outcome 提供稳定锚点。v13 起 outcome 分母改用固定绝对参考分 refScore（不再除以随课程漂移的 winThreshold），使 value 目标平稳、与课程解耦，避免门槛下跌时价值头自我安慰。",
       "enabled": true,
       "mix": 0.5,
       "targetMode": "log",
-      "maxValue": 3
+      "maxValue": 3,
+      "refScore": 1500
     },
     "qDistillation": {
       "comment": "Q 分布蒸馏（v7 新增）：策略头额外学习 lookahead / beam / MCTS 搜索目标的 softmax 分布，向 AlphaZero 的「策略学搜索目标」靠拢。v9.3 加入单状态 Q 归一化与系数退火，前期跟强 teacher，后期避免过度锁死搜索偏差。",
@@ -1485,10 +1783,10 @@ module.exports = {
     "beam3ply": {
       "comment": "三块全排列 3-ply beam（v8 新增）：Q_3ply = r1+γ·max_{a2}[r2+γ·max_{a3}[r3+γ·V(s''')]]。仅在 dock 未放置块数≥3 时激活。v10 起支持 riskAdaptive：高填充、低 mobility、低 leaf count 时动态提高 topK/topK2/maxActions。",
       "enabled": true,
-      "topK": 12,
-      "topK2": 4,
-      "maxActions": 100,
-      "maxActions2": 50,
+      "topK": 8,
+      "topK2": 3,
+      "maxActions": 60,
+      "maxActions2": 30,
       "riskAdaptive": true,
       "riskFill": 0.56,
       "riskMobility": 18,
@@ -1511,7 +1809,7 @@ module.exports = {
     "lightMCTS": {
       "comment": "轻量 UCT-MCTS：visit_pi + Q 代理作为 teacher，配合 visitPiDistillation。默认开启 moderate sims；采集更慢但显著缓解「短局无 teacher」。训练前可设环境变量 RL_MCTS=0 强制关闭改回纯 beam。",
       "enabled": true,
-      "numSimulations": 24,
+      "numSimulations": 12,
       "cPuct": 1.5,
       "maxDepth": 8,
       "evalBatchSize": 8,
@@ -1528,7 +1826,75 @@ module.exports = {
       "riskFill": 0.58,
       "riskMobility": 16,
       "riskMaxMultiplier": 2,
-      "maxSimulations": 80
+      "maxSimulations": 40
+    },
+    "trainingPresets": {
+      "comment": "三档训练预设：performance（最快吞吐，弱 teacher）/ balanced（默认，速度与质量折中）/ quality（慢但 teacher 信号最强）。面板切换后覆盖 lightMCTS / beam3ply / beam2ply 的运行时参数，不修改本文件持久值。",
+      "performance": {
+        "label": "⚡ 性能",
+        "description": "最高吞吐 · 弱 teacher 信号",
+        "mcts": {
+          "enabled": false
+        },
+        "beam3ply": {
+          "enabled": false
+        },
+        "beam2ply": {
+          "enabled": true,
+          "topK": 8,
+          "maxActions": 50
+        },
+        "feasibilityNodeBudget": 80,
+        "riskNodeBudget": 60
+      },
+      "balanced": {
+        "label": "⚖️ 平衡",
+        "description": "速度与质量折中",
+        "mcts": {
+          "enabled": true,
+          "numSimulations": 12,
+          "maxSimulations": 40,
+          "adaptiveSims": true
+        },
+        "beam3ply": {
+          "enabled": true,
+          "topK": 8,
+          "topK2": 3,
+          "maxActions": 60,
+          "maxActions2": 30
+        },
+        "beam2ply": {
+          "enabled": true,
+          "topK": 15,
+          "maxActions": 100
+        },
+        "feasibilityNodeBudget": 200,
+        "riskNodeBudget": 150
+      },
+      "quality": {
+        "label": "🎯 效果",
+        "description": "最强 teacher 信号 · 训练较慢",
+        "mcts": {
+          "enabled": true,
+          "numSimulations": 24,
+          "maxSimulations": 80,
+          "adaptiveSims": true
+        },
+        "beam3ply": {
+          "enabled": true,
+          "topK": 12,
+          "topK2": 4,
+          "maxActions": 100,
+          "maxActions2": 50
+        },
+        "beam2ply": {
+          "enabled": true,
+          "topK": 15,
+          "maxActions": 100
+        },
+        "feasibilityNodeBudget": 1200,
+        "riskNodeBudget": 600
+      }
     }
   },
   "featureEncoding": {

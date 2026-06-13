@@ -184,6 +184,111 @@ def generateDockShapes(grid, profile, ctx, max_attempts=22):
     return fallback_simple(grid)
 ```
 
+### 3.2.1 Python RL 回退路径：`block_spawn.py` v2
+
+当 `RL_SPAWN_ONLINE=0` 或 Node spawn-worker 不可用时，`rl_pytorch/simulator.py` 回退到 `rl_pytorch/block_spawn.py` 的启发式生成器。**v2** 升级在 v1 的机动性 + gap_fills 基础上，引入三层新能力：
+
+**1. 盘面拓扑感知（`_BoardAnalysis`）**
+
+利用 `fast_grid` 向量化特征提取，缓存当前盘面：空洞数、近满行列数、连通区域数、凹角数、列高标准差，计算综合 `board_quality ∈ [0, 1]`。
+
+**2. 消行得分潜力评估**
+
+| 函数 | 含义 |
+|------|------|
+| `_best_clear_count` | 该形状在所有合法位置的最大消行数 |
+| `_avg_clear_count` | 能消行位置的平均消行数 |
+| `_clear_position_ratio` | 能消行位置占所有合法位置的比例 |
+| `_near_full_delta` | 放置后近满行列数的最大增量（造势能力） |
+| `_scoring_potential` | 估算最大得分潜力（`base_unit × clears²`） |
+
+**3. 产品目标对齐（`difficulty_target`）**
+
+`_compute_shape_score` 综合权重公式：
+
+```
+total = base_weight
+      × mobility_factor        (机动性保障，保留 v1)
+      × clear_factor            (消行/得分潜力)
+      × topology_factor         (盘面拓扑匹配)
+      × size_mod               (difficulty_target 调制块大小偏好)
+      × clear_emphasis          (relief→消行友好；pressure→约束空间)
+      × gap_fill_bonus          (gap_fills × relief)
+      × complement_factor       (dock 已选块互补)
+```
+
+`difficulty_target ∈ [0, 1]`：0.0 = 送爽（偏好消行友好 + 小块 + 高得分），0.5 = 标准均衡，1.0 = 加压（偏好大块 + 不规则块）。由 `simulator._difficulty_target_for_spawn()` 根据 `max_scd`（难度桶课程上限）、填充率（高填充减压）、得分进度（接近胜利加压）动态计算。
+
+> **MLX 侧**：`rl_mlx/block_spawn.py` 已升级至 **v2-lite**（不依赖 `fast_grid` 的轻量版 v2）：支持 `difficulty_target ∈ [0,1]`、`pick_weighted` 边界修复、消行潜力评估（`_best_clear_count_pure` 纯 Python）、综合权重计算（`_compute_shape_score` 简化版）。`dock_color_bias.py` 已同步 web v1.60.26 拓宽（`empty ∈ [1, n-2]` + bias 衰减）。与 rl_pytorch v2+v3 相比缺少完整盘面拓扑分析（`_BoardAnalysis`）和构造式出块引擎（`spawn_construction.py`），如需同步需先移植 `fast_grid` 或提供等效接口。
+
+### 3.2.2 构造式出块引擎：`spawn_construction.py` v1
+
+v3 在 v2 加权采样之前，尝试通过**构造式搜索**直接生成满足特定产品目标的三块组合。当 `difficulty_target < 0.7` 时触发，使用独立 RNG 避免搜索消耗影响后续常规路径的随机性。
+
+**四个构造器**（按触发优先级）：
+
+| 构造器 | 触发条件 | 算法 | 产出 |
+|--------|---------|------|------|
+| `construct_perfect_clear` | `fill ≤ 0.35` 且 `occupied ≤ 20` 且 `relief > 0.4` | 反向构造启发 + 6 排列贪心验证 | 三块全放完后盘面为空 |
+| `construct_mono_color` | 存在近满同色线且 `relief > 0.3` | 约束满足：精确填补空位 + 补齐可放三元组 | 触发 icon bonus 消行 |
+| `construct_sequential_puzzle` | `fill ≥ 0.55` 且 `relief > 0.2` | 路径依赖：不可放块 B + 消行块 A → A 消行腾空间 → B 可放 | 必须按特定顺序放置 |
+| `construct_multi_clear` | 通用兜底 | 随机采样 + 6 排列协同消行模拟 | 三块总消行 ≥ 阈值（relief > 0.5 时 ≥ 3，否则 ≥ 2） |
+
+**关键设计决策**：
+
+1. **协同消行 vs 独立消行**：构造器评估三块**序贯放置**的总消行数（`_sim_sequence_greedy`），而非单块在原始盘面上的独立消行能力。这更贴合实际游戏体验。
+2. **搜索预算自适应**：`budget = 120 × (0.6 + 0.8 × relief)`，送爽时搜索更深。
+3. **路径依赖安全性**：`sequential_puzzle` 返回的三块中可能有当前不可放置的块（需先消行腾空间），这在 OpenBlock 的 dock 机制中是允许的——玩家可以按任意顺序放块。
+
+> **业界算法融合**：反向构造（Block Blast）、前向协同模拟（Tetris AI）、约束满足（Sturgeon / CSP）、路径依赖（Path Dependency PCG）。
+
+### 3.2.3 拥挤多消（偶发性爽感兑现）v1.70
+
+**产品意图**：爽感是游戏中**偶发性、关键性**的体验。当盘面又挤又乱、玩家快撑不住的紧张时刻，按一定概率「偶发」投放能一手多消（≥2 行/列）的块，让盘面瞬间变清爽 → 制造关键性爽感峰值。
+
+**盘面拥挤复合分** `computeBoardCrowding(topo, fill) ∈ [0,1]`（web 主端，`blockSpawn.js`）：
+
+```
+crowding = clamp01(
+    fill                              × 0.40   // 拥挤（空间密度）
+  + min(1, contiguousRegions / 8)     × 0.25   // 杂乱（空格碎片化）
+  + min(1, enclosedVoidCells / 10)    × 0.25   // 杂乱（被圈住的小空腔）
+  + min(1, (rowTransitions+colTransitions) / 40) × 0.10  // 杂乱（轮廓锯齿度）
+)
+```
+
+**触发链**（web `blockSpawn.generateDockShapes` 构造预扫描）：
+
+```
+启用 constructiveSpawn + adaptive 路径（pressurePhase 显式）
+  且 constructCooldown == 0
+  且 crowding ≥ crowdedMultiClearMinCrowding（默认 0.55）
+  且 存在 multiClear≥2 的非 special 候选
+  且 rng() < p
+→ 标记最优多消块（multiClear 降序，并列大块优先）占 clearSeat，constructive.kind='multiClear'
+
+p = min(pCap, pMultiClearCrowded × (0.5 + crowding) × (1 + delightBoost × 0.5))
+  pMultiClearCrowded 默认 0.35，pCap 默认 0.85
+```
+
+**关键设计决策**：
+
+1. **跨所有压力相位生效**：拥挤本身就是触发条件，高压盘面的多消兑现爽感最强；与 C1/C2/C3 **互斥**（命中即跳过其余构造分支，含高压顺序锚 C3）。
+2. **接入既有爽感闭环**：`delightBoost`（来自 `adaptiveSpawn.deriveDelightTuning`，含 `isDelightStarved` 抬升）越高越易触发，玩家越「久旱」越倾向投放多消。
+3. **防脚本感**：低基础概率（0.35）+ `cooldownDocks` 冷却（交付后 N dock 不重复强供），保证「偶发性」而非「系统连发喂解」。
+4. **special 隔离**：候选池排除 12 个 special 形状（special 仅由 `_tryInjectSpecial` 事件注入）。
+
+**多端一致性**：
+
+| 端 | 实现 | 触发信号 |
+|----|------|---------|
+| web 主端 | `blockSpawn.js` `computeBoardCrowding` + 构造预扫描 `crowdMcFired` 分支 | `topo`（fill/contiguousRegions/enclosedVoidCells/transitions）+ `delightBoost` hint |
+| Cocos / 小程序 | 机械同步 web `blockSpawn`（`engine/bot/blockSpawn.mjs` / `miniprogram/core/bot/blockSpawn.js`）+ `game_rules.json` | 同 web（逐字一致） |
+| rl_pytorch（RL 离线回退） | `_BoardAnalysis.crowding` + `_try_constructive_spawn` 拥挤多消优先分支（优先级高于 sequential_puzzle） | `fill/contiguous_regions/concave_corners/holes`，`relief = 1 - difficulty_target` 作 delight 代理 |
+| rl_mlx | 维持 v2-lite（无 `fast_grid`/构造引擎），不含拥挤多消构造 | — |
+
+> **配置**：`shared/game_rules.json` → `adaptiveSpawn.constructiveSpawn`：`crowdedMultiClearMinCrowding` / `pMultiClearCrowded` / `pMultiClearCrowdedCap`。`enabled=false` 时与旧行为等价。
+
 ### 3.3 加权抽样公式
 
 ```
@@ -1112,6 +1217,8 @@ $$
 
 | 文件 | 角色 |
 |------|------|
+| `rl_pytorch/block_spawn.py` | **v2 启发式出块 + v3 构造式引擎集成**（盘面拓扑 + 消行得分 + `difficulty_target` 产品目标对齐 + 构造多消/清屏/同花/顺序约束 + **v1.70 拥挤多消爽感** `_BoardAnalysis.crowding`）；RL 训练 `RL_SPAWN_ONLINE=0` 回退路径 |
+| `rl_pytorch/spawn_construction.py` | **构造式出块引擎 v1**：多消/清屏/同花消/顺序约束四构造器，前向协同模拟 + 反向构造 + 约束满足 + 路径依赖 |
 | `rl_pytorch/spawn_model/model_v3.py` | 网络（behaviorContext + autoregressive + style/intent + LoRA-ready） |
 | `rl_pytorch/spawn_model/feasibility.py` | feasibility mask / weight / torch helpers |
 | `rl_pytorch/spawn_model/lora.py` | LoRALinear + inject / freeze / save / load |
@@ -1121,6 +1228,9 @@ $$
 | `rl_pytorch/spawn_model/test_v3.py` | 5 项端到端自检（feasibility / forward / sample / LoRA / shape_proposer / helpers） |
 | `server.py` `/api/spawn-model/v3/*` | 状态 / 预测 / 训练 / 个性化 / 形状候选 4 个 RESTful 端点 |
 | `web/src/spawnModel.js` | 前端 V3 客户端（`predictShapesV3` / `proposeShapes` / `startPersonalize`） |
+| `rl_mlx/block_spawn.py` | **v2-lite 启发式出块**（消行潜力 + `difficulty_target` + 综合权重 + 边界修复）；无 `fast_grid` 依赖，纯 Python 消行评估 |
+| `rl_mlx/dock_color_bias.py` | dock 颜色偏置（v1.60.26 拓宽，`empty ∈ [1, n-2]` + bias 衰减，与 web 同步） |
+| `rl_pytorch/dock_color_bias.py` | dock 颜色偏置（v1.60.26 拓宽，与 web/rl_mlx 三端同步） |
 
 ---
 
@@ -1933,6 +2043,10 @@ w = 0.6 \bigl(1 + \frac{\max(0,\,\text{score}-50)}{200}\bigr)
 
 | 日期 | 说明 |
 |------|------|
+| 2026-06-13 | **rl_mlx v2-lite 升级 + 三端同步 + special 形状隔离**：`rl_mlx/block_spawn.py` 从 v1 升级至 v2-lite（`difficulty_target` 支持 + `pick_weighted` 边界修复 + 消行潜力评估 `_best_clear_count_pure` + 综合权重 `_compute_shape_score` 简化版）；`dock_color_bias.py` 双端同步 web v1.60.26 拓宽（`empty ∈ [1, n-2]` + bias 衰减）；`rl_mlx/simulator.py` 新增 `_difficulty_target_for_spawn()`；`shapes_data.py` 双端新增 `SPECIAL_SHAPE_IDS`/`is_special_shape()`/`get_regular_shapes()`，出块候选池默认排除 12 个 special 形状（与 web `_passesShapeGate` 同口径），修复 P0 special 形状泄漏。§11.8 补充 rl_mlx 文件入口 |
+| 2026-06-13 | **拥挤多消（偶发性爽感兑现）v1.70**：盘面又挤又乱（`computeBoardCrowding` 复合分 ≥ 0.55）的紧张时刻，按概率投放一手多消（≥2 行/列）块让盘面瞬间清爽 → 关键性爽感峰值。web `blockSpawn.generateDockShapes` 新增 `crowdMcFired` 构造预扫描分支（跨所有压力相位生效、与 C1/C2/C3 互斥、受 `cooldownDocks` 冷却约束），触发概率 `p = pMultiClearCrowded × (0.5 + crowding) × (1 + delightBoost×0.5)` clamp 到 `pMultiClearCrowdedCap`，接入既有爽感闭环（`delightBoost` 含 `isDelightStarved` 抬升）。`shared/game_rules.json` 新增 `crowdedMultiClearMinCrowding`/`pMultiClearCrowded`/`pMultiClearCrowdedCap`。Cocos/小程序机械同步；rl_pytorch 镜像 `_BoardAnalysis.crowding` + `_try_constructive_spawn` 拥挤多消优先分支（rl_mlx 维持 v2-lite 不含构造）。§3.2.3 新增详细说明 |
+| 2026-06-13 | **构造式出块引擎 v1**（`spawn_construction.py`）：新增四构造器——多消（协同序贯模拟）、清屏（反向构造+前向验证）、同花消（约束满足精确填补）、顺序约束（路径依赖构造）。集成到 `block_spawn.py`（v3），`difficulty_target < 0.7` 时优先尝试构造式出块，使用独立 RNG 保证回退到加权采样时的随机性一致。§3.2.2 新增详细说明。业界算法融合：Block Blast 反向构造、Tetris AI 前向模拟、Sturgeon CSP 约束满足、Path Dependency PCG |
+| 2026-06-13 | **`block_spawn.py` v2 升级**：Python RL 回退出块路径引入盘面拓扑感知（`_BoardAnalysis`：空洞/近满行列/连通区域/凹角/列高标准差）、消行得分潜力评估（`_best_clear_count` / `_scoring_potential` / `_near_full_delta` 等 5 项指标）、产品目标对齐（`difficulty_target ∈ [0,1]` 连续调制送爽↔加压偏好）。`simulator._difficulty_target_for_spawn()` 综合 `max_scd`、填充率、得分进度动态计算难度目标。§3.2.1 新增详细说明，§11.8 补充文件入口。MLX 侧保留 v1（缺 `fast_grid`）|
 | 2026-05-29 | **下线合成「用户行为样本集 (自动同步)」哨兵集**(原 `BEHAVIOR_SET_ID=900000001`)。该集与 v2 寻参 `d_curve` schema 异构、不可参训也不可删, 在 B.2 里只是占位 → 直接移除(后端删除哨兵注入/详情/预览/下载/守卫与 `_behavior_*` 辅助, 前端删除其行渲染/专属预览/选择器过滤)。主库 `spawn_dataset_samples` WORM 原始档**保留**, 继续作为「用户行为样本集 (寻参可训)」的数据源。**寻参可训集删除后如何再生**:它是普通可变集, 整集可删; 删除后下次打开面板(`DOMContentLoaded` 静默 `import-behavior`)或点「👤→📊 同步用户行为样本」即按集名重建(新 `set_id`), 增量从主库回放转换, 质量门照常过滤废局 |
 | 2026-05-29 | 真实样本集**自动增量同步 + 无效数据质量门**。`import-behavior` 改增量(每样本 `seed=session_id` 去重, 默认 `rebuild=false`), 前端 `DOMContentLoaded` 后台静默同步 → 「用户行为样本集 (寻参可训)」自动出现在 B.2 与训练选择器(普通可变集, 可删/可训)。**两类用户行为集职责分离**:① `BEHAVIOR_SET_ID=900000001`「(自动同步)」= 主库 `spawn_dataset_samples` WORM 原始档(append-only, 不可删, 预览/下载)②「(寻参可训)」= 整理后的 v2 `samples`(可变, full CRUD)。无效数据质量门(`is_valid_real_sample`: `survived_steps<5` / `n_bins_filled<2` / `final_score<1` → 废局)在导入时过滤 + 已入库清理, 自动同步下一致跳过不复活(实测 970→921, 滤除 49 废局) |
 | 2026-05-29 | **真实对局作为 v2 寻参样本的「第二类数据源」**（构造样本 vs 玩家真实，本质同 schema）。新增转换器 `rl_pytorch/spawn_tuning_v2/behavior_import.py`：把主库 `spawn_dataset_samples` 的每局 frames → 1 条 v2 `samples` 行（5 维 context + 27 维 θ + 20 维 d_curve + 辅助标签）。d_curve **复用 `extractor.extract_d_curve`**（与 samplerV2/policyMetricsV2 同公式，跨语言一致）；`action_freedom` 未落库 → 由帧内 `grid.cells`+`dock`（`shared/shapes.json` 几何）**回放合法落子数/64** 重算；θ 取该局实际 `pbCurveParams`（4 维）叠默认 27 维；context 由 `provenance.spawnSource`→generator、`_v2_pb_bin(pb)`、`stressBreakdown.lifecycleStage`(S0–S4)→v2 四阶段 推导；死局补 `no_move` 步。端点 `POST /api/spawn-tuning-v2/import-behavior`（幂等全量重建）写入普通 sample_set（tag `real,field,behavior`，`algo_version=real-v1`），自动出现在 B.2 与训练选择器（标 👤真实），与构造样本无差别地进 d_curve 寻参训练/评估（实测 120 条真实样本可训，val_mae 0.15→0.11）。前端「👤→📊 导入真实样本」按钮。注：真实局多数 r=score/PB<0.5，高 r bin 由 `bin_counts` 置信加权 mask |
