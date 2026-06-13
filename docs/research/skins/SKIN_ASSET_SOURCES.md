@@ -36,6 +36,9 @@ ids and fallback text when an external UI asset fails to load.
 - Miniprogram assets live under `miniprogram/assets/skins/<skinId>/block-0.svg` ... `block-7.svg`.
 - `web/src/skins.js` declares these paths via `blockIconAssets`, aligned with `blockColors` and `blockIcons`.
 - `scripts/sync-miniprogram-skins.cjs` copies `blockIconAssets` into generated miniprogram skin data.
+- `scripts/sync-cocos-resources.mjs` copies the same SVG UI assets into
+  `cocos/assets/resources/assets/skins/` so Cocos Creator packages them in the
+  runtime `resources` bundle.
 - The SVG files are project-authored UI glyphs based on broad visual references listed above, not copied third-party binary artwork.
 
 ## Production Notes

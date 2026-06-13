@@ -64,6 +64,14 @@ echo "  config=$CONFIG"
 
 # ── 寻参 bundle 同步 + 校验 ──────────────────────────────────────────
 REPO_ROOT="$(cd "$COCOS_DIR/.." && pwd)"
+RES_SYNC_SCRIPT="$REPO_ROOT/scripts/sync-cocos-resources.mjs"
+if [[ -f "$RES_SYNC_SCRIPT" ]]; then
+    echo "▶ 同步 Cocos 资源包 (sync-cocos-resources) ..."
+    node "$RES_SYNC_SCRIPT" || { echo "✗ sync-cocos-resources 失败" >&2; exit 1; }
+    echo "  校验资源包一致性 ..."
+    node "$RES_SYNC_SCRIPT" --verify || { echo "✗ Cocos 资源包校验失败：源资源与 cocos/assets/resources 不一致" >&2; exit 1; }
+fi
+
 SYNC_SCRIPT="$REPO_ROOT/scripts/sync-spawn-bundle.mjs"
 if [[ -f "$SYNC_SCRIPT" ]]; then
     echo "▶ 同步寻参 bundle (sync-spawn-bundle) ..."

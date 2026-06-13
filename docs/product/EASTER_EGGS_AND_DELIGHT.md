@@ -192,6 +192,7 @@ miniprogram/assets/audio/skins/_groups/<group>/<event>.m4a
 - 当前全局筛选 manifest 保存在 `docs/research/audio/audio_mapping_manifest.json`，主题重映射清单保存在 `docs/research/audio/theme_audio_mapping_manifest.json`，审计结果保存在 `docs/research/audio/theme_audio_audit_report.json`。
 - 审计/重映射脚本：`docs/research/audio/audit_theme_audio.py` 与 `docs/research/audio/remap_theme_audio.py`。
 - Web 映射文件位于 `web/public/audio/skins/`，小程序映射文件位于 `miniprogram/assets/audio/skins/`。
+- Cocos 打包前由 `scripts/sync-cocos-resources.mjs` 合并 Web 与小程序音频覆盖资源到 `cocos/assets/resources/audio/skins/`，随 Cocos Creator 的 `resources` bundle 一起进入构建产物。
 - 这些文件用于研究试听与 A/B 调参；可直接替换同名事件文件以测试其它来源素材。
 - 当前映射规则偏“清脆、明亮、悦耳”：过滤 `glitch/scratch/error/bong/close/minimize/back`，避免把 `click/tick` 命名素材用于映射，也排除 `misc/bark/barking/breath/burble/spit/poof/pfft/fart/deflate/balloon` 这类粗糙、拟动物、气球泄气或噗呲感来源，并要求最短时长阈值（`place` ≥ 120ms，`tick/select` ≥ 100ms，`clear` ≥ 160ms，`combo/perfect/bonus` 更长），以移除短促刺耳、过度低沉和廉价泄气感反馈。
 - 当前主题映射偏“内容相关”：麻将只取牌桌/瓷牌/软筹码放置声；水域主题只取 bubble/splash/water/rain，常规落子不使用 slime；恐龙与森林分离，`jurassic` 只用 jungle/wood/leaf/soft creature 语义，`forest` 使用 leaf/bird/wood/bug/cute 语义；宠物使用 cute/nose/ooh，不用 bark/howl/monster；暗黑主题只保留张力，不用低沉收束或嘶哑怪叫作为高频反馈。

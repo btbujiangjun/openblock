@@ -21,6 +21,9 @@ DEBUG="${2:-false}"
 echo "==> 项目: $COCOS_PROJ"
 echo "==> 平台: $PLATFORM (debug=$DEBUG)"
 
+echo "==> 同步 Cocos 资源包"
+( cd "$ROOT" && node scripts/sync-cocos-resources.mjs )
+
 # 1) 出包前校验（同源 + 类型）
 if [ "${SKIP_VERIFY:-0}" != "1" ]; then
   echo "==> [1/2] 校验：sync 同源 + tsc strict"
