@@ -48,7 +48,7 @@ export const SKINS: Record<string, Skin> = {
     aurora: {
         id: 'aurora',
         name: '🌌 极光幻梦',
-        blockIcons: ['🦌', '🐧', '🐋', '❄️', '🌌', '🐻‍❄️', '🦭', '🏔️'],
+        blockIcons: ['🦌', '🐧', '🐋', '❄️', '🌌', '⛄', '🐺', '🏔️'],
         blockColors: ['#5AD8CC', '#8070F0', '#AA90FA', '#38D89E', '#28D8F0', '#8590F8', '#C488FC', '#60C8FF'],
         gridOuter: '#04101C',
         gridCell: '#0C1C2E',
@@ -219,7 +219,7 @@ export const SKINS: Record<string, Skin> = {
     summer: {
         id: 'summer',
         name: '🏖️ 夏日海风',
-        blockIcons: ['🍉', '🍦', '🥥', '🏝️', '🧊', '🍹', '🏄', '🏓'],
+        blockIcons: ['🍉', '🍦', '🥥', '🏝️', '🍧', '🍹', '🏄', '🏓'],
         blockColors: ['#D81C30', '#8B681D', '#467A1D', '#3271B1', '#1D7E68', '#826D15', '#D71E1E', '#8B44B0'],
         gridOuter: '#8AAEC8',
         gridCell: '#A8C4D8',
@@ -460,7 +460,7 @@ export const SKINS: Record<string, Skin> = {
     cafe: {
         id: 'cafe',
         name: '☕ 午后咖啡',
-        blockIcons: ['☕', '📖', '🧋', '🌵', '🕯️', '🥐', '🎵', '📝'],
+        blockIcons: ['☕', '📖', '🥤', '🌵', '🕯️', '🥐', '🎵', '📝'],
         blockColors: ['#8A6A50', '#6A7A6A', '#997356', '#548172', '#947556', '#707E61', '#8A6A6A', '#617E7E'],
         gridOuter: '#C0AC90',
         gridCell: '#D8CCBA',
@@ -568,7 +568,7 @@ export interface BoardWatermark {
 const WATERMARKS: Record<string, BoardWatermark> = {
     classic: { icons: ['🎮', '⭐'], opacity: 0.07 },
     titanium: { icons: ['💠', '🔷'], opacity: 0.07 },
-    aurora: { icons: ['🐧', '🐻‍❄️', '❄️', '🌌'], opacity: 0.08 },
+    aurora: { icons: ['🐧', '⛄', '❄️', '🌌'], opacity: 0.08 },
     neonCity: { icons: ['🌃', '🏙️'], opacity: 0.07 },
     ocean: { icons: ['🦈', '🐠'], opacity: 0.07 },
     sunset: { icons: ['🌅', '🔆'], opacity: 0.08 },
