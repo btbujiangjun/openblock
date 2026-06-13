@@ -76,7 +76,7 @@ export default {
     'skin.name.food': '🍕 Пир',
     'skin.name.music': '🎹 Ритм',
     'skin.name.pets': '🐶 Питомцы',
-    'skin.name.universe': '🪐 Космос',
+    'skin.name.universe': '🌑 Космос',
     'skin.name.fantasy': '🔮 Мистическое царство',
     'skin.name.beast': '🗺️ Звериный квест',
     'skin.name.greece': '🏛️ Греческая мифология',

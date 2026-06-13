@@ -245,7 +245,7 @@ export default {
     'skin.name.food': '🍕 美食盛宴',
     'skin.name.music': '🎹 音乐律动',
     'skin.name.pets': '🐶 萌宠天地',
-    'skin.name.universe': '🪐 宇宙星际',
+    'skin.name.universe': '🌑 宇宙星际',
     'skin.name.fantasy': '🔮 魔幻秘境',
     'skin.name.beast': '🗺️ 冒险奇境',
     'skin.name.greece': '🏛️ 希腊神话',

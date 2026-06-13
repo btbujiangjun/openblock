@@ -76,7 +76,7 @@ export default {
     'skin.name.food': '🍕 グルメ',
     'skin.name.music': '🎹 ミュージック',
     'skin.name.pets': '🐶 ペット',
-    'skin.name.universe': '🪐 宇宙',
+    'skin.name.universe': '🌑 宇宙',
     'skin.name.fantasy': '🔮 ファンタジー',
     'skin.name.beast': '🗺️ ビーストクエスト',
     'skin.name.greece': '🏛️ ギリシャ神話',

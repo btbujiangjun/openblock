@@ -76,7 +76,7 @@ export default {
     'skin.name.food': '🍕 وليمة',
     'skin.name.music': '🎹 إيقاع موسيقي',
     'skin.name.pets': '🐶 حيوانات أليفة',
-    'skin.name.universe': '🪐 فضاء',
+    'skin.name.universe': '🌑 فضاء',
     'skin.name.fantasy': '🔮 عالم سحري',
     'skin.name.beast': '🗺️ مغامرة الوحوش',
     'skin.name.greece': '🏛️ أساطير يونانية',

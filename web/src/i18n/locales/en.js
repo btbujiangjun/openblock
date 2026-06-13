@@ -239,7 +239,7 @@ export default {
     'skin.name.food': '🍕 Food Feast',
     'skin.name.music': '🎹 Music Beat',
     'skin.name.pets': '🐶 Cute Pets',
-    'skin.name.universe': '🪐 Cosmic Space',
+    'skin.name.universe': '🌑 Cosmic Space',
     'skin.name.fantasy': '🔮 Mystic Realm',
     'skin.name.beast': '🗺️ Beast Quest',
     'skin.name.greece': '🏛️ Greek Myth',

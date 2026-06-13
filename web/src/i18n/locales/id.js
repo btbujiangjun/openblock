@@ -76,7 +76,7 @@ export default {
     'skin.name.food': '🍕 Hidangan',
     'skin.name.music': '🎹 Irama musik',
     'skin.name.pets': '🐶 Hewan peliharaan',
-    'skin.name.universe': '🪐 Antariksa',
+    'skin.name.universe': '🌑 Antariksa',
     'skin.name.fantasy': '🔮 Alam mistis',
     'skin.name.beast': '🗺️ Petualangan binatang',
     'skin.name.greece': '🏛️ Mitologi Yunani',

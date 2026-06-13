@@ -76,7 +76,7 @@ export default {
     'skin.name.food': '🍕 Δείπνο',
     'skin.name.music': '🎹 Μουσική',
     'skin.name.pets': '🐶 Κατοικίδια',
-    'skin.name.universe': '🪐 Διάστημα',
+    'skin.name.universe': '🌑 Διάστημα',
     'skin.name.fantasy': '🔮 Μυστικό βασίλειο',
     'skin.name.beast': '🗺️ Περιπέτεια θηρίων',
     'skin.name.greece': '🏛️ Ελληνική μυθολογία',

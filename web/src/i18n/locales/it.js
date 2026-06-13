@@ -76,7 +76,7 @@ export default {
     'skin.name.food': '🍕 Festa gastronomica',
     'skin.name.music': '🎹 Ritmo musicale',
     'skin.name.pets': '🐶 Animali domestici',
-    'skin.name.universe': '🪐 Spazio cosmico',
+    'skin.name.universe': '🌑 Spazio cosmico',
     'skin.name.fantasy': '🔮 Regno mistico',
     'skin.name.beast': '🗺️ Avventura bestiale',
     'skin.name.greece': '🏛️ Mitologia greca',

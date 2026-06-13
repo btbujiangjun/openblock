@@ -76,7 +76,7 @@ export default {
     'skin.name.food': '🍕 Ziyafet',
     'skin.name.music': '🎹 Müzik ritmi',
     'skin.name.pets': '🐶 Evcil hayvanlar',
-    'skin.name.universe': '🪐 Uzay',
+    'skin.name.universe': '🌑 Uzay',
     'skin.name.fantasy': '🔮 Mistik diyar',
     'skin.name.beast': '🗺️ Canavar görevi',
     'skin.name.greece': '🏛️ Yunan mitolojisi',

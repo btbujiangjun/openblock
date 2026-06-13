@@ -76,7 +76,7 @@ export default {
     'skin.name.food': '🍕 Tiệc ẩm thực',
     'skin.name.music': '🎹 Nhịp nhạc',
     'skin.name.pets': '🐶 Thú cưng',
-    'skin.name.universe': '🪐 Vũ trụ',
+    'skin.name.universe': '🌑 Vũ trụ',
     'skin.name.fantasy': '🔮 Vương quốc huyền ảo',
     'skin.name.beast': '🗺️ Phiêu lưu thú',
     'skin.name.greece': '🏛️ Thần thoại Hy Lạp',

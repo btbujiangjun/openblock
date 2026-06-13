@@ -76,7 +76,7 @@ export default {
     'skin.name.food': '🍕 Festijn',
     'skin.name.music': '🎹 Muziekritme',
     'skin.name.pets': '🐶 Huisdieren',
-    'skin.name.universe': '🪐 Kosmos',
+    'skin.name.universe': '🌑 Kosmos',
     'skin.name.fantasy': '🔮 Mystiek rijk',
     'skin.name.beast': '🗺️ Beestenquest',
     'skin.name.greece': '🏛️ Griekse mythologie',

@@ -99,7 +99,7 @@ export const SKINS: Record<string, Skin> = {
     sunset: {
         id: 'sunset',
         name: '🌅 琥珀流光',
-        blockIcons: ['🌅', '🏺', '🌼', '🏵️', '🍀', '🪻', '🌺', '🐫'],
+        blockIcons: ['🌅', '🏺', '🌼', '🏵️', '🍀', '🍂', '🌺', '🐫'],
         blockColors: ['#FF6A50', '#FF8E3A', '#FFB230', '#FFD638', '#FF7090', '#E04098', '#A858DC', '#FFAE6A'],
         gridOuter: '#241019',
         gridCell: '#341628',
@@ -116,7 +116,7 @@ export const SKINS: Record<string, Skin> = {
     sakura: {
         id: 'sakura',
         name: '🌸 樱落无声',
-        blockIcons: ['🌸', '🕊️', '🏯', '🪔', '🧘', '🎑', '🫖', '🪘'],
+        blockIcons: ['🌸', '🕊️', '🏯', '🎎', '🧘', '🎑', '🍶', '🥢'],
         blockColors: ['#FF4490', '#FF2870', '#FFB0D8', '#78D860', '#78B8F0', '#CC60E8', '#FFBA30', '#58D890'],
         gridOuter: '#241018',
         gridCell: '#321628',
@@ -133,7 +133,7 @@ export const SKINS: Record<string, Skin> = {
     koi: {
         id: 'koi',
         name: '🎏 锦鲤戏月',
-        blockIcons: ['🎋', '🌊', '🪷', '⛩️', '🐟', '🏮', '🎐', '🎏'],
+        blockIcons: ['🎋', '🌊', '🏵️', '⛩️', '🐟', '🏮', '🎐', '🎏'],
         blockColors: ['#FF5040', '#F07828', '#F0C820', '#4070D8', '#E880A8', '#38A8B8', '#F05888', '#D0A858'],
         gridOuter: '#040E18',
         gridCell: '#081C2C',
@@ -184,7 +184,7 @@ export const SKINS: Record<string, Skin> = {
     pixel8: {
         id: 'pixel8',
         name: '👾 像素纪元',
-        blockIcons: ['💣', '🪙', '🥊', '🎮', '👊', '🍄', '🕹️', '👾'],
+        blockIcons: ['💣', '💰', '🥊', '🎮', '👊', '🍄', '🕹️', '👾'],
         blockColors: ['#FF2050', '#1E78FF', '#00C030', '#F8C000', '#CC00CC', '#00B8C8', '#FF5800', '#90E000'],
         gridOuter: '#0D0400',
         gridCell: '#1E1008',
@@ -201,7 +201,7 @@ export const SKINS: Record<string, Skin> = {
     dawn: {
         id: 'dawn',
         name: '☀️ 晨光微曦',
-        blockIcons: ['🐝', '🌱', '🍯', '🦗', '🐞', '🌿', '🪹', '🐓'],
+        blockIcons: ['🐝', '🌱', '🍯', '🦗', '🐞', '🌿', '🐣', '🐓'],
         blockColors: ['#DA5244', '#4181D0', '#A67925', '#488D61', '#8970CC', '#378C8C', '#D15578', '#6678DC'],
         gridOuter: '#D8C8A4',
         gridCell: '#EDE0C4',
@@ -219,7 +219,7 @@ export const SKINS: Record<string, Skin> = {
     summer: {
         id: 'summer',
         name: '🏖️ 夏日海风',
-        blockIcons: ['🍉', '🍦', '🥥', '🏝️', '🧊', '🍹', '🪁', '🏓'],
+        blockIcons: ['🍉', '🍦', '🥥', '🏝️', '🧊', '🍹', '🏄', '🏓'],
         blockColors: ['#D81C30', '#8B681D', '#467A1D', '#3271B1', '#1D7E68', '#826D15', '#D71E1E', '#8B44B0'],
         gridOuter: '#8AAEC8',
         gridCell: '#A8C4D8',
@@ -287,9 +287,9 @@ export const SKINS: Record<string, Skin> = {
     /** 宇宙：八大行星 + 天体 emoji */
     universe: {
         id: 'universe',
-        name: '🪐 星河漫游',
+        name: '🌑 星河漫游',
         blockColors: ['#E84020', '#F09030', '#D8C820', '#3898D0', '#D040D0', '#20B0C0', '#D88020', '#9070F0'],
-        blockIcons: ['🛸', '🌍', '🔭', '🌙', '⭐', '🪐', '☄️', '🌠'],
+        blockIcons: ['🛸', '🌍', '🔭', '🌙', '⭐', '🌑', '☄️', '🌠'],
         gridOuter: '#04020E',
         gridCell: '#0A0618',
         gridGap: 1,
@@ -305,7 +305,7 @@ export const SKINS: Record<string, Skin> = {
     fantasy: {
         id: 'fantasy',
         name: '🔮 幻梦之境',
-        blockIcons: ['🧙', '🧝', '🧞', '💫', '🗝️', '📿', '🪬', '🪩'],
+        blockIcons: ['🧙', '🧝', '🧞', '💫', '🗝️', '📿', '🧿', '🔮'],
         blockColors: ['#CC48FF', '#5080F0', '#18B848', '#E82020', '#E8B820', '#20B0D8', '#E020A0', '#9060E0'],
         gridOuter: '#0E0428',
         gridCell: '#1A0838',
@@ -374,7 +374,7 @@ export const SKINS: Record<string, Skin> = {
     fairy: {
         id: 'fairy',
         name: '🧚 花语星梦',
-        blockIcons: ['🌻', '🦋', '🌹', '🍃', '🪄', '🌷', '🌈', '🧚'],
+        blockIcons: ['🌻', '🦋', '🌹', '🍃', '🌟', '🌷', '🌈', '🧚'],
         blockColors: ['#D060F0', '#F060A0', '#60A0F8', '#F07060', '#F040A0', '#9B72F0', '#F09040', '#40D0E8'],
         gridOuter: '#1F0E2C',
         gridCell: '#2C1640',
@@ -391,7 +391,7 @@ export const SKINS: Record<string, Skin> = {
     forbidden: {
         id: 'forbidden',
         name: '👑 紫禁浮光',
-        blockIcons: ['🐲', '👑', '🪭', '🧧', '🥮', '🀄', '📜', '🍵'],
+        blockIcons: ['🐲', '👑', '🎭', '🧧', '🥮', '🀄', '📜', '🍵'],
         blockColors: ['#D8252F', '#1B7E5C', '#2B6BD6', '#D8CCB0', '#E8B83C', '#317891', '#B8732C', '#E84068'],
         gridOuter: '#1C0608',
         gridCell: '#2A0E12',
@@ -425,7 +425,7 @@ export const SKINS: Record<string, Skin> = {
     forest: {
         id: 'forest',
         name: '🌳 荒野秘境',
-        blockIcons: ['🌳', '🌲', '🐺', '🍁', '🦅', '🌾', '🐻', '🪺'],
+        blockIcons: ['🌳', '🌲', '🐺', '🍁', '🦅', '🌾', '🐻', '🍄'],
         blockColors: ['#A5682F', '#D97B3C', '#6B7BA2', '#518349', '#D4A028', '#C4497F', '#A36934', '#5392C9'],
         gridOuter: '#06140A',
         gridCell: '#0E2010',
@@ -460,7 +460,7 @@ export const SKINS: Record<string, Skin> = {
     cafe: {
         id: 'cafe',
         name: '☕ 午后咖啡',
-        blockIcons: ['☕', '📖', '🧋', '🪴', '🕯️', '🥐', '🎵', '📝'],
+        blockIcons: ['☕', '📖', '🧋', '🌵', '🕯️', '🥐', '🎵', '📝'],
         blockColors: ['#8A6A50', '#6A7A6A', '#997356', '#548172', '#947556', '#707E61', '#8A6A6A', '#617E7E'],
         gridOuter: '#C0AC90',
         gridCell: '#D8CCBA',
@@ -478,7 +478,7 @@ export const SKINS: Record<string, Skin> = {
     fiesta: {
         id: 'fiesta',
         name: '🎉 欢庆嘉年',
-        blockIcons: ['🎉', '🎊', '🎈', '🪅', '🥳', '🎁', '🧨', '🎪'],
+        blockIcons: ['🎉', '🎊', '🎈', '🎠', '🥳', '🎁', '🧨', '🎪'],
         blockColors: ['#FF3058', '#FF9020', '#FFD028', '#30D850', '#2098FF', '#CC40FF', '#FF50A0', '#20D0D0'],
         gridOuter: '#180828',
         gridCell: '#281040',
@@ -581,7 +581,7 @@ const WATERMARKS: Record<string, BoardWatermark> = {
     food: { icons: ['🍕', '🍔'], opacity: 0.08 },
     music: { icons: ['🎹', '🎸'], opacity: 0.08 },
     pets: { icons: ['🐶', '🐾'], opacity: 0.09 },
-    universe: { icons: ['🪐', '⭐'], opacity: 0.07 },
+    universe: { icons: ['🌑', '⭐'], opacity: 0.07 },
     fantasy: { icons: ['🔮', '✨'], opacity: 0.08 },
     greece: { icons: ['🏛️', '⚡'], opacity: 0.08 },
     demon: { icons: ['😈', '💀'], opacity: 0.08 },

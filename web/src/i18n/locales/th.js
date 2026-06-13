@@ -76,7 +76,7 @@ export default {
     'skin.name.food': '🍕 งานเลี้ยงอาหาร',
     'skin.name.music': '🎹 จังหวะดนตรี',
     'skin.name.pets': '🐶 สัตว์เลี้ยง',
-    'skin.name.universe': '🪐 อวกาศ',
+    'skin.name.universe': '🌑 อวกาศ',
     'skin.name.fantasy': '🔮 อาณาจักรลึกลับ',
     'skin.name.beast': '🗺️ ผจญภัยสัตว์ร้าย',
     'skin.name.greece': '🏛️ เทพปกรณัมกรีก',
