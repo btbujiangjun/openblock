@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { buildSessionEvalRecord } from '../../web/src/evaluation/sessionEvaluator.js';
-import { createEvaluationLedger, recordStressSample, recordFlowSample, recordBoardSample, recordMoveQuality, recordRoundQuality, recordSpawnEvent, finalizeSpawnEvent, setLedgerOutcome, patchLedgerMeta } from '../../web/src/evaluation/evaluationLedger.js';
+import { createEvaluationLedger, recordStressSample, recordFlowSample, recordBoardSample, recordRoundQuality, recordSpawnEvent, finalizeSpawnEvent, setLedgerOutcome, patchLedgerMeta } from '../../web/src/evaluation/evaluationLedger.js';
 
 describe('buildSessionEvalRecord', () => {
     it('空 ledger 也返回完整 schema', () => {

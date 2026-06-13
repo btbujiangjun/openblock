@@ -259,7 +259,13 @@ wallet.js (技能/货币统一管理)
     │
     ├── 轨道一：启发式
     │   ├── adaptiveSpawn.js → stress + spawnHints
+    │   │     └── ★ spawn/warmRun.js · applyWarmRun (v1.70 温暖局钳制器)
+    │   │           ├─ 触发：T1 新手 / T2 回流 / T3+T4 连挫 / T5 流失 / T6 winback / T7 远端
+    │   │           ├─ 3 档强度：warm_mild / warm_strong / warm_rescue
+    │   │           ├─ 钳制：shapeWeights（大块/规则块）+ stress 上限 + spawnHints 下限
+    │   │           └─ 编排：multi_clear_now / mono_flush / perfect_clear / setup_for_multi
     │   └── blockSpawn.js → generateDockShapes()
+    │         └─ ★ _enforceWarmRunConstraints（大块比例后置校验 + 折角块替换）
     │
     ├── 轨道二：生成式
     │   ├── spawnModel.js → /api/spawn-model/v3/predict
@@ -270,6 +276,13 @@ wallet.js (技能/货币统一管理)
         ├── V3 失败或护栏未通过 → 规则轨兜底
         └── _commitSpawn() 记录 source / V3 meta / fallbackReason
 ```
+
+> 温暖局（Warm Run）算法详见 [`docs/algorithms/ALGORITHMS_SPAWN.md` §十七](docs/algorithms/ALGORITHMS_SPAWN.md#十七温暖局warm-run)。
+>
+> **v1.70.1 可观测性**：`warm` 作为新 spawnIntent 已在 `intent_lexicon.json` / `stressMeter.SPAWN_INTENT_NARRATIVE` /
+> `presentationReducer.SPAWN_INTENT_COLOR` / `decisionFlowViz` 全链路注册（橙金 `#fb923c`）。
+> `playerInsightPanel` 的 spawn 决策快照卡片在温暖局激活时追加 **温暖 / 暖段 / 编排 / 触发 / 预算** 5 个 cell，
+> 完整曝光 `intensity / phase / target / triggerIds / budgetSnapshot`。
 
 ### Stress 与 SpawnHints 信号
 
@@ -292,7 +305,23 @@ stress = Σ(signal_i * weight_i), clamp(-0.2, 1.0)
   → 查表插值 10 档 shapeWeights profile
   → 传递 spawnHints 到 blockSpawn.js
   → 同步写入 SpawnTransformerV3 共享上下文
+  → v1.70 ★ applyWarmRun 在 return 之前对新手/回流/连挫人群钳制 shapeWeights/spawnHints/stress
 ```
+
+### Intent 优先级表（10 项，v1.70）
+
+| Priority | Rule | spawnIntent | 触发 |
+|---------:|------|-------------|------|
+| **115** | `warm_run`           | `warm`     | 温暖局激活（v1.70 新增，最高） |
+|     102 | `pb_chase_pressure`  | `pressure` | 接近/超越 PB |
+|     100 | `relief`             | `relief`   | playerDistress < -0.10 / 强 distress |
+|      95 | `delight_starved`    | `relief`   | 连续 N 轮无 multiClear/pcClear/monoFlush |
+|      90 | `engage`             | `engage`   | AFK 召回 |
+|      80 | `harvest`            | `harvest`  | 近满线 ≥ 2 / pcSetup ≥ 1 |
+|      70 | `pressure`           | `pressure` | challengeBoost > 0 |
+|      60 | `sprint`             | `sprint`   | 中间过渡带 |
+|      50 | `flow`               | `flow`     | flow_payoff / rhythm payoff |
+|       0 | `maintain`           | `maintain` | fallback |
 
 ---
 

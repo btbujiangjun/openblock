@@ -37,8 +37,8 @@ import { getAllShapes, getShapeCategory, pickShapeByCategoryWeights, isSpecialSh
 import { GAME_RULES } from '../gameRules.js';
 import { analyzeBoardTopology, detectNearClears } from '../boardTopology.js';
 import { computeSpawnStepDifficulty } from '../spawnStepDifficulty.js';
-import { findCompleterShapes, findSetupShapes, isClearTargetValid } from './constructiveSpawn.js';
-import { defaultRng, pickIndex, fisherYatesInPlace } from '../lib/seededRng.js';
+import { findCompleterShapes, findSetupShapes, isClearTargetValid, findMultiClearCompleter, findLargeBlockCompleter } from './constructiveSpawn.js';
+import { defaultRng, fisherYatesInPlace } from '../lib/seededRng.js';
 import { pickByPlatform } from '../config/platformProfile.js';
 
 /** v1.32+v1.60.0：独立库（事件注入特殊形状）—— 不参与正常概率出块。
@@ -1201,13 +1201,13 @@ function _categoryShort(cat) {
  * 在合适场景做权重 nudge——保持现有"权重抽签 + 多路径"主体逻辑不被 gate 截断。
  *
  * @param {object} shape - { id, data, category }
- * @param {object} hints - spawnHints（含 spawnIntent）
- * @param {object} profile - playerProfile（含 skillLevel）
- * @param {object} ctx - 复用现有 ctx
- * @param {number} fill - 当前盘面填充率
+ * @param {object} _hints - spawnHints（含 spawnIntent）；当前实现未使用，保留位参契约
+ * @param {object} _profile - playerProfile（含 skillLevel）；当前实现未使用，保留位参契约
+ * @param {object} _ctx - 复用现有 ctx；当前实现未使用
+ * @param {number} _fill - 当前盘面填充率；当前实现未使用
  * @returns {boolean} 是否允许进入本轮 scored 集合
  */
-function _passesShapeGate(shape, hints, profile, _ctx, _fill) {
+function _passesShapeGate(shape, _hints, _profile, _ctx, _fill) {
     if (!shape) return false;
     const id = shape.id;
     /* v1.32+v1.60.0：所有 12 个特殊加减压形状不参与正常概率出块，
@@ -2102,6 +2102,95 @@ function _pickFallbackSafe(weights) {
  * Rule 路径理论上不应再触发本函数（数据源已切断 + gate + post-validate 三重防御）；
  * 保留作为最后一道防线（depth-in-defense）。
  */
+/**
+ * v1.70 warm_run 后置约束：温暖局三连必须满足
+ *   1) 大块比例 ≥ largeBlockMinRatio（面积 ≥ 4 的形状占比）
+ *   2) forbidJagged 时不含 T/Z 折角块（category 为 tshapes/zshapes）
+ *
+ * 不满足时调用 constructiveSpawn.findLargeBlockCompleter 在可放置形状中补块替换；
+ * 替换不可行时保留原 triplet 并打 diagnostics 标记，由调用方走 fail-open。
+ *
+ * **不变式**：mutate input triplet in-place（与 _sanitizeShapeArr 同语义）；不改变长度。
+ *
+ * @param {Array} triplet 三连 shape 对象数组
+ * @param {object} grid Grid 实例
+ * @param {object} weights shapeWeights（用于候选池过滤）
+ * @param {{ largeBlockMinRatio:number, forbidJagged:boolean, target:string, diagnostics:object }} cfg
+ */
+function _enforceWarmRunConstraints(triplet, grid, weights, cfg) {
+    if (!Array.isArray(triplet) || triplet.length !== 3) return;
+    const minRatio = cfg.largeBlockMinRatio ?? 0.65;
+    const forbidJagged = cfg.forbidJagged === true;
+    /* 形状面积统计 */
+    const sizeOf = (s) => {
+        const d = s?.data;
+        if (!Array.isArray(d)) return 0;
+        let n = 0;
+        for (let y = 0; y < d.length; y++) for (let x = 0; x < d[y].length; x++) if (d[y][x]) n++;
+        return n;
+    };
+    const isJagged = (s) => {
+        const cat = getShapeCategory(s?.id);
+        return cat === 'tshapes' || cat === 'zshapes';
+    };
+    const requiredLarge = Math.ceil(minRatio * 3);
+    let largeCount = 0;
+    const jaggedIdx = [];
+    for (let i = 0; i < triplet.length; i++) {
+        if (sizeOf(triplet[i]) >= 4) largeCount++;
+        if (forbidJagged && isJagged(triplet[i])) jaggedIdx.push(i);
+    }
+    if (largeCount >= requiredLarge && jaggedIdx.length === 0) {
+        if (cfg.diagnostics) cfg.diagnostics.warmRunPostCheck = 'pass';
+        return;
+    }
+
+    /* 需要替换：候选池 = 当前 weights 中权重 > 0 的常规形状，按面积降序。
+     * 调用 findLargeBlockCompleter 找出实际可放置的大块（v1.70.3：改静态 import，
+     * 原 require('./constructiveSpawn.js') 在 ESM 下非法且 constructiveSpawn 无反向依赖）。 */
+    if (typeof findLargeBlockCompleter !== 'function') {
+        if (cfg.diagnostics) cfg.diagnostics.warmRunPostCheck = 'helper-missing';
+        return;
+    }
+    const allShapes = getAllShapes();
+    const catalog = allShapes
+        .filter((s) => !SPECIAL_SHAPES.includes(s.id))
+        .filter((s) => (weights?.[getShapeCategory(s.id)] ?? 0) > 0);
+    const largeCandidates = findLargeBlockCompleter(grid, catalog, {
+        minSize: 4, maxResults: 6, budget: 1500,
+    });
+    if (!largeCandidates.length) {
+        if (cfg.diagnostics) cfg.diagnostics.warmRunPostCheck = 'no-large-candidate';
+        return;
+    }
+
+    /* 替换优先级：先替 jagged，再补足大块差额。 */
+    const replaceWith = (idx, shapeId) => {
+        const found = allShapes.find((s) => s.id === shapeId);
+        if (found) triplet[idx] = { ...found };
+    };
+    let candCursor = 0;
+    for (const idx of jaggedIdx) {
+        if (candCursor >= largeCandidates.length) break;
+        replaceWith(idx, largeCandidates[candCursor++].shapeId);
+    }
+    /* 重新统计大块数；若仍不足，把面积最小的非 jagged 位置替换为下一个大块。 */
+    const recalcLarge = () => triplet.reduce((n, s) => n + (sizeOf(s) >= 4 ? 1 : 0), 0);
+    while (recalcLarge() < requiredLarge && candCursor < largeCandidates.length) {
+        let minIdx = -1, minSize = Infinity;
+        for (let i = 0; i < triplet.length; i++) {
+            const sz = sizeOf(triplet[i]);
+            if (sz < 4 && sz < minSize) { minSize = sz; minIdx = i; }
+        }
+        if (minIdx < 0) break;
+        replaceWith(minIdx, largeCandidates[candCursor++].shapeId);
+    }
+    if (cfg.diagnostics) {
+        cfg.diagnostics.warmRunPostCheck = recalcLarge() >= requiredLarge ? 'fixed' : 'partial';
+        cfg.diagnostics.warmRunTarget = cfg.target;
+    }
+}
+
 export function _sanitizeShapeArr(arr, grid, weights) {
     for (let i = 0; i < arr.length; i++) {
         if (isSpecialShapeId(arr[i].id)) {
@@ -2217,6 +2306,14 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const accessibilityLoad = Math.max(0, Math.min(1, hints.accessibilityLoad ?? 0));
     const returningWarmupStrength = Math.max(0, Math.min(1, hints.returningWarmupStrength ?? 0));
     const socialFairChallenge = hints.socialFairChallenge === true;
+    /* v1.70 warm_run：温暖局元数据（由 adaptiveSpawn.applyWarmRun 钳制后写入 hints.warmRun）。
+     * 仅在 active=true 时启用「大块比例后置校验 + 构造式补块」与「爽感主动编排」。
+     * 未激活时所有相关分支退化为 noop，主路径行为完全不变。 */
+    const warmRunHints = hints.warmRun || null;
+    const warmRunActive = !!(warmRunHints && warmRunHints.active);
+    const warmRunLargeMinRatio = warmRunActive ? Math.max(0, Math.min(1, warmRunHints.largeBlockMinRatio ?? 0.65)) : 0;
+    const warmRunTarget = warmRunActive ? (warmRunHints.target || 'comfort_flow') : null;
+    const warmRunForbidJagged = warmRunActive && warmRunHints.forbidJagged === true;
     const spawnTargets = hints.spawnTargets || {};
     const shapeComplexityTarget = Math.max(0, Math.min(1, spawnTargets.shapeComplexity ?? 0.45));
     const solutionSpacePressure = Math.max(0, Math.min(1, spawnTargets.solutionSpacePressure ?? 0.45));
@@ -2330,7 +2427,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
              * 进入 scored，让主路径加权直接命中（详见上方 monoFlushAllowIds 注释）。 */
             if (monoFlushAllowIds.has(shape.id)) {
                 /* 放行，跳过 _passesShapeGate 拒绝；下游 scoreShape × monoFlush 加权接力 */
-            } else if (!_passesShapeGate(shape, hints, profile, ctx, fill)) { // eslint-disable-line no-use-before-define
+            } else if (!_passesShapeGate(shape, hints, profile, ctx, fill)) {
                 return null;
             }
             const gapFills = grid.countGapFills(shape.data);
@@ -2382,7 +2479,6 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
              *    → 配合 LaneLayer cells/5 公式，让 2-3 格小块在前期减压场景显著抬头
              *  - 3 格 L 角（l3-a..d）：gapFills > 0 时 ×1.3
              *    → 角落补缝场景的天然适配奖励 */
-            // eslint-disable-next-line no-use-before-define
             weight = _applyShapeBonusWeight(weight, shape.id, hints, gapFills);
 
             return { shape, canPlace: true, gapFills, weight, category, placements, multiClear, holeReduce, pcPotential, exactFit, monoFlush, monoFlushTargetCi, monoFlushBuildup };
@@ -2557,14 +2653,32 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const constructive = {
         enabled: !!_consCfg.enabled,
         kind: null,
+        /* v1.70.2：kinds[] 保留全部触发路径（kind 仍是末次写入，向后兼容）。
+         * 例如高压时 C1 'completer' 与 'order' 可同时触发，旧 kind 单值会丢失前者信息。 */
+        kinds: [],
         completerCount: 0,
         setupCount: 0,
         cooldownActive: false,
         fromPending: false,
         pendingClearTarget: null,
         crowding: 0,
+        crowdThreshold: 0,
+        crowdStarved: false,
         crowdMultiClearCount: 0,
-        delivered: false
+        injectedMultiClear: 0,
+        injectedCompleter: 0,
+        delivered: false,
+        /* v1.70.3：构造未达成续约 —— 上轮未交付构造时，ctx.constructiveRetry 累加到 retryCount，
+         * 当前 dock 的 pComp/pMc 概率获得 retryBoost 加成，最多续约 retryMaxRounds 次。
+         * 让"一轮失败"不至于直接归零，而是给构造体感留 1~2 轮的成功窗口。 */
+        retryCount: 0,
+        retryBoosted: false,
+        /* v1.70.3：扩展 maxEmpty —— 高 fill 时把 nearFull 阈值从 2 放宽到 3，候选源 +50%。 */
+        effectiveMaxEmpty: 2
+    };
+    const _markKind = (k) => {
+        constructive.kind = k;
+        if (!constructive.kinds.includes(k)) constructive.kinds.push(k);
     };
     let constructedSeatNeed = 0;
 
@@ -2578,31 +2692,125 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
      *   p = pBase × (0.5 + crowding) × (1 + delightBoost×0.5)，clamp 到 pCap。
      *   delightBoost（来自 adaptiveSpawn 爽感派生，含 isDelightStarved 抬升）越高越易触发，
      *   把「拥挤多消」自然接入既有爽感闭环。 */
+    /* v1.70.3 续约：上一轮未达成构造时累加重试计数，本轮概率获得加成。 */
+    const _retryCount = Math.max(0, Number(ctx?.constructiveRetry) || 0);
+    const _retryMax = Math.max(0, Number(_consCfg.retryMaxRounds) || 2);
+    const _retryBoost = (_retryCount > 0 && _retryCount <= _retryMax)
+        ? Math.max(0, Number(_consCfg.retryBoost) || 0.25)
+        : 0;
+    constructive.retryCount = _retryCount;
+    constructive.retryBoosted = _retryBoost > 0;
+
+    /* v1.70.3 effectiveMaxEmpty：高 fill 时把 nearFull 阈值从 2 放宽到 3，覆盖"差 3 格"的近满线，
+     * 候选源 +50%。低 fill 维持 2 避免过早误报。 */
+    const _maxEmptyBase = Number.isFinite(_consCfg.maxEmpty) ? _consCfg.maxEmpty : 2;
+    const _maxEmptyHigh = Number.isFinite(_consCfg.maxEmptyHigh) ? _consCfg.maxEmptyHigh : 3;
+    const _maxEmptyFillThreshold = Number.isFinite(_consCfg.maxEmptyFillThreshold) ? _consCfg.maxEmptyFillThreshold : 0.55;
+    const _effectiveMaxEmpty = fill >= _maxEmptyFillThreshold ? _maxEmptyHigh : _maxEmptyBase;
+    constructive.effectiveMaxEmpty = _effectiveMaxEmpty;
+
     let crowdMcFired = false;
     if (_consCfg.enabled && _phaseExplicit) {
         const _cdMc = Math.max(0, Number(ctx?.constructCooldown) || 0);
         const crowding = computeBoardCrowding(topo, fill);
         constructive.crowding = crowding;
-        const _crowdMin = Number.isFinite(_consCfg.crowdedMultiClearMinCrowding)
+        /* v1.70.2 自适应阈值：delightStarved（爽感饥渴）+ 高 delightBoost 时降低 crowding 门槛，
+         * 让"很久没爽感 + 已经很挤"的玩家更容易被命中拥挤多消。原 0.55 静态阈值在
+         * fill≈0.7 但 contiguousRegions/voids 适中的"整齐高填"盘面常错过触发。
+         * starvedBoost：delightStarved=true → -0.10；delightBoost ≥ 0.6 → -0.05（累加）。 */
+        const _crowdMinBase = Number.isFinite(_consCfg.crowdedMultiClearMinCrowding)
             ? _consCfg.crowdedMultiClearMinCrowding : 0.55;
+        /* v1.70.2 starvedFlag：blockSpawn 内 profile 是 layered._xxx 重建的本地对象（无方法），
+         * 必须从 adaptiveSpawn 透出的 strategyConfig._delightStarved 读取（adaptiveSpawn 已在
+         * spawn 入口 profile.isDelightStarved() 求值并写入）。兼容性：缺字段或非 spawn 入口
+         * 时退回 false。 */
+        const _starvedFlag = !!(strategyConfig && strategyConfig._delightStarved);
+        let _crowdMin = _crowdMinBase;
+        if (_starvedFlag) _crowdMin -= (Number.isFinite(_consCfg.crowdedThresholdStarvedDelta) ? _consCfg.crowdedThresholdStarvedDelta : 0.10);
+        if (delightBoost >= 0.6) _crowdMin -= (Number.isFinite(_consCfg.crowdedThresholdHighBoostDelta) ? _consCfg.crowdedThresholdHighBoostDelta : 0.05);
+        _crowdMin = Math.max(0.3, _crowdMin); // 不再低于 0.3，避免误触
+        constructive.crowdThreshold = _crowdMin;
+        constructive.crowdStarved = _starvedFlag;
+
         if (_cdMc === 0 && crowding >= _crowdMin) {
-            const _mcCandidates = scored.filter(
+            const _mcCandidatesScored = scored.filter(
                 (s) => !isSpecialShapeId(s.shape.id) && (s.multiClear ?? 0) >= 2
             );
-            if (_mcCandidates.length > 0) {
-                const _pBase = Number.isFinite(_consCfg.pMultiClearCrowded) ? _consCfg.pMultiClearCrowded : 0.35;
-                const _pCap = Number.isFinite(_consCfg.pMultiClearCrowdedCap) ? _consCfg.pMultiClearCrowdedCap : 0.85;
-                const _pMc = Math.min(_pCap, Math.max(0, _pBase * (0.5 + crowding) * (1 + delightBoost * 0.5)));
-                if (_pMc > 0 && _consRng() < _pMc) {
+            const _pBase = Number.isFinite(_consCfg.pMultiClearCrowded) ? _consCfg.pMultiClearCrowded : 0.35;
+            const _pCap = Number.isFinite(_consCfg.pMultiClearCrowdedCap) ? _consCfg.pMultiClearCrowdedCap : 0.85;
+            /* v1.70.3：retry 续约期叠加概率 +_retryBoost（默认 0.25），让"上轮没成"在 1~2 轮内有机会。 */
+            const _pMc = Math.min(_pCap, Math.max(0, _pBase * (0.5 + crowding) * (1 + delightBoost * 0.5) + _retryBoost));
+
+            if (_pMc > 0 && _consRng() < _pMc) {
+                let _useScored = _mcCandidatesScored.length > 0;
+
+                /* v1.70.2 主动构造：scored 池没有 multiClear≥2 候选时（高 fill 时常见——
+                 * 大块在 augmentPool 被限流、补全块只能补单线），从全词表用 C3
+                 * findMultiClearCompleter 主动搜索，并把命中的 shape **注入** scored
+                 * 池前移。这是「拥挤多消成功率优化」的核心：不再 100% 依赖采样器
+                 * 是否恰好生成了多消候选，而是直接保证多消块的存在。 */
+                if (!_useScored) {
+                    const _allCatalog = getAllShapes()
+                        .filter((s) => !isSpecialShapeId(s.id))
+                        .filter((s) => grid.canPlaceAnywhere(s.data))
+                        .filter((s) => (weights?.[getShapeCategory(s.id)] ?? 0) > 0)
+                        .map((s) => ({ id: s.id, data: s.data }));
+                    const _injectBudget = Number.isFinite(_consCfg.injectMultiClearBudget)
+                        ? _consCfg.injectMultiClearBudget : 4000;
+                    const _mcHits = findMultiClearCompleter(grid, _allCatalog, {
+                        minClears: 2, maxResults: 3, budget: _injectBudget,
+                    });
+                    if (_mcHits.length > 0) {
+                        const _allMap = new Map(getAllShapes().map((s) => [s.id, s]));
+                        for (const hit of _mcHits) {
+                            const existsScored = scored.find((s) => s.shape.id === hit.shapeId);
+                            if (existsScored) {
+                                /* 该形状本已存在但 multiClear 标注为 0（bestMultiClearPotential
+                                 * 与 C3 口径一致，理论不会发生；兜底直接复用并打标）。 */
+                                existsScored.multiClear = Math.max(existsScored.multiClear || 0, hit.clears);
+                                _mcCandidatesScored.push(existsScored);
+                            } else {
+                                /* v1.70.2 注入：从 allShapes 取原型构造一个 scored 项，**仅**
+                                 * 用于 clearCandidates / chosen clearSeat 路径，不抬高 score，
+                                 * 避免挤掉真实 monoFlush / 高分候选（regression: v1.60.30 always-on）。
+                                 * 关键字段沿用 bestMultiClearPotential / countLegalPlacements 真实算。 */
+                                const proto = _allMap.get(hit.shapeId);
+                                if (!proto) continue;
+                                const injected = {
+                                    shape: proto,
+                                    placements: countLegalPlacements(grid, proto.data),
+                                    multiClear: hit.clears,
+                                    gapFills: 0,
+                                    holeReduce: 0,
+                                    pcPotential: 0,
+                                    exactFit: 0,
+                                    monoFlush: 0,
+                                    monoFlushTargetCi: -1,
+                                    monoFlushBuildup: 0,
+                                    weight: weights?.[getShapeCategory(proto.id)] ?? 1,
+                                    category: getShapeCategory(proto.id),
+                                    canPlace: true,
+                                    _injected: 'multiClear',
+                                };
+                                scored.push(injected); // 末尾追加，让原有 scored 排序优先
+                                _mcCandidatesScored.push(injected);
+                            }
+                        }
+                        constructive.injectedMultiClear = _mcHits.length;
+                        _useScored = _mcCandidatesScored.length > 0;
+                    }
+                }
+
+                if (_useScored) {
                     crowdMcFired = true;
-                    constructive.kind = 'multiClear';
+                    _markKind('multiClear');
                     /* 选 multiClear 最高者；并列时大块优先（清掉更多 → 更清爽）。 */
-                    _mcCandidates.sort((a, b) =>
+                    _mcCandidatesScored.sort((a, b) =>
                         ((b.multiClear ?? 0) - (a.multiClear ?? 0))
                         || (shapeCellCount(b.shape.data) - shapeCellCount(a.shape.data)));
                     const _take = Math.max(1, Number(_consCfg.maxConstructedPerDock) || 1);
                     let _placed = 0;
-                    for (const sc of _mcCandidates) {
+                    for (const sc of _mcCandidatesScored) {
                         if (_placed >= _take) break;
                         sc._constructed = 'multiClear';
                         if (!clearCandidates.includes(sc)) clearCandidates.unshift(sc);
@@ -2616,7 +2824,11 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
         }
     }
 
-    if (!crowdMcFired && _consCfg.enabled && _phaseExplicit && pressurePhase !== 'high') {
+    /* v1.70.2：C1 单线补全分支扩展到 high 相位（低概率兜底）。原 !== 'high' 限制让
+     * 高压盘面在 crowdMc 未命中时彻底没有构造爽感；现在给 high 一条小路径，让"补单线"
+     * 的爽感在高压持续可用（high 概率 pCompleterHigh 默认 0.15，约为 low 的 1/5）。
+     * 同时当 scored 池没找到补全块时回退到全词表（findCompleterShapes 内自带可放置校验）。 */
+    if (!crowdMcFired && _consCfg.enabled && _phaseExplicit) {
         const _cd = Math.max(0, Number(ctx?.constructCooldown) || 0);
         if (_cd > 0) {
             constructive.cooldownActive = true;
@@ -2624,7 +2836,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             /* catalog 必须排除 special 形状——special 仅由 _tryInjectSpecial 事件注入（§10.7），
              * 构造层若强占 clearSeat 选到 special 会让 dock 泄漏特殊块（违反契约）。 */
             const _catalog = scored.filter((s) => !isSpecialShapeId(s.shape.id)).map((s) => ({ id: s.shape.id, data: s.shape.data }));
-            const _maxEmpty = Number.isFinite(_consCfg.maxEmpty) ? _consCfg.maxEmpty : 2;
+            const _maxEmpty = _effectiveMaxEmpty;
             const _completerIds = new Set();
 
             /* 跨 dock 续接：上一 dock 的 setup 目标若仍有效，本 dock 优先兑现其补全块。 */
@@ -2647,12 +2859,55 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             }
             constructive.completerCount = _completerIds.size;
 
-            const _pComp = pressurePhase === 'low'
+            /* v1.70.2 高压补全也用 C1 兜底，但用更低概率 pCompleterHigh（默认 0.15）。
+             * scored 池里找不到补全 id 时，从全词表 allShapes 再扫一次并把命中形状注入 scored。
+             * v1.70.3：base 概率 + retryBoost 续约加成（已 clamp 到 0.95）。 */
+            const _pCompBase = pressurePhase === 'low'
                 ? (Number.isFinite(_consCfg.pCompleterLow) ? _consCfg.pCompleterLow : 0.7)
-                : (Number.isFinite(_consCfg.pCompleterMid) ? _consCfg.pCompleterMid : 0.35);
+                : pressurePhase === 'mid'
+                    ? (Number.isFinite(_consCfg.pCompleterMid) ? _consCfg.pCompleterMid : 0.35)
+                    : (Number.isFinite(_consCfg.pCompleterHigh) ? _consCfg.pCompleterHigh : 0.15);
+            const _pComp = Math.min(0.95, _pCompBase + _retryBoost);
+
+            /* 全词表回退：当 scored 池 catalog 找不到补全块且本相位允许，扫全词表。
+             * 仅在 high 或 mid 时启用（low 已经全词表，scored 通常足够丰富）。 */
+            if (_completerIds.size === 0 && (pressurePhase === 'high' || pressurePhase === 'mid') && !_pending) {
+                const _allCatalog = getAllShapes()
+                    .filter((s) => !isSpecialShapeId(s.id))
+                    .filter((s) => grid.canPlaceAnywhere(s.data))
+                    .filter((s) => (weights?.[getShapeCategory(s.id)] ?? 0) > 0)
+                    .map((s) => ({ id: s.id, data: s.data }));
+                const _near2 = detectNearClears(grid, { maxEmpty: _maxEmpty });
+                const _injected = new Map(); // shapeId -> proto
+                const _allMap = new Map(getAllShapes().map((s) => [s.id, s]));
+                for (const line of [..._near2.rows, ..._near2.cols]) {
+                    for (const c of findCompleterShapes(grid, line.emptyCells, _allCatalog, { maxResults: 4, budget: _consCfg.completerBudget })) {
+                        _completerIds.add(c.shapeId);
+                        const proto = _allMap.get(c.shapeId);
+                        if (proto && !scored.some((s) => s.shape.id === c.shapeId)) {
+                            _injected.set(c.shapeId, proto);
+                        }
+                    }
+                }
+                for (const [, proto] of _injected) {
+                    /* v1.70.2：同 multiClear 注入，末尾追加保持原排序优先，避免 v1.60.30 regression。 */
+                    scored.push({
+                        shape: proto,
+                        placements: countLegalPlacements(grid, proto.data),
+                        multiClear: bestMultiClearPotential(grid, proto.data),
+                        gapFills: 0, holeReduce: 0, pcPotential: 0, exactFit: 0, monoFlush: 0,
+                        monoFlushTargetCi: -1, monoFlushBuildup: 0,
+                        weight: weights?.[getShapeCategory(proto.id)] ?? 1,
+                        category: getShapeCategory(proto.id),
+                        canPlace: true,
+                        _injected: 'completer',
+                    });
+                }
+                if (_injected.size > 0) constructive.injectedCompleter = _injected.size;
+            }
 
             if (_completerIds.size > 0 && _consRng() < _pComp) {
-                constructive.kind = 'completer';
+                _markKind('completer');
                 for (const sc of scored) {
                     if (_completerIds.has(sc.shape.id)) {
                         sc._constructed = 'completer';
@@ -2671,7 +2926,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                 const _pSetup = Number.isFinite(_consCfg.pSetupLow) ? _consCfg.pSetupLow : 0.5;
                 if (setups.length > 0 && _consRng() < _pSetup) {
                     const _setupIds = new Set(setups.map((s) => s.shapeId));
-                    constructive.kind = 'setup';
+                    _markKind('setup');
                     constructive.pendingClearTarget = setups[0].target;
                     for (const sc of scored) {
                         if (_setupIds.has(sc.shape.id)) {
@@ -2713,7 +2968,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             }
             if (best) {
                 orderAnchorId = best.id;
-                constructive.kind = 'order';
+                _markKind('order');
                 constructive.orderAnchorId = best.id;
             }
         }
@@ -3557,6 +3812,23 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             }
         }
         _lastDiagnostics = diagnostics;
+
+        /* v1.70 warm_run 后置校验 —— 大块比例下限保护 + 折角块强制替换。
+         * 这是温暖局对主路径的「最后一道防线」：若主管线随机出来的 triplet 大块不足
+         * 或还有 T/Z 折角块，调用 constructive helper 强制替换。
+         * 注意：替换后仍需通过 _sanitizeShapeArr 与基本可放置校验；任何失败回退原 triplet。 */
+        if (warmRunActive && Array.isArray(triplet) && triplet.length === 3) {
+            try {
+                _enforceWarmRunConstraints(triplet, grid, weights, {
+                    largeBlockMinRatio: warmRunLargeMinRatio,
+                    forbidJagged: warmRunForbidJagged,
+                    target: warmRunTarget,
+                    diagnostics,
+                });
+            } catch (_e) {
+                /* fail-open：温暖局校验失败不阻塞出块 */
+            }
+        }
 
         return triplet;
     }

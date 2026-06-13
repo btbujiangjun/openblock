@@ -343,6 +343,8 @@ export class GameController extends Component {
     private _ghostGen = 0;
     /** 最近一次落子的盘面中心格（用于 score 飘字定位到玩家视线焦点附近）。 */
     private _lastPlaceCenter: { gx: number; gy: number } | null = null;
+    /** place 与 clear 同步连发时延后一帧判定，消行手只播放消除声效。 */
+    private _pendingPlaceAudioCleared = false;
     /** 最近一次消行的 kind（normal/combo/perfect），影响 score 飘字字号与颜色。下次 score 事件消费后清零。 */
     private _nextScoreKind: 'normal' | 'multi' | 'combo' | 'perfect' | 'new-best' | 'bonus' = 'normal';
     /** 最近一次消行的飘字标签（双消/N消/清屏，对齐 web float-score 分级文案）。下次 score 事件消费后清空。 */
@@ -407,7 +409,7 @@ export class GameController extends Component {
         // 震动开关持久化（默认开）：用户上次选择跨会话生效。
         Haptics.enabled = Storage.get(STORAGE_KEYS.haptics, '1') !== '0';
         Analytics.track(ANALYTICS_EVENTS.sessionStart, { mode: this.model.mode });
-        if (flag('bgm') && soundOn) AudioManager.startBgm();
+        // 背景氛围音不随音效开关自动启动，避免玩家无操作时听到滴水/氛围声。
         // 皮肤主题环境粒子（樱花/落叶/气泡/萤火虫/流星/极光/涟漪），对齐 web ambientParticles。
         // 仅 7 款皮肤（sakura/forest/ocean/fairy/universe/aurora/koi）有粒子预设，
         // 其余皮肤（titanium / cyber / candy ...）零粒子，与 web 完全一致。
@@ -1029,8 +1031,12 @@ export class GameController extends Component {
                 }
                 // 回放录制：记一帧落子（确定性重建用）。
                 this.replay.recordPlace(e.shape, e.colorIdx, e.gx, e.gy);
-                AudioManager.sfxPlace();
-                Haptics.light();
+                this._pendingPlaceAudioCleared = false;
+                this.scheduleOnce(() => {
+                    if (this._pendingPlaceAudioCleared) return;
+                    AudioManager.sfxPlace();
+                    Haptics.light();
+                }, 0);
                 this.meta.recordPlace();
                 this.save();
                 const hasRemainingDockBlocks = this.model.dock.some((b) => b && !b.placed);
@@ -1110,6 +1116,7 @@ export class GameController extends Component {
                 this.fx.floatText(t('revive.done'), new Color(140, 255, 180, 255));
                 break;
             case 'clear': {
+                this._pendingPlaceAudioCleared = true;
                 // 消行高亮 + 碎屑粒子要在 60fps 下播放，维持高帧覆盖整个特效余韵窗口。
                 FrameRate.poke();
                 const hasBonusLines = (e.result.bonusLines || []).length > 0;
@@ -1188,10 +1195,13 @@ export class GameController extends Component {
                 if (e.reason === 'line') this.syncComboHud();
                 const comboMult = Number(e.comboMultiplier ?? 1) || 1;
                 const bonusLineCount = (e.result.bonusLines || []).length;
+                if (e.perfectClear) AudioManager.sfxPerfect();
+                else if (bonusLineCount > 0) AudioManager.sfxBonus();
+                else if (e.reason === 'line' && e.result.count >= 2) AudioManager.sfxCombo(e.result.count);
+                else if (e.reason === 'line') AudioManager.sfxClear(e.result.count);
                 // ── 飘字 label / kind：与 web showFloatScore 分支顺序严格 1:1 对齐 ──────
                 // web: hasIconBonus → new-best → perfect → combo(≥3) → multi(==2) → 单消(纯 +N)
                 if (e.perfectClear) {
-                    AudioManager.sfxPerfect();
                     ScreenShake.shake(this.shakeTarget, 18, 0.4);
                     Haptics.heavy();
                     this.profile?.recordDelight?.('pcClear');
@@ -1202,13 +1212,11 @@ export class GameController extends Component {
                     // 数字在前 × 在后，与 `Combo N×` 全端统一。
                     this._nextScoreLabel = `${t('effect.perfectClear')} 10×`;
                 } else if (e.reason === 'line') {
-                    AudioManager.sfxClear(e.result.count);
                     const lines = e.result.count;
                     if (lines >= 3) {
                         // combo (≥3 同手多消)：橙色 .float-combo
                         this._nextScoreLabel = t('effect.multiClear', { n: lines });
                         this._nextScoreKind = 'combo';
-                        AudioManager.sfxCombo(lines);
                         ScreenShake.shake(this.shakeTarget, 8 + lines * 2, 0.3);
                         this.profile?.recordDelight?.('multiClear');
                         Analytics.track(ANALYTICS_EVENTS.comboHigh, { count: lines });
@@ -1216,7 +1224,6 @@ export class GameController extends Component {
                         // multi (==2)：绿色 .float-multi
                         this._nextScoreLabel = t('effect.doubleClear');
                         this._nextScoreKind = 'multi';
-                        AudioManager.sfxCombo(lines);
                         ScreenShake.shake(this.shakeTarget, 12, 0.3);
                         this.profile?.recordDelight?.('multiClear');
                     }
@@ -1225,13 +1232,11 @@ export class GameController extends Component {
                     if (bonusLineCount > 0) {
                         this._nextScoreLabel = t('effect.iconBonus');
                         this._nextScoreKind = 'bonus';
-                        AudioManager.sfxBonus();
                         Haptics.heavy();
                     }
                     // ── 顶部 streak 徽章：与 web `if (this._comboCount >= 3) _showStreakBadge(...)` 一致 ──
                     if (comboCount >= 3) {
                         this.fx.showStreakBadge(comboCount, comboMult);
-                        AudioManager.sfxBonus();
                         Haptics.heavy();
                         if (comboCount >= 4) this.profile?.recordDelight?.('comboHigh');
                     }
@@ -1951,7 +1956,6 @@ export class GameController extends Component {
     toggleSound(): boolean {
         const on = !AudioManager.enabled;
         AudioManager.setEnabled(on);
-        if (on && flag('bgm')) AudioManager.startBgm();
         Storage.set(STORAGE_KEYS.sound, on ? '1' : '0');
         return on;
     }

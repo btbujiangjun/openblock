@@ -5,7 +5,7 @@
  *
  * 数据依据：docs/operations/RETENTION_SIGNALS_CROSS_PLATFORM.md §4.5 + §留存优化快赢清单
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { PlayerProfile } from '../web/src/playerProfile.js';
 import { resolveIntent, INTENT_RULES } from '../web/src/derivation/intentResolver.js';
 import { deriveSpawnIntent } from '../web/src/adaptiveSpawn.js';

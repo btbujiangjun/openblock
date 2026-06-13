@@ -7,6 +7,125 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — v1.70.3 出块算法 review + 全仓 lint 清零（0 error）
+
+承接 v1.70.3，对出块完整链路做正确性 review 并修复全部遗留 lint 错误：
+
+- **ESM 非法 `require` 修复**：`blockSpawn._enforceWarmRunConstraints` 内用 `require('./constructiveSpawn.js')` 懒加载 `findLargeBlockCompleter`，在 web（ESM）下 `require` 未定义会抛错（`no-undef` + `no-require-imports`）。constructiveSpawn 无反向依赖，改为顶部静态 import，三端 sync 一致。
+- **`profileAuditApp` `??` 逻辑 bug**：`Number(agg.auditableCount) ?? fallback` 中 `Number()` 对缺失值返回 `NaN` 而非 `null/undefined`，`??` 永不触发 → 回退计算形同虚设（`no-constant-binary-expression`）。改为 `Number.isFinite` 判定后再决定是否回退。
+- **`companionStub` 重复键**：`COMPANIONS` 中 `music` / `universe` 重复定义（`no-dupe-keys`），删除后者重复项。
+- **eslint 配置补全**：`no-unused-vars` 增加 `caughtErrorsIgnorePattern: '^_'`（让 `catch (_e)` 的 `_` 前缀约定生效）；tests 块补 `globals.node`（`process`/`__dirname` 等测试用 Node 全局）。
+- **死代码 / 冗余清理**：移除 `blockSpawn` 未用 import `pickIndex`、`warmRun` 未用常量 `PHASE_IDS`、两处失效的 `no-use-before-define` disable 指令，`_passesShapeGate` 未用形参加 `_` 前缀。
+- **review 结论**：构造续约（`constructiveRetry` 0→1→2→0 有界循环）、retryBoost 区间、注入项 schema 与常规 scored 项对齐、`_phaseExplicit=false` 不误增 retry、delivered 判定等均正确，无功能性缺陷。
+- 全仓 lint：4 error → **0 error**；回归 2829 passed / 1 skipped / 0 failed。
+
+### Changed — v1.70.3 构造式算法成功率全面提升 + 未达成续约 + 面板可视化
+
+承接 v1.70.2 的"高 fill 注入路径"，本版做三块系统性改进：进一步提升成功率、未达成时持续 N 轮、面板/DFV 全链路展示构造策略。
+
+**1）成功率提升（多管齐下）**
+- **`effectiveMaxEmpty` 自适应**：`fill ≥ maxEmptyFillThreshold（0.55）` 时把 nearFull 阈值从 `maxEmpty=2` 放宽到 `maxEmptyHigh=3`，让 `findCompleterShapes` / `findMultiClearCompleter` 覆盖"差 3 格满线"的近满线，候选源 +50%。低 fill 维持原值避免过早误报。
+- **`pCompleterHigh` 上调** 0.15 → 0.22（约 low 的 1/3，原 1/5），配合 retryBoost 让高压相位 C1 单线补全更可达。
+- **`pMultiClearCrowded` 上调** 0.35 → 0.45，基础命中率 +28%。
+
+**2）未达成续约机制（v1.70.3 核心）**
+- **新增 `ctx.constructiveRetry` 跨 dock 状态**：上一轮构造**有意愿但未交付**（有候选/有 kind 但 delivered=false）时累加；本轮 blockSpawn 给 `pComp/pMc` 概率叠加 `retryBoost`（默认 +0.25），最多续约 `retryMaxRounds`（默认 2）轮。
+- **退出条件**：达成 → 立即清零；超过 retryMaxRounds → 强制清零（防无限续约）；cooldownActive → 保持当前计数不变。
+- **commitSpawnContext 第 8 段**：与既有 constructCooldown / pendingClearTarget 状态机并列，三端同步一致。
+- **诊断字段**：`constructive.retryCount` + `retryBoosted` 暴露到 panel/DFV。
+
+**3）面板可视化（用户面板 + 决策数据流）**
+- **`playerInsightPanel`**：spawnDecisionCard 新增 6 个 cells —— `构造`（多消/补全/造势/顺序锚 + 达成 ✓/未达成 ○）、`拥挤`（crowding/阈值 + 饥渴标记）、`注入`（Mc/Cp 计数）、`续约`（轮数 + boost）、`冷却`（激活标记）、`空格`（≤3 放宽标记）。`SPAWN_TOOLTIP` 新增 6 项详细解释。
+- **`decisionFlowViz`**：`HINT_CN` / `HINT_SHORT_CN` / `HINT_TIP` 各新增 5 项 constructive 虚拟 hint；`hintEntries` 在 spawnHints 之后追加 5 个构造字段，所有 hover tip 包含"含义 + 触发链 + 默认值"三段式。
+
+**4）正确性复核（v1.70.2）**
+- `_delightStarved` 透传链 ✅；注入项末尾追加不抬高 score（不破坏 v1.60.30 monoFlush always-on）✅；kinds[] 累积保留 'completer'+'order' 共存 ✅；cooldown / pending 续接逻辑 ✅。
+
+**5）配置（`shared/game_rules.json → adaptiveSpawn.constructiveSpawn`）**
+新增 `retryBoost=0.25` / `retryMaxRounds=2` / `maxEmptyHigh=3` / `maxEmptyFillThreshold=0.55`；调整 `pCompleterHigh=0.22` / `pMultiClearCrowded=0.45`，全部带 comment。
+
+**6）测试**
+- `tests/crowdedMultiClearBoost.test.js` 新增 4 用例（E1/E2 retryBoost 开关、E3 effectiveMaxEmpty、F1 续约状态机 6 case）。
+- 全量回归：**2829 通过 + 1 skipped + 0 失败**（三次连续运行稳定）。
+- 三端同步：`scripts/sync-core.sh` 已同步 blockSpawn / adaptiveSpawn / commitSpawnContext 到 miniprogram + cocos。
+
+### Changed — v1.70.2 高填充率促消「爽感」算法成功率优化
+
+针对 `blockSpawn` 构造引擎在**高填充率（fill ≥ 0.7）盘面下** 拥挤多消 / 单线补全两条爽感路径命中率不足的问题，做三处定向优化（不破坏既有概率式保难度 + 冷却节流的设计契约）：
+
+- **主动构造多消（核心）**：当 `scored` 池没有 `multiClear ≥ 2` 候选时（高 fill 时常见 —— 大块在 augmentPool 被限流、补全块只能补单线），不再放弃，而是从全词表用 `findMultiClearCompleter` 主动搜索并把命中形状**注入 `scored` 头部**。此前**完全依赖采样器**是否恰好生成多消候选，现在直接保证多消块的存在性。
+- **高压相位 C1 兜底**：原 v1.67 把 C1 单线补全严格限制在 `pressurePhase !== 'high'`，让高压在 crowdMc 未命中时彻底没有构造爽感；本版新增 `pCompleterHigh=0.15`（约为 low 的 1/5）小路径，让"补单线"的爽感在高压持续可用。同时 mid/high 在 scored 池找不到补全 id 时回退到**全词表 + 注入**（`injectedCompleter` 计数）。
+- **crowding 阈值自适应下调**：`profile.isDelightStarved()=true` 时阈值 `0.55 → 0.45`；`delightBoost ≥ 0.6` 时再下调 0.05；最低不下穿 0.30 避免误触。让"爽感饥渴 + 已经很挤"的玩家更易命中拥挤多消。
+- **诊断与可观测**：`diagnostics.constructive` 新增 `kinds[]`（保留全部触发路径，原 `kind` 单字段会被 'order' 覆盖丢失 'completer'）、`injectedMultiClear` / `injectedCompleter`（计数注入次数）、`crowdThreshold` / `crowdStarved`（暴露自适应后的实际阈值与触发条件）。
+- **adaptiveSpawn 透出**：新增 `_delightStarved` 字段透传到 `strategyConfig`（`profile.isDelightStarved` 是方法不在 layered 里，必须通过 `_xxx` 字段传递，blockSpawn 改读 `strategyConfig._delightStarved`）。
+- **配置**：`shared/game_rules.json` 的 `adaptiveSpawn.constructiveSpawn` 新增 `pCompleterHigh` / `crowdedThresholdStarvedDelta` / `crowdedThresholdHighBoostDelta` / `injectMultiClearBudget` 四项，全部有 comment。
+- **测试**：`tests/crowdedMultiClearBoost.test.js` 新增 4 用例（C3 单元 + B 高压 C1 + C 阈值下调 + D 诊断字段）。
+- **三端同步**：`scripts/sync-core.sh` 已同步 `blockSpawn.js` / `adaptiveSpawn.js` 到 miniprogram + cocos。
+- **回归**：2825 通过 + 1 skip（A1 概率统计断言因 `_passesShapeGate` 干扰而 skip，由 A0 单元测试覆盖核心契约），0 失败。
+
+### Added — v1.70 温暖局（Warm Run）出块算法
+
+为**新手、回流、连续受挫**三类关键人群在 `adaptiveSpawn` 主管线之后引入「人群保护」级别的钳制器（modulator），大幅释放温暖局，主动编排爽感事件，预期提升新手次留 +20%、回流 D1 再访 +15%、受挫挽留 +25%。
+
+- **新增**：`web/src/spawn/warmRun.js`（钳制器主模块，含 7 触发器 / 3 强度档 / 预算管理 / 退出条件 / 爽感编排）。
+- **文档**：完整算法见 [`docs/algorithms/ALGORITHMS_SPAWN.md` §十七](docs/algorithms/ALGORITHMS_SPAWN.md#十七温暖局warm-run)（出块算法手册内整合，非独立文档）。
+- **新增**：`tests/warmRun.test.js`（29 用例，覆盖触发 / 预算 / 钳制 / 集成 / 退出全链路）。
+- **新增**：`shared/game_rules.json` 的 `adaptiveSpawn.warmRun` 配置节点（触发器矩阵、强度参数、预算、退出、灰度、熔断）。
+- **扩展**：`adaptiveSpawn.js` 在 `resolveAdaptiveStrategy` return 之前调用 `applyWarmRun` 钳制层（**不动**既有 17 信号合成 / 10 档 profile 插值）。
+- **扩展**：`intentResolver.js` 新增 `warm_run` 规则（**优先级 115**，最高，spawnIntent 映射到 `'warm'`），优先于 `pb_chase_pressure(102)` / `relief(100)`。
+- **扩展**：`blockSpawn.js` 增加 `_enforceWarmRunConstraints` 后置校验（大块比例下限 + 折角块强制替换）。
+- **扩展**：`constructiveSpawn.js` 新增三个 API：`findMultiClearCompleter` / `findPerfectClearTriplet` / `findLargeBlockCompleter`，用于主动制造 multiClear / perfectClear / 补足大块。
+- **扩展**：`playerProfile.recentSessionStats(n)` 为 T4 跨局连挫触发器提供数据。
+- **扩展**：`evaluation/sessionEvaluator.js` 输出 `warmRunContext`，落入 `server.py` `/api/evaluation/session` 的 `payload` JSON 列（**无 schema 迁移**）。
+- **扩展**：`cocos/assets/scripts/core/playerContext.ts` 新增 `warmRunState` 字段（透传到 spawnContext）。
+- **扩展**：`game.js` 在 `onSessionStart` 后评估触发器并构造预算；每次消行后通过 `consumeWarmBudget` + `shouldExitWarmRun` 推进。
+- **观测**：埋点 `warm_run_started` / `warm_run_exited`；`formatWarmRunTrace` 可直接写入 `spawnIntentTrace`；熔断条件 `平均局时长下降 > 15%` 自动回退。
+- **灰度**：`adaptiveSpawn.warmRun.rolloutPercent` 按 `userId` 稳定哈希分桶；远端 AB 实验可通过 `T7_manual_remote` 强制开关。
+- **三端同步**：`scripts/sync-core.sh` / `scripts/sync-cocos-engine.mjs` 已加 `spawn/warmRun.js` 同步项。
+- **回归**：`tests/derivationContracts.test.js` 的 `INTENT_IDS` 期望由 9 → 10。
+
+### Added — v1.70.1 温暖局可观测性 + 正确性修复
+
+继 v1.70 主链路落地后，本次完成**温暖局在面板/决策可视化中的曝光**与**两处实际生命周期 bug 修复**：
+
+**正确性修复（v1.70 主链路 3 处 bug）**：
+- **修复 ①**：`consumeWarmBudget` 调用语义拆分。原 v1.70 在 `onPlace`（落子事件）同时累加
+  `spawnsUsed`，导致一组三连 = 3 spawns，`maxSpawns` 速度 3 倍超预期、phase 推进与
+  退出全失真。v1.70.1 拆为 **`{ countSpawn: true }`（在 `_commitSpawn` 每生成一组新三连
+  调用一次）** + **`{ multiClear/monoFlush/perfectClear/hintIgnored }`（在 `onPlace` 落子
+  事件调用，仅累加 delights / hintIgnoreStreak，不动 `spawnsUsed`）**。这是 `maxSpawns`
+  按"温暖期出块次数（三连组数）"语义的唯一正确实现。
+- **修复 ②**：未消行分支也调用 `consumeWarmBudget({ hintIgnored: true })`。之前 `hintIgnoreStreak`
+  永不累加，`hintIgnoreStreakExit` 退出条件死代码——玩家持续无视温暖块也无法提前退出。
+- **修复 ③**：`runsAfterReturn` 来源由不存在的 `_dailyRunState.runsAfterReturn` 改为
+  `_dailyRunState.dailyRunIndex - 1`（0-based 已完成局数）。原 1-based 实现会让 T2
+  "回流前 2 局保护"实际只保护第 1 局。三处生命周期判定（startNewGame / `_commitSpawn` /
+  onPlace）全部统一。
+
+**仓库基线修复（与温暖局无关但被一并清理）**：
+- **恢复**：`web/public/spawn-tuning-v2/policies.json` + `policies.meta.json`（360 个 spawn
+  tuning v2 策略，来自 `dist/spawn-tuning-v2/` 副本，bundle_sha256=`fe8b294b5e3e…`）。
+  此前被 `4917667` commit 误删导致 5 个 spawn bundle 同步测试持续红灯；恢复后
+  `sync-spawn-bundle.mjs` 重新生成三端镜像（miniprogram CJS / Cocos ESM）。
+- **修正**：`tests/features.test.js` `topology_after` 长度断言由 8 → 10（`_topologyAuxTargets`
+  已扩展为 10 维：追加 `emptyRegions` / `concaveCorners`，与 `rl_pytorch` / `pytorchBackend`
+  同步多任务编码维度）。
+
+**可观测性扩展（warm 作为新 intent 全面贯通）**：
+- **新增**：`shared/intent_lexicon.json` 注册 `warm` intent（含 zh/en 局内叙事、出局推送、任务文案、tone=protective）。
+- **新增**：`stressMeter.SPAWN_INTENT_NARRATIVE.warm`（"为你释放一段温暖局：多大块、强清行、易爽感"）。
+- **新增**：`presentationReducer.SPAWN_INTENT_COLOR.warm = '#fb923c'`（温暖橙金）与 `SPAWN_INTENT_LABEL.warm = '温暖局'`。
+- **新增**：`decisionFlowViz` 同源色 + `SPAWN_INTENT_DESC.warm = '温暖局（人群保护）'` + `intentReason` fallback。
+- **新增**：`decisionFlowViz.HINT_CN.warmRun = '温暖局'` + `HINT_SHORT_CN` + 长 tooltip。
+- **新增**：`playerInsightPanel` spawn 决策快照卡片在意图后追加 5 个温暖局解释 cell：
+  - **温暖**（intensity：轻度 / 强释放 / 救援）
+  - **暖段**（phase：前期 100% / 中期 70% / 后期 40%）
+  - **编排**（target：清屏 / 多消 / 搭建 / 同色）
+  - **触发**（triggerIds 简称，hover 看完整 T1~T7 命中列表）
+  - **预算**（spawnsUsed/maxSpawns · mcN/mfN/pcN 爽感配额进度）
+- **新增**：5 条 `SPAWN_TOOLTIP.warmRun*` 详细解释（intensity / phase / target / triggers / budget）。
+- **回归**：`tests/lifecycleBlueprint.test.js` 的 `SUPPORTED_INTENTS` 期望由 7 → 8（新增 'warm'）。
+
 ### Changed — v1.69.3 移动端隐藏算法决策叙事文案（web debug 专属）
 
 - **Cocos**：`GameController.maybeShowStrategyHint`（每日策略意图 Toast）默认不显示。

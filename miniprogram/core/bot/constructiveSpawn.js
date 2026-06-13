@@ -246,6 +246,185 @@ function findSetupShapes(grid, catalog, opts = {}) {
 }
 
 /**
+ * C3 多消补全器（v1.70 温暖局）—— 找到一个形状，其某个合法放置能同时填满 ≥ minClears 条候选线。
+ *
+ * 设计动机：findCompleterShapes 只解决「单线补满」，但温暖局需要主动制造 multiClear。
+ * 本函数枚举每个候选形状的每个合法放置，统计该放置能补满几条候选线（候选线可来自 nearFullLines
+ * 或外部传入的 candidateLines），返回能补满 ≥ minClears 的方案。
+ *
+ * @param {import('../grid.js').Grid} grid
+ * @param {Array<CatalogShape>} catalog
+ * @param {{ minClears?: number, maxResults?: number, budget?: number, candidateLines?: Array }} [opts]
+ * @returns {Array<{ shapeId: string, gx: number, gy: number, clears: number, lineKeys: string[] }>}
+ *   按 clears 降序排序；同分按形状面积升序（更小的块更易玩家成功放置）。
+ */
+function findMultiClearCompleter(grid, catalog, opts = {}) {
+    const minClears = Math.max(2, opts.minClears ?? 2);
+    const maxResults = opts.maxResults ?? 4;
+    let budget = opts.budget ?? 5000;
+    const out = [];
+    if (!grid?.cells?.length) return out;
+    const { occ, size } = occFromGrid(grid);
+
+    /* 候选近满线：外部传入优先；否则就地扫描所有 emptyCount ∈ [1,3] 的行/列。 */
+    const lines = Array.isArray(opts.candidateLines) && opts.candidateLines.length
+        ? opts.candidateLines
+        : nearFullLines(occ, size, 3);
+    if (lines.length < minClears) return out;
+
+    for (let c = 0; c < catalog.length && out.length < maxResults && budget > 0; c++) {
+        const shape = catalog[c];
+        const data = shape.data;
+        const fc = filledCount(data);
+        if (fc === 0) continue;
+        let best = null;
+        for (let gy = 0; gy < size && budget > 0; gy++) {
+            for (let gx = 0; gx < size && budget > 0; gx++) {
+                if (!canPlace(occ, size, data, gx, gy)) continue;
+                budget--;
+                /* 临时落子统计能补满多少候选线。 */
+                const cells = placedCells(data, gx, gy);
+                for (let i = 0; i < cells.length; i++) occ[cells[i][0]][cells[i][1]] = true;
+                let clears = 0;
+                const lineKeys = [];
+                for (let li = 0; li < lines.length; li++) {
+                    const line = lines[li];
+                    let full = true;
+                    if (line.type === 'row') {
+                        for (let x = 0; x < size; x++) if (!occ[line.index][x]) { full = false; break; }
+                    } else {
+                        for (let y = 0; y < size; y++) if (!occ[y][line.index]) { full = false; break; }
+                    }
+                    if (full) { clears++; lineKeys.push(line.key || `${line.type[0]}${line.index}`); }
+                }
+                for (let i = 0; i < cells.length; i++) occ[cells[i][0]][cells[i][1]] = false;
+                if (clears >= minClears && (!best || clears > best.clears)) {
+                    best = { shapeId: shape.id, gx, gy, clears, lineKeys, fc };
+                }
+            }
+        }
+        if (best) out.push(best);
+    }
+    out.sort((a, b) => (b.clears - a.clears) || (a.fc - b.fc));
+    return out.map(({ fc, ...r }) => r); // eslint-disable-line no-unused-vars
+}
+
+/**
+ * C4 清屏三连（v1.70 温暖局）—— 在棋盘几近空（剩余空格 ≤ maxRemaining）时搜索可清屏三连。
+ *
+ * 这是「温暖局救济」的最强武器：找出三个形状的有序组合，使得依次放置后所有空格被填满
+ * 且每个形状放置后均能立即消行（最终清屏）。复杂度有界：早剪枝（剩余格数 < ∑ 形状面积时 prune）+
+ * budget 限制 + 形状面积排序。
+ *
+ * 由于复杂度，本函数仅在 boardFill ≤ 0.25 时调用，且只搜 N 最高填充优先的 catalog 前 12 个形状。
+ *
+ * @param {import('../grid.js').Grid} grid
+ * @param {Array<CatalogShape>} catalog
+ * @param {{ maxRemaining?: number, budget?: number, topK?: number }} [opts]
+ * @returns {Array<{ shapeIds: [string, string, string], placements: Array<{gx:number, gy:number}> }>}
+ */
+function findPerfectClearTriplet(grid, catalog, opts = {}) {
+    const maxRemaining = opts.maxRemaining ?? 15;
+    let budget = opts.budget ?? 8000;
+    const topK = opts.topK ?? 12;
+    const out = [];
+    if (!grid?.cells?.length || !catalog?.length) return out;
+    const { occ, size } = occFromGrid(grid);
+    /* 统计空格数 */
+    let emptyCount = 0;
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (!occ[y][x]) emptyCount++;
+    if (emptyCount === 0 || emptyCount > maxRemaining) return out;
+
+    /* 优先选填充格数较大的形状（更易凑齐）。 */
+    const sorted = catalog
+        .map((s) => ({ s, fc: filledCount(s.data) }))
+        .filter((x) => x.fc > 0)
+        .sort((a, b) => b.fc - a.fc)
+        .slice(0, topK)
+        .map((x) => x.s);
+
+    function placeAndRevert(data, gx, gy, fn) {
+        const cells = placedCells(data, gx, gy);
+        for (let i = 0; i < cells.length; i++) occ[cells[i][0]][cells[i][1]] = true;
+        let r;
+        try { r = fn(cells); } finally {
+            for (let i = 0; i < cells.length; i++) occ[cells[i][0]][cells[i][1]] = false;
+        }
+        return r;
+    }
+
+    /* DFS 深度 3：每层尝试每个形状的每个 canPlace 放置，要求该放置触发消行（保持温暖体感）。 */
+    function dfs(depth, picks, emptyLeft) {
+        if (depth === 3) {
+            if (emptyLeft === 0) {
+                out.push({
+                    shapeIds: picks.map((p) => p.shapeId),
+                    placements: picks.map((p) => ({ gx: p.gx, gy: p.gy })),
+                });
+            }
+            return out.length >= 1; // 找到一个即可
+        }
+        for (let c = 0; c < sorted.length && out.length === 0 && budget > 0; c++) {
+            const shape = sorted[c];
+            const data = shape.data;
+            const fc = filledCount(data);
+            if (fc > emptyLeft) continue;
+            for (let gy = 0; gy < size && out.length === 0 && budget > 0; gy++) {
+                for (let gx = 0; gx < size && out.length === 0 && budget > 0; gx++) {
+                    if (!canPlace(occ, size, data, gx, gy)) continue;
+                    budget--;
+                    placeAndRevert(data, gx, gy, () => {
+                        picks.push({ shapeId: shape.id, gx, gy });
+                        dfs(depth + 1, picks, emptyLeft - fc);
+                        picks.pop();
+                    });
+                }
+            }
+        }
+        return out.length >= 1;
+    }
+    dfs(0, [], emptyCount);
+    return out;
+}
+
+/**
+ * C5 大块补全器（v1.70 温暖局）—— 找到面积 ≥ minSize 的「大块」形状的合法放置。
+ *
+ * 温暖局的硬约束：三连中 largeBlockMinRatio 比例必须是大块。调用方用本函数补足缺失大块。
+ * 与 findCompleterShapes 不同，本函数不要求补全任何近满线，只要求形状本身足够大且能放下。
+ *
+ * @param {import('../grid.js').Grid} grid
+ * @param {Array<CatalogShape>} catalog
+ * @param {{ minSize?: number, maxResults?: number, budget?: number }} [opts]
+ * @returns {Array<{ shapeId: string, gx: number, gy: number, size: number }>}
+ */
+function findLargeBlockCompleter(grid, catalog, opts = {}) {
+    const minSize = opts.minSize ?? 4;
+    const maxResults = opts.maxResults ?? 6;
+    let budget = opts.budget ?? 2000;
+    const out = [];
+    if (!grid?.cells?.length) return out;
+    const { occ, size } = occFromGrid(grid);
+    for (let c = 0; c < catalog.length && out.length < maxResults && budget > 0; c++) {
+        const shape = catalog[c];
+        const fc = filledCount(shape.data);
+        if (fc < minSize) continue;
+        for (let gy = 0; gy < size && budget > 0; gy++) {
+            for (let gx = 0; gx < size && budget > 0; gx++) {
+                budget--;
+                if (canPlace(occ, size, shape.data, gx, gy)) {
+                    out.push({ shapeId: shape.id, gx, gy, size: fc });
+                    break;
+                }
+            }
+            if (out.length > 0 && out[out.length - 1].shapeId === shape.id) break;
+        }
+    }
+    out.sort((a, b) => b.size - a.size);
+    return out;
+}
+
+/**
  * 校验 pendingClearTarget 是否仍有效（跨 dock 续接前置校验）：
  * 目标线当前仍是「近满、残缺格仍空、且可被词表补全」。盘面已变（玩家自己消掉 / 填爆）则失效。
  * @returns {boolean}
@@ -266,4 +445,4 @@ function isClearTargetValid(grid, target, catalog, opts = {}) {
     return hasCompleterOnOcc(occ, size, empties, catalog);
 }
 
-module.exports = { findCompleterShapes, findSetupShapes, isClearTargetValid };
+module.exports = { findCompleterShapes, findLargeBlockCompleter, findMultiClearCompleter, findPerfectClearTriplet, findSetupShapes, isClearTargetValid };

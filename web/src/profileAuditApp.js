@@ -354,7 +354,11 @@ function renderAggregate(agg, mountId) {
     /* v1.62.9：不可 audit 占比 banner —— 老 schema 或太短的局会被排除在健康分外，
      * 必须显式告诉用户"聚合视图代表了多少 auditable 数据"，避免误解。 */
     const unauditableCount = Number(agg.unauditableCount) || 0;
-    const auditableCount = Number(agg.auditableCount) ?? (agg.sessionsCount - unauditableCount);
+    /* v1.70.3 修复：原 `Number(agg.auditableCount) ?? fallback` 中 Number() 对缺失值返回 NaN
+     * 而非 null/undefined，?? 永不触发 → 回退逻辑形同虚设。改为先判 finite 再决定是否回退。 */
+    const auditableCount = Number.isFinite(agg.auditableCount)
+        ? Number(agg.auditableCount)
+        : ((Number(agg.sessionsCount) || 0) - unauditableCount);
     const unauditableBanner = unauditableCount > 0
         ? `<div style="background:rgba(251,191,36,0.10);border:1px solid #fbbf24;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:var(--text)">
               ℹ️ ${unauditableCount} 局因 schema 缺失或帧数过少被识别为<b>不可 audit</b>（已自动排除在健康分外），

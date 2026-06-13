@@ -61,7 +61,6 @@ import {
     getActiveSkinId,
     getBlockColors,
     setActiveSkinId,
-    SKIN_LIST,
     applySkinToDocument,
     getActiveSkin,
     SKINS,
@@ -290,8 +289,9 @@ export class Game {
              *   - roundsSinceDupInject：距上次注入轮数（> MIN_ROUND_GAP=10 才允许下一次）；
              *     局首初始化 0 → 自然要求"局内前 11 轮"不会注入（与节流契约一致） */
             dupInjectUsed: 0, roundsSinceDupInject: 0,
-            /* v1.67 构造式出块跨 dock 状态：冷却计数 + 先铺后清待兑现目标线。 */
-            constructCooldown: 0, pendingClearTarget: null,
+            /* v1.67 构造式出块跨 dock 状态：冷却计数 + 先铺后清待兑现目标线。
+             * v1.70.3 新增 constructiveRetry：构造未达成续约计数（最多 retryMaxRounds）。 */
+            constructCooldown: 0, pendingClearTarget: null, constructiveRetry: 0,
             /* 离线画像先验（init 时由 _loadSpawnPrior 填充；adaptiveSpawn 透传消费）。 */
             spawnPrior: this._spawnPrior ?? null,
         };
@@ -1508,7 +1508,7 @@ export class Game {
                 }),
                 keepalive: true,
             });
-        } catch (e) {
+        } catch (_e) {
             /* 离线降级：把最近一条 record 暂存 localStorage，server 上线后由 sync 流补传。
              * 这里只保留最近一条，避免 quota 爆炸。 */
             try {
@@ -1803,8 +1803,8 @@ export class Game {
             totalClears: 0, roundsSinceSpecial: 0,
             /* v1.60.21：dup 注入节流（与 game 构造同步） */
             dupInjectUsed: 0, roundsSinceDupInject: 0,
-            /* v1.67 构造式出块跨 dock 状态（与 game 构造同步） */
-            constructCooldown: 0, pendingClearTarget: null,
+            /* v1.67 构造式出块跨 dock 状态（与 game 构造同步）。v1.70.3 新增 constructiveRetry。 */
+            constructCooldown: 0, pendingClearTarget: null, constructiveRetry: 0,
             /* 离线画像先验（与 game 构造同步；init 已加载到 this._spawnPrior） */
             spawnPrior: this._spawnPrior ?? null,
             };
@@ -1890,6 +1890,56 @@ export class Game {
              * 自动激活保护包）+ 广播 lifecycle:session_start 让商业化 / 推送等订阅。 */
             try { onSessionStart(this.playerProfile, { tracker: this.analyticsTracker || null }); } catch (e) {
                 console.warn('[lifecycle] onSessionStart failed:', e?.message || e);
+            }
+
+            /* v1.70 warm_run：在 session 启动后立即评估温暖局触发器。
+             * 命中即写入 _spawnContext.warmRunState，下游 resolveAdaptiveStrategy 会
+             * 调用 applyWarmRun 钳制 shapeWeights / spawnHints。整段温暖期由 warmBudget
+             * 在每次 generateDockShapes 后通过 consumeWarmBudget 推进，shouldExitWarmRun
+             * 满足时清空。所有触发器配置在 game_rules.json adaptiveSpawn.warmRun。 */
+            try {
+                const warmMod = await import('./spawn/warmRun.js');
+                /* runsAfterReturn 派生（0-based 已完成局数）：当 daysSinceLastActive ≥
+                 * T2.minDaysSinceLastSession 时，本日"已完成"的局数即"本局之前已经在回流后玩了几局"
+                 * （L1847 dailyRunIndex 在本局已 +1，所以减 1 才是"本局之前完成的局数"）。
+                 * T2 守门是 `runsAfter < maxRunsAfterReturn(2)`，0-based 下：
+                 *   - 回流首局：dailyIdx=1 → runsAfter=0 < 2 ✓ 命中
+                 *   - 回流第 2 局：dailyIdx=2 → runsAfter=1 < 2 ✓ 命中（"前 2 局保护"语义）
+                 *   - 回流第 3 局：dailyIdx=3 → runsAfter=2 < 2 ✗ 退出
+                 * 非回流玩家此值无意义，T2 内部用 daysSinceLastActive 守门。 */
+                const dailyIdx = Math.max(0, Number(this._dailyRunState?.dailyRunIndex) || 0);
+                const runsAfterReturn = Math.max(0, dailyIdx - 1);
+                const runCtx = {
+                    runsAfterReturn,
+                    churnRisk: this._lastChurnRisk ?? 0,
+                    winbackActive: !!this._winbackActive,
+                    warmRunForceOn: false,
+                };
+                const triggerResult = warmMod.evaluateWarmTriggers(this.playerProfile, runCtx);
+                if (triggerResult.intensity) {
+                    const budget = warmMod.buildWarmBudget(triggerResult.intensity);
+                    this._spawnContext.warmRunState = {
+                        active: true,
+                        intensity: triggerResult.intensity,
+                        budget,
+                        triggerIds: triggerResult.hits.map((h) => h.id),
+                        startedAt: Date.now(),
+                    };
+                    this._warmRunModule = warmMod;
+                    try {
+                        this.analyticsTracker?.track?.('warm_run_started', {
+                            intensity: triggerResult.intensity,
+                            triggerIds: triggerResult.hits.map((h) => h.id),
+                            triggerReasons: triggerResult.hits.map((h) => h.reason),
+                        });
+                    } catch { /* tracker 缺失即跳过 */ }
+                } else {
+                    this._spawnContext.warmRunState = null;
+                    this._warmRunModule = warmMod;
+                }
+            } catch (e) {
+                console.warn('[warmRun] evaluateWarmTriggers failed:', e?.message || e);
+                this._spawnContext.warmRunState = null;
             }
 
             /* 评估账本初始化：捕获开局元数据，后续每步/每轮/每次 spawn 写入。
@@ -2489,6 +2539,43 @@ export class Game {
         if ((this._spawnContext.warmupRemaining ?? 0) > 0) {
             this._spawnContext.warmupRemaining--;
         }
+
+        /* v1.70.1 warm_run：每生成一组新三连即推进温暖局预算（这是 spawnsUsed 的**唯一**
+         * 累加点，落子事件只记 delights/hintIgnoreStreak）。语义对齐 warmRun.js 的
+         * "maxSpawns = 温暖期出块次数（三连组数）"。spawn 后立即检查退出，避免下一组
+         * 仍读到陈旧温暖配置（虽然下一次 generateDockShapes 会重新走 resolveAdaptiveStrategy，
+         * 但提前清空可让本帧 _evalOnSpawn 与 panel 立即反映状态）。 */
+        if (this._warmRunModule && this._spawnContext?.warmRunState?.active) {
+            try {
+                this._warmRunModule.consumeWarmBudget(this._spawnContext.warmRunState.budget, {
+                    countSpawn: true,
+                });
+                const exitCheck = this._warmRunModule.shouldExitWarmRun(
+                    this._spawnContext.warmRunState.budget,
+                    {
+                        t1Active: (this._spawnContext.warmRunState.triggerIds || []).includes('T1_newbie'),
+                        t2Active: (this._spawnContext.warmRunState.triggerIds || []).includes('T2_returning'),
+                        lifetimeGames: this.playerProfile?.lifetimeGames || 0,
+                                runsAfterReturn: Math.max(0, (Number(this._dailyRunState?.dailyRunIndex) || 0) - 1),
+                            },
+                        );
+                        if (exitCheck.exit) {
+                            try {
+                                this.analyticsTracker?.track?.('warm_run_exited', {
+                                    reason: exitCheck.reason,
+                                    intensity: this._spawnContext.warmRunState.intensity,
+                                    triggerIds: this._spawnContext.warmRunState.triggerIds,
+                                    budgetSnapshot: {
+                                        spawnsUsed: this._spawnContext.warmRunState.budget.spawnsUsed,
+                                        consumedDelights: { ...this._spawnContext.warmRunState.budget.consumedDelights },
+                                    },
+                                });
+                            } catch { /* tracker missing */ }
+                            this._spawnContext.warmRunState = null;
+                        }
+                    } catch (_e) { /* fail-open */ }
+                }
+
         const logSpawn = opts.logSpawn !== false;
         this.playerProfile.recordSpawn();
         /* v1.60.45：每轮 spawn 计数 roundsSinceLastDelight +1。
@@ -3165,10 +3252,7 @@ export class Game {
             this.ghostCanvas.style.display = 'none';
             this.ghostCtx.clearRect(0, 0,
                 this.ghostCanvas.width / _eDpr, this.ghostCanvas.height / _eDpr);
-            // 「咬合」反馈：极轻量震屏 + place 短促音 + 8ms 触感（audioFx 已注册但此前从未被调用，
-            // 接入后能让"我已经放下了"这件事在听感/触觉上得到确认，区分于纯视觉的方块出现）
-            try { window.__audioFx?.play?.('place'); } catch { /* ignore */ }
-            try { window.__audioFx?.vibrate?.([8]); } catch { /* ignore */ }
+            // 「咬合」反馈延后到消行判定之后：本手会消除时只保留消除声效，避免 place + clear 叠音。
             // shake removed: 盘面固定
         } else {
             // 失败：立即把 ghost 收回候选区，避免它在非法盘面位置停留造成"像是放上去了"的误读。
@@ -3277,8 +3361,75 @@ export class Game {
                         perfectClear: !!result.perfectClear,
                     });
                 }
+                /* v1.70 warm_run：把消行结果记入温暖局预算（仅 delights / hintIgnoreStreak 清零，
+                 * **不动 spawnsUsed**——后者在 _commitSpawn 按三连组累加，详见 warmRun.js
+                 * consumeWarmBudget 调用语义注释）。退出条件满足时清空 warmRunState。 */
+                if (this._warmRunModule && this._spawnContext?.warmRunState?.active) {
+                    try {
+                        this._warmRunModule.consumeWarmBudget(this._spawnContext.warmRunState.budget, {
+                            multiClear: result.count >= 2,
+                            monoFlush: delightKind === 'monoFlush',
+                            perfectClear: !!result.perfectClear,
+                            hintIgnored: false,
+                        });
+                        const exitCheck = this._warmRunModule.shouldExitWarmRun(
+                            this._spawnContext.warmRunState.budget,
+                            {
+                                t1Active: (this._spawnContext.warmRunState.triggerIds || []).includes('T1_newbie'),
+                                t2Active: (this._spawnContext.warmRunState.triggerIds || []).includes('T2_returning'),
+                                lifetimeGames: this.playerProfile?.lifetimeGames || 0,
+                                runsAfterReturn: Math.max(0, (Number(this._dailyRunState?.dailyRunIndex) || 0) - 1),
+                            },
+                        );
+                        if (exitCheck.exit) {
+                            try {
+                                this.analyticsTracker?.track?.('warm_run_exited', {
+                                    reason: exitCheck.reason,
+                                    intensity: this._spawnContext.warmRunState.intensity,
+                                    triggerIds: this._spawnContext.warmRunState.triggerIds,
+                                    budgetSnapshot: {
+                                        spawnsUsed: this._spawnContext.warmRunState.budget.spawnsUsed,
+                                        consumedDelights: { ...this._spawnContext.warmRunState.budget.consumedDelights },
+                                    },
+                                });
+                            } catch { /* tracker missing */ }
+                            this._spawnContext.warmRunState = null;
+                        }
+                    } catch (_e) { /* fail-open */ }
+                }
             } else {
+                try { window.__audioFx?.play?.('place'); } catch { /* ignore */ }
+                try { window.__audioFx?.vibrate?.([8]); } catch { /* ignore */ }
                 this._spawnContext.lastClearCount = 0;
+                /* v1.70.1 warm_run：未消行 → 累加 hintIgnoreStreak（连续 3 次温暖局落子未消行
+                 * 视为玩家忽视温暖引导，触发 hintIgnoreStreakExit 提前退出，避免反向"无聊"）。
+                 * spawnsUsed 推进在 _commitSpawn 按三连组完成，不在此处。 */
+                if (this._warmRunModule && this._spawnContext?.warmRunState?.active) {
+                    try {
+                        this._warmRunModule.consumeWarmBudget(this._spawnContext.warmRunState.budget, {
+                            hintIgnored: true,
+                        });
+                        const exitCheck = this._warmRunModule.shouldExitWarmRun(
+                            this._spawnContext.warmRunState.budget,
+                            {
+                                t1Active: (this._spawnContext.warmRunState.triggerIds || []).includes('T1_newbie'),
+                                t2Active: (this._spawnContext.warmRunState.triggerIds || []).includes('T2_returning'),
+                                lifetimeGames: this.playerProfile?.lifetimeGames || 0,
+                                runsAfterReturn: Math.max(0, (Number(this._dailyRunState?.dailyRunIndex) || 0) - 1),
+                            },
+                        );
+                        if (exitCheck.exit) {
+                            try {
+                                this.analyticsTracker?.track?.('warm_run_exited', {
+                                    reason: exitCheck.reason,
+                                    intensity: this._spawnContext.warmRunState.intensity,
+                                    triggerIds: this._spawnContext.warmRunState.triggerIds,
+                                });
+                            } catch { /* tracker missing */ }
+                            this._spawnContext.warmRunState = null;
+                        }
+                    } catch (_e) { /* fail-open */ }
+                }
                 /* Combo 未清线 → 累加 grace 计数；当达到 gracePlacements 时 combo 进入"待断"，
                  * 爱心徽章在 _updateComboHeart() 内淡出；_comboCount 本身不在此处归零，
                  * 而是等到下一次清线时由 deriveNextComboCount 决定（gap≥grace → 重置为 1）。 */
@@ -3445,7 +3596,6 @@ export class Game {
         const baseDuration = perfectClear ? 1050 : isCombo ? 780 : isDouble ? 620 : 500;
         const bonusHoldMs = bonusEffectHoldMs(bonusCount);
         const animDuration = bonusCount > 0 ? Math.max(baseDuration, bonusHoldMs) : baseDuration;
-        const bonusShakeMs = bonusCount > 0 ? baseDuration : 0;
 
         /* v1.56 §4.1 + §4.2：特效强度按 PB 距离调制 ——
          * 仅在 bestScore > 0 时启用，避免新手（best=0）异常。
@@ -4635,7 +4785,6 @@ export class Game {
          * v1.55.11：CELEBRATIONS_PER_RUN_CAP=1 后 isFirst 实际上恒为 true（保留旧分支
          * 以便未来灰度恢复多次庆祝时无需重写）。 */
         const isHard = this.strategy === 'hard';
-        const hardScale = isHard ? 1.3 : 1.0;
         if (isFirst) {
             this.renderer.triggerBonusMatchFlash(isHard ? 4 : 3);
             this.renderer.triggerPerfectFlash();

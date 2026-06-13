@@ -66,6 +66,11 @@ export class PlayerContext {
     private pbGrowthFast = false;
     /** 复活后救济（与 web `_postReviveBoost` 同义）：连续 N 轮 spawn 强制 relief intent。 */
     private forceReliefTtl = 0;
+    /** v1.70 温暖局状态（与 web `_spawnContext.warmRunState` 同义）：
+     *  active=true 时下游 adaptiveSpawn.applyWarmRun 钳制 shapeWeights / spawnHints。
+     *  局开始时由 GameController 通过 evaluateWarmTriggers + buildWarmBudget 注入；
+     *  每次 generateDockShapes 后 consumeWarmBudget 推进；shouldExitWarmRun 满足时清空。 */
+    private warmRunState: Record<string, unknown> | null = null;
 
     /** 分数里程碑步长（每跨过一档触发一次 scoreMilestone）。 */
     private readonly milestoneStep = 500;
@@ -92,6 +97,8 @@ export class PlayerContext {
         this.postPbReleaseActive = false;
         this.postPbReleaseUsed = false;
         this.forceReliefTtl = 0;
+        /* v1.70：新局重置温暖局状态；调用方应在 reset 后立即调用 setWarmRunState 注入新预算。 */
+        this.warmRunState = null;
         this.dailyRunIndex++;
         this._refreshRunOverRunArc();
         this._refreshPbGrowthFast();
@@ -308,7 +315,20 @@ export class PlayerContext {
             runOverRunArc: this.runOverRunArc,
             pbGrowthFast: this.pbGrowthFast,
             forceReliefIntent: forceRelief,
+            /* v1.70：透传温暖局状态到 spawnContext.warmRunState，下游 adaptiveSpawn.applyWarmRun
+             * 据此钳制 shapeWeights / spawnHints。 */
+            warmRunState: this.warmRunState,
         };
+    }
+
+    /** v1.70：设置温暖局状态（由 GameController 局开始时调用）。传 null 表示未触发。 */
+    setWarmRunState(state: Record<string, unknown> | null): void {
+        this.warmRunState = state && (state as { active?: boolean }).active ? state : null;
+    }
+
+    /** v1.70：读取温暖局状态（供 GameController consume / exit 判定）。 */
+    getWarmRunState(): Record<string, unknown> | null {
+        return this.warmRunState;
     }
 }
 

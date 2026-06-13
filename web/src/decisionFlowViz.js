@@ -262,7 +262,7 @@ function _humanizeIntentReason(raw) {
 }
 
 /** 从 resolveIntent 结果取展示用 reason（与 intentResolver.reason 同源） */
-function _dfvIntentReasonFromResolved(resolved, profile) {
+function _dfvIntentReasonFromResolved(resolved, _profile) {
     if (!resolved?.trace?.length) return null;
     const winner = resolved.trace.find((t) => t.isWinner);
     if (winner?.reason) return _humanizeIntentReason(winner.reason);
@@ -296,6 +296,9 @@ const SPAWN_INTENT_COLOR = {
     sprint:   '#0ea5e9',
     pressure: '#f59e0b',
     harvest:  '#f472b6',
+    /* v1.70 warm_run：温暖橙金（priority 115 高于所有其他 intent，DFV 中以独立色族突出）。
+     * 与 presentationReducer.SPAWN_INTENT_COLOR.warm 同源。 */
+    warm:     '#fb923c',
 };
 
 /** 中文意图说明（hover / 详情区显示） */
@@ -307,6 +310,7 @@ const SPAWN_INTENT_DESC = {
     sprint:   '渐紧过渡',
     pressure: '提升压力',
     harvest:  '收获机会',
+    warm:     '温暖局（人群保护）',
 };
 
 /** v1.51.3：shape category 中文映射（与 shared/shapes.json categoryOrder 对齐） */
@@ -443,6 +447,17 @@ const HINT_CN = {
     iconBonusTarget: '同色 bonus',
     motivationIntent:'动机',
     behaviorSegment: '行为分组',
+    /* v1.70 warm_run：spawnHints.warmRun 是温暖局钳制器写入的元数据复合字段，
+     * 包含 intensity/phase/target/triggerIds/budgetSnapshot 等。DFV 中作为单一节点
+     * 显示，详情用 HINT_TIP.warmRun。 */
+    warmRun:         '温暖局',
+    /* v1.70.3 构造策略（spawnDiagnostics.constructive 虚拟 hint）：把出块构造层的
+     * kind/crowding/retry/inject/cooldown 几个关键信号显式暴露到 DFV。 */
+    constructiveKind:    '构造策略',
+    constructiveCrowd:   '拥挤度',
+    constructiveRetry:   '构造续约',
+    constructiveInject:  '主动注入',
+    constructiveCooldown:'构造冷却',
 };
 
 const HINT_SHORT_CN = {
@@ -464,6 +479,12 @@ const HINT_SHORT_CN = {
     iconBonusTarget: '同色',
     motivationIntent: '动机',
     behaviorSegment: '分组',
+    warmRun: '温暖',
+    constructiveKind:    '构造',
+    constructiveCrowd:   '拥挤',
+    constructiveRetry:   '续约',
+    constructiveInject:  '注入',
+    constructiveCooldown:'冷却',
 };
 
 const HINT_TIP = {
@@ -490,6 +511,30 @@ const HINT_TIP = {
     multiClearBonus: '多消加成（multiClearBonus，浮点 0-1）：抽样器对"放下后能消 ≥ 2 行"的块加权倍率。\n触发：farFromPBBoostActive（远 PB 段）/ farExtremeBoostActive（D0 极远）/ rhythmPhase=payoff / sprint 中间档 / nearFullLines ≥ 2 多路拉高。\n数值含义：>0.40 floor 起就有显著加权效果。',
     perfectClearBoost: '清屏加成（perfectClearBoost，浮点 0-1）：抽样器对"能促成全盘清空"的块加权倍率。\n触发：pcSetup ≥ 1 + 高 fill / payoff 相位 / harvest 意图。\n数值含义：>0.5 会主动注入清屏候选块。',
     iconBonusTarget: '同色 bonus（iconBonusTarget，浮点 0-1）：抽样器对"凑同 icon 行/列触发 ×5 倍奖励"的块加权倍率。\n触发：farFromPBBoost / monoFlush 候选可见时强化；rhythmPhase=payoff 时配合 phaseLowPoolClearBoost。\n数值含义：>0.5 时会显著抬高 monoFlush 类候选权重。',
+    /* v1.70 warm_run：温暖局复合 hint（warmRun.{intensity, phase, target, triggerIds, budgetSnapshot, largeBlockMinRatio, forbidJagged}）。 */
+    warmRun: '温暖局（spawnHints.warmRun）：v1.70 新增的人群保护级别钳制元数据。\n'
+        + '触发：evaluateWarmTriggers 命中 T1~T7 任一（新手/回流/连挫/流失高危/winback/远端）；'
+        + 'priority 115 高于所有其他 intent 规则。\n'
+        + '字段：intensity（warm_mild / warm_strong / warm_rescue）、phase（early 100% / mid 70% / late 40%）、'
+        + 'target（perfect_clear / multi_clear_now / setup_for_multi / mono_flush / comfort_flow）、'
+        + 'triggerIds（命中触发器集合）、budgetSnapshot（已消耗/总预算 + 爽感配额进度）、'
+        + 'largeBlockMinRatio（三连中大块下限）、forbidJagged（T/Z 形钳制）。',
+    /* v1.70.3 构造策略复合 tip（虚拟 hint，来源 spawnDiagnostics.constructive，不在 spawnHints 内）。 */
+    constructiveKind: '构造策略（spawnDiagnostics.constructive.kind / kinds[]）：blockSpawn 构造层本轮做了什么。\n'
+        + 'multiClear=拥挤多消（一手 ≥2 行/列爽感峰值）；completer=单线补全（C1 逆向缺口→形状）；'
+        + 'setup=先铺后清造势（C2 跨 dock 续接 pendingClearTarget）；order=高压顺序锚（C3 augmentPool 权重偏置）。\n'
+        + 'kinds[] 保留同 dock 多路径触发的全部标签（如 high 相位 completer+order 共存）。',
+    constructiveCrowd: '拥挤度（constructive.crowding，0-1）：fill×0.4 + contiguousRegions/8×0.25 + enclosedVoidCells/10×0.25 + (rowTrans+colTrans)/40×0.1。\n'
+        + '≥ crowdThreshold 时触发拥挤多消构造；阈值在 _delightStarved=true 或 delightBoost≥0.6 时自适应下调（最低 0.30），让爽感饥渴玩家更易命中。',
+    constructiveRetry: '构造续约（constructive.retryCount / retryBoosted）：v1.70.3 新增。\n'
+        + '上一轮构造未达成（有候选/有信号但没兑现）时 ctx.constructiveRetry++；本轮 pComp/pMc 概率叠加 retryBoost（默认 +0.25），'
+        + '最多续约 retryMaxRounds（默认 2）轮。\n'
+        + '让"一轮失败"不至于直接归零成功率，构造体感留 1~2 轮兜底窗口。',
+    constructiveInject: '主动注入（constructive.injectedMultiClear / injectedCompleter）：v1.70.2 新增。\n'
+        + '当 scored 池缺少 multiClear≥2 候选（高 fill 时常见）或缺少补全块时，从全词表用 findMultiClearCompleter / findCompleterShapes 主动搜索并注入 scored 末尾。\n'
+        + '不再 100% 依赖采样器是否恰好生成多消候选，是高 fill 成功率优化的核心机制。',
+    constructiveCooldown: '构造冷却（constructive.cooldownActive）：上轮成功交付后冷却 cooldownDocks（默认 2）轮不再强供。\n'
+        + '避免「系统连发喂解」的脚本感——拥挤多消 + C1 全部跳过，回退到普通采样器。冷却期内仍可走 phaseHigh/phaseLow 加权与 order anchor。',
 };
 
 /** 压力驱动策略分量（基于 adaptiveSpawn spawnHints 实际字段） */
@@ -3975,6 +4020,13 @@ class DecisionFlowViz {
             else if (spawnIntent === 'flow') reasonFb = _ti('dfv.reason.flow', '心流稳定 → 维持');
             else if (spawnIntent === 'sprint') reasonFb = _ti('dfv.reason.sprint', 'stress ∈ [0.45, 0.55) 渐紧过渡');
             else if (spawnIntent === 'harvest') reasonFb = _ti('dfv.reason.harvest', '盘面具备消行机会');
+            else if (spawnIntent === 'warm') {
+                /* v1.70 warm_run：spawnIntent='warm' 一定是 warm_run 规则命中（priority 115，无人可覆盖）。
+                 * 走 traceReason 路径时已显示完整原因，这里仅作兜底（intentResolved 缺失时）。 */
+                const wr = hints?.warmRun;
+                const intens = wr?.intensity ? ({ warm_mild: '轻度', warm_strong: '强释放', warm_rescue: '救援' }[wr.intensity] ?? wr.intensity) : '';
+                reasonFb = _ti('dfv.reason.warm', `温暖局激活 ${intens}`.trim());
+            }
             els.intentReason.textContent = reasonFb;
         }
 
@@ -4079,6 +4131,30 @@ class DecisionFlowViz {
                 return `<li title="${_escapeAttr(tip)}"><span class="dfv-li-key">${shortLabel}</span><span class="dfv-li-val">${n.toFixed(2)}</span></li>`;
             }).join('');
 
+        /* v1.70.3 构造策略虚拟 hint：从 spawnDiagnostics.constructive 派生易读字符串，
+         * 与原有 spawnHints 并列显示。constructive 不在 spawnHints 内，但语义上是出块层
+         * 决策的一部分，DFV 用户应能看到。 */
+        const _cnsDFV = insight?.spawnDiagnostics?.constructive;
+        const _cnsKindLabel = (k) => ({
+            multiClear: '多消', completer: '补全', setup: '造势', order: '顺序锚',
+        }[k] || k);
+        let _cnsKindStr = null;
+        let _cnsCrowdStr = null;
+        let _cnsRetryStr = null;
+        let _cnsInjectStr = null;
+        let _cnsCooldownStr = null;
+        if (_cnsDFV && _cnsDFV.enabled) {
+            const _ka = Array.isArray(_cnsDFV.kinds) ? _cnsDFV.kinds : (_cnsDFV.kind ? [_cnsDFV.kind] : []);
+            if (_ka.length > 0) _cnsKindStr = _ka.map(_cnsKindLabel).join('+') + (_cnsDFV.delivered ? '✓' : '○');
+            if (Number(_cnsDFV.crowding) > 0) {
+                _cnsCrowdStr = `${Number(_cnsDFV.crowding).toFixed(2)}/${Number(_cnsDFV.crowdThreshold || 0).toFixed(2)}${_cnsDFV.crowdStarved ? '·饥' : ''}`;
+            }
+            if ((_cnsDFV.retryCount || 0) > 0) _cnsRetryStr = `${_cnsDFV.retryCount}${_cnsDFV.retryBoosted ? '+0.25' : ''}`;
+            const _inj = (_cnsDFV.injectedMultiClear || 0) + (_cnsDFV.injectedCompleter || 0);
+            if (_inj > 0) _cnsInjectStr = `Mc${_cnsDFV.injectedMultiClear || 0}/Cp${_cnsDFV.injectedCompleter || 0}`;
+            if (_cnsDFV.cooldownActive) _cnsCooldownStr = '激活';
+        }
+
         /* —— spawnHints（关键调度参数；v1.51.4：i18n） —— */
         const hintEntries = [
             ['pressurePhase', hints.pressurePhase ?? insight?.spawnDiagnostics?.pressurePhase],
@@ -4094,6 +4170,12 @@ class DecisionFlowViz {
             ['rhythmPhase',    hints.rhythmPhase],
             ['sessionArc',     hints.sessionArc],
             ['delightMode',    hints.delightMode],
+            /* v1.70.3 构造策略虚拟 hint —— 仅在 constructive.enabled 且有实际信号时显示。 */
+            ['constructiveKind', _cnsKindStr],
+            ['constructiveCrowd', _cnsCrowdStr],
+            ['constructiveRetry', _cnsRetryStr],
+            ['constructiveInject', _cnsInjectStr],
+            ['constructiveCooldown', _cnsCooldownStr],
         ].filter(([k, v]) => !STRATEGY_COMPONENT_KEYS.has(k) && v != null && v !== '');
         /* v1.51.9：hint 的 key → i18n 中文标签；value 若为 enum string，亦走 dfv.val.<ns>.<v>
          * 翻译，让「松紧期 / 节奏相位 / 会话弧线 / 愉悦模式」显示中文枚举（如 紧绷 / 兑现 / 巅峰）。 */
@@ -4205,7 +4287,7 @@ class DecisionFlowViz {
 
         host.innerHTML = rows.length === 0
             ? `<li class="dfv-list-empty">${emptyTxt}</li>`
-            : rows.map(([k, dispV, raw]) => {
+            : rows.map(([k, dispV, _raw]) => {
                 const fullLabel = _ti(`dfv.phase.${k}`, k);
                 const tip = _ti(`dfv.phase.tip.${k}`, HINT_TIP[k] || '') + `\n当前：${dispV}`;
                 return `<li title="${_escapeAttr(tip)}"><span class="dfv-li-key">${fullLabel}</span><span class="dfv-li-val">${dispV}</span></li>`;

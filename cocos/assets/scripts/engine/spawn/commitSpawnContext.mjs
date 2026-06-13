@@ -99,4 +99,38 @@ export function commitSpawnContext({ ctx, shapes, layered, diagnostics }) {
             ctx.pendingClearTarget = null;
         }
     }
+
+    /* === 8. v1.70.3 构造未达成续约 ===
+     * 设计：构造层若本轮**有意愿但未交付**（enabled + 启动了构造检索但 delivered=false），
+     * 累加 constructiveRetry 计数；下轮 blockSpawn 据此给 pComp/pMc 叠加 retryBoost，
+     * 让"上一轮没成"在 retryMaxRounds（默认 2）轮内享受成功率加成，最多续约到达后归零。
+     *
+     * 触发条件（任一）：
+     *   - constructive.kind=null 且 (completerCount>0 或 crowding 命中拥挤多消阈值)
+     *     —— 候选存在但概率没掷中；
+     *   - constructive.kind!=null 但 delivered=false
+     *     —— 构造块入了 clearCandidates 但未占到 chosen 三连位（被席位裁掉）。
+     *
+     * 退出条件：
+     *   - constructive.delivered=true（达成）→ 计数清零；
+     *   - constructiveRetry > retryMaxRounds → 强制清零，避免无限续约（无 retry 上限会让
+     *     长期高难场景一直叠 boost）；
+     *   - constructive.enabled=false 或 cooldownActive=true → 不累加但保留当前计数。 */
+    const _consCfg = GAME_RULES?.adaptiveSpawn?.constructiveSpawn || {};
+    const _retryMax = Math.max(0, Number(_consCfg.retryMaxRounds) || 2);
+    const _curRetry = Math.max(0, Number(ctx.constructiveRetry) || 0);
+    if (cons && cons.enabled && !cons.cooldownActive) {
+        if (cons.delivered) {
+            ctx.constructiveRetry = 0;
+        } else {
+            /* 未达成：有候选/有信号但没兑现，才算"值得续约"。 */
+            const hadIntent = (cons.completerCount > 0)
+                || (cons.crowdMultiClearCount > 0)
+                || (cons.kind != null)
+                || (cons.injectedMultiClear > 0)
+                || (cons.injectedCompleter > 0);
+            ctx.constructiveRetry = hadIntent ? Math.min(_retryMax + 1, _curRetry + 1) : _curRetry;
+            if (ctx.constructiveRetry > _retryMax) ctx.constructiveRetry = 0;
+        }
+    }
 }

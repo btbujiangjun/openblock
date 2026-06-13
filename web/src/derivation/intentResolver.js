@@ -85,6 +85,28 @@ export const SPRINT_MAX_DEFAULT = 0.55;
  */
 export const INTENT_RULES = [
     {
+        /* v1.70 warm_run（priority 115，高于 pb_chase_pressure=102 与 relief=100）：
+         * 温暖局是「人群保护」级别的体验模式，专门为新手 / 回流 / 连挫玩家释放温暖局。
+         * 一旦温暖局激活（warmRunState.active=true），强制 spawnIntent='warm'，
+         * 让 blockSpawn 走温暖管线（大块/规则块、强 clearGuarantee、爽感编排），
+         * 不被 PB 追击 / relief / harvest 等任何下游规则覆盖。
+         *
+         * 安全门：仅在 evaluateWarmTriggers 命中且 warmRunState.active=true 时生效；
+         * 高熟玩家正常情况下 warmRunState 始终为 null，本规则对其完全透明。
+         *
+         * 设计文档：docs/algorithms/ALGORITHMS_SPAWN.md §十七。 */
+        id: 'warm_run',
+        priority: 115,
+        spawnIntent: 'warm',
+        guard: (s) => !!(s.warmRunActive),
+        reason: (s) => {
+            const intens = s.warmRunIntensity || 'unknown';
+            const phase = s.warmRunPhase || 'unknown';
+            const triggers = Array.isArray(s.warmRunTriggers) ? s.warmRunTriggers.join(',') : '';
+            return `warmRunActive=true（intensity=${intens}, phase=${phase}, triggers=[${triggers}]）`;
+        },
+    },
+    {
         /* v1.61 pb_chase_pressure（priority 102，高于 relief=100）：
          * 接近/超越 PB 且 B 类挑战条件满足时，出块意图强制转为 'pressure'，
          * 通过增加难度激发玩家斗志，避免临 PB 段用减压块导致分数快速膨胀。

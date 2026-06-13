@@ -31,12 +31,14 @@ const SURPRISE_DAMPING = 0.50;
 const SURPRISE_MIN_CLEARS = 3;
 const TREND_WINDOW = 5;
 // PB-aware d_step legacy 常量 (跨语言镜像, 不参与 v3.x 计算)
+/* eslint-disable no-unused-vars -- legacy 跨语言镜像常量，保留原名与 extractor.py 对齐 */
 const PB_AWARE_D_BASE = 0.10;
 const PB_AWARE_D_PEAK = 1.00;
 const PB_AWARE_CENTER = 0.85;
 const PB_AWARE_WIDTH  = 0.18;
 const PB_AWARE_STATE_WEIGHT = 0.20;
 const PB_AWARE_PRIOR_STRENGTH = 3;
+/* eslint-enable no-unused-vars */
 const PB_AWARE_MIN_OBS = 1;
 
 // v3.1 (G5 物理侧 θ 接入): θ 通过 PB-aware sigmoid 影响 d_step
@@ -137,13 +139,11 @@ function _extractDCurve(
 
     // v3.0: 空 bin 用 lastValue 填充 (跨语言: samplerV2.js / extractor.py 同步)
     const dCurve = new Array(nBins).fill(0);
-    let nFilled = 0;
     let lastValue = 0.5;
     for (let i = 0; i < nBins; i++) {
         if (binCounts[i] >= PB_AWARE_MIN_OBS) {
             dCurve[i] = binSums[i] / binCounts[i];
             lastValue = dCurve[i];
-            nFilled++;
         } else {
             dCurve[i] = lastValue;
         }

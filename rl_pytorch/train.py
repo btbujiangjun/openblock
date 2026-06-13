@@ -2178,6 +2178,7 @@ def train_loop(
     _guard_scores: collections.deque = collections.deque(maxlen=max(1, _guard_window))
     _guard_best_avg: float = 0.0
     _guard_best_sd: dict | None = None
+    _guard_best_opt_sd: dict | None = None
     _guard_last_ep: int = 0
     _guard_rollbacks: int = 0
 
@@ -3030,10 +3031,12 @@ def train_loop(
                 if _guard_best_sd is None:
                     # 首次：以当前为基准 best
                     _guard_best_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+                    _guard_best_opt_sd = copy.deepcopy(opt.state_dict())
                     _guard_best_avg = _cur_avg
                 elif _cur_avg >= _guard_best_avg * (1.0 + _guard_margin):
                     # 创新高 → 快照为新 best，并把 KL-ref 参考网同步到该更优策略
                     _guard_best_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+                    _guard_best_opt_sd = copy.deepcopy(opt.state_dict())
                     if _ref_net is not None:
                         _ref_net.load_state_dict(net.state_dict())
                     _prev = _guard_best_avg
@@ -3124,15 +3127,21 @@ def train_loop(
             se = max(1, save_every)
             if ckpt_path and (ep_cursor % se < bs or ep_cursor >= start_ep + episodes):
                 ckpt_path.parent.mkdir(parents=True, exist_ok=True)
+                model_sd = _guard_best_sd if _guard_best_sd is not None else net.state_dict()
+                opt_sd = _guard_best_opt_sd if _guard_best_opt_sd is not None else opt.state_dict()
                 torch.save(
                     {
-                        "model": net.state_dict(),
-                        "optimizer": opt.state_dict(),
+                        "model": model_sd,
+                        "optimizer": opt_sd,
                         "episodes": ep_cursor,
                         "meta": _checkpoint_meta(
                             net, device, gamma, lr, train_arch,
                             mlp_ratio, policy_depth_arg, value_depth_arg,
-                        ),
+                        ) | ({
+                            "guard_best_avg": float(_guard_best_avg),
+                            "guard_rollbacks": int(_guard_rollbacks),
+                            "saved_model": "best_guard",
+                        } if _guard_best_sd is not None else {"saved_model": "current"}),
                     },
                     ckpt_path,
                 )

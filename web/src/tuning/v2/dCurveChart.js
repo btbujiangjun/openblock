@@ -16,7 +16,7 @@
  *   renderDCurveChart(canvas, { targetCurve, predictedCurve, observedCurve, options });
  */
 
-import { targetCurveVector, CURVE_N_BINS, CURVE_R_MAX } from './targetSCurve.js';
+import { targetCurveVector, CURVE_R_MAX } from './targetSCurve.js';
 
 // ─────────── 默认样式 ───────────
 

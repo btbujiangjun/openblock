@@ -50,8 +50,6 @@ const COMPANIONS = {
     dawn:       { icon: '🌻', name: '向阳' },
     summer:     { icon: '🍉', name: '西瓜' },
     food:       { icon: '🍕', name: '披萨君' },
-    music:      { icon: '🎵', name: '音符' },
-    universe:   { icon: '🌌', name: '星辰' },
     greece:     { icon: '🦉', name: '雅典娜' },
     demon:      { icon: '😈', name: '小恶' },
     jurassic:   { icon: '🦖', name: '霸王' },

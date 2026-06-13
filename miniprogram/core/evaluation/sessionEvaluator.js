@@ -267,6 +267,19 @@ function buildSessionEvalRecord(ledger, opts = {}) {
         maturityBand: meta.maturityBand ?? null,
     };
 
+    /* ── warmRunContext（v1.70 温暖局上报）──
+     * 由调用方在 createEvaluationLedger / setWarmRunSnapshot 写入 ledger.warmRun。
+     * 若本局未触发温暖局，整段为 null（payload 体积零开销）。 */
+    const warmRunCtx = ledger.warmRun || null;
+    const warmRunContext = warmRunCtx ? {
+        triggered: !!warmRunCtx.triggered,
+        intensity: warmRunCtx.intensity || null,
+        triggerIds: Array.isArray(warmRunCtx.triggerIds) ? warmRunCtx.triggerIds.slice() : [],
+        spawnsApplied: Number(warmRunCtx.spawnsApplied) || 0,
+        delightsHit: warmRunCtx.delightsHit || { multiClear: 0, monoFlush: 0, perfectClear: 0 },
+        exitReason: warmRunCtx.exitReason || null,
+    } : null;
+
     return {
         schemaVersion: 1,
         meta: {
@@ -285,6 +298,7 @@ function buildSessionEvalRecord(ledger, opts = {}) {
         cross,
         guard: guardOut,
         arcContext,
+        warmRunContext,
     };
 }
 

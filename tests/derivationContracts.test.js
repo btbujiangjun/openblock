@@ -252,13 +252,16 @@ describe('v1.58 §2 intentResolver: 矩阵 + trace + overrides', () => {
         expect(text).toContain('engage');
     });
 
-    it('INTENT_IDS 与 stressMeter.SPAWN_INTENT_NARRATIVE 同源 9 项（v1.61 新增 pb_chase_pressure）', () => {
+    it('INTENT_IDS 与 stressMeter.SPAWN_INTENT_NARRATIVE 同源 10 项（v1.70 新增 warm_run）', () => {
         /* v1.60.45：新增 'delight_starved' 规则（spawnIntent 仍映射到 'relief'）。
          * v1.61：新增 'pb_chase_pressure' 规则（spawnIntent 映射到 'pressure'）。
-         * 二者作为 rule id 出现在 trace，但 spawnIntent enum 仍是 7 项（unchanged）——
-         * 由 resolveIntent.spawnIntent 字段单独承接映射，保证下游 narrative 表无需扩。 */
+         * v1.70：新增 'warm_run' 规则（spawnIntent 映射到 'warm'）—— 人群保护级别，
+         *        优先级 115（高于 pb_chase_pressure=102 与 relief=100），专门为新手 /
+         *        回流 / 连挫玩家释放温暖局。详见 docs/algorithms/ALGORITHMS_SPAWN.md §十七。
+         * 这些作为 rule id 出现在 trace，spawnIntent enum 在原 7 项基础上新增 'warm'。
+         * 由 resolveIntent.spawnIntent 字段单独承接映射，保证下游 narrative 表按需扩展。 */
         const expected = [
-            'pb_chase_pressure', 'relief', 'delight_starved', 'engage',
+            'warm_run', 'pb_chase_pressure', 'relief', 'delight_starved', 'engage',
             'harvest', 'pressure', 'sprint', 'flow', 'maintain'
         ];
         expect(INTENT_IDS.slice().sort()).toEqual(expected.sort());

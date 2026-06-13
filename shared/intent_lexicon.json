@@ -79,6 +79,19 @@
       "tone": "neutral",
       "preferred_stages": ["S1", "S2"],
       "preferred_bands": ["M1", "M2"]
+    },
+    "warm": {
+      "label_zh": "温暖局",
+      "label_en": "Warm Run",
+      "in_game_narrative_zh": "为你释放一段温暖局：多大块、强清行、易爽感。",
+      "in_game_narrative_en": "Warm run engaged: large pieces, strong clears, easy delights.",
+      "out_of_game_push_zh": "为你准备了一段温暖局，回来轻松享受清屏与多消。",
+      "out_of_game_push_en": "A warm run is queued for you — come back for easy clears.",
+      "out_of_game_task_zh": "今日完成 1 局即可触发温暖局保护，体验清屏与多消。",
+      "out_of_game_task_en": "Play 1 game today to trigger a warm protective run.",
+      "tone": "protective",
+      "preferred_stages": ["S0", "S4"],
+      "preferred_bands": ["M0", "M1"]
     }
   }
 }

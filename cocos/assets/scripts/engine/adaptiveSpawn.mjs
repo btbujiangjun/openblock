@@ -59,6 +59,10 @@ import { getActiveWinbackPreset } from './lifecycle/lifecycleOrchestrator.mjs';
  * 文档共用 single source of truth；本地不再保留副本，避免漂移。 */
 import { getLifecycleStressCap, resolveArcLifecycleModifier } from './lifecycle/lifecycleStressCapMap.mjs';
 import { clamp01 } from './lib/math.mjs';
+/* v1.70 warm_run：钳制器静态导入。
+ * 避免循环依赖：warmRun.js 仅 import gameRules + lifecycleSignals，不反向 import 本文件。
+ * 该模块内的 normalizeStress 与本文件同源（B-Clean v1.55.17），由 tests/warmRun.test.js 锁定。 */
+import { applyWarmRun } from './spawn/warmRun.mjs';
 
 /* ------------------------------------------------------------------ */
 /*  v1.17：harvest / payoff 触发的最低占用率门槛
@@ -2964,8 +2968,27 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const evalReliefForced = evalSnapshot.consecutiveForcedBad >= 2
         || evalSnapshot.recentForcedBadRate > 0.3;
 
+    /* v1.70 warm_run：温暖局状态由 game.js / engineSpawn 在局开始时通过 ctx.warmRunState 传入。
+     * 若 active=true，intentResolver 会强制 spawnIntent='warm'（priority=115，最高）。
+     * 详见 spawn/warmRun.js 与 docs/algorithms/ALGORITHMS_SPAWN.md §十七。 */
+    const _warmRunState = ctx?.warmRunState;
+    const _warmRunActive = !!(_warmRunState && _warmRunState.active && _warmRunState.intensity);
+
     const _intentInputs = {
         playerDistress,
+        warmRunActive: _warmRunActive,
+        warmRunIntensity: _warmRunActive ? _warmRunState.intensity : null,
+        warmRunPhase: _warmRunActive ? (_warmRunState.budget && (() => {
+            const b = _warmRunState.budget;
+            if (!b || b.maxSpawns <= 0) return 'expired';
+            const r = b.spawnsUsed / b.maxSpawns;
+            const ps = Array.isArray(b.phaseSplit) ? b.phaseSplit : [0.33, 0.45, 0.22];
+            if (r < ps[0]) return 'early';
+            if (r < ps[0] + ps[1]) return 'mid';
+            if (r <= 1) return 'late';
+            return 'expired';
+        })()) : null,
+        warmRunTriggers: _warmRunActive ? (_warmRunState.triggerIds || []) : [],
         /* v1.69.2：evaluation 反馈进入 forceReliefIntent —— 连续 forced_bad ≥ 2 或
          * 最近 forcedBadRate > 0.3 时强制 relief 意图。deriveSpawnIntent 不需要知道
          * "为什么" force，只看 boolean；evaluation 派生的明细在 clearGuarantee /
@@ -3071,7 +3094,9 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         }
     }
 
-    return {
+    /* v1.70 warm_run：在所有 hints 计算完成后，调用 applyWarmRun 钳制器（modulator）
+     * 重写 shapeWeights / spawnHints / stress。warmRunState 由调用方维护，未激活时透传。 */
+    const _preWarmReturn = {
         ...base,
         shapeWeights: finalShapeWeights,
         fillRatio,
@@ -3244,5 +3269,24 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         _pressurePhase: pressurePhase,
         /* v1.48：winback 保护包诊断字段（供 panel / 回放追踪"为何这一帧 stress 被压低"）。 */
         _winbackPreset: winbackPreset,
+        /* v1.70 warm_run：透传 warmRunState 与 _warmRunActive 供下游 trace。 */
+        _warmRunState: _warmRunState || null,
+        _warmRunActive,
+        /* v1.70.2：透出 delightStarved，供 blockSpawn 的拥挤多消构造自适应阈值使用
+         * （profile.isDelightStarved 是方法不在 layered 里，必须通过 _xxx 字段传递）。 */
+        _delightStarved: !!_intentInputs.delightStarved,
     };
+
+    /* v1.70 warm_run 钳制层：未激活时透传，激活时返回钳制后的新对象。
+     * 注意：applyWarmRun 内部完全是纯函数，依赖 grid（来自 ctx.grid 或 ctx._gridRef）做
+     * delight target 选择；若 ctx 未带 grid 则降级为 COMFORT_FLOW（不影响数值钳制）。 */
+    if (_warmRunActive) {
+        try {
+            return applyWarmRun(_preWarmReturn, ctx, { grid: ctx?.grid || ctx?._gridRef || null });
+        } catch (_e) {
+            /* 异常时退回未钳制版本，保证 fail-open。 */
+            return _preWarmReturn;
+        }
+    }
+    return _preWarmReturn;
 }

@@ -4,7 +4,7 @@
  */
 import { RlGameplayEnvironment } from './gameEnvironment.js';
 import { countHoles } from './features.js';
-import { GAME_RULES, RL_TRAINING_STRATEGY_ID, sampleRlTrainingStrategyId } from '../gameRules.js';
+import { GAME_RULES, sampleRlTrainingStrategyId } from '../gameRules.js';
 import { rlWinThresholdForEpisode } from './rlCurriculum.js';
 import {
     fetchRlStatus,

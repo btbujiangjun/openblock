@@ -9,8 +9,9 @@
 import { getActiveSkinId, onSkinAfterApply } from '../skins.js';
 
 const STORAGE_KEY = 'openblock_bgm_v1';
+const PREFS_VERSION = 2;
 
-const PREFS_DEFAULT = { enabled: true, volume: 0.12 };
+const PREFS_DEFAULT = { enabled: false, volume: 0.12, version: PREFS_VERSION };
 const THEME_MAP = {
     ocean: 'water', koi: 'water', summer: 'water',
     forest: 'forest', jurassic: 'forest', dawn: 'forest',
@@ -23,8 +24,11 @@ const THEME_MAP = {
 };
 
 function _load() {
-    try { return { ...PREFS_DEFAULT, ...(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')) }; }
-    catch { return { ...PREFS_DEFAULT }; }
+    try {
+        const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        if (raw.version !== PREFS_VERSION) return { ...PREFS_DEFAULT };
+        return { ...PREFS_DEFAULT, ...raw };
+    } catch { return { ...PREFS_DEFAULT }; }
 }
 function _save(s) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { /* ignore */ } }
 
@@ -198,6 +202,7 @@ export function initBgm() {
             getPrefs: () => ({ ..._prefs }),
             setEnabled(b) {
                 _prefs.enabled = !!b;
+                _prefs.version = PREFS_VERSION;
                 _save(_prefs);
                 if (_prefs.enabled) _unlockAndStart();
                 else _stopLoop();

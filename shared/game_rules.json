@@ -400,6 +400,131 @@
         "sizePreferenceShift": -0.12
       }
     },
+    "warmRun": {
+      "comment": "v1.70 温暖局（Warm Run）—— 对新手 / 回流 / 连挫人群在 adaptiveSpawn 输出之后做钳制式重写：抬大块/长方形/正方形权重、抑制 T/Z/J 折角块、强制 clearGuarantee≥1、注入 multiClear/monoFlush/perfectClear 倾向、显式打 warmRun=true hint 让 blockSpawn 走构造式补全。设计文档：docs/algorithms/ALGORITHMS_SPAWN.md §十七。架构定位：modulator（钳制器）—— 不替代主管线，所有钳制作用于 enhancedConfig.spawnHints + shapeWeights，下游 generateDockShapes 自然消费。可灰度（rolloutPercent）、可熔断（telemetry exitReason）。",
+      "enabled": true,
+      "rolloutPercent": 100,
+      "triggers": {
+        "comment": "命中任一触发器即进入温暖局；多触发器同时命中取 intensity 最高者（rescue > strong > mild）。所有阈值与 adaptiveSpawn.engagement 同源解读：frustrationThreshold 共用 engagement.frustrationThreshold（默认 4），此处的 thresholdConsecutiveNonClears 在其基础上再加严。",
+        "T1_newbie": {
+          "enabled": true,
+          "intensity": "warm_strong",
+          "maxLifetimePlacements": 60,
+          "maxRunsProtected": 3,
+          "comment": "新手保护：lifetime 放置 < 60 且总局序 ≤ maxRunsProtected。与 isInOnboarding 互补——onboarding 是单局前 5 spawn 的极短窗口，T1 覆盖整个新手期前几局。"
+        },
+        "T2_returning": {
+          "enabled": true,
+          "intensity": "warm_rescue",
+          "minDaysSinceLastSession": 3,
+          "maxRunsAfterReturn": 2,
+          "comment": "回流救济：距离上次会话 ≥ 3 天且回流后局序 ≤ 2 局。与 winbackProtection 联动（命中 winback 时强制升级到 warm_rescue）。"
+        },
+        "T3_frustration_run": {
+          "enabled": true,
+          "intensity": "warm_strong",
+          "thresholdConsecutiveNonClears": 6,
+          "thresholdFrustrationLevel": 5,
+          "comment": "单局连挫：consecutiveNonClears ≥ 6 或 frustrationLevel ≥ 5。是最常见的触发路径，覆盖『硬卡关』场景。"
+        },
+        "T4_frustration_session": {
+          "enabled": true,
+          "intensity": "warm_strong",
+          "recentSessions": 3,
+          "scoreRatioThreshold": 0.6,
+          "shortSessionPlacementMax": 30,
+          "shortSessionCount": 2,
+          "comment": "跨局连挫：最近 N 局得分均跌破个人均值的 scoreRatioThreshold 倍且最近 shortSessionCount 局放置数 < shortSessionPlacementMax。"
+        },
+        "T5_churn_imminent": {
+          "enabled": true,
+          "intensity": "warm_mild",
+          "churnRiskThreshold": 0.75,
+          "comment": "流失高危：churnPredictor 风险 ≥ threshold；用 mild 档避免反向操控感（高熟玩家也可能因负面运营事件触发）。"
+        },
+        "T6_winback_pack": {
+          "enabled": true,
+          "intensity": "warm_rescue",
+          "comment": "回流保护包：winbackProtection 命中即升级到 rescue 档。优先级与 T2 取最大值。"
+        },
+        "T7_manual_remote": {
+          "enabled": false,
+          "intensity": "warm_strong",
+          "comment": "远端实验/运营强制开关。AB 实验组通过 remoteConfig.warmRun.forceOn 接管；默认关闭。"
+        }
+      },
+      "intensities": {
+        "comment": "三档温暖强度——stressCap 是钳制后 stress 上限；shapeWeights 直接覆盖 enhancedConfig.shapeWeights；forbidJagged=true 强制把 T/Z 权重压到 ≤ 0.05；largeBlockMinRatio 是三连中『面积 ≥ 4』块数下限（运行时若不达标会触发 constructive 补块）。",
+        "warm_mild": {
+          "stressCap": 0.05,
+          "clearGuaranteeMin": 1,
+          "sizePreferenceMin": 0.10,
+          "multiClearBonusMin": 0.45,
+          "monoFlushBonusMin": 0.20,
+          "perfectClearBoostMin": 0.10,
+          "shapeWeights": { "lines": 3.0, "rects": 2.6, "squares": 2.4, "tshapes": 0.30, "zshapes": 0.20, "lshapes": 0.80, "jshapes": 0.80 },
+          "forbidJagged": false,
+          "specialReliefInjectRate": 0.10,
+          "largeBlockMinRatio": 0.50,
+          "guaranteedDelights": { "multiClear": 1, "monoFlush": 0, "perfectClear": 0 }
+        },
+        "warm_strong": {
+          "stressCap": -0.10,
+          "clearGuaranteeMin": 1,
+          "sizePreferenceMin": 0.20,
+          "multiClearBonusMin": 0.65,
+          "monoFlushBonusMin": 0.35,
+          "perfectClearBoostMin": 0.30,
+          "shapeWeights": { "lines": 3.5, "rects": 3.0, "squares": 2.8, "tshapes": 0.10, "zshapes": 0.05, "lshapes": 0.50, "jshapes": 0.50 },
+          "forbidJagged": true,
+          "specialReliefInjectRate": 0.18,
+          "largeBlockMinRatio": 0.65,
+          "guaranteedDelights": { "multiClear": 2, "monoFlush": 1, "perfectClear": 1 }
+        },
+        "warm_rescue": {
+          "stressCap": -0.20,
+          "clearGuaranteeMin": 2,
+          "sizePreferenceMin": 0.30,
+          "multiClearBonusMin": 0.80,
+          "monoFlushBonusMin": 0.50,
+          "perfectClearBoostMin": 0.50,
+          "shapeWeights": { "lines": 4.0, "rects": 3.5, "squares": 3.2, "tshapes": 0.00, "zshapes": 0.00, "lshapes": 0.30, "jshapes": 0.30 },
+          "forbidJagged": true,
+          "specialReliefInjectRate": 0.30,
+          "largeBlockMinRatio": 0.80,
+          "guaranteedDelights": { "multiClear": 3, "monoFlush": 2, "perfectClear": 2 }
+        }
+      },
+      "budget": {
+        "comment": "温暖局预算：单段最多影响 maxSpawns 个三连；按 phaseSplit 把预算切成 early/mid/late 三段，越往后温暖强度越弱（保证『先送爽再恢复挑战感』的弧线）。late 段 strength=0 时退化为标准 relief。",
+        "maxSpawnsByIntensity": { "warm_mild": 18, "warm_strong": 24, "warm_rescue": 30 },
+        "phaseSplit": [0.33, 0.45, 0.22],
+        "phaseStrength": { "early": 1.0, "mid": 0.7, "late": 0.4 }
+      },
+      "exit": {
+        "comment": "退出条件——任一满足即结束温暖局。minSpawnsBeforeExit 防止『WOW 一次就退出』；hintIgnoreStreakExit 防反向操控（玩家持续无视温暖 hint 时降级）。",
+        "minSpawnsBeforeExit": 6,
+        "multiClearExitCount": 2,
+        "perfectClearExitCount": 1,
+        "hintIgnoreStreakExit": 3,
+        "maxRunsT1": 3,
+        "maxRunsT2": 2
+      },
+      "delightChoreography": {
+        "comment": "爽感主动编排：在每个三连生成前评估盘面，决定本次 target（setup_for_multi / multi_clear_now / mono_flush / perfect_clear / comfort_flow），并通过 spawnHints.warmRun.target 告知 blockSpawn 与 constructiveSpawn 走对应路径。",
+        "enabled": true,
+        "multiClearBoardFillThreshold": 0.30,
+        "perfectClearBoardFillCeiling": 0.20,
+        "perfectClearMaxRemainingCells": 15,
+        "monoFlushMinClusterSize": 6,
+        "earlyWowMaxSpawns": 6
+      },
+      "telemetry": {
+        "comment": "温暖局观测：trace 写入 spawnIntentTrace，session 评估上报字段在 evaluation/sessionEvaluator 中读取。circuit breaker：实验组平均局时长比对照下降超过 healthBreakerSessionDurationDrop 时熔断回退。",
+        "emitTrace": true,
+        "healthBreakerSessionDurationDrop": 0.15
+      }
+    },
     "nearMissPlaceFeedback": {
       "comment": "落子未消行时的几何近失 toast（game.js）。v1.50.1 收紧：仅在玩家体感很差时出现（高挫败 / anxious 心流叠加挫败 / 强 stress 救济）；clearRate/动量任一为正即抑制；单局最多 1 次、落子间隔 12、冷却 30s、前 12 次落子不出。",
       "enabled": true,
@@ -537,6 +662,8 @@
       "maxEmpty": 2,
       "pCompleterLow": 0.7,
       "pCompleterMid": 0.35,
+      "pCompleterHighComment": "v1.70.2 高压相位 C1 单线补全兜底概率（约为 low 的 1/5）。原 v1.67 限制 pressurePhase !== 'high' 让高压在 crowdMc 未命中时彻底没有构造爽感；本项给 high 一条小路径，让『补单线』的爽感在高压持续可用。v1.70.3 上调到 0.22 配合 retryBoost。",
+      "pCompleterHigh": 0.22,
       "pSetupLow": 0.5,
       "pOrderHigh": 0.4,
       "maxConstructedPerDock": 1,
@@ -547,8 +674,19 @@
       "setupPerShapePlacementCap": 40,
       "crowdedMultiClearComment": "v1.70 拥挤多消构造（偶发性爽感兑现）：盘面又挤又乱（computeBoardCrowding 复合分=fill×0.4+contiguousRegions/8×0.25+enclosedVoidCells/10×0.25+(row+col)Transitions/40×0.1 ≥ crowdedMultiClearMinCrowding）的紧张时刻，按概率投放能一手多消（≥2 行/列）的块，让盘面瞬间清爽。跨所有压力相位生效，与 C1/C2/C3 互斥，受 cooldownDocks 冷却约束。触发概率 p = pMultiClearCrowded × (0.5 + crowding) × (1 + delightBoost×0.5)，clamp 到 pMultiClearCrowdedCap，delightBoost 接入既有爽感闭环（含 isDelightStarved 抬升）。",
       "crowdedMultiClearMinCrowding": 0.55,
-      "pMultiClearCrowded": 0.35,
-      "pMultiClearCrowdedCap": 0.85
+      "crowdedThresholdStarvedDeltaComment": "v1.70.2 自适应阈值下调：profile.isDelightStarved()=true 时 crowding 阈值减 0.10（覆盖到 0.45），让爽感饥渴玩家更易命中拥挤多消。最低不下穿 0.30 避免误触。",
+      "crowdedThresholdStarvedDelta": 0.10,
+      "crowdedThresholdHighBoostDelta": 0.05,
+      "pMultiClearCrowded": 0.45,
+      "pMultiClearCrowdedCap": 0.85,
+      "injectMultiClearBudgetComment": "v1.70.2 主动构造多消的搜索预算：当 scored 池没有 multiClear≥2 候选时（高 fill 时常见），调用 findMultiClearCompleter 从全词表搜索并注入 scored 头部。这是『拥挤多消成功率优化』的核心：不再 100% 依赖采样器是否恰好生成了多消候选。budget=4000 与 completerBudget 同量级，单次 dock 决策 < 5ms。",
+      "injectMultiClearBudget": 4000,
+      "retryBoostComment": "v1.70.3 续约机制：上一轮构造未达成（diagnostics.constructive.delivered=false 或 kind=null）时，commitSpawnContext 把 ctx.constructiveRetry++；下轮 blockSpawn 读取后给 pComp/pMc 概率叠加 retryBoost（默认 0.25），最多续约 retryMaxRounds 轮。让『一次失败』不至于直接归零成功率，而是有 1~2 轮的兜底窗口。达成或超过 retryMaxRounds 后清零。",
+      "retryBoost": 0.25,
+      "retryMaxRounds": 2,
+      "maxEmptyHighComment": "v1.70.3 高 fill 阈值放宽：fill ≥ maxEmptyFillThreshold 时把 nearFull 阈值从 maxEmpty 放宽到 maxEmptyHigh，让 findCompleterShapes 覆盖『差 3 格』的近满线，候选源 +50%。低 fill 维持原值避免过早误报。",
+      "maxEmptyHigh": 3,
+      "maxEmptyFillThreshold": 0.55
     },
     "spawnStepDifficulty": {
       "comment": "单步出块难度（spawn step difficulty）统一分。无尽模式无『题目』概念，难度最小单元是『当前盘面 × 本轮候选三块』，由确定性特征逐步算出。本块把分散的原语（boardDifficulty / DFS solutionMetrics / 几何 scd）consolidate 成 0~1 难度分 + 5 档桶（trivial/easy/standard/hard/extreme），随 spawn 帧 spawnMeta.stepDifficulty 落库，供离线『难度桶 × 算法』聚合与 RL 数据集标注。实现见 web/src/spawnStepDifficulty.js，Python 镜像 rl_pytorch/spawn_step_difficulty.py。详见 docs/algorithms/ALGORITHMS_SPAWN.md §14.二。",

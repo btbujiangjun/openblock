@@ -477,7 +477,7 @@ describe('initClientPolicyV2 跨 tab BroadcastChannel 订阅', async () => {
     });
 
     it('init 后 channel 收到 bundle-updated 消息 → 自动 re-fetch + install', async () => {
-        const ctx = setupMockBroadcastChannel();
+        setupMockBroadcastChannel();
         // 初次 fetch 返回旧 bundle (rollout=10)
         const fetchMock = vi.fn()
             .mockResolvedValueOnce({

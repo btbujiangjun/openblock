@@ -72,6 +72,7 @@ const GRID_TOTAL_CELLS = 64;
 
 // PB-aware 常量 (跨语言: extractor.py + policyMetricsV2.js 严格同步)
 // v2.12 起 d_pb_base 直接复用 targetSCurve (legacy, 不参与 v3.x 计算).
+/* eslint-disable no-unused-vars -- legacy 跨语言镜像常量，保留原名与 extractor.py 对齐 */
 const PB_AWARE_D_BASE = 0.10;       // legacy
 const PB_AWARE_D_PEAK = 1.00;       // legacy
 const PB_AWARE_CENTER = 0.85;       // legacy
@@ -79,6 +80,7 @@ const PB_AWARE_WIDTH  = 0.18;       // legacy
 const PB_AWARE_STATE_WEIGHT = 0.20; // legacy
 // 贝叶斯先验平滑
 const PB_AWARE_PRIOR_STRENGTH = 3;
+/* eslint-enable no-unused-vars */
 const PB_AWARE_MIN_OBS = 1;
 
 // v3.1 (G5 物理侧 θ 接入): θ 通过 PB-aware sigmoid 影响 d_step
@@ -285,7 +287,6 @@ async function _evalWithMCTS(sim, a1, rng, policy, nRollouts, maxRolloutSteps) {
             } catch (_) {
                 continue;
             }
-            const scoreAfterA1 = sim.score;
             // Random rollout 到终止或最大步数
             let rolloutSteps = 0;
             while (rolloutSteps < maxRolloutSteps) {

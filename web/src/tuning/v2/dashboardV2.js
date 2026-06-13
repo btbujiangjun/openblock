@@ -1760,20 +1760,20 @@ function recommendTrainingParams(allSets) {
     const modelType = $('job-model-type')?.value || 'resnet';
 
     // 根据样本量推荐 (经验法则)
-    let epochs, batchSize, lr, patience, hint;
+    let epochs, batchSize, lr, hint;
     if (totalSamples === 0) return;
     if (totalSamples < 5000) {
         // 小数据: 小 batch, 多 epoch
-        epochs = 50; batchSize = 64; patience = 15;
+        epochs = 50; batchSize = 64;
         hint = '小数据集 (< 5K), 用小 batch + 多 epoch 让模型充分学习';
     } else if (totalSamples < 30000) {
-        epochs = 40; batchSize = 128; patience = 12;
+        epochs = 40; batchSize = 128;
         hint = '中等数据集, 平衡 batch 跟 epoch';
     } else if (totalSamples < 100000) {
-        epochs = 30; batchSize = 256; patience = 10;
+        epochs = 30; batchSize = 256;
         hint = '中大数据集, 标准参数';
     } else {
-        epochs = 25; batchSize = 512; patience = 8;
+        epochs = 25; batchSize = 512;
         hint = '大数据集 (≥ 100K), 用大 batch 加快训练';
     }
     if (modelType === 'transformer') {
@@ -3509,8 +3509,6 @@ async function renderCurve() {
     const setId = $('curve-set').value;
     // v3.0.9 (G3): baseline 对照样本集 (可选)
     const baselineSetId = $('curve-baseline-set')?.value || '';
-    // v3.0.14 (D): 是否显示散点
-    const wantScatter = !!$('curve-scatter')?.checked;
     // v3.0.17 (严格逐 sample 打点): 默认必拉散点, 不再 toggle
     _scatterPointsCache = null;
     if (setId) {

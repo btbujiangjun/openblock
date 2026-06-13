@@ -490,6 +490,38 @@ const SPAWN_TOOLTIP = {
     behaviorSegment: '行为分群：只由清行、思考、失误、分享、挑战、收集等行为信号推断，用于解释个性化策略，不做敏感属性定向。',
     accessibilityLoad: '操作负担：低画质/低动态偏好、误触率、长思考等信号合成；越高越倾向偏小块、保消和低压力。',
     returningWarmup: '回归暖启动：沉默 1/3/7 天后回归时短期减压，避免直接沿用历史高技能造成首局挫败。',
+    /* v1.70 warm_run：温暖局是 v1.70 新增的"人群保护"级别出块模式，针对新手 / 回流 /
+     * 连挫等高流失风险人群，整段释放大块 + 强清行 + 爽感编排，区别于单帧 relief（救济）
+     * 与单局 returningWarmup（回归暖启动）。详见 docs/algorithms/ALGORITHMS_SPAWN.md §17。 */
+    warmRunIntensity: '温暖局强度（warmRun.intensity）：mild=轻度释放、strong=强释放、rescue=高强度救援。'
+        + '由触发器集合（T1 新手 / T2 回流 / T3 单局连挫 / T4 跨局连挫 / T5 流失高危 / T6 winback / T7 远端）'
+        + '中命中的最高强度决定。',
+    warmRunPhase: '温暖局阶段（warmRun.phase）：early=100% 释放、mid=70% 释放、late=40% 释放，预算耗尽后退出。'
+        + '阶段渐退确保不会"过度温暖反向无聊"。',
+    warmRunTarget: '温暖局编排目标（warmRun.target）：本三连的爽感导向 —— perfect_clear（清屏） / multi_clear_now（立刻多消）'
+        + ' / setup_for_multi（搭建多消机会） / mono_flush（同色清行） / comfort_flow（顺手大块流）。',
+    warmRunTriggers: '触发原因（warmRun.triggerIds）：当前温暖局是由哪些条件命中后启动的；'
+        + '可能同时多触发，强度取最高档（rescue > strong > mild）。',
+    warmRunBudget: '温暖局预算（warmRun.budgetSnapshot）：spawnsUsed/maxSpawns 表示已消耗/总预算（按强度配额），'
+        + 'consumedDelights 记录已发生的多消/清屏/同色清行次数；当 spawnsUsed 达上限或 hintIgnoreStreak≥3 或'
+        + ' 达成爽感配额后退出。',
+    /* v1.70.3 构造策略：把 constructiveSpawn 的关键诊断字段做面板可视化（kinds/retry/inject/crowding）。 */
+    constructiveKind: '本轮构造策略（spawnDiagnostics.constructive.kind / kinds[]）：multiClear=拥挤多消（一手 ≥2 行/列）、'
+        + 'completer=单线补全（C1 逆向缺口→形状）、setup=先铺后清造势（C2 跨 dock 续接）、order=高压顺序锚（C3 权重偏置）。'
+        + 'kinds[] 保留同 dock 多路径触发的全部标签，kind 仅显示末次写入。',
+    constructiveCrowd: '盘面拥挤度（constructive.crowding）：fill×0.4 + contiguousRegions/8×0.25 + enclosedVoidCells/10×0.25 + (rowTransitions+colTransitions)/40×0.1。'
+        + '≥ crowdThreshold 时触发拥挤多消构造；阈值在 _delightStarved=true 或 delightBoost≥0.6 时自适应下调（最低 0.30）。',
+    constructiveInjected: '主动注入构造（constructive.injectedMultiClear / injectedCompleter）：v1.70.2 新增。'
+        + '当 scored 池缺少 multiClear≥2 候选（高 fill 时常见）或缺少补全块时，从全词表用 findMultiClearCompleter / findCompleterShapes '
+        + '主动搜索并注入 scored 末尾。数字 = 本轮注入的形状数。',
+    constructiveRetry: '构造续约（constructive.retryCount / retryBoosted）：v1.70.3 新增。'
+        + '上一轮构造未达成（有候选/有信号但没兑现）时 ctx.constructiveRetry++；本轮 pComp/pMc 概率叠加 retryBoost（默认 +0.25），'
+        + '最多续约 retryMaxRounds（默认 2）轮。让"一轮失败"不至于直接归零，给构造体感留 1~2 轮兜底窗口。',
+    constructiveMaxEmpty: '近满阈值放宽（constructive.effectiveMaxEmpty）：v1.70.3 新增。'
+        + 'fill ≥ maxEmptyFillThreshold（默认 0.55）时把 nearFull 检测的 emptyCount 上限从 maxEmpty=2 放宽到 maxEmptyHigh=3，'
+        + '让"差 3 格满线"也能进入补全检索，候选源 +50%。',
+    constructiveCooldown: '构造冷却（constructive.cooldownActive）：上轮成功交付后冷却 cooldownDocks（默认 2）轮不再强供，'
+        + '避免「系统连发喂解」的脚本感。冷却期内拥挤多消 + C1 全部跳过，回退到普通采样。',
     socialFairChallenge: '公平挑战模式：异步挑战/固定 seed 场景关闭个体化难度，保证不同玩家面对同一规则。',
     /* v1.18：让玩家直接看到"这一帧 stress 是被哪个救济信号压下去的"，
      * 不必从故事线里倒推 ——」救济 / 恢复 / 近失 三条最常出力的负向信号。 */
@@ -1677,6 +1709,75 @@ function _render(game) {
                 const intentLabel = SPAWN_INTENT_LABEL[intent] ?? intent;
                 decisionCells.push(_decisionCell('意图', intentLabel, SPAWN_TOOLTIP.spawnIntent));
             }
+            /* v1.70 warm_run：温暖局激活时把 intensity / phase / target / 触发器 / 预算
+             * 一次性铺到 spawn 快照卡片里 —— 这是 spawnIntent='warm' 的"展开式解释"，
+             * 让玩家与开发者都能看到「温暖局为什么开 / 还能持续多久 / 当前在编排什么爽感」。 */
+            const wr = h?.warmRun;
+            if (wr?.active) {
+                const intensLabel = { warm_mild: '轻度', warm_strong: '强释放', warm_rescue: '救援' }[wr.intensity] ?? wr.intensity;
+                decisionCells.push(_decisionCell('温暖', intensLabel, SPAWN_TOOLTIP.warmRunIntensity));
+                if (wr.phase) {
+                    const phaseLabel = { early: '前期 100%', mid: '中期 70%', late: '后期 40%', expired: '到期' }[wr.phase] ?? wr.phase;
+                    decisionCells.push(_decisionCell('暖段', phaseLabel, SPAWN_TOOLTIP.warmRunPhase));
+                }
+                if (wr.target && wr.target !== 'comfort_flow') {
+                    const targetLabel = {
+                        perfect_clear: '清屏',
+                        multi_clear_now: '多消',
+                        setup_for_multi: '搭建',
+                        mono_flush: '同色',
+                    }[wr.target] ?? wr.target;
+                    decisionCells.push(_decisionCell('编排', targetLabel, SPAWN_TOOLTIP.warmRunTarget));
+                }
+                if (Array.isArray(wr.triggerIds) && wr.triggerIds.length) {
+                    /* 触发器 id 形如 T1_newbie；面板显示去前缀简称即可，hover 看完整说明。 */
+                    const trigShort = wr.triggerIds.map((t) => t.replace(/^T\d+_/, '')).join('/');
+                    decisionCells.push(_decisionCell('触发', trigShort, `${SPAWN_TOOLTIP.warmRunTriggers}\n命中触发器：${wr.triggerIds.join(', ')}`));
+                }
+                const b = wr.budgetSnapshot;
+                if (b && Number.isFinite(b.maxSpawns) && b.maxSpawns > 0) {
+                    const used = b.spawnsUsed ?? 0;
+                    const cd = b.consumedDelights || {};
+                    const dStr = `mc${cd.multiClear ?? 0}/mf${cd.monoFlush ?? 0}/pc${cd.perfectClear ?? 0}`;
+                    decisionCells.push(_decisionCell('预算', `${used}/${b.maxSpawns} · ${dStr}`, SPAWN_TOOLTIP.warmRunBudget));
+                }
+            }
+            /* v1.70.3 构造策略 cells：把 spawnDiagnostics.constructive 的关键字段做可视化。
+             * 仅在 enabled=true 且本轮有 kind / 候选 / inject / retry / cooldown 任一信号时展示，
+             * 避免空 dock 时撑满面板。 */
+            const cns = ins.spawnDiagnostics?.constructive;
+            if (cns && cns.enabled) {
+                const _kindLabel = (k) => ({
+                    multiClear: '多消', completer: '补全', setup: '造势', order: '顺序锚',
+                }[k] || k);
+                const kindsArr = Array.isArray(cns.kinds) ? cns.kinds : (cns.kind ? [cns.kind] : []);
+                if (kindsArr.length > 0) {
+                    const kindsStr = kindsArr.map(_kindLabel).join('+');
+                    const deliveredMark = cns.delivered ? '✓' : '○';
+                    decisionCells.push(_decisionCell('构造', `${kindsStr} ${deliveredMark}`, SPAWN_TOOLTIP.constructiveKind));
+                }
+                if (Number(cns.crowding) > 0) {
+                    const cs = Number(cns.crowding).toFixed(2);
+                    const th = Number(cns.crowdThreshold || 0).toFixed(2);
+                    const starvedMark = cns.crowdStarved ? '·饥' : '';
+                    decisionCells.push(_decisionCell('拥挤', `${cs}/${th}${starvedMark}`, SPAWN_TOOLTIP.constructiveCrowd));
+                }
+                const injTotal = (cns.injectedMultiClear || 0) + (cns.injectedCompleter || 0);
+                if (injTotal > 0) {
+                    decisionCells.push(_decisionCell('注入', `Mc${cns.injectedMultiClear || 0}/Cp${cns.injectedCompleter || 0}`, SPAWN_TOOLTIP.constructiveInjected));
+                }
+                if ((cns.retryCount || 0) > 0) {
+                    const boostMark = cns.retryBoosted ? '+0.25' : '';
+                    decisionCells.push(_decisionCell('续约', `${cns.retryCount}${boostMark}`, SPAWN_TOOLTIP.constructiveRetry));
+                }
+                if (cns.cooldownActive) {
+                    decisionCells.push(_decisionCell('冷却', '激活', SPAWN_TOOLTIP.constructiveCooldown));
+                }
+                if ((cns.effectiveMaxEmpty || 0) > 2) {
+                    decisionCells.push(_decisionCell('空格', `≤${cns.effectiveMaxEmpty}`, SPAWN_TOOLTIP.constructiveMaxEmpty));
+                }
+            }
+
             const motivation = h.motivationIntent ?? ins?._motivationIntent;
             if (motivation && motivation !== 'balanced') {
                 decisionCells.push(_decisionCell('动机', MOTIVATION_INTENT_LABEL[motivation] ?? motivation, SPAWN_TOOLTIP.motivationIntent));

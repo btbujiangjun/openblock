@@ -25,10 +25,10 @@ describe('bgmStub procedural ambience', () => {
         initBgm();
 
         expect(window.__bgm.isImplemented()).toBe(true);
-        expect(window.__bgm.getPrefs()).toMatchObject({ enabled: true, volume: 0.12 });
+        expect(window.__bgm.getPrefs()).toMatchObject({ enabled: false, volume: 0.12 });
 
-        window.__bgm.setEnabled(false);
-        expect(window.__bgm.getPrefs().enabled).toBe(false);
+        window.__bgm.setEnabled(true);
+        expect(window.__bgm.getPrefs().enabled).toBe(true);
 
         window.__bgm.setSkin('mahjong');
         window.__bgm.setVolume(0.2);

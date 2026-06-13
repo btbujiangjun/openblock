@@ -1505,6 +1505,7 @@ def create_rl_blueprint() -> Blueprint:
           n_workers       并行 worker 数，0=自动（默认 0）
           batch_episodes  每批局数（默认 64）
           ppo_epochs      PPO 轮数（默认 4）
+          save_every      每 N 局保存 checkpoint（默认 50，页面训练防重启丢进度）
           eval_gate_every 每 N 局评估一次（默认 2000，0=关闭）
           resume          是否从 checkpoint 续训（默认 true）
         """
@@ -1524,7 +1525,21 @@ def create_rl_blueprint() -> Blueprint:
 
         data = request.get_json(force=True, silent=True) or {}
         episodes = int(data.get("episodes", 50000))
-        mcts_sims = int(data.get("mcts_sims", 0))
+        preset = str(data.get("preset", "balanced")).strip()
+        try:
+            from rl_pytorch.game_rules import rl_training_presets
+            preset_cfg = dict(rl_training_presets().get(preset) or {})
+        except Exception:
+            preset_cfg = {}
+        preset_mcts = dict(preset_cfg.get("mcts") or {})
+        preset_beam3 = dict(preset_cfg.get("beam3ply") or {})
+        preset_beam2 = dict(preset_cfg.get("beam2ply") or {})
+        if "mcts_sims" in data:
+            mcts_sims = int(data.get("mcts_sims", 0))
+        elif preset_mcts.get("enabled", False):
+            mcts_sims = int(preset_mcts.get("numSimulations", 0) or 0)
+        else:
+            mcts_sims = 0
         n_workers = int(data.get("n_workers", 0))
         batch_episodes = int(data.get("batch_episodes", 16))
         ppo_epochs = int(data.get("ppo_epochs", 4))
@@ -1537,10 +1552,10 @@ def create_rl_blueprint() -> Blueprint:
         do_resume = bool(data.get("resume", True))
         # 价值头损失权重：Lv 较 Lπ 收敛慢，看板模式默认 1.5 加速 value 拟合（决策更稳）
         value_coef = float(data.get("value_coef", os.environ.get("RL_VALUE_COEF", "1.0")))
-        preset = str(data.get("preset", "performance")).strip()
         # 指标落盘频率：默认与 batch_episodes 对齐，确保每批训练都写一条 train_episode
         # JSONL（train.py 内 ep_cursor % log_every < bs 恒真），前端轮询即可逐批看到指标变化。
         log_every = int(data.get("log_every", batch_episodes))
+        save_every = int(data.get("save_every", 50))
         save_path = os.environ.get("RL_CHECKPOINT_SAVE", "rl_checkpoints/bb_policy.pt")
 
         cmd = [
@@ -1552,6 +1567,7 @@ def create_rl_blueprint() -> Blueprint:
             "--eval-gate-every", str(eval_gate_every),
             "--eval-gate-games", str(eval_gate_games),
             "--value-coef", str(value_coef),
+            "--save-every", str(save_every),
             "--save", save_path,
         ]
         if n_workers > 0:
@@ -1564,10 +1580,20 @@ def create_rl_blueprint() -> Blueprint:
         env = {**os.environ}
         env["RL_TRAINING_LOG"] = str(_training_log_path())
         env["RL_TRAINING_PRESET"] = preset
+        # 页面训练强调可中断/可重启，BestGuard 窗口比离线长跑更短，
+        # 让 checkpoint 尽早保存“近期最好”而不是退化中的最后权重。
+        env.setdefault("RL_BEST_GUARD_WINDOW", "80")
+        env.setdefault("RL_BEST_GUARD_EVERY", "40")
         if mcts_sims <= 0:
             env.pop("RL_MCTS", None)
-        # 无 MCTS 时默认关闭 beam search + lookahead 以最大化采集吞吐
-        if mcts_sims <= 0 and not data.get("beam3ply") and not data.get("beam2ply"):
+        # 无 MCTS 且 preset/请求均未启用 beam 时，才关闭搜索以最大化采集吞吐。
+        if (
+            mcts_sims <= 0
+            and not data.get("beam3ply")
+            and not data.get("beam2ply")
+            and not preset_beam3.get("enabled", False)
+            and not preset_beam2.get("enabled", False)
+        ):
             env["RL_BEAM3PLY"] = "0"
             env["RL_BEAM2PLY"] = "0"
             env.setdefault("RL_LOOKAHEAD", "0")
@@ -1587,6 +1613,7 @@ def create_rl_blueprint() -> Blueprint:
                     "n_workers": n_workers,
                     "batch_episodes": batch_episodes,
                     "log_every": log_every,
+                    "save_every": save_every,
                     "preset": preset,
                     "value_coef": value_coef,
                     "resume": do_resume,

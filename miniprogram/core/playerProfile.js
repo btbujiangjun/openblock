@@ -1107,6 +1107,36 @@ class PlayerProfile {
         return _clamp01(visual * 0.45 + operation * 0.55);
     }
 
+    /**
+     * v1.70 温暖局：最近 N 局的统计快照，供 warmRun.evaluateWarmTriggers T4 触发器使用。
+     *
+     * @param {number} [n=3] 最近局数
+     * @returns {{ count:number, avgScore:number, avgScoreRatio:number, belowAvgCount:number, shortSessions:number } | null}
+     *   - avgScoreRatio：最近 N 局平均得分 / 历史均值（截掉本批次本身），1 表示与历史持平
+     *   - belowAvgCount：最近 N 局中得分 < 历史均值的局数
+     *   - shortSessions：最近 N 局中放置数 < 30 的局数
+     *   样本不足时返回 null。
+     */
+    recentSessionStats(n = 3) {
+        const hist = this._sessionHistory;
+        if (!Array.isArray(hist) || hist.length < n) return null;
+        const recent = hist.slice(-n);
+        const past = hist.slice(0, -n);
+        if (past.length === 0) return null;
+        const recentScores = recent.map((s) => Number(s.score) || 0);
+        const avgScore = recentScores.reduce((a, b) => a + b, 0) / recent.length;
+        const pastScores = past.map((s) => Number(s.score) || 0);
+        const pastAvg = pastScores.reduce((a, b) => a + b, 0) / past.length;
+        const avgScoreRatio = pastAvg > 0 ? avgScore / pastAvg : 1;
+        let belowAvgCount = 0;
+        let shortSessions = 0;
+        for (const s of recent) {
+            if ((Number(s.score) || 0) < pastAvg) belowAvgCount++;
+            if ((Number(s.placements) || 0) < 30) shortSessions++;
+        }
+        return { count: recent.length, avgScore, avgScoreRatio, belowAvgCount, shortSessions };
+    }
+
     /** 沉默后回归暖启动强度：0=无，1=强暖启动 */
     get returningWarmupStrength() {
         const last = this._lastSessionEndTs || this._getHistoricalCache().lastSessionTs || 0;

@@ -97,7 +97,7 @@ const DEFAULT_FLAGS: FeatureFlags = {
     seasonPass: true,
     cloudSave: true,
     analytics: true,
-    bgm: true,
+    bgm: false,
     rlSpawn: false,
     dailyMaster: true,
     // 默认关，让盘面与 Dock/Ghost 共用 Graphics paintBlockFace，外观一致；

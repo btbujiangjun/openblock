@@ -107,9 +107,8 @@ describe('commitSpawnContext 三端 parity', () => {
     }
 
     it('普通出块（无 special / 无构造）：totalRounds++ / scoreMilestone=false / L1 回写 / cooldown 不动', () => {
-        const shapes = [{ id: '2x2' }, { id: 'l3-a' }, { id: 'I4' }];
-        // 注：l3-a 在 SPECIAL_RELIEF_SHAPES 里 → 应触发 roundsSinceSpecial=0；
-        // 为本场景"无 special"语义，先用 3 个普通块。
+        // 注：l3-a 在 SPECIAL_RELIEF_SHAPES 里 → 会触发 roundsSinceSpecial=0；
+        // 为本场景"无 special"语义，用 3 个普通块。
         const cleanShapes = [{ id: '2x2' }, { id: 'I3' }, { id: 'I4' }];
         const ctx = expectParity('normal-spawn', {
             shapes: cleanShapes,

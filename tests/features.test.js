@@ -178,7 +178,9 @@ describe('topology supervision', () => {
         const sim = new OpenBlockSimulator('normal');
         const sup = sim.getSupervisionSignals();
         expect(Array.isArray(sup.topology_after)).toBe(true);
-        expect(sup.topology_after).toHaveLength(8);
+        /* simulator `_topologyAuxTargets` 维度演进：v1 = 8（holes/rowTrans/colTrans/well/close1/close2/mob/fill），
+         * 后扩为 10（追加 emptyRegions、concaveCorners），与 rl_pytorch / pytorchBackend 同步。 */
+        expect(sup.topology_after).toHaveLength(10);
         for (const v of sup.topology_after) {
             expect(Number.isFinite(v)).toBe(true);
             expect(v).toBeGreaterThanOrEqual(0);

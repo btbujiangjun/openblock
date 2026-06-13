@@ -60,6 +60,7 @@ FILES=(
   "bot/constructiveSpawn.js"
   "bot/blockSpawn.js"
   "spawn/commitSpawnContext.js"
+  "spawn/warmRun.js"
   "tuning/v2/clientPolicyV2.js"
   "evaluation/gridAdapter.js"
   "evaluation/placementQuality.js"

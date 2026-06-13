@@ -34,6 +34,25 @@ function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
 }
 
+function resolveBackgroundWorkerCount(preset) {
+    const rawCores = Number(
+        typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 0
+    );
+    const cores = Number.isFinite(rawCores) && rawCores > 0 ? Math.floor(rawCores) : 4;
+    const usable = Math.max(1, cores - (cores >= 8 ? 2 : 1));
+    let target;
+    if (preset === 'quality') {
+        target = Math.max(2, Math.floor(usable * 0.75));
+        return Math.max(1, Math.min(usable, target, 8));
+    }
+    if (preset === 'balanced') {
+        target = Math.max(2, Math.floor(usable * 0.6));
+        return Math.max(1, Math.min(usable, target, 6));
+    }
+    target = Math.max(1, Math.floor(usable * 0.5));
+    return Math.max(1, Math.min(usable, target, 4));
+}
+
 /**
  * v1.33: RL 面板收起 / 展开控制 ——
  *   - 收起：把 .rl-collapsed 类挂到 <html>（与 index.html `<head>` 中的防闪烁脚本同根），
@@ -812,19 +831,22 @@ export function initRLPanel(game) {
 
             if (useBackend) {
                 try {
+                    const trainingPreset = selPreset?.value || 'balanced';
+                    const workerCount = resolveBackgroundWorkerCount(trainingPreset);
                     await startBackgroundTraining({
                         episodes: 500000,
                         resume: true,
-                        n_workers: 1,
+                        n_workers: workerCount,
                         // batch=16：小 batch（8）长/变长 episode 的梯度方差大，是策略漂移退化诱因之一；
                         // 提至 16 提升梯度稳定性。日志实时性由后端 per-episode 进度心跳保证（不再依赖 batch）。
                         batch_episodes: 16,
-                        preset: 'performance',
+                        save_every: 50,
+                        preset: trainingPreset,
                         eval_gate_every: 0,
                         // Lv 价值损失较 Lπ 收敛慢，加权至 1.5 加速 value 拟合，决策更稳
                         value_coef: 1.5,
                     });
-                    logLine('后台训练已启动（看板模式：batch=16 / value_coef=1.5 / 逐局进度心跳 / best 守护+回滚；评估门关闭）');
+                    logLine(`后台训练已启动（${trainingPreset} / workers=${workerCount} / batch=16 / save=50 / value_coef=1.5 / 逐局进度心跳 / best 守护+回滚；评估门关闭）`);
                 } catch (err) {
                     logLine(`后台训练启动失败: ${err.message}`);
                     return;

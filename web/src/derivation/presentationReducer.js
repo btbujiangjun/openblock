@@ -73,6 +73,9 @@ export const SPAWN_INTENT_COLOR = Object.freeze({
     sprint:   '#0ea5e9',
     pressure: '#f59e0b',
     harvest:  '#f472b6',
+    /* v1.70 warm_run：温暖橙金（介于 relief 青与 harvest 粉之间，单独一族避免与
+     * relief/harvest 混淆——温暖局是"人群保护"层级，比单帧救济更强、比兑现更持久）。 */
+    warm:     '#fb923c',
 });
 export const SPAWN_INTENT_LABEL = Object.freeze({
     relief:   '救济节奏',
@@ -82,6 +85,7 @@ export const SPAWN_INTENT_LABEL = Object.freeze({
     sprint:   '渐紧过渡',
     pressure: '提升压力',
     harvest:  '收获机会',
+    warm:     '温暖局',
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════ */

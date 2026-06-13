@@ -24,7 +24,7 @@ import { generateDockShapes } from '../web/src/bot/blockSpawn.js';
 import { Grid } from '../web/src/grid.js';
 import { getStressAmbience } from '../web/src/stressAmbience.js';
 import { PlayerProfile } from '../web/src/playerProfile.js';
-import { analyzeBoardTopology, countUnfillableCells, detectNearClears, computeCoverableCells } from '../web/src/boardTopology.js';
+import { analyzeBoardTopology, detectNearClears } from '../web/src/boardTopology.js';
 import { getAllShapes } from '../web/src/shapes.js';
 
 function makeProfile(overrides = {}) {
@@ -127,9 +127,7 @@ describe('perf · sub-paths (heaviest internal helpers)', () => {
     const grid55 = makeGrid(0.55);
     const shapePool = getAllShapes();
     const shape4 = shapePool.find((s) => s.id === 'l4-a')?.data || [[1, 1], [1, 1]];
-    const shape2 = [[1, 1]];
     const topo = analyzeBoardTopology(grid55);
-    // eslint-disable-next-line no-console
     console.log(`[diag] makeGrid(0.55): holes=${topo.holes} nearFullLines=${topo.nearFullLines} shapes=${shapePool.length}`);
 
     bench('Grid.clone()', () => {

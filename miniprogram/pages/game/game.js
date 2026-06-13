@@ -1233,11 +1233,15 @@ Page({
     this._dragExtraOffset = null;
 
     if (placedPos) {
+      const block = this._controller?.dock?.[idx];
+      const previewClear = block
+        ? this._controller.grid.previewClearOutcome(block.shape, placedPos.x, placedPos.y, block.colorIdx)
+        : null;
+      const willClear = !!(previewClear?.cells?.length);
       /* 成功：立即收掉 preview，让消行 / 落子动效成为视觉焦点。
-       * audio.feedback('place') 始终调用——之前只在非消行时调，导致消行时少了"咬合"反馈；
-       * audio 内部 priority 节流会保证 'place' 不会与同帧的 'clear' 双响（'clear' 优先）。 */
+       * 本手会消除时跳过 place 声效，只播放后续 clear/multi/combo/perfect/bonus 中的一个。 */
       this._hideDragPreview();
-      this._audio?.feedback('place');
+      if (!willClear) this._audio?.feedback('place');
       this._controller.place(idx, placedPos.x, placedPos.y);
       this.setData({
         dragIdx: -1,

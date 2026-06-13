@@ -2,7 +2,7 @@
 
 > 本文是 OpenBlock **出块子系统**的算法侧统一手册。
 > 范围：启发式与 SpawnPolicyNet 生成式双轨、共享上下文、护栏校验、训练/推理与数学化形式。
-> 本手册是 OpenBlock 出块子系统的**统一权威文档**：在算法与模型工程主线（§1–§11）之外，已整合架构分层（§12）、出块建模与设计 rationale（§13）、难度调控与评估工具（§14）、参数寻优 SpawnParamTuner（§15）、局间难度 RoR（§十六）；运行时 10 信号融合与完整流水线深潜见 `ADAPTIVE_SPAWN.md`。
+> 本手册是 OpenBlock 出块子系统的**统一权威文档**：在算法与模型工程主线（§1–§11）之外，已整合架构分层（§12）、出块建模与设计 rationale（§13）、难度调控与评估工具（§14）、参数寻优 SpawnParamTuner（§15）、局间难度 RoR（§十六）、温暖局 Warm Run（§十七）；运行时 10 信号融合与完整流水线深潜见 `ADAPTIVE_SPAWN.md`。
 > 若需要横向理解 Spawn 与 RL、玩家画像、商业化、LTV、PCGRL 的模型契约，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
 ---
@@ -41,6 +41,19 @@
    - 16.6 运营调参指南
    - 16.7 监控与回归
    - 16.8 回滚与降级策略
+17. [温暖局（Warm Run）](#十七温暖局warm-run)
+   - 17.1 设计目标与架构定位
+   - 17.2 触发器矩阵
+   - 17.3 三档强度
+   - 17.4 预算管理与退出条件
+   - 17.5 爽感主动编排
+   - 17.6 出块后置校验
+   - 17.7 intentResolver 集成
+   - 17.8 配置、灰度与 AB 实验
+   - 17.9 评估与观测
+     - 17.9.1 面板可视化与决策透视（v1.70.1）
+   - 17.10 模块契约与代码索引
+   - 17.11 回滚与降级
 
 ---
 
@@ -288,6 +301,68 @@ p = min(pCap, pMultiClearCrowded × (0.5 + crowding) × (1 + delightBoost × 0.5
 | rl_mlx | 维持 v2-lite（无 `fast_grid`/构造引擎），不含拥挤多消构造 | — |
 
 > **配置**：`shared/game_rules.json` → `adaptiveSpawn.constructiveSpawn`：`crowdedMultiClearMinCrowding` / `pMultiClearCrowded` / `pMultiClearCrowdedCap`。`enabled=false` 时与旧行为等价。
+
+#### 3.2.3.1 高填充率成功率优化（v1.70.2）
+
+v1.70 的拥挤多消有三处会导致**高填充率（fill ≥ 0.7）下命中率不达预期**的瓶颈，本版定向修复：
+
+1. **采样器依赖瓶颈**：原实现 `scored.filter(s => s.multiClear ≥ 2)` 完全依赖采样器是否恰好生成了多消候选。高 fill 时大块在 augmentPool 被限流、补全块只能补单线 → scored 池常无 `multiClear ≥ 2` 候选 → 拥挤多消整段直接 fallback。
+2. **高压相位无 C1 兜底**：原 v1.67 严格 `pressurePhase !== 'high'` 才进 C1 单线补全分支，高压在 crowdMc 未命中时**彻底没有构造爽感**。
+3. **静态 crowding 阈值**：0.55 对"fill ≈ 0.7 但盘面相对整齐（contiguousRegions/voids 小）"的玩家不友好，明明很挤但不达阈值。
+
+修复方案（保留概率式 + 冷却契约）：
+
+| 优化 | 实现 | 影响 |
+|---|---|---|
+| **主动构造多消** | scored 池缺多消候选时，调用 `findMultiClearCompleter` 从**全词表**（过滤 special + canPlaceAnywhere + weights）搜索，把命中形状构造为最小 score 项 unshift 到 scored 头部，并标记 `_injected='multiClear'` | 拥挤多消不再 100% 依赖采样器，预期命中率 +15~25 个百分点 |
+| **高压 C1 兜底 + 全词表回退** | `pCompleterHigh=0.15`（low 的 1/5）让 high 也能走 C1 单线补全；mid/high 在 scored 池找不到补全 id 时回退到全词表 + 注入 | 高压在 crowdMc 未命中时仍有"补单线"的爽感小路径 |
+| **自适应阈值** | `isDelightStarved=true` → `-0.10`；`delightBoost ≥ 0.6` → `-0.05`；最低 0.30 防误触 | 爽感饥渴玩家的拥挤多消触发面扩大 ~30% |
+| **诊断字段** | `constructive.kinds[]` / `injectedMultiClear` / `injectedCompleter` / `crowdThreshold` / `crowdStarved` | 完整还原构造决策链 |
+| **adaptiveSpawn 透出 `_delightStarved`** | blockSpawn 内 profile 是 layered._xxx 重建的本地对象（无方法），必须通过 `strategyConfig._delightStarved` 字段读取 | 修复"profile.isDelightStarved 永远 undefined"的隐藏 bug |
+
+**默认参数（`shared/game_rules.json → adaptiveSpawn.constructiveSpawn`）**：
+
+```jsonc
+{
+  "pCompleterHigh": 0.15,
+  "crowdedThresholdStarvedDelta": 0.10,
+  "crowdedThresholdHighBoostDelta": 0.05,
+  "injectMultiClearBudget": 4000
+}
+```
+
+**单次 dock 决策开销**：`findMultiClearCompleter` budget=4000 + `findCompleterShapes` 全词表 budget=4000，加起来 < 5ms（在 8×8 + 40 形状词表上经验值），可放心默认开启。
+
+#### 3.2.3.2 构造未达成续约 + maxEmpty 自适应（v1.70.3）
+
+v1.70.2 的"主动注入"解决"候选不够"，但没有解决"候选够 + 概率没掷中"的失败。例如 `pMultiClearCrowded × scale = 0.46` 仍有 54% 概率掷不中——单 dock 体感"差一口气"。v1.70.3 引入两个机制再上一层：
+
+| 机制 | 实现 | 设计动机 |
+|---|---|---|
+| **续约（retry）** | `ctx.constructiveRetry` 跨 dock 计数。上一轮未达成时 `commitSpawnContext` 累加；本轮 blockSpawn 给 `pComp/pMc` 概率叠加 `retryBoost`（默认 +0.25），最多续约 `retryMaxRounds`（默认 2）轮。达成或超限归零。 | 一次失败不至于直接归零成功率，给"差一口气"的玩家 1~2 轮兜底窗口；同时设上限避免长期叠 boost 失控。 |
+| **maxEmpty 自适应** | `fill ≥ 0.55` 时 `effectiveMaxEmpty = maxEmptyHigh=3`，否则 2。让 `findCompleterShapes` / `findMultiClearCompleter` 在高 fill 时覆盖"差 3 格"的近满线。 | 高 fill 时 nearFull 线常分布更宽（多列被打散），原 maxEmpty=2 会漏掉很大一部分可补全的线；低 fill 维持 2 避免过早误报。 |
+
+**续约触发条件（commitSpawnContext.js §8）**：
+- 累加：`constructive.enabled=true && !cooldownActive && !delivered`，且 `(completerCount > 0) || (crowdMultiClearCount > 0) || (kind != null) || (injectedMultiClear > 0) || (injectedCompleter > 0)`（"有诚意但没成"）
+- 归零：`delivered=true` 或 `retryCount > retryMaxRounds`
+- 保持：`cooldownActive=true`（不累加不归零）
+
+**面板可视化（v1.70.3 同步落地）**：
+- `playerInsightPanel.spawnDecisionCard` 新增 6 cells：`构造（kinds+✓/○）` / `拥挤（crowding/threshold·饥）` / `注入（Mc/Cp）` / `续约（count+boost）` / `冷却` / `空格（≤N）`。
+- `decisionFlowViz.hintEntries` 追加 5 个虚拟 hint：`constructiveKind` / `constructiveCrowd` / `constructiveRetry` / `constructiveInject` / `constructiveCooldown`，hover tip 含"含义 + 触发链 + 默认值"三段。
+
+**默认配置**：
+
+```jsonc
+{
+  "retryBoost": 0.25,
+  "retryMaxRounds": 2,
+  "maxEmptyHigh": 3,
+  "maxEmptyFillThreshold": 0.55,
+  "pCompleterHigh": 0.22,
+  "pMultiClearCrowded": 0.45
+}
+```
 
 ### 3.3 加权抽样公式
 
@@ -2709,6 +2784,318 @@ sequenceDiagram
 | humped 曲线导致体验异常 | — | `runDifficulty.curve = "linear"` 一行回退 |
 | arc 形变曲线导致训练异常 | — | `ARC_MODIFIERS` 五档全部改为 `{1, 0, 0}` 等价基线 |
 
+---
+
+## 十七、温暖局（Warm Run）
+
+> **v1.70** —— 对**新手、回流、连续受挫**玩家释放「人群保护」级别的温暖局：前期多出大方块/长方形等规则块、降低难度、主动编排多消/同花/清屏等爽感事件，提升关键人群的留存与转化。
+
+### 17.1 设计目标与架构定位
+
+**三大目标**：
+
+1. **大幅释放温暖局**：前期多出大方块（2×2 / 2×3 / 3×3）、长方形（1×3 ~ 1×5）等规则块，抑制 T / Z / J 折角块。
+2. **降低难度**：保证三连必有 1~2 块即时可消（`clearGuarantee ≥ 1`），棋盘 `fill ≤ 0.30` 时优先 setup-payoff。
+3. **制造爽感局**：multiClear / monoFlush / perfectClear 在前 6 步内必触发 1 次。
+
+**架构定位（modulator，非 replacement）**：
+
+温暖局作为 **钳制器（modulator）** 接在 `adaptiveSpawn.resolveAdaptiveStrategy` 之后，**不替代主管线**：
+
+```
+game.js
+  ├─ resolveAdaptiveStrategy(ctx)            // 既有 17 信号 + 10 档 profile 插值
+  │     └─ ★ applyWarmRun(enhancedConfig, ctx) // 仅当 ctx.warmRunState.active=true 时介入
+  └─ generateDockShapes(grid, enhancedConfig)  // 既有出块管线自然消费温暖 hint
+```
+
+| 特性 | 说明 |
+|------|------|
+| 零侵入主算法 | 不改 adaptiveSpawn 内部 17 信号合成与 10 档 profile 插值 |
+| fail-open | 钳制/编排/后置替换失败均退回主管线原结果 |
+| 开关即透传 | `warmRun.enabled=false` 时 `applyWarmRun` 直接返回原配置，零额外成本 |
+| 三端一致 | 真源 `web/src/spawn/warmRun.js`，经 `sync-core.sh` / `sync-cocos-engine.mjs` 分发 |
+
+**与既有系统的关系**：
+
+> **温暖局** = `spawnIntent='warm'`（步级新增，priority **115**）+ `applyWarmRun` 钳制 + `_enforceWarmRunConstraints` 后置校验 + `Delight Choreographer`（主动编排 multi/mono/perfect）+ `warmBudget`（防过度温暖）+ 7 个触发器。
+>
+> **复用**：lifecycleSignals、constructiveSpawn、SPECIAL_RELIEF_SHAPES、tripletSequentiallySolvable、adaptiveSpawn.profiles。
+
+### 17.2 触发器矩阵
+
+配置于 `shared/game_rules.json` 的 `adaptiveSpawn.warmRun.triggers`：
+
+| ID | 触发器 | 强度 | 阈值（默认） |
+|----|--------|------|--------------|
+| **T1** | `T1_newbie` | `warm_strong` | `lifetimePlacements < 60` 且 `lifetimeGames < 3` |
+| **T2** | `T2_returning` | `warm_rescue` | 沉默 ≥ 3 天后首 2 局 |
+| **T3** | `T3_frustration_run` | `warm_strong` | 单局 `consecutiveNonClears ≥ 6` 或 `frustrationLevel ≥ 5` |
+| **T4** | `T4_frustration_session` | `warm_strong` | 最近 3 局得分 < 历史均值 60% 且 ≥ 2 局 < 30 步即结束 |
+| **T5** | `T5_churn_imminent` | `warm_mild` | `churnRisk ≥ 0.75` |
+| **T6** | `T6_winback_pack` | `warm_rescue` | `winbackProtection` 激活 |
+| **T7** | `T7_manual_remote` | 可配置 | 远端实验组强制 |
+
+**多触发器命中**：取强度最高者（`rescue > strong > mild`）。灰度分桶按 `userId` / `installTs` 稳定哈希，`rolloutPercent < 100` 时同一玩家始终在同一组。
+
+**调用链**（`game.js` 局开始时）：
+
+1. `onSessionStart` 后调用 `evaluateWarmTriggers(profile, runCtx)`。
+2. 命中则 `buildWarmBudget(intensity)` 写入 `_spawnContext.warmRunState`。
+3. 每次消行后 `consumeWarmBudget` + `shouldExitWarmRun`；满足退出条件则清空 `warmRunState`。
+
+### 17.3 三档强度
+
+| 字段 | warm_mild | warm_strong | warm_rescue |
+|------|-----------|-------------|-------------|
+| `stressCap`（raw 域） | ≤ +0.05 | ≤ -0.10 | ≤ -0.20 |
+| `clearGuaranteeMin` | 1 | 1 | 2 |
+| `sizePreferenceMin` | 0.10 | 0.20 | 0.30 |
+| `multiClearBonusMin` | 0.45 | 0.65 | 0.80 |
+| `monoFlushBonusMin` (→ iconBonusTarget) | 0.20 | 0.35 | 0.50 |
+| `perfectClearBoostMin` | 0.10 | 0.30 | 0.50 |
+| `lines` 权重 | 3.0 | 3.5 | 4.0 |
+| `rects` 权重 | 2.6 | 3.0 | 3.5 |
+| `squares` 权重 | 2.4 | 2.8 | 3.2 |
+| `tshapes` / `zshapes` 权重 | 0.30 / 0.20 | 0.10 / 0.05 | 0 / 0 |
+| `forbidJagged` | false | true | true |
+| `largeBlockMinRatio` | 0.50 | 0.65 | 0.80 |
+| `specialReliefInjectRate` | 0.10 | 0.18 | 0.30 |
+| `guaranteedDelights`（mc/mf/pc） | 1/0/0 | 2/1/1 | 3/2/2 |
+| `maxSpawns` | 18 | 24 | 30 |
+
+`applyWarmRun` 钳制内容：`shapeWeights` 整段覆盖、`forbidJagged` 时 T/Z 压到 ≤ 0.05、`spawnHints` 各下限抬升、`stress` 钳到 `stressCap`、写入 `spawnHints.warmRun.*` 元数据。
+
+### 17.4 预算管理与退出条件
+
+**warmBudget 结构**：
+
+```js
+warmBudget = {
+  intensity: 'warm_strong',
+  maxSpawns: 24,
+  spawnsUsed: 0,
+  phaseSplit: [0.33, 0.45, 0.22],   // early / mid / late
+  phaseStrength: { early: 1.0, mid: 0.7, late: 0.4 },
+  consumedDelights: { multiClear: 0, monoFlush: 0, perfectClear: 0 },
+  guaranteedDelights: { multiClear: 2, monoFlush: 1, perfectClear: 1 },
+  hintIgnoreStreak: 0,
+}
+```
+
+**三段渐退**（`getWarmPhase(budget)`）：
+
+| 阶段 | 预算占比 | 钳制强度 | 体验意图 |
+|------|---------|---------|---------|
+| `early` | 前 ~33% | 100% | 密集送爽、大块/规则块拉满 |
+| `mid` | 中 ~45% | 70% | 仍偏温暖，开始混入标准 relief |
+| `late` | 末 ~22% | 40% | 平滑过渡回 normal |
+
+**退出条件**（`shouldExitWarmRun`，任一满足）：
+
+| 退出原因 | 条件 |
+|---------|------|
+| `budget-exhausted` | `spawnsUsed >= maxSpawns` |
+| `perfect-clear-hit` | `consumedDelights.perfectClear >= 1` 且 `spawnsUsed >= 6` |
+| `multi-clear-hit` | `consumedDelights.multiClear >= 2` 且 `spawnsUsed >= 6` |
+| `hint-ignored` | `hintIgnoreStreak >= 3`（防反向操控） |
+| `t1-runs-exhausted` | T1 类：`lifetimeGames >= 3` |
+| `t2-runs-exhausted` | T2 类：`runsAfterReturn >= 2` |
+
+### 17.5 爽感主动编排（Delight Choreographer）
+
+`pickWarmTarget(grid, budget)` 根据棋盘与预算返回本三连的目标，写入 `spawnHints.warmRun.target`：
+
+| target | 触发条件 | 编排策略 |
+|--------|---------|----------|
+| `perfect_clear` | 棋盘剩余空格 ≤ 15 且 `guaranteedDelights.perfectClear > consumed` | `constructiveSpawn.findPerfectClearTriplet` |
+| `multi_clear_now` | 检测到 ≥ 2 条近满线 | `findMultiClearCompleter` 选能引爆 ≥ 2 行的形状 |
+| `setup_for_multi` | 低填充（`fill ≤ 0.30`）+ early 阶段 | 布置铺垫块，下一三连兑现多消 |
+| `mono_flush` | 棋盘存在 ≥ 6 格同 icon 簇 | 同色着色 → `clearScoring.detectBonusLines` |
+| `comfort_flow` | 默认 / late 阶段 | 顺手的大块流，平稳过渡 |
+
+**constructiveSpawn 新增 API**（v1.70）：
+
+| API | 用途 |
+|-----|------|
+| `findMultiClearCompleter(grid, catalog, opts)` | 找能同时补满 ≥ minClears 条候选线的形状 |
+| `findPerfectClearTriplet(grid, catalog, opts)` | 在剩余空格 ≤ maxRemaining 时搜清屏三连 |
+| `findLargeBlockCompleter(grid, catalog, opts)` | 找面积 ≥ minSize 的可放置大块（后置校验补块） |
+
+### 17.6 出块后置校验
+
+主管线产出 triplet 后，`blockSpawn._enforceWarmRunConstraints` 加最后一道防线（仅 `warmRunActive=true` 时）：
+
+1. **大块比例校验**：若 triplet 中面积 ≥ 4 的形状数 < `ceil(largeBlockMinRatio × 3)`，调用 `findLargeBlockCompleter` 替换最小面积位置。
+2. **折角块清除**：若 `forbidJagged=true` 且存在 T/Z 块，调用 `findLargeBlockCompleter` 替换。
+3. **失败 fail-open**：任何替换失败保留原 triplet，记 `diagnostics.warmRunPostCheck`。
+
+### 17.7 intentResolver 集成
+
+温暖局新增 intent 规则（`web/src/derivation/intentResolver.js`），**优先级 115，高于 pb_chase_pressure(102) 与 relief(100)**：
+
+| id | priority | spawnIntent | guard |
+|----|----------|-------------|-------|
+| `warm_run` | **115** | `warm` | `s.warmRunActive === true` |
+| `pb_chase_pressure` | 102 | `pressure` | … |
+| `relief` | 100 | `relief` | … |
+| `delight_starved` | 95 | `relief` | … |
+| `engage` | 90 | `engage` | … |
+| `harvest` | 80 | `harvest` | … |
+| `pressure` | 70 | `pressure` | … |
+| `sprint` | 60 | `sprint` | … |
+| `flow` | 50 | `flow` | … |
+| `maintain` | 0 | `maintain` | true |
+
+温暖局激活时无视 PB 追击与 relief，强制走 `warm` intent。`INTENT_IDS` 由 9 项扩展为 10 项（契约测试 `tests/derivationContracts.test.js` 锁定）。
+
+### 17.8 配置、灰度与 AB 实验
+
+完整配置见 `shared/game_rules.json` 的 `adaptiveSpawn.warmRun` 节点。远端可通过 `remote_config.warmRun.enabled` 与 `warmRun.rolloutPercent` 控制灰度。
+
+**AB 实验设计**：
+
+| 组 | 配置 | 主指标 |
+|----|------|--------|
+| 对照 | `warmRun.enabled=false` | 次留、3日留、平均局时长 |
+| 实验 A | `warmRun.enabled=true`，仅 T1+T2 触发 | 新手次留 +5%、回流 D1 召回率 |
+| 实验 B | `warmRun.enabled=true`，全触发 | 受挫流失率 -8%、单局 WOW 事件数 ≥ 1.5 |
+| 实验 C | `warmRun.enabled=true`，全 rescue | 校验过度温暖反伤（局时长是否反降） |
+
+**熔断条件**：实验组平均局时长比对照下降 > `telemetry.healthBreakerSessionDurationDrop`（默认 15%）时自动回退。
+
+**灰度计划**：内部 → 5% → 20% → 50% → 100%，每档观察 3 天。
+
+### 17.9 评估与观测
+
+**trace**：`formatWarmRunTrace(state)` 输出可直接写入 `spawnIntentTrace`。
+
+**session 评估**（`buildSessionEvalRecord` → `warmRunContext`）：
+
+```json
+{
+  "triggered": true,
+  "intensity": "warm_strong",
+  "triggerIds": ["T1_newbie", "T3_frustration_run"],
+  "spawnsApplied": 18,
+  "delightsHit": { "multiClear": 2, "monoFlush": 1, "perfectClear": 1 },
+  "exitReason": "perfect-clear-hit"
+}
+```
+
+`server.py` `/api/evaluation/session` 将整段 record 落入 `payload` JSON 列（无需 schema 迁移）。
+
+**前端埋点**：
+
+| 事件 | 时机 | 关键字段 |
+|------|------|---------|
+| `warm_run_started` | 局开始命中触发器 | `intensity`, `triggerIds`, `triggerReasons` |
+| `warm_run_exited` | 退出温暖局 | `reason`, `intensity`, `triggerIds`, `budgetSnapshot` |
+
+**关键指标目标**：
+
+| 指标 | 目标 | 来源 |
+|------|------|------|
+| 新手首日通关率（首日 ≥ 3 局占比） | **+20%** | `evaluation/session` |
+| 回流 D1 再访率 | **+15%** | `lifecycleSignals` |
+| 受挫挽留率（frustrationLevel≥5 后 24h 内再开） | **+25%** | 埋点 |
+| 温暖局内 WOW 事件密度 | **≥ 1 / 8 步** | `delight` 埋点 |
+| 温暖局误触率（高熟玩家命中 warm） | **< 1%** | trace |
+| 温暖局退出健康度（hintIgnoreStreak 退出占比） | **< 10%** | trace |
+
+#### 17.9.1 面板可视化与决策透视（v1.70.1）
+
+`warm` 已作为新 `spawnIntent` 注册到全链路展示位，色族用 **温暖橙金 `#fb923c`**（介于 relief 青 `#22d3ee` 与 harvest 粉 `#f472b6` 之间，单独一族避免与单帧救济/兑现混淆）：
+
+| 位置 | 注册项 | 备注 |
+|------|--------|------|
+| `shared/intent_lexicon.json` | `intents.warm`（zh/en 局内叙事 + 出局推送 + 任务文案） | tone=protective |
+| `web/src/stressMeter.js` `SPAWN_INTENT_NARRATIVE` | `warm: '为你释放一段温暖局：多大块、强清行、易爽感'` | 局内中性温暖文案，不暴露策略术语 |
+| `web/src/derivation/presentationReducer.js` `SPAWN_INTENT_COLOR / LABEL` | `warm: '#fb923c' / '温暖局'` | 决策快照/算法动态卡共用 |
+| `web/src/decisionFlowViz.js` `SPAWN_INTENT_COLOR / DESC` | 同源色 + `'温暖局（人群保护）'` | DFV 中央球 / intent 节点正确染色 |
+| `web/src/decisionFlowViz.js` `HINT_CN / HINT_SHORT_CN / HINT_TIP` | `warmRun: '温暖局' / '温暖' / 长解释` | hints 节点可解释 |
+
+**playerInsightPanel 决策快照卡片**：当 `spawnHints.warmRun.active === true` 时，在 `📷 Rn spawn 决策快照` 区内、紧跟 `意图` 之后追加 5 个 cell（每个 cell 都带 hover 完整解释，来自 `SPAWN_TOOLTIP.warmRun*`）：
+
+| Cell | 取值 | 含义 |
+|------|------|------|
+| **温暖** | 轻度 / 强释放 / 救援 | `warmRun.intensity`（warm_mild / warm_strong / warm_rescue） |
+| **暖段** | 前期 100% / 中期 70% / 后期 40% | `warmRun.phase`（early/mid/late 三段渐退） |
+| **编排** | 清屏 / 多消 / 搭建 / 同色 | `warmRun.target`（pickWarmTarget 选择的爽感导向） |
+| **触发** | newbie / returning / frustration_run … | `warmRun.triggerIds` 去前缀简称，hover 看完整命中列表 |
+| **预算** | `12/24 · mc2/mf1/pc0` | `spawnsUsed/maxSpawns` + 已发生的多消/同色/清屏次数 |
+
+**决策数据流（warm intent 端到端时序）**：
+
+```
+playerProfile + dailyRunState
+  └─ game.startNewGame
+      └─ evaluateWarmTriggers(profile, runCtx) → { intensity, hits, lifecycle }
+          ↓ 命中即写入 _spawnContext.warmRunState = { active, intensity, budget, triggerIds }
+          ↓
+          每帧 spawn：
+              resolveAdaptiveStrategy(ctx)              // 17 信号 + 10 档插值
+                └─ _intentInputs += warmRunActive/Intensity/Phase/Triggers
+                    └─ intentResolver → 命中 warm_run（priority 115，最高）
+                        └─ spawnIntent = 'warm'
+                └─ applyWarmRun(enhancedConfig, ctx, { grid })
+                    ├─ shapeWeights 整段覆盖（intensities[intensity].shapeWeights）
+                    ├─ forbidJagged → tshapes/zshapes ≤ 0.05
+                    ├─ stress 钳制到 intensCfg.stressCap
+                    └─ spawnHints.warmRun = { intensity, phase, target, triggerIds, budgetSnapshot, … }
+                └─ blockSpawn.generate
+                    └─ _enforceWarmRunConstraints（大块比例 + 折角强制替换）
+          ↓
+          每次落子后：
+              ├─ 消行 → consumeWarmBudget({ multiClear, monoFlush, perfectClear, hintIgnored: false })
+              └─ 未消行 → consumeWarmBudget({ hintIgnored: true })          // v1.70.1 修复
+              └─ shouldExitWarmRun(budget, runCtx) → 命中即清空 warmRunState + 埋点 warm_run_exited
+```
+
+**透视工具入口**：
+
+- **DFV**（`Ctrl+D`）：中央 stress 球颜色 → 温暖橙金；intent 节点显示 `温暖局（人群保护）`；hints 区可见 `warmRun` 节点带完整 tooltip。
+- **playerInsightPanel**：spawn 决策快照卡的 5 个温暖 cell 实时反映 `phase` 衰减 / `budget` 进度 / `target` 切换。
+- **算法动态卡**（algorithmDynamicsCard）：spawnIntent='warm' 时自动套用 `presentationReducer.SPAWN_INTENT_COLOR.warm`。
+- **session 评估**：本地 ledger 的 `warmRunContext` 通过 `/api/evaluation/session` 落入后端 `payload` JSON 列，可在运营仪表盘按 `triggerIds / exitReason` 聚合命中率与健康度。
+
+### 17.10 模块契约与代码索引
+
+| 模块 | 公开 API | 说明 |
+|------|----------|------|
+| `web/src/spawn/warmRun.js` | `evaluateWarmTriggers` / `buildWarmBudget` / `applyWarmRun` / `pickWarmTarget` / `shouldExitWarmRun` / `consumeWarmBudget` / `formatWarmRunTrace` | 钳制器主模块 |
+| `web/src/adaptiveSpawn.js` | `resolveAdaptiveStrategy` return 前调用 `applyWarmRun` | 钳制层接入点 |
+| `web/src/derivation/intentResolver.js` | `warm_run` 规则 priority=115 | intent 最高优先级 |
+| `web/src/bot/blockSpawn.js` | `_enforceWarmRunConstraints` | 后置大块/折角校验 |
+| `web/src/bot/constructiveSpawn.js` | `findMultiClearCompleter` / `findPerfectClearTriplet` / `findLargeBlockCompleter` | 爽感编排 API |
+| `web/src/playerProfile.js` | `recentSessionStats(n)` | T4 跨局连挫数据 |
+| `web/src/evaluation/sessionEvaluator.js` | `warmRunContext` | session 评估上报 |
+| `web/src/game.js` | 局开始评估 + 消行后预算消耗 | 生命周期驱动 |
+| `cocos/.../playerContext.ts` | `warmRunState` / `setWarmRunState` | Cocos 跨轮上下文 |
+| `shared/game_rules.json` | `adaptiveSpawn.warmRun.*` | 配置真源 |
+| `tests/warmRun.test.js` | 29 用例 | 触发/预算/钳制/集成/退出全链路 |
+
+**多端同步**：
+
+| 端 | 路径 | 同步方式 |
+|----|------|---------|
+| web | `web/src/spawn/warmRun.js` | 真源 |
+| miniprogram | `miniprogram/core/spawn/warmRun.js` | `sync-core.sh` |
+| cocos | `cocos/assets/scripts/engine/spawn/warmRun.mjs` | `sync-cocos-engine.mjs` |
+
+### 17.11 回滚与降级
+
+| 故障 / 需求 | 自动行为 | 手动止血 |
+|---|---|---|
+| `applyWarmRun` 抛错 | `try/catch` 退回未钳制 `_preWarmReturn` | 无需操作 |
+| `warmRun.enabled=false` | `evaluateWarmTriggers` 直接返回 null | 一行配置关闭 |
+| 体验过度温暖 | — | 调低 `intensities.*.multiClearBonusMin` 或缩短 `maxSpawnsByIntensity` |
+| 误触率高熟玩家 | — | 收紧 T1/T3 阈值或降低 `rolloutPercent` |
+| 平均局时长下降 > 15% | — | 熔断回退对照组；或 `warmRun.enabled=false` |
+| RL 训练数据污染 | — | 过滤 `warmRunContext.triggered=true` 的 session |
+
+---
+
 ## 关联文档
 
 | 文档 | 关系 |
@@ -2720,6 +3107,7 @@ sequenceDiagram
 | [`DIFFICULTY_MODES.md`](../product/DIFFICULTY_MODES.md) | 三档难度 |
 | [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](./REALTIME_STRATEGY.md#玩法偏好识别与出块联动) | 玩法风格 → dock 调整 |
 | [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | RL 与 SpawnPredictor 接口 |
+| 本手册 §17 温暖局（Warm Run） | 新手/回流/连挫人群保护（v1.70） |
 
 ---
 
