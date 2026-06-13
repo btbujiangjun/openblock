@@ -254,9 +254,6 @@ export function closeX(parent: Node, x: number, y: number, onTap: () => void): (
     return () => { unTap(); unBtn(); };
 }
 
-/** 与 blockPaint.ts ICON_FONT_FAMILY 同源；uiKit 单独维护避免循环依赖。 */
-const EMOJI_FONT_FAMILY = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif';
-
 export function label(parent: Node, text: string, size: number, x: number, y: number, color = new Color(235, 240, 250, 255)): Label {
     const n = new Node('label');
     n.parent = parent;
@@ -264,8 +261,6 @@ export function label(parent: Node, text: string, size: number, x: number, y: nu
     n.setPosition(x, y, 0);
     n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
     const l = n.addComponent(Label);
-    l.useSystemFont = true;
-    l.fontFamily = EMOJI_FONT_FAMILY;
     l.string = text;
     l.fontSize = size;
     l.lineHeight = size + 4;

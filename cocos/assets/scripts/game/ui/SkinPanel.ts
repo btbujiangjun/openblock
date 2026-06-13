@@ -2,7 +2,7 @@ import { _decorator, Component, Node, Color, UITransform, Label, Graphics, UIOpa
 import { Modal, dimBg, card, label, closeX, TapBus, bindEngineClick, inheritLayer, screenToLocal } from './uiKit';
 import { SKINS, listSkinIds, Skin, t, getSkinCategories, tSkinName } from '../../core';
 import { blockColor, gridOuterColor, cellEmptyColor, blockIcon } from '../skin/palette';
-import { iconFontSize, ICON_FONT_FAMILY } from '../skin/blockPaint';
+import { iconFontSize } from '../skin/blockPaint';
 import { Motion } from '../platform/Motion';
 
 const { ccclass } = _decorator;
@@ -385,12 +385,9 @@ export class SkinPanel extends Component {
                 const cy = y0 + (n - 1 - gy) * cell + cell / 2;
                 const ic = new Node('ic');
                 ic.parent = parent;
-                inheritLayer(ic, parent);
                 ic.setPosition(cx, cy, 0);
                 ic.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
                 const l = ic.addComponent(Label);
-                l.useSystemFont = true;
-                l.fontFamily = ICON_FONT_FAMILY;
                 l.string = em;
                 l.fontSize = fs;
                 l.lineHeight = fs;
