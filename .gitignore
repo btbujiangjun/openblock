@@ -53,3 +53,7 @@ rl_pytorch/spawn_tuning_v2/__pycache__/
 # Xcode 自动生成的 workspace 配置（每个开发者本地不同）
 mobile/ios/App/App.xcodeproj/project.xcworkspace/contents.xcworkspacedata
 mobile/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/
+
+# Cursor Canvas：源码纳入版本管理；本地类型桩与 IDE 运行时状态不入库
+canvases/node_modules/
+canvases/*.status.json

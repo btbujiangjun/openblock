@@ -1,0 +1,14 @@
+{
+  "parityChecks": {
+    "menu": true,
+    "festival": true,
+    "skintheme": true,
+    "weather": true,
+    "rl": true,
+    "companion": true,
+    "lore": true,
+    "replay": true,
+    "nativesdk": true,
+    "art": true
+  }
+}
