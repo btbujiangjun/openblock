@@ -116,8 +116,8 @@ class MiniGoalManager {
         if (!goal || goal.done) return;
         if (goal.type === 'clear_lines') {
             goal._sessionProgress = (goal._sessionProgress ?? 0) + linesCleared;
-        } else if (goal.type === 'combo' && comboCount >= goal.target) {
-            goal._sessionProgress = comboCount;
+        } else if (goal.type === 'combo') {
+            goal._sessionProgress = Math.max(goal._sessionProgress ?? 0, comboCount | 0);
         }
         this._refreshUI();
     }
@@ -184,7 +184,7 @@ class MiniGoalManager {
             case 'clear_lines':   return gameStats.clears    ?? 0;
             case 'place_shapes':  return gameStats.placements ?? 0;
             case 'survival':      return gameStats.rounds    ?? gameStats.placements / 3 | 0;
-            case 'combo':         return gameStats.maxCombo  ?? 0;
+            case 'combo':         return gameStats.maxComboChain ?? gameStats.combo ?? 0;
             default:              return 0;
         }
     }

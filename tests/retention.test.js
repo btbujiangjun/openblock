@@ -37,7 +37,7 @@ import {
     recordGameResult,
     getDifficultyPredictor
 } from '../web/src/retention/difficultyPredictor.js';
-import { getGoalSystem } from '../web/src/retention/goalSystem.js';
+import { getGoalSystem, resetGoalSystem } from '../web/src/retention/goalSystem.js';
 import {
     initLevelProgression,
     getLevelProgression
@@ -101,6 +101,8 @@ describe('difficultyPredictor', () => {
 
 describe('goalSystem', () => {
     beforeEach(() => {
+        Object.keys(mockStorage).forEach(k => delete mockStorage[k]);
+        resetGoalSystem();
         const system = getGoalSystem();
         system.init();
         system.getProgress().winStreak = 0;
@@ -146,6 +148,39 @@ describe('goalSystem', () => {
         const system = getGoalSystem();
         const goals = system.generateShortTerm({ score: 150, clears: 3 });
         expect(goals.length).toBeGreaterThan(0);
+    });
+
+    it('getShortTermStats 反映单局峰值（含连消链 maxComboChain）', () => {
+        const system = getGoalSystem();
+        system.updateProgress({
+            score: 800,
+            clears: 12,
+            maxComboChain: 4,
+            rounds: 18,
+            achieved: true,
+            perfectClears: false,
+        });
+        const stats = system.getShortTermStats();
+        expect(stats.score).toBe(800);
+        expect(stats.clear).toBe(12);
+        expect(stats.maxComboChain).toBe(4);
+        expect(stats.survival).toBe(18);
+        expect(stats.streak).toBe(1);
+    });
+
+    it('generateShortTerm 连消里程碑读 maxComboChain 而非 maxCombo', () => {
+        const system = getGoalSystem();
+        const goals = system.generateShortTerm({
+            score: 50,
+            clear: 1,
+            maxComboChain: 2,
+            maxCombo: 4,
+            streak: 0,
+        });
+        const comboGoal = goals.find((g) => g.category === 'combo');
+        expect(comboGoal).toBeTruthy();
+        expect(comboGoal.current).toBe(2);
+        expect(comboGoal.target).toBe(3);
     });
 
     it('should mark goals as completed when target reached', () => {
@@ -308,6 +343,22 @@ describe('retentionManager', () => {
         
         expect(goals).toHaveProperty('shortTerm');
         expect(goals).toHaveProperty('longTerm');
+    });
+
+    it('getActiveGoals 短期目标基于局末统计而非关卡进度', () => {
+        const retention = getRetentionManager();
+        retention.afterGameEnd({
+            score: 600,
+            clears: 8,
+            maxComboChain: 5,
+            rounds: 22,
+            achieved: true,
+            perfectClears: false,
+        });
+        const comboGoal = retention.getActiveGoals().shortTerm.find((g) => g.category === 'combo');
+        expect(comboGoal).toBeTruthy();
+        expect(comboGoal.current).toBe(5);
+        expect(comboGoal.target).toBe(10);
     });
 
     it('should provide retention insights', () => {

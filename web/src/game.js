@@ -21,6 +21,7 @@ import { resolveAdaptiveStrategy, resetAdaptiveMilestone, deriveSpawnIntent, sna
  * 到玩家可感知的视/听/触渠道，解决"算法精算 stress 但玩家感知不到"的断层。
  * 严格遵守 v1.56.3 策略隐性原则：不向主 HUD 暴露数字 / 标签。 */
 import { pushStressAmbience } from './stressAmbience.js';
+import { updatePbChaseBgm, resetPbChaseBgm } from './effects/pbChaseBgm.js';
 import { PlayerProfile } from './playerProfile.js';
 import { recordPersonalBest, isPbGrowthFast, computePbStreakCount } from './pbGrowthTracker.js';
 import { GAME_RULES } from './gameRules.js';
@@ -71,6 +72,7 @@ import {
 } from './skins.js';
 import { Grid } from './grid.js';
 import { analyzeBoardTopology } from './boardTopology.js';
+import { spatialPlanningFeatures } from './spatialPlanning.js';
 import { computeStepGain } from './dragPointerCurve.js';
 import {
     generateDockShapes,
@@ -238,6 +240,7 @@ export class Game {
         this.previewBlock = null;
         this.isAnimating = false;
         this.isGameOver = false;
+        this._ftue('app_open');
         /** 自博弈盘面演示时禁止玩家操作 */
         this.rlPreviewLocked = false;
         /** 回放播放中禁止玩家操作 */
@@ -254,6 +257,8 @@ export class Game {
             clears: 0,
             maxLinesCleared: 0,
             maxCombo: 0,
+            /** 本局 combo 链峰值（时间维度 _comboCount 最大值，≠ maxCombo 单手多消） */
+            maxComboChain: 0,
             placements: 0,
             misses: 0,
             startTime: 0
@@ -529,7 +534,17 @@ export class Game {
              * concaveCorners=凹角陷阱数。与 RL state 标量 / spawnMeta.stepDifficulty 同源（boardTopology），
              * 供回放、DFV、生成式出块 behaviorContext 与离线难度桶聚合统一口径。 */
             contiguousRegions: Number.isFinite(topo.contiguousRegions) ? topo.contiguousRegions : null,
-            concaveCorners: Number.isFinite(topo.concaveCorners) ? topo.concaveCorners : null
+            concaveCorners: Number.isFinite(topo.concaveCorners) ? topo.concaveCorners : null,
+            /* v1.67 空间规划落库——区域熵 / 最大开放区占比 / 小死腔占比（廉价 3 维，SSOT=spatialPlanning.js）。
+             * 与 RL state 标量、生成式出块 behaviorContext[63-65] 同源，供回放、面板、DFV、透视仪统一口径。 */
+            ...(() => {
+                try {
+                    const [regionEntropy, largestRegionRatio, smallRegionCellRatio] = spatialPlanningFeatures(this.grid);
+                    return { regionEntropy, largestRegionRatio, smallRegionCellRatio };
+                } catch {
+                    return { regionEntropy: null, largestRegionRatio: null, smallRegionCellRatio: null };
+                }
+            })()
         };
     }
 
@@ -1358,6 +1373,7 @@ export class Game {
                 ts: Date.now(),
             });
             this._evalRoundLines += Number(lines) || 0;
+            if (Number(lines) > 0) this._ftue('first_clear');
             /* 把"端侧已算好的步级评估"塞到下一帧 ps.evalMetrics，与 move_sequences 一起
              * 持久化；后端 dataset.py 读 ps.evalMetrics → 写入 OUTCOME_DIM[7..] 派生维度，
              * 不必离线重算（昂贵且口径漂移）。详见 docs/algorithms/PLACEMENT_QUALITY.md
@@ -1710,6 +1726,7 @@ export class Game {
 
             this.grid.clear();
             this.score = 0;
+            resetPbChaseBgm();
             // 重开局：清理上一局滚动基线，避免新局首次 updateUI() 出现"老分数→0"的反向动画
             this._lastDisplayedScore = null;
             /* v1.61.17：离线快照须在写入 _bestScoreAtRunStart 之前合并——否则 hydrate 抬高
@@ -1726,6 +1743,7 @@ export class Game {
              *   - _bestScoreSanityFlagged 上一局可疑 PB 残留 → 影响本局结算皇冠 */
             this._newBestCelebrationCount = 0;
             this._nearPbEmittedThisRun = false;
+            this._peogPreventedEmittedThisRun = false;
             this._postPbReleaseUsed = false;
             this._tiedBestCelebratedThisRun = false;
             this._bestScoreSanityFlagged = false;
@@ -1770,6 +1788,7 @@ export class Game {
                 clears: 0,
                 maxLinesCleared: 0,
                 maxCombo: 0,
+                maxComboChain: 0,
                 placements: 0,
                 misses: 0,
                 startTime: Date.now()
@@ -1828,6 +1847,7 @@ export class Game {
             resetAdaptiveMilestone();
 
             this.playerProfile.recordNewGame();
+            this._ftue('game_start');
 
             /* v1.68 局间难度弧线（RoR）：每次 start 时 dailyRunIndex+1，派生 arc 写入
              * this.runOverRunArc / this._spawnContext，供 PR2 下游 lifecycleStressCap
@@ -1909,15 +1929,41 @@ export class Game {
                  * 非回流玩家此值无意义，T2 内部用 daysSinceLastActive 守门。 */
                 const dailyIdx = Math.max(0, Number(this._dailyRunState?.dailyRunIndex) || 0);
                 const runsAfterReturn = Math.max(0, dailyIdx - 1);
+                /* RT-1：买量分流承接 —— 读取渠道归因，付费渠道用户首会话给最强承接（T8）。 */
+                let isPaidChannel = false;
+                try {
+                    const attrMod = await import('./channelAttribution.js');
+                    isPaidChannel = !!attrMod.isPaidChannel?.();
+                } catch { /* 归因模块缺失即按自然量处理 */ }
                 const runCtx = {
                     runsAfterReturn,
                     churnRisk: this._lastChurnRisk ?? 0,
                     winbackActive: !!this._winbackActive,
                     warmRunForceOn: false,
+                    isPaidChannel,
                 };
                 const triggerResult = warmMod.evaluateWarmTriggers(this.playerProfile, runCtx);
                 if (triggerResult.intensity) {
-                    const budget = warmMod.buildWarmBudget(triggerResult.intensity);
+                    /* v1.71 PEOG：在构造 warmBudget 前预判 PEOG 是否会激活。
+                     * 预判仅看 PB 段 + 灰度 + warmRun 触发 id（与 buildPeogState 一致），
+                     * 实时 6 路 bypass 此时尚未发生（recovery/nearMiss/bottleneck/postPbRelease
+                     * 在 spawn 前才动态评估），不影响 guaranteedDelights 配比的早期决策。 */
+                    const pbAtRunStart = Number(this._bestScoreAtRunStart) || 0;
+                    const peogCfgPre = GAME_RULES?.adaptiveSpawn?.pbChase?.earlyOvershootGuard ?? null;
+                    const peogMidHighFloor = Number(peogCfgPre?.midHighFloor) || 1200;
+                    const peogTriggerWouldBypass = (triggerResult.hits || []).some((h) => (
+                        h.id === 'T1_newbie'
+                        || (h.id === 'T2_returning' && runsAfterReturn === 0)
+                        || h.id === 'T7_manual_remote'
+                    ));
+                    const peogIntensityPre = (peogCfgPre?.enabled !== false
+                        && pbAtRunStart >= peogMidHighFloor
+                        && !peogTriggerWouldBypass)
+                        ? 'peog_mild'
+                        : null;
+                    const budget = warmMod.buildWarmBudget(triggerResult.intensity, {
+                        peogIntensity: peogIntensityPre,
+                    });
                     this._spawnContext.warmRunState = {
                         active: true,
                         intensity: triggerResult.intensity,
@@ -1940,6 +1986,56 @@ export class Game {
             } catch (e) {
                 console.warn('[warmRun] evaluateWarmTriggers failed:', e?.message || e);
                 this._spawnContext.warmRunState = null;
+            }
+
+            /* v1.71 PEOG（PB 早期超越守卫）：在 warmRun 评估之后立即构建状态。
+             * - 中高 PB 段（bestScore ≥ midHighFloor）开局守卫，详见
+             *   docs/player/BEST_SCORE_CHASE_STRATEGY.md §4.16；
+             * - 6 路开局期 bypass 在 buildPeogState 内一次性判定（disabled / rollout_out /
+             *   low_pb / t1_newbie / winback_first_run / manual_remote_force）；
+             * - 实时 6 路 bypass（recovery / near_miss / bottleneck / post_pb_release /
+             *   late_phase / approach_handoff）在每 spawn 前由 evaluatePeogActive 判定。
+             * - bestScoreAtRunStart 透传给 PEOG（与 _bestScoreAtRunStart 同源开局快照）。 */
+            try {
+                const peogMod = await import('./spawn/peog.js');
+                this._peogModule = peogMod;
+                this._spawnContext.bestScoreAtRunStart = Number(this._bestScoreAtRunStart) || 0;
+                this._spawnContext.peogState = peogMod.buildPeogState(
+                    this.playerProfile,
+                    this._spawnContext,
+                    this._spawnContext.warmRunState,
+                );
+                try {
+                    if (this._spawnContext.peogState?.active) {
+                        this.analyticsTracker?.track?.('peog_engaged', {
+                            intensity: this._spawnContext.peogState.intensity,
+                            bestScoreAtRunStart: this._spawnContext.peogState.bestScoreAtRunStart,
+                            guardSpawns: this._spawnContext.peogState.guardSpawns,
+                        });
+                        /* MonetizationBus emit：让商业化 / 看板订阅守卫激活事件。 */
+                        const _engEvent = {
+                            intensity: this._spawnContext.peogState.intensity,
+                            bestScoreAtRunStart: this._spawnContext.peogState.bestScoreAtRunStart,
+                            pbApproachCeiling: this._spawnContext.peogState.pbApproachCeiling,
+                            guardSpawns: this._spawnContext.peogState.guardSpawns,
+                            strategy: this.strategy,
+                            ts: Date.now(),
+                        };
+                        if (this._monetizationBus && typeof this._monetizationBus.emit === 'function') {
+                            this._monetizationBus.emit('lifecycle:peog_engaged', _engEvent);
+                        } else {
+                            try { emitMonetizationEvent('lifecycle:peog_engaged', _engEvent); } catch { /* bus 故障 */ }
+                        }
+                    } else if (this._spawnContext.peogState?.bypass) {
+                        this.analyticsTracker?.track?.('peog_bypass', {
+                            bypass: this._spawnContext.peogState.bypass,
+                            bestScoreAtRunStart: this._spawnContext.peogState.bestScoreAtRunStart,
+                        });
+                    }
+                } catch { /* tracker missing */ }
+            } catch (e) {
+                console.warn('[peog] buildPeogState failed:', e?.message || e);
+                this._spawnContext.peogState = null;
             }
 
             /* 评估账本初始化：捕获开局元数据，后续每步/每轮/每次 spawn 写入。
@@ -2369,6 +2465,50 @@ export class Game {
             this._spawnContext.modelConfig = null;
             this._lastTuningV2Source = 'skipped';
         }
+        /* v1.71 PEOG：每 spawn 前实时评估，把 6 路实时 bypass 更新到 peogState。
+         * 一旦 bypass 触发即永久关闭（设计上单调，避免反复折腾）。
+         * 若本次评估发生 active→bypass 切换且 bypass ∈ {late_phase, approach_handoff}，
+         * emit lifecycle:peog_overshoot_prevented 让看板统计守卫效果（防止开局超 PB 次数）。 */
+        if (this._peogModule && this._spawnContext?.peogState) {
+            try {
+                const _wasActive = this._spawnContext.peogState.active === true;
+                this._spawnContext.score = this.score;
+                this._spawnContext.peogState = this._peogModule.evaluatePeogActive(
+                    this._spawnContext.peogState,
+                    this._spawnContext,
+                    this.playerProfile,
+                );
+                const _nowBypass = this._spawnContext.peogState?.bypass || null;
+                if (_wasActive && _nowBypass && !this._peogPreventedEmittedThisRun) {
+                    const _runStartPb = Number(this._bestScoreAtRunStart) || 0;
+                    const _pctAtExit = _runStartPb > 0 ? this.score / _runStartPb : 0;
+                    const _stayedBelowCeiling = _pctAtExit < this._spawnContext.peogState.pbApproachCeiling;
+                    /* 仅在「自然到期」或「玩家正常接近 PB 后接力 challengeBoost」时算守卫达成；
+                     * recovery / near_miss / bottleneck / post_pb_release 是救济类 bypass，不计 prevented。 */
+                    if (_nowBypass === 'late_phase' || _nowBypass === 'approach_handoff') {
+                        this._peogPreventedEmittedThisRun = true;
+                        const _prevEvent = {
+                            exitReason: _nowBypass,
+                            pctAtExit: _pctAtExit,
+                            stayedBelowCeiling: _stayedBelowCeiling,
+                            consumedYield: this._spawnContext.peogState.consumedYield,
+                            yieldCapHits: this._spawnContext.peogState.yieldCapHits,
+                            approachCount: this._spawnContext.peogState.approachCount,
+                            intensityAtExit: this._spawnContext.peogState.intensity,
+                            bestScoreAtRunStart: _runStartPb,
+                            strategy: this.strategy,
+                            ts: Date.now(),
+                        };
+                        if (this._monetizationBus && typeof this._monetizationBus.emit === 'function') {
+                            this._monetizationBus.emit('lifecycle:peog_overshoot_prevented', _prevEvent);
+                        } else {
+                            try { emitMonetizationEvent('lifecycle:peog_overshoot_prevented', _prevEvent); } catch { /* bus */ }
+                        }
+                    }
+                }
+            } catch (_e) { /* fail-open */ }
+        }
+
         const layered = resolveAdaptiveStrategy(
             this.strategy, this.playerProfile, this.score, this.runStreak,
             this.grid.getFillRatio(), {
@@ -3322,11 +3462,6 @@ export class Game {
             this._levelManager?.recordPlacement();
             if (result.count > 0) {
                 this._levelManager?.recordClear(result.count);
-                // 小目标：上报消行（result.count = 本手单次消行数）和 combo 链累计计数（_comboCount，
-                // 时间维度 grace 窗口模型，与 HUD ♥N / 顶部徽章 `🔥 N 连消` / 计分倍数 `Combo ×N`
-                // 共用同一权威源）。修复历史 bug：原本错传 gameStats.maxCombo（本局最大单手消行数，
-                // 空间维度），导致"清一个 3 消立刻把『3 连消』小目标进度顶满"，与 HUD ♥N 显示不一致。
-                try { window.__miniGoals?.onClear(result.count, this._comboCount | 0); } catch { /* ignore */ }
             }
 
             if (result.count > 0) {
@@ -3537,6 +3672,9 @@ export class Game {
             true
         );
         this._roundsSinceLastClear = 0;
+        this.gameStats.maxComboChain = Math.max(this.gameStats.maxComboChain ?? 0, this._comboCount);
+        /* 小目标：必须在 _comboCount 更新后上报（与 HUD ♥N / 计分倍数同源）。 */
+        try { window.__miniGoals?.onClear(result.count, this._comboCount | 0); } catch { /* ignore */ }
 
         /* v1.60.45：comboHigh ≥ 4 → 爽感事件（'comboHigh' kind）+ 行为打点。
          * 与 result.count / perfectClear 路径互补（前一处处理 pcClear / multiClear / monoFlush），
@@ -3560,6 +3698,15 @@ export class Game {
             this.strategy, result, undefined, this._comboCount);
 
         this.score += clearScore;
+        /* v1.71 PEOG：累计真实得分到 peogState.consumedYield，并按 pct 触达 ceiling×0.95
+         * 累计 approachCount → escalateAfter 阈值时升级 mild → strong。
+         * 仅在守卫 active 时累加 approachCount（bypass 后纯只记 yield 供看板）。 */
+        if (this._peogModule && this._spawnContext?.peogState) {
+            try {
+                this._spawnContext.score = this.score;
+                this._peogModule.consumePeogOnPlace(this._spawnContext.peogState, this._spawnContext, clearScore);
+            } catch (_e) { /* fail-open */ }
+        }
         /* v1.49：字段更名 milestoneHit → scoreMilestoneHit，把跨过的具体分数档传给下游。
          * v1.55.11（用户反馈："已达最佳 N% 不触发特效"）：取消局内的"百分比里程碑"toast 渲染，
          * 只保留 _lastAdaptiveInsight.scoreMilestoneHit 数据流（DFV 调试面板仍可见，分析侧仍有事件
@@ -3941,10 +4088,34 @@ export class Game {
      * @param {'endless'|'level'|'level-fail'} [opts.mode='endless'] 结算模式
      * @param {object} [opts.levelResult]  关卡结算数据（stars、objective 等）
      */
+    /* RT-2：FTUE 漏斗打点（幂等、软失败）。app_open → game_start → first_clear →
+     * first_game_end → d1_return，度量买量承接的冷启动转化。ftueFunnel 为 web 端模块。 */
+    _ftue(step) {
+        try {
+            import('./retention/ftueFunnel.js').then((m) => {
+                if (step === 'app_open') m.markAppOpen?.();
+                else m.recordStep?.(step);
+            }).catch(() => { /* 模块缺失即跳过 */ });
+        } catch { /* ignore */ }
+    }
+
+    /* LO-2/LO-3：局后把结果喂给 retentionManager（内部驱动 goalSystem.updateProgress
+     * + checkGoals + difficultyPredictor.recordGameResult），完成留存 Meta 主循环接线。软失败。 */
+    _retentionAfterGame(gameResult) {
+        try {
+            import('./retention/retentionManager.js').then((m) => {
+                const rm = m.getRetentionManager?.();
+                rm?.init?.(this.playerProfile?.userId);
+                rm?.afterGameEnd?.(gameResult);
+            }).catch(() => { /* 模块缺失即跳过 */ });
+        } catch { /* ignore */ }
+    }
+
     async endGame(opts = {}) {
         if (this._endGameInFlight) {
             return this._endGameInFlight;
         }
+        this._ftue('first_game_end');
         /* v10.33：无步可走结算 → 下一局前几轮出块热身（局间闭环），写入 localStorage 由 start() 消费 */
         if (opts.noMovesLoss && typeof localStorage !== 'undefined') {
             try {
@@ -3970,6 +4141,16 @@ export class Game {
             } catch { /* ignore */ }
         }
         this.isGameOver = true;
+        try {
+            updatePbChaseBgm({
+                score: this.score,
+                pbBaseline: this._getRunPbBaseline(),
+                placements: this.gameStats?.placements ?? 0,
+                gameOver: true,
+                soundEnabled: window.__audioFx?.getPrefs?.().sound !== false,
+                volume: window.__audioFx?.getPrefs?.().volume ?? 0.55,
+            });
+        } catch { /* PB BGM 失败不影响结算 */ }
         /* v1.63（pv=3，出块数据集补全）：终局 / 死亡信号 —— 区分"被怼死"和"主动结束"，
          * 是保命 / 可解性优化与公平性回归的关键标签。一并落库死亡盘面 + 那组放不下的 dock，
          * 供"死局成因"复盘。写入 gameStats，随 updateSession 持久化到 sessions.game_stats，
@@ -3989,6 +4170,17 @@ export class Game {
              * 也给 server `_extract_pb_baseline` 一个权威来源（兼容 pv<3 无 ps.bestScore 的旧端）。 */
             this.gameStats.pbBaseline = this._getRunPbBaseline();
         } catch { /* 标签非关键，失败不阻塞结算 */ }
+
+        /* LO-2/LO-3：留存 Meta 主循环接线（goalSystem 进度/检查 + 难度预测回流）。 */
+        this._retentionAfterGame({
+            score: Number(this.score) || 0,
+            clears: Number(this.gameStats?.clears) || 0,
+            perfectClears: Number(this.gameStats?.perfectClears) || 0,
+            maxComboChain: Number(this.gameStats?.maxComboChain) || 0,
+            rounds: Number(this._spawnContext?.totalRounds)
+                || Math.floor((Number(this.gameStats?.placements) || 0) / 3),
+            achieved: (Number(this.score) || 0) > (Number(this._bestScoreAtRunStart) || 0),
+        });
         try {
             window.__audioFx?.play?.('gameOver');
             window.__audioFx?.vibrate?.([35, 55, 25]);
@@ -4382,6 +4574,7 @@ export class Game {
                         clears: this.gameStats?.clears ?? 0,
                         placements: this.gameStats?.placements ?? 0,
                         maxCombo: this.gameStats?.maxCombo ?? 0,
+                        maxComboChain: this.gameStats?.maxComboChain ?? 0,
                         rounds: this.gameStats?.rounds ?? 0,
                     });
                 } catch { /* ignore */ }
@@ -5131,6 +5324,17 @@ export class Game {
             this._lastDisplayedScore = this.score;
         }
         document.getElementById('best').textContent = this.bestScore;
+        try {
+            const audioPrefs = window.__audioFx?.getPrefs?.() || {};
+            updatePbChaseBgm({
+                score: this.score,
+                pbBaseline: this._getRunPbBaseline(),
+                placements: this.gameStats?.placements ?? 0,
+                gameOver: this.isGameOver,
+                soundEnabled: audioPrefs.sound !== false,
+                volume: audioPrefs.volume ?? 0.55,
+            });
+        } catch { /* PB BGM 降级为静默 */ }
         /* v1.55 §4.13：在 best 数字下方加难度标签（仅当玩家在 easy/hard 时显示，
          * normal 默认不显示以减少视觉噪音）。Hard 时显示金色烟火，配合 §4.4 PB 分桶。 */
         const badgeEl = document.getElementById('best-strategy-badge');

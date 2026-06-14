@@ -47,12 +47,7 @@ export function getRetentionManager() {
                 });
                 
                 const goalSystem = getGoalSystem();
-                goalSystem.updateProgress({
-                    score: gameResult.score,
-                    clears: gameResult.clears,
-                    achieved: gameResult.achieved,
-                    perfectClears: gameResult.perfectClears
-                });
+                goalSystem.updateProgress(gameResult);
                 
                 const newlyCompleted = goalSystem.checkGoals();
                 
@@ -70,7 +65,7 @@ export function getRetentionManager() {
                 const goalSystem = getGoalSystem();
                 return {
                     shortTerm: goalSystem.generateShortTerm(
-                        getLevelProgression().getSummary()
+                        goalSystem.getShortTermStats()
                     ),
                     longTerm: goalSystem.getActiveLongTerm()
                 };

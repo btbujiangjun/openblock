@@ -83,6 +83,8 @@ const LONG_TERM_CATEGORIES = {
     }
 };
 
+const STORAGE_KEY = 'openblock_goal_system_v1';
+
 let _instance = null;
 let _shortTermGoals = [];
 let _longTermGoals = [];
@@ -95,26 +97,93 @@ let _progress = {
     totalStars: 0,
     dailyStreak: 0,
     winStreak: 0,
-    lastPlayedDate: null
+    lastPlayedDate: null,
+    /** 单局峰值（短期里程碑 generateShortTerm 的数据源） */
+    bestSingle: { score: 0, clear: 0, combo: 0, survival: 0 },
 };
+let _lastRefresh = null;
+
+function _today() {
+    return new Date().toDateString();
+}
+
+/* LO-2：持久化 + 每日刷新。
+ * - 长期目标的 current/completed/claimed 跨会话保留（否则每次进游戏归零、奖励可刷）。
+ * - _progress 累积值持久化。
+ * - 每日首次进入触发 refreshDaily，重置「每日作用域」的短期目标重新生成。
+ * cocos / 无 localStorage 端：load/save 软失败，退化为内存态（行为不变）。 */
+function _loadState() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch {
+        return null;
+    }
+}
+
+function _saveState() {
+    try {
+        const goals = {};
+        for (const g of _longTermGoals) {
+            goals[g.id] = { current: g.current, completed: g.completed, claimed: g.claimed };
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            progress: _progress,
+            goals,
+            lastRefresh: _lastRefresh,
+        }));
+    } catch {
+        /* 软失败 */
+    }
+}
 
 function initGoals() {
     _shortTermGoals = [];
     _longTermGoals = [];
-    
+
+    const persisted = _loadState();
+    if (persisted?.progress) {
+        _progress = { ..._progress, ...persisted.progress };
+    }
+    _lastRefresh = persisted?.lastRefresh ?? null;
+
     for (const category of Object.values(LONG_TERM_CATEGORIES)) {
         for (const goal of category.goals) {
+            const saved = persisted?.goals?.[goal.id];
             _longTermGoals.push({
                 ...goal,
                 category: category.id,
                 categoryName: category.name,
                 icon: category.icon,
-                current: 0,
-                completed: false,
-                claimed: false
+                current: saved?.current ?? 0,
+                completed: saved?.completed ?? false,
+                claimed: saved?.claimed ?? false
             });
         }
     }
+
+    refreshDaily();
+    _saveState();
+}
+
+/**
+ * 每日刷新：跨自然日时重置短期目标并标记刷新日。
+ * @returns {boolean} 是否发生了刷新
+ */
+function refreshDaily() {
+    const today = _today();
+    if (_lastRefresh === today) return false;
+    _lastRefresh = today;
+    _shortTermGoals = [];
+    _saveState();
+    return true;
+}
+
+function _ensureBestSingle() {
+    if (!_progress.bestSingle || typeof _progress.bestSingle !== 'object') {
+        _progress.bestSingle = { score: 0, clear: 0, combo: 0, survival: 0 };
+    }
+    return _progress.bestSingle;
 }
 
 function updateProgress(gameResult) {
@@ -122,6 +191,18 @@ function updateProgress(gameResult) {
     _progress.totalClears += gameResult.clears ?? 0;
     _progress.totalGames += 1;
     _progress.perfectClears += gameResult.perfectClears ? 1 : 0;
+
+    const best = _ensureBestSingle();
+    best.score = Math.max(best.score, Number(gameResult.score) || 0);
+    best.clear = Math.max(best.clear, Number(gameResult.clears) || 0);
+    best.combo = Math.max(
+        best.combo,
+        Number(gameResult.maxComboChain ?? gameResult.combo) || 0,
+    );
+    best.survival = Math.max(
+        best.survival,
+        Number(gameResult.rounds ?? gameResult.survival) || 0,
+    );
     
     if (gameResult.achieved) {
         _progress.winStreak += 1;
@@ -129,7 +210,7 @@ function updateProgress(gameResult) {
         _progress.winStreak = 0;
     }
     
-    const today = new Date().toDateString();
+        const today = new Date().toDateString();
     if (_progress.lastPlayedDate !== today) {
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
@@ -140,6 +221,8 @@ function updateProgress(gameResult) {
         }
         _progress.lastPlayedDate = today;
     }
+
+    _saveState();
 }
 
 function checkLongTermGoals() {
@@ -195,15 +278,48 @@ function checkLongTermGoals() {
             newlyCompleted.push(goal);
         }
     }
-    
+
+    _saveState();
     return newlyCompleted;
+}
+
+function _shortTermMetricValue(type, gameStats) {
+    if (type === 'combo') {
+        return gameStats.maxComboChain ?? gameStats.combo ?? 0;
+    }
+    if (type === 'clear') {
+        return gameStats.clear ?? gameStats.clears ?? 0;
+    }
+    if (type === 'survival') {
+        return gameStats.survival ?? gameStats.rounds ?? 0;
+    }
+    if (type === 'streak') {
+        return gameStats.streak ?? gameStats.winStreak ?? 0;
+    }
+    return gameStats[type] ?? 0;
+}
+
+/** 短期里程碑用的单局峰值 + 当前连胜（供 retentionManager.getActiveGoals 调用）。 */
+function getShortTermStats() {
+    const best = _ensureBestSingle();
+    return {
+        score: best.score ?? 0,
+        clear: best.clear ?? 0,
+        clears: best.clear ?? 0,
+        combo: best.combo ?? 0,
+        maxComboChain: best.combo ?? 0,
+        survival: best.survival ?? 0,
+        rounds: best.survival ?? 0,
+        streak: _progress.winStreak ?? 0,
+        winStreak: _progress.winStreak ?? 0,
+    };
 }
 
 function generateShortTermGoals(gameStats) {
     _shortTermGoals = [];
     
     for (const milestone of SHORT_TERM_MILESTONES) {
-        const currentValue = gameStats[milestone.type] ?? 0;
+        const currentValue = _shortTermMetricValue(milestone.type, gameStats);
         
         for (const threshold of milestone.thresholds) {
             if (currentValue >= threshold) continue;
@@ -242,6 +358,7 @@ function claimReward(goalId) {
     }
     
     goal.claimed = true;
+    _saveState();
     return goal.reward;
 }
 
@@ -273,6 +390,7 @@ function updateLevelProgress(levelId, stars, achieved) {
     if (achieved) {
         _progress.levelsCompleted += 1;
         _progress.totalStars += stars;
+        _saveState();
     }
 }
 
@@ -283,15 +401,30 @@ export function getGoalSystem() {
             updateProgress,
             checkGoals: checkLongTermGoals,
             generateShortTerm: generateShortTermGoals,
+            getShortTermStats,
             getActiveLongTerm: getActiveLongTermGoals,
             getCompletedLongTerm: getCompletedLongTermGoals,
             claimReward,
             getSummary: getProgressSummary,
             updateLevelProgress,
+            refreshDaily,
             getProgress: () => _progress
         };
     }
     return _instance;
+}
+
+/** 清空持久化（测试 / 账号重置用）。 */
+export function resetGoalSystem() {
+    _progress = {
+        totalScore: 0, totalClears: 0, totalGames: 0, perfectClears: 0,
+        levelsCompleted: 0, totalStars: 0, dailyStreak: 0, winStreak: 0, lastPlayedDate: null,
+        bestSingle: { score: 0, clear: 0, combo: 0, survival: 0 },
+    };
+    _shortTermGoals = [];
+    _longTermGoals = [];
+    _lastRefresh = null;
+    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
 }
 
 export function initGoalSystem() {
