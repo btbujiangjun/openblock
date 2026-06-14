@@ -117,6 +117,49 @@ def _mlx_contiguous_regions(grid) -> int:
     return regions
 
 
+def _mlx_spatial_planning_features(grid) -> list:
+    """空间规划廉价 3 维（与 web/src/spatialPlanning.js spatialPlanningFeatures 同口径）：
+    [regionEntropy, largestRegionRatio, smallRegionCellRatio]，均在 [0,1]。"""
+    import math
+    n = grid.size
+    visited = [[False] * n for _ in range(n)]
+    sizes = []
+    empty = 0
+    max_size = 0
+    small_cells = 0
+    for sy in range(n):
+        for sx in range(n):
+            if grid.cells[sy][sx] is not None or visited[sy][sx]:
+                continue
+            stack = [(sy, sx)]
+            visited[sy][sx] = True
+            size = 0
+            while stack:
+                cy, cx = stack.pop()
+                size += 1
+                for ny, nx in ((cy - 1, cx), (cy + 1, cx), (cy, cx - 1), (cy, cx + 1)):
+                    if 0 <= ny < n and 0 <= nx < n and not visited[ny][nx] and grid.cells[ny][nx] is None:
+                        visited[ny][nx] = True
+                        stack.append((ny, nx))
+            sizes.append(size)
+            empty += size
+            if size > max_size:
+                max_size = size
+            if size <= 4:
+                small_cells += size
+    if empty <= 0:
+        return [0.0, 0.0, 0.0]
+    total = float(empty)
+    h = 0.0
+    for s in sizes:
+        if s > 0:
+            p = s / total
+            h -= p * math.log(p)
+    denom = math.log(max(2, empty))
+    region_entropy = max(0.0, min(1.0, h / denom)) if denom > 0 else 0.0
+    return [region_entropy, max(0.0, min(1.0, max_size / total)), max(0.0, min(1.0, small_cells / total))]
+
+
 def _mlx_concave_corners(grid) -> int:
     """凹角数（与 web/src/boardTopology.js countConcaveCorners 同口径，越界视为未占用）。"""
     n = grid.size
@@ -314,12 +357,14 @@ def extract_state_features(
             min(_mlx_concave_corners(grid) / float(_AN.get("maxConcaveCorners", 32)), 1.0),
         ]
     diff_scalars = _spawn_step_difficulty_features(dock, filled)
+    spatial_scalars = _mlx_spatial_planning_features(grid)
     strategy_vec = encode_strategy_onehot(strategy_id)
     condition_vec = encode_condition_onehot(arc, intent)
     scalars = np.array(
         base_scalars
         + _encode_color_summary(grid, dock).tolist()
         + diff_scalars
+        + spatial_scalars
         + strategy_vec.tolist()
         + condition_vec.tolist(),
         dtype=np.float32,

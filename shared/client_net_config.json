@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "_doc": "统一客户端→后端网络上报配置格式（Web / 微信小程序 / Cocos 同构）。各端 reportingOutbox 的 init/configure 接受同名字段；envelope.* 会被逐条盖到每个上报事件上，供后端按 platform/app_version 做分端统计。各端默认值在此声明（SSOT），平台特定值由运行时覆写（apiBase / platform / appVersion）。",
+  "apiBase": "",
+  "platform": "web",
+  "appVersion": "0.0.0",
+  "enabled": false,
+  "flushIntervalMs": 15000,
+  "batchSize": 200,
+  "maxQueue": 1000,
+  "maxRetryBackoffMs": 120000,
+  "channels": {
+    "behavior": "/api/behavior/batch",
+    "ad": "/api/ad/impression"
+  },
+  "envelopeKeys": ["platform", "app_version"],
+  "platforms": ["web", "miniprogram", "cocos"]
+}

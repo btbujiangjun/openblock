@@ -1,7 +1,10 @@
 /**
  * 观测编码（state + action φ）：常数与归一化来自 shared/game_rules.json → FEATURE_ENCODING。
- * state=190 (51 scalars[含 3 策略 one-hot] + 64 grid + 75 dock), action=15, phi=205。
- * 结构标量含 2 维客观几何难度（contiguousRegions / concaveCorners，见 boardTopology.js）。
+ * state=204 (65 scalars + 64 grid + 75 dock), action=15, phi=219。
+ * 65 标量 = 25 结构 + 19 颜色 + 4 单步难度 + 3 空间规划 + 3 策略 one-hot + 11 condition token。
+ * 结构标量含 2 维客观几何难度（contiguousRegions / concaveCorners，见 boardTopology.js）；
+ * 空间规划 3 维（regionEntropy / largestRegionRatio / smallRegionCellRatio，见 spatialPlanning.js）
+ * 拼在单步难度之后、策略 one-hot 之前（condition token 仍占标量末 11 维）。
  *
  * 不含 spawnHints / adaptiveSpawn / blockSpawn 内部权重或未来块信息——仅盘面与当前 dock 可见状态。
  */
@@ -10,6 +13,7 @@ import { analyzeBoardTopology, countUnfillableCells, countEmptyRegions, countCon
 import { detectBonusLines } from '../clearScoring.js';
 import { getRlTrainingBonusLineSkin } from '../skins.js';
 import { spawnStepDifficultyFeatures } from '../spawnStepDifficulty.js';
+import { spatialPlanningFeatures } from '../spatialPlanning.js';
 import { encodeStrategyOnehot } from './strategyFeatures.js';
 import { encodeConditionOnehot } from './conditionToken.js';
 
@@ -239,7 +243,7 @@ function dockMobility(grid, dock) {
 }
 
 // ---------------------------------------------------------------------------
-// State features (187-dim)
+// State features (204-dim)
 // ---------------------------------------------------------------------------
 
 /**
@@ -344,16 +348,20 @@ export function extractStateFeatures(grid, dock, strategyId = 'normal', arc = nu
     // SSOT 来自 spawnStepDifficulty.js，与 rl_pytorch/features.py 逐位一致。
     const unplacedShapes = dock.filter((b) => !b.placed).map((b) => b.shape);
     const diffScalars = spawnStepDifficultyFeatures(unplacedShapes, filled);
+    // 空间规划廉价 3 维（regionEntropy / largestRegionRatio / smallRegionCellRatio）——
+    // 纯盘面几何、单次 BFS，SSOT 来自 spatialPlanning.js，与 rl_pytorch/features.py 逐位一致。
+    const spatialScalars = spatialPlanningFeatures(grid);
     const strategyVec = encodeStrategyOnehot(strategyId);
     const conditionVec = encodeConditionOnehot(arc, intent);
     const scalars = new Float32Array(
         baseScalars.length + colorSummary.length + diffScalars.length
-            + strategyVec.length + conditionVec.length,
+            + spatialScalars.length + strategyVec.length + conditionVec.length,
     );
     let off = 0;
     scalars.set(baseScalars, off); off += baseScalars.length;
     scalars.set(colorSummary, off); off += colorSummary.length;
     scalars.set(diffScalars, off); off += diffScalars.length;
+    scalars.set(spatialScalars, off); off += spatialScalars.length;
     scalars.set(strategyVec, off); off += strategyVec.length;
     scalars.set(conditionVec, off);
     if (scalars.length !== STATE_SCALAR_DIM) {

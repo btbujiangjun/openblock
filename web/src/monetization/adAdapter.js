@@ -16,9 +16,11 @@
 
 import { getFlag } from './featureFlags.js';
 import { notePopupShown } from '../popupCoordinator.js';
-import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
+import { isSqliteClientDatabase } from '../config.js';
 import { t } from '../i18n/i18n.js';
 import { emit } from './MonetizationBus.js';
+import { getProviderSection } from './providerConfig.js';
+import { resolveAdProvider, simulateAdRevenueMinor } from './adProviders.js';
 
 /* v1.49.x P2-5：把广告生命周期事件 emit 到 MonetizationBus + analyticsTracker。
  * 之前 ad_show / ad_complete 在 ANALYTICS_EVENTS 已声明但全仓 0 emit，
@@ -35,11 +37,21 @@ const STORAGE_KEY = 'openblock_mon_ads_removed';
 let _adsRemoved = false;
 let _provider = null; // 自定义 SDK provider（null = 使用存根）
 
-/** 初始化：从 localStorage 读取「移除广告」状态 */
+/** 初始化：从 localStorage 读取「移除广告」状态 + 按配置安装真实 SDK Provider */
 export function initAds() {
     try {
         _adsRemoved = localStorage.getItem(STORAGE_KEY) === '1';
     } catch { /* ignore */ }
+    // MO-1：配置非 stub 时，安装对应真实 SDK Provider（缺凭据由 Provider 内部回退）。
+    try {
+        const provider = resolveAdProvider(getProviderSection('ad'));
+        if (provider) _provider = provider;
+    } catch { /* ignore */ }
+}
+
+/** 取广告 stub 仿真参数（fillRate / eCPM）。 */
+function _adStubCfg() {
+    try { return getProviderSection('ad').stub || {}; } catch { return {}; }
 }
 
 /** 标记是否已购买「移除广告」 */
@@ -116,9 +128,10 @@ function _stubRewardedUI(reason) {
 
         overlay.addEventListener('click', (e) => {
             if (e.target === skip && !skip.disabled) {
+                // 跳过按钮仅在倒计时结束后启用（完播），点击即视为获得激励。
                 clearInterval(iv);
                 overlay.remove();
-                resolve({ rewarded: t <= 0 });
+                resolve({ rewarded: true });
             }
         });
     });
@@ -145,32 +158,27 @@ function _stubInterstitialUI() {
     });
 }
 
-/** 上报广告曝光占位（items 1–4）；真实 SDK 应在 onAdLoaded/onPaid 回调内调用 */
-async function _reportAdImpression(kind, filled, meta = {}) {
+/**
+ * 广告按次计费回流 → 上报发件箱（无网络本地缓存 + 联网批量上报 → /api/ad/impression）。
+ * 经 reportingOutbox 解耦：离线时落本地，联网/重连后自动补传，服务端按 event_id 去重。
+ */
+function _reportAdImpression(kind, filled, meta = {}) {
     if (!isSqliteClientDatabase()) return;
+    let uid = '';
+    try { uid = localStorage.getItem('bb_user_id') || ''; } catch { /* ignore */ }
+    const outbox = (typeof globalThis !== 'undefined') ? globalThis.__reportingOutbox : null;
+    if (!outbox?.enqueue) return;
     try {
-        const base = getApiBaseUrl().replace(/\/+$/, '');
-        let uid = '';
-        try {
-            uid = localStorage.getItem('bb_user_id') || '';
-        } catch {
-            /* ignore */
-        }
-        await fetch(`${base}/api/enterprise/ad-impression`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                user_id: uid,
-                kind,
-                filled: Boolean(filled),
-                revenue_minor: meta.revenue_minor ?? 0,
-                meta,
-                ts: Date.now(),
-            }),
+        outbox.enqueue('ad', {
+            user_id: uid,
+            kind,
+            filled: Boolean(filled),
+            completed: kind === 'interstitial' ? true : Boolean(filled),
+            revenue_minor: meta.revenue_minor ?? 0,
+            platform: 'web',
+            ts: Date.now(),
         });
-    } catch {
-        /* ignore */
-    }
+    } catch { /* 不阻塞主流程 */ }
 }
 
 // ---------- 公开 API ----------
@@ -187,15 +195,22 @@ export async function showRewardedAd(reason = '') {
     void _trackAdEvent('ad_show', { type: 'rewarded', reason });
     emit('ad_show', { type: 'rewarded', reason });
 
-    const r = _provider
-        ? await _provider.showRewarded(reason)
-        : await _stubRewardedUI(reason);
+    let r;
+    let revenueMinor = 0;
+    if (_provider) {
+        r = await _provider.showRewarded(reason);
+        revenueMinor = Number(r?.revenue_minor || 0);
+    } else {
+        r = await _stubRewardedUI(reason);
+        // 配置化桩收益：仅完播（rewarded）才计入填充与 eCPM 收益。
+        if (r?.rewarded) revenueMinor = simulateAdRevenueMinor(_adStubCfg(), 'rewarded').revenueMinor;
+    }
 
     /* P2-5：ad_complete 事件（含完播标记）。 */
     void _trackAdEvent('ad_complete', { type: 'rewarded', reason, rewarded: !!r?.rewarded });
     emit('ad_complete', { type: 'rewarded', reason, rewarded: !!r?.rewarded });
 
-    void _reportAdImpression('rewarded', r?.rewarded, { reason });
+    void _reportAdImpression('rewarded', r?.rewarded, { reason, revenue_minor: revenueMinor });
     return r;
 }
 
@@ -210,11 +225,17 @@ export async function showInterstitialAd() {
     void _trackAdEvent('ad_show', { type: 'interstitial' });
     emit('ad_show', { type: 'interstitial' });
 
-    if (_provider) await _provider.showInterstitial();
-    else await _stubInterstitialUI();
+    let revenueMinor = 0;
+    if (_provider) {
+        const r = await _provider.showInterstitial();
+        revenueMinor = Number(r?.revenue_minor || 0);
+    } else {
+        await _stubInterstitialUI();
+        revenueMinor = simulateAdRevenueMinor(_adStubCfg(), 'interstitial').revenueMinor;
+    }
 
     void _trackAdEvent('ad_complete', { type: 'interstitial', rewarded: true });
     emit('ad_complete', { type: 'interstitial', rewarded: true });
 
-    void _reportAdImpression('interstitial', true, {});
+    void _reportAdImpression('interstitial', true, { revenue_minor: revenueMinor });
 }

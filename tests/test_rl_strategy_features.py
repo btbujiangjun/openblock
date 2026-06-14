@@ -1,4 +1,4 @@
-"""RL 策略 one-hot + v12 condition token 维度（201）。"""
+"""RL 策略 one-hot + v12 condition token 维度（204，含 v1.67 空间规划 3 维）。"""
 from __future__ import annotations
 
 import numpy as np
@@ -19,8 +19,8 @@ from rl_pytorch.strategy_features import encode_strategy_onehot, rl_training_str
 
 
 def test_state_dim_matches_encoding():
-    assert F.STATE_FEATURE_DIM == int(FEATURE_ENCODING["stateDim"]) == 201
-    assert F.PHI_DIM == 216
+    assert F.STATE_FEATURE_DIM == int(FEATURE_ENCODING["stateDim"]) == 204
+    assert F.PHI_DIM == 219
 
 
 def test_strategy_onehot():
@@ -48,7 +48,7 @@ def test_extract_state_includes_strategy_and_condition():
         {"shape": [[1], [1]], "color_idx": 2, "placed": False},
     ]
     st = F.extract_state_features(g, dock, "easy", arc="peak", intent="pressure")
-    assert st.shape[0] == 201
+    assert st.shape[0] == 204
     scalar_dim = int(FEATURE_ENCODING["stateScalarDim"])
     strat_off = scalar_dim - CONDITION_DIM - 3
     cond_off = scalar_dim - CONDITION_DIM

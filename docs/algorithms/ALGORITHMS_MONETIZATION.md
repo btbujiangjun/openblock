@@ -976,6 +976,28 @@ allowRewarded     = !suppressAll
 详细架构、公式、训练-推理契约与灰度策略见独立设计文档
 [`COMMERCIAL_MODEL_DESIGN_REVIEW.md`](./COMMERCIAL_MODEL_DESIGN_REVIEW.md)。
 
+### 15.1 增长飞轮协调层（coordination/）——把变现与发行/留存放进同一目标函数
+
+商业化算法此前只在「变现」飞轮内自洽（payerScore 高则护盘等），但与「发行(UA 出价)」「体验(难度/留存)」是**各自启发式**，存在跨飞轮拉扯：插屏抬收入却伤 flow、动态加价与首充窗冲突、UA 高价买入随后被高 churn 烧掉。`web/src/coordination/` 把三飞轮升级为**同一信号 · 同一目标函数 · 同一约束**下的协调决策。
+
+| 主题 | 模块 | 文件 | 默认 flag / 治理 |
+|------|------|------|-----------------|
+| 底层信号统一(SSOT) | unifiedSignals | `web/src/coordination/unifiedSignals.js` | 始终启用（纯聚合，300ms 周期缓存） |
+| 共同货币+多目标 | flywheelObjective | `web/src/coordination/flywheelObjective.js` | 始终可用（纯函数；权重可注入） |
+| 跨飞轮协调器 | policyArbiter | `web/src/coordination/policyArbiter.js` | `coordinationArbiter=false`（影子） |
+| 受治理探索 | coordinationBandit | `web/src/coordination/coordinationBandit.js` | `mlGovernance('coordination_bandit')=sealed` |
+
+**前沿对应**（详见调研引用）：predictive-LTV bidding / GRePO-LTV 的 Pareto-LTV 共同货币；MORL「Profit vs Trust」的损失厌恶标量化与硬约束；off-policy contextual bandit 的 ad-load/offer 个性化 + 统一 feature store。
+
+**关键设计**：
+
+- **信号统一**：`unifiedSignals.buildUnifiedSignals/resolveUnifiedSignals` 为每个语义信号选**唯一权威源** —— `churnRisk`←`lifecycleSignals.getUnifiedChurnRisk`、`ltv/ltvBid`←`ltvPredictor.getCalibratedLTVEstimate`、`segment/stage/maturity`←生命周期收敛家族、`skill/flow/frustration`←`PlayerProfile` —— 冻结成带 `provenance` 的快照，根除 skill(4 套)/churn(3 套)/LTV(3 套) 分叉与拷贝 skew。
+- **共同货币 + 损失厌恶标量化**：动作 → `{revenue, retention, experience}` 向量（revenue 强度=归一 pLTV `ltvNorm`）；`shapeContribution` 对损失放大 `lossAversion=2`、收益做 `gainDamping=0.85` 凹变换；`scalarize` 按权重（默认 `{0.34,0.40,0.26}` 偏留存/体验）聚合 → 单一效用。`constraints()` 为硬约束门（flow≥0.66 不插屏、payer/新手/召回保护、churn≥0.6 不加压、churn≥0.5 不加价）。
+- **一致指令束**：`policyArbiter.coordinate(signals)` 一次产出 `{uaBid, experience, ad, offer}`；高 churn 玩家会**同向**得到 `relief + 抑制插屏 + retention_gift + 不加价 + UA 出价×留存健康度`，消除拉扯。
+- **受治理探索**：`coordinationBandit`（Thompson/Beta）在约束安全候选集内探索，奖励=LTV 折算 [0,1]；`coordination_bandit` 默认 sealed → 退回确定性最优，**不改线上**。老虎机上下文键按 `domain|contextKey(signals)` **命名空间隔离**，避免 `none`/`rewarded` 等臂名在 ad/offer/experience 三域间串台（`arbitrate` 与 `recordOutcome` 共用 `_banditCtx`）。
+- **接入**：`coordinationArbiter` flag on 时，`adTrigger._canShowInterstitial` 叠加仲裁门控（只更严）、`paymentManager.getDynamicPricingBonus` 高 churn 禁加价；默认 off=影子，可金丝雀放量。
+- 测试：`tests/coordination.test.js`（19 例）。
+
 ---
 
 ## 关联文档

@@ -71,9 +71,9 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
         });
     });
 
-    it('behaviorContext 维度与 dataset.py BEHAVIOR_CONTEXT_DIM 一致（63）', () => {
+    it('behaviorContext 维度与 dataset.py BEHAVIOR_CONTEXT_DIM 一致（66）', () => {
         const pyDim = pyInt('BEHAVIOR_CONTEXT_DIM');
-        expect(pyDim).toBe(63);
+        expect(pyDim).toBe(66);
         expect(SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM).toBe(pyDim);
     });
 
@@ -106,7 +106,7 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
         expect(SHAPE_VOCAB).toEqual(pyShapes);
     });
 
-    it('实际构造的 behaviorContext 长度恰为 61，sprint one-hot 落在 idx 54，θ 落在 [57..60]', () => {
+    it('实际构造的 behaviorContext 长度恰为 66，sprint one-hot 落在 idx 54，θ 落在 [57..60]，空间规划 [63..65]', () => {
         const grid = new Grid(8);
         const ctx = buildSpawnModelContext(grid, { metrics: {}, skillLevel: 0.5 }, {
             stress: 0.5,
@@ -120,7 +120,7 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
                 },
             },
         });
-        expect(ctx.behaviorContext).toHaveLength(63);
+        expect(ctx.behaviorContext).toHaveLength(66);
         // [48..54] 为 7 维 intent one-hot；sprint=idx6 → 绝对位置 48+6=54。
         const oneHot = ctx.behaviorContext.slice(48, 55);
         expect(oneHot.reduce((a, b) => a + b, 0)).toBe(1);
@@ -128,6 +128,8 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
         expect(ctx.behaviorContext[54]).toBe(1);
         // [57..60] PB θ 显式条件，上界 → 归一化 1。
         expect(ctx.behaviorContext.slice(57, 61)).toEqual([1, 1, 1, 1]);
+        // [63..65] 空间规划：空盘 → [regionEntropy=0, largestRegionRatio=1, smallRegionCellRatio=0]。
+        expect(ctx.behaviorContext.slice(63, 66)).toEqual([0, 1, 0]);
     });
 
     it('缺省 θ（无 pbCurveParams）→ θ 尾段为默认域归一化、非 0', () => {

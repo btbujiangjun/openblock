@@ -14,10 +14,13 @@ const { PERFECT_CLEAR_MULT, bonusEffectHoldMs } = require('../../core/bonusScori
 const { getActiveSkin, setActiveSkinId, getSkinAccent } = require('../../core/skins');
 const { setLanguage, t } = require('../../core/i18n');
 const { createAudioFx } = require('../../utils/audioFx');
+const { updatePbChaseBgm, resetPbChaseBgm, stopPbChaseBgm } = require('../../utils/pbChaseBgm');
 const { createFeedbackToggles } = require('../../utils/feedbackToggles');
 /* v1.60.46：HUD 等级 + 称号 与 web 字标对齐——progression 共用同一
  * localStorage key（'openblock_progression_v1'），跨端 / 跨设备同步天然一致。 */
-const { loadProgress, getLevelProgress, titleForLevel, applyGameEndProgression } = require('../../core/progression');
+  const { loadProgress, getLevelProgress, titleForLevel, applyGameEndProgression } = require('../../core/progression');
+const reportingOutbox = require('../../utils/reportingOutbox');
+const adSim = require('../../utils/adSim');
 
 /* v1.46 触屏速度感知曲线（与 web/src/config.js 对齐，参考桌面 OS pointer ballistics）：
  *   speed ≤ TOUCH_DRAG_SPEED_SLOW (px/ms) → TOUCH_DRAG_GAIN_MIN（1.6，对位精准不抢跑）
@@ -121,6 +124,7 @@ Page({
   _resizeTimer: null,
   _audio: null,
   _toggles: null,
+  _pbBaseline: 0,
 
   onLoad(query) {
     const strategyId = query.strategy || 'normal';
@@ -135,6 +139,7 @@ Page({
     const bestKey = `openblock_best_${strategyId}`;
     const best = Number(storage.getItem(bestKey) || 0) || 0;
     this._bestScore = best;
+    this._pbBaseline = best;
     this._newBestCelebrated = false;
     /* renderer 在 onReady 才会创建，先用空 renderer 初始化偏好控制器，
        等 renderer 就绪后再 _wireRendererToggles() 把当前偏好套回去。 */
@@ -203,6 +208,7 @@ Page({
     this._audio.setEnabled(next);
     this._audio.setHaptic?.(next);
     this.setData({ audioOn: next });
+    if (!next) stopPbChaseBgm();
     if (next) {
       this._audio.warmup(['tick', 'place', 'clear', 'unlock']);
       this._audio.play('tick');
@@ -286,6 +292,7 @@ Page({
   },
 
   onUnload() {
+    resetPbChaseBgm();
     this._stopParticleLoop();
     if (this._floatScoreTimer) {
       clearTimeout(this._floatScoreTimer);
@@ -549,6 +556,8 @@ Page({
             onLineClear: (info) => this._onLineClear(info),
             onGameOver: (info) => this._onGameOver(info),
           });
+          this._sessionId = `mp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          this._reportBehavior('game_start', { strategy: this._strategyId });
         }
 
         this._redraw();
@@ -585,6 +594,17 @@ Page({
                  : 'score-burst--small';
     }
     this._lastDisplayedScore = snap.score;
+    try {
+      const prefs = this._audio?.getPrefs?.() || {};
+      updatePbChaseBgm({
+        score: snap.score,
+        pbBaseline: this._pbBaseline || best,
+        placements: snap.steps,
+        gameOver: snap.gameOver,
+        soundEnabled: prefs.sound !== false,
+        volume: prefs.volume ?? 0.55,
+      });
+    } catch { /* PB BGM 失败不影响主流程 */ }
 
     const dataPatch = {
       score: snap.score,
@@ -691,7 +711,25 @@ Page({
     }, Math.max(180, ms || 500));
   },
 
+  /* 玩家行为上报（无网络本地缓存 + 联网批量上报，经 reportingOutbox）。 */
+  _reportBehavior(eventType, data) {
+    try {
+      const app = getApp();
+      reportingOutbox.enqueue('behavior', {
+        event_type: eventType,
+        user_id: (app && app.globalData && app.globalData.userId) || '',
+        session_id: this._sessionId || '',
+        data: data || {},
+        timestamp: Date.now(),
+      });
+    } catch { /* ignore */ }
+  },
+
   _onGameOver(info) {
+    this._reportBehavior('game_end', { score: Number(info.score) || 0, clears: info.clears || 0 });
+    /* 局末插屏广告（按次计费 ¥0.02 → reportingOutbox）；离线缓存、联网补传。 */
+    try { void adSim.showInterstitial('game_over'); } catch { /* ignore */ }
+
     const bestKey = `openblock_best_${this._strategyId}`;
     const prev = Number(storage.getItem(bestKey) || 0) || 0;
     const score = Number(info.score) || 0;
@@ -1410,6 +1448,8 @@ Page({
 
   onRestart() {
     this._newBestCelebrated = false;
+    this._pbBaseline = this._bestScore || this.data.bestScore || 0;
+    resetPbChaseBgm();
     this._gameOverQuietUntil = 0;
     if (this._floodRafId != null && this._canvas) {
       this._canvas.cancelAnimationFrame(this._floodRafId);
@@ -1428,6 +1468,8 @@ Page({
       this._clearCellsTimer = null;
     }
     this._controller.reset();
+    this._sessionId = `mp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    this._reportBehavior('game_start', { strategy: this._strategyId, restart: true });
     this._renderer.clearParticles();
     this._renderer.setClearCells([]);
     /* 重开局：清理 score burst 基线，避免新局首次 _onStateChange 出现"老分数→0"反向计算 delta */

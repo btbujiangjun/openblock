@@ -87,6 +87,18 @@
 | **D3** | 决战 | 0.95 ≤ pct ≤ 1.02 | UI `best.gap.close`（≤0.05）/ `best.gap.victory`（≤0.02）；challengeBoost ≈ 0.15 上限；score-push 守卫激活叙事。 |
 | **D4** | 突破段 | pct > 1.02 | scoreStress 按 `percentileMaxOver=0.5` 外推；与 `pbOvershootBoost` 协同形成「超 PB 越来越难」；触发 `_maybeCelebrateNewBest`；之后进入"破纪录后释放窗口"。 |
 
+### 2.3.1 PB 声音符号层（研究实现）
+
+PB 追逐 BGM 是**游戏级声音符号**，不跟随皮肤音色变化；它服务于"快破纪录了"这条长期目标，而不是某个皮肤世界观。当前研究实现使用真实 OGG 音频文件，不使用程序化合成音：
+
+| PB 段 | 触发条件 | 音频文件 | 播放策略 |
+|------|----------|----------|----------|
+| D2 临近 | `0.80 ≤ score / runStartPB < 0.95` | `pb_near.ogg` | 低音量循环，提示本局进入 PB 区。 |
+| D3 决战 | `0.95 ≤ score / runStartPB ≤ 1.0` | `pb_sprint.ogg` | 稍高音量循环，强化临门一脚的专注感。 |
+| D4 突破 | `score > runStartPB` 首次命中 | `pb_release.ogg` | 单次播放，作为破 PB 的音乐释放。 |
+
+跨端资源路径统一为 `audio/game/pb_chase/`，对应 Web、小程序、Cocos 三端资源目录。该层共享现有音效开关；关闭音效时 PB BGM 静默。`runStartPB` 必须使用开局快照，不能用局内实时抬升后的 `bestScore`，否则破 PB 后会丢失 release 判定。
+
 ### 2.4 维度 4：本局阶段 P（参考 `sessionArc`）
 
 | Code | 名称 | 判据 | 对 PB 策略的影响 |
@@ -665,6 +677,24 @@ const isBClassChallenge = challengeBoostBypass === null;
 
 6. ✅ 各端同源：通过 `npm run sync:core` 同步到 cocos / miniprogram。
 
+6.5 ✅ **与 §4.16 `earlyOvershootGuard`（PEOG）的优先级约定**：当玩家同时落入「高手早期」与「中高 PB 段开局」两个切片时，**PEOG cap 优先于本节 floor**——
+
+```js
+// adaptiveSpawn.js 应用顺序（伪代码）：
+applyFarFromPBBoost();              // 远征送爽
+applyExpertEarlyBoost();            // 高手早期送爽（写入 floor=0.5）
+// ...
+return applyWarmRun(out, ctx);      // 温暖局钳制
+// ↓ ↓ ↓ 由 spawn/peog.js applyPeogSpawnHintsCap 在 warmRun 之后收紧：
+applyPeogSpawnHintsCap();           // multiClearBonus = min(floor=0.5, cap=0.45) = 0.45
+```
+
+PEOG bypass 12 路任一触发（详见 §4.16）时本节 floor 自动恢复完整效果。设计层语义：PEOG 是更窄切片的更强约束，子集 override 父集是合理的；本机制保证「高手早期送爽」对中高 PB 玩家仍生效（只是更克制），既不破坏 §4.15 设计本意，也不让 §4.16 守卫被绕过。
+
+**单测**：`tests/peog.test.js → 'applyPeogSpawnHintsCap … expertEarlyBoost'` 覆盖：
+- PEOG active 时 multiClearBonus = min(expertEarlyBoost floor=0.5, PEOG cap=0.45) = 0.45；
+- PEOG bypass='recovery' 时直接透传输入（expertEarlyBoost floor 完整恢复）。
+
 **关键差异**（与现有 spawnHints 加成的语义边界）：
 
 | 机制 | 性质 | 触发 |
@@ -673,6 +703,7 @@ const isBClassChallenge = challengeBoostBypass === null;
 | `recovery / nearMiss` | **救济性减压**：玩家陷入困境 | `needsRecovery / hadRecentNearMiss` |
 | `farFromPBBoost`（§13.2） | **送爽性减压**：D0 远征段所有玩家 | `raw pct<0.30` |
 | `expertEarlyBoost`（§4.15） | **加速性送爽**：高手早期 | `bestScore≥1200 ∧ r_difficulty<0.45` |
+| `earlyOvershootGuard`（§4.16） | **保护性压制**：中高 PB 段开局守卫 | `bestScore≥1200 ∧ spawnsUsed<8 ∧ pct<0.85` |
 
 **单测**：`tests/adaptiveSpawn.test.js → expertEarlyBoost ===` 4 条覆盖：
 
@@ -680,6 +711,82 @@ const isBClassChallenge = challengeBoostBypass === null;
 - 低 PB 玩家 bypass=`not_expert`
 - 高手已过早期相位 bypass=`past_early_phase`
 - warmup 段 bypass=`warmup`
+
+### 4.16 PEOG（PB 早期超越守卫）：中高分段开局生命透支防护（P0）
+
+**问题**：PB ≥ 1200 的中高分段玩家在以下叠加路径上会经历"开局生命透支"——
+
+1. 温暖局命中 T3/T4/T5（连挫 / 流失高危 / 跨局连挫），整段释放大块 / multiClear / perfectClear；
+2. 构造算法 `findMultiClearCompleter` / `findPerfectClearTriplet` / `findLargeBlockCompleter` 不感知 PB 距离，候选命中率高；
+3. `expertEarlyBoost`（§4.15）在 `r_difficulty < 0.45` 时把 multiClearBonus / perfectClearBoost 抬到 ≥ 0.5；
+4. 三者同帧叠加 → 高手在前 6 个 spawn 内可累计 ≥ PB 的分数（典型 PB=1500，一次 PerfectClearTriplet 估算 yield≈ 12800 ≫ PB×8）；
+5. 早早进入 D4（pct > 1.02）→ `_maybeCelebrateNewBest` 在 P0/P1 warmup 段触发，烟花/release BGM/HUD victory 提前消费；
+6. 紧接 `pbOvershootBoost + orderRigor` 把 stress 推到 0.85+，剩余 80% 时间高压硬挺，崩盘后玩家本局成就感与生理状态双重透支。
+
+这违反 §1.1「PB 增长节奏 = 上次 PB × {1.05–1.30}」与 §3.7.3「新纪录庆祝稀有性」两条契约。
+
+**改进**（已落地）：
+
+1. ✅ `web/src/spawn/peog.js` 新增 PEOG 模块：`buildPeogState` / `evaluatePeogActive` / `consumePeogOnPlace` / `applyPeogSpawnHintsCap` / `applyPeogYieldCap` / `estimateConstructiveYield`；
+2. ✅ 工具：构造算子候选的 `estimateConstructiveYield`（与 `CLEAR_SCORING.md` `baseScore = baseUnit × c²` 公式同源）+ 单帧 `maxYieldPerSpawnRatio` cap；
+3. ✅ **强度二档**：
+   - `peog_mild`（默认）：cap = PB × 0.08；`spawnHints.multiClearBonus ≤ 0.45 / perfectClearBoost ≤ 0.15 / iconBonusTarget ≥ 0.55`；保留 perfectClearTriplet 但 yield 必受 cap；
+   - `peog_strong`：cap = PB × 0.05；`spawnHints.perfectClearBoost = 0`；连续 3 次 pct 触达 `0.85 × 0.95 = 0.8075` 时自动升级（不可降级）；
+4. ✅ **温暖局协同**：`pickWarmTarget` 在 PEOG active 时映射 `PERFECT_CLEAR → MULTI_CLEAR_NOW` 与 `MULTI_CLEAR_NOW → SETUP_FOR_MULTI`；`buildWarmBudget` 在 `peogIntensity` 注入时改写 `guaranteedDelights` 为 `{multiClear:1, monoFlush:2, perfectClear:0}`（mild）或 `{multiClear:1, monoFlush:1, perfectClear:0}`（strong）；
+5. ✅ **不动**真实 PB / 计分公式 / `_maybeCelebrateNewBest` / `bestScore.gap.*` 叙事——仅改"机会面"（spawnHints + 构造算子候选过滤）；
+6. ✅ **12 路 bypass 优先级链**（与 §4.2 `challengeBoostBypass` / §4.15 同纪律）：
+
+   | # | reason | 判定阶段 | 含义 |
+   |---|--------|----------|------|
+   | 1 | `disabled` | buildPeogState | 配置 `enabled=false` |
+   | 2 | `rollout_out` | buildPeogState | 灰度未命中 |
+   | 3 | `low_pb` | buildPeogState | `bestScoreAtRunStart < midHighFloor` |
+   | 4 | `t1_newbie` | buildPeogState | 温暖局 T1 触发（兜底，PB 本就低不应命中） |
+   | 5 | `winback_first_run` | buildPeogState | 温暖局 T2 + `runsAfterReturn=0`（让回流玩家找回手感） |
+   | 6 | `manual_remote_force` | buildPeogState | 温暖局 T7 远端强制 |
+   | 7 | `recovery` | evaluatePeogActive | `profile.needsRecovery=true` |
+   | 8 | `near_miss` | evaluatePeogActive | `ctx.hadRecentNearMiss=true` |
+   | 9 | `bottleneck` | evaluatePeogActive | `ctx.hasBottleneckSignal=true` |
+   | 10 | `post_pb_release` | evaluatePeogActive | §4.9 释放窗口 |
+   | 11 | `late_phase` | evaluatePeogActive | `spawnsUsed ≥ guardSpawns(8)` 自然到期 |
+   | 12 | `approach_handoff` | evaluatePeogActive | `pct ≥ pbApproachCeiling(0.85)` 交棒 challengeBoost |
+
+   bypass 是**单调永久的**——一旦触发整局不再恢复 active，避免"recovery 解除 → PEOG 又把分压回去"的反复折腾。
+7. ✅ **与 §4.15 `expertEarlyBoost` 冲突解决**：详见 §4.15 §6.5 patch。结论：PEOG cap 优先（`min(floor, cap)`），bypass 时 expertEarlyBoost floor 完整恢复。
+8. ✅ **配置位**：`shared/game_rules.json → adaptiveSpawn.pbChase.earlyOvershootGuard`：
+   ```json
+   {
+     "enabled": true,
+     "rolloutPercent": 100,
+     "midHighFloor": 1200,            
+     "pbApproachCeiling": 0.85,
+     "earlyOvershootGuardSpawns": 8,
+     "escalateAfterApproachCount": 3,
+     "intensities": {
+       "peog_mild":   { "maxYieldPerSpawnRatio": 0.08, ... },
+       "peog_strong": { "maxYieldPerSpawnRatio": 0.05, "perfectClearAllowed": false, ... }
+     }
+   }
+   ```
+   `midHighFloor` 与 `dynamicDifficulty.pbProgress.expertSoftCap` 同值对齐——压缩从哪开始，守卫也从哪开始。
+9. ✅ **可观测**：`stressBreakdown.peogActive / peogIntensity / peogBypass`（DFV 面板 / 单测可见）；MonetizationBus emit `lifecycle:peog_engaged`（守卫激活时）+ `lifecycle:peog_overshoot_prevented`（late_phase / approach_handoff 自然到期且全程守住 ceiling 时，每局一次）；
+10. ✅ **跨端同源**：`bash scripts/sync-core.sh` 同步到 `miniprogram/core/spawn/peog.js` + `cocos/assets/scripts/engine/spawn/peog.mjs`。
+
+**看板指标**（接入 §七）：
+
+- 中高 PB 段早期超越率（**目标 < 5%/局**，基线测算 ~20%）；
+- 中高 PB 段 `_maybeCelebrateNewBest` 触发时机 P50（**目标 ≥ session 总长 × 0.55**）；
+- 中高 PB 段 D4 累计停留占比（**目标 ≤ 30%**）；
+- `lifecycle:peog_overshoot_prevented` / `lifecycle:new_personal_best` 比值（**应 ≤ 5**，过高说明守卫挡掉了太多破纪录）；
+- PEOG bypass 分布（recovery+nearMiss+bottleneck 合计 **< 15%**，避免误伤救济）。
+
+**回归红线**（任一触发即回滚到上一灰度阶）：
+
+- 中高 PB 段人均时长下降 > 3%；
+- 中高 PB 段单局得分下降 > 8%（机会被压得太狠）；
+- overshoot_prevented:new_pb > 5（守卫过头）。
+
+**单测**：`tests/peog.test.js` 45 条覆盖 12 路 bypass + 升级单向性 + yield 估算（5 种算子）+ cap min/floor max + warm target 映射 + guaranteedDelights override + 跨端镜像同源（mini）；`tests/warmRun.test.js` 30 条无回归；`tests/adaptiveSpawn.test.js` 90 条无回归。
 
 ---
 
@@ -706,6 +813,14 @@ const isBClassChallenge = challengeBoostBypass === null;
 - [x] 单局得分 > previousBest × 5（默认）进入审核态：内存更新但不写后端 PB；emit `lifecycle:suspicious_pb`。
 - [x] `openblock_best_by_strategy_v1` / `openblock_period_best_v1` 已纳入 `localStorageStateSync` core section。
 - [x] hard 模式破 PB 时 setShake / bonusMatchFlash 强度 ×1.3。
+- [x] PEOG 12 路 bypass 全覆盖；bypass 单向永久（active=false 后不再恢复）。
+- [x] PEOG 强度升级单向：mild → strong 后即便 pct 回落也不降级。
+- [x] PEOG cap 取 `min(expertEarlyBoostFloor, peogCap)` —— PEOG bypass 时 expertEarlyBoost floor 完整恢复。
+- [x] 中高 PB 段开局 PerfectClearTriplet 候选被 yield cap 全部拒绝（typical yield≈12800 ≫ cap=120）。
+- [x] `pickWarmTarget` 在 PEOG active 时 PERFECT_CLEAR → MULTI_CLEAR_NOW、MULTI_CLEAR_NOW → SETUP_FOR_MULTI。
+- [x] `buildWarmBudget(intensity, { peogIntensity })` 改写 `guaranteedDelights` 为保护配比（perfectClear:0）。
+- [x] `lifecycle:peog_engaged` 在守卫激活时 emit；`lifecycle:peog_overshoot_prevented` 在 `late_phase`/`approach_handoff` 自然到期时 emit（每局一次）。
+- [x] `tests/peog.test.js` 45 个测试全绿。
 - [x] `tests/adaptiveSpawn.test.js` 76 个测试全绿。
 - [x] `tests/nearMissAndMilestone.test.js` `best.gap.*` / scoreMilestone 套件全绿。
 - [x] `tests/challengeDesignOptimization.test.js` 25 个测试全绿。

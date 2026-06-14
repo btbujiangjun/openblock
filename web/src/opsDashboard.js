@@ -349,14 +349,43 @@ async function _loadData(days = 7) {
             visit_status: vf.visitStatus,
             visit_limit: String(vf.visitLimit),
         });
-        const [dashRes, abRes] = await Promise.all([
+        const cohortDays = Math.max(days, 30);
+        const [dashRes, abRes, nsRes, cohortRes, kfRes, telRes, retRes, recRes] = await Promise.all([
             fetch(`/api/ops/dashboard?${q}`),
             fetch('/api/ab/results'),
+            fetch(`/api/ops/north-star?days=${days}`),
+            fetch(`/api/ops/cohort-ltv?days=${cohortDays}`),
+            fetch(`/api/ops/k-factor?days=${cohortDays}`),
+            fetch(`/api/ops/telemetry-health?days=${days}`),
+            fetch(`/api/ops/retention-by-channel?days=${Math.max(days, 14)}`),
+            fetch(`/api/ops/reconcile?days=${cohortDays}`),
         ]);
         if (!dashRes.ok) throw new Error(`HTTP ${dashRes.status}`);
         const dash = await dashRes.json();
         const abData = abRes.ok ? await abRes.json() : [];
+        const northStar = nsRes.ok ? await nsRes.json() : null;
+        const cohort = cohortRes.ok ? await cohortRes.json() : null;
+        const kFactor = kfRes.ok ? await kfRes.json() : null;
+        const telemetry = telRes.ok ? await telRes.json() : null;
+        const retByChannel = retRes.ok ? await retRes.json() : null;
+        const reconcile = recRes.ok ? await recRes.json() : null;
         if (dash.error) throw new Error(dash.error);
+
+        // DA-3：对每个实验拉护栏判定（以 d1_return 为护栏指标）
+        const guardrailResults = (await Promise.all(
+            [...new Set((abData || []).map((r) => r.experiment))].filter(Boolean).map((exp) =>
+                fetch(`/api/ops/guardrails?experiment=${encodeURIComponent(exp)}`)
+                    .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+            ),
+        )).filter(Boolean);
+
+        // DA-2：对每个实验拉取 uplift 统计（双比例 z 检验 + 95% CI）
+        const experiments = [...new Set((abData || []).map((r) => r.experiment))].filter(Boolean);
+        const upliftResults = (await Promise.all(experiments.map((exp) =>
+            fetch(`/api/ops/ab-uplift?experiment=${encodeURIComponent(exp)}`)
+                .then((r) => (r.ok ? r.json() : null))
+                .catch(() => null),
+        ))).filter(Boolean);
 
         bodyEl.innerHTML = '';
 
@@ -365,6 +394,20 @@ async function _loadData(days = 7) {
         bodyEl.appendChild(_coreMetricsCard(dash.coreMetrics || {}));
         bodyEl.appendChild(_sectionTitle('业务指标'));
         bodyEl.appendChild(_businessMetricsCard(dash.businessMetrics || {}));
+
+        // 增长闭环（北极星 / Cohort LTV·ROAS / K 因子）
+        bodyEl.appendChild(_sectionTitle('增长闭环'));
+        bodyEl.appendChild(_northStarCard(northStar));
+        bodyEl.appendChild(_kFactorCard(kFactor));
+        bodyEl.appendChild(_cohortCard(cohort));
+
+        bodyEl.appendChild(_retentionByChannelCard(retByChannel));
+
+        // 数据质量（埋点健康 + 对账 + 实验护栏）
+        bodyEl.appendChild(_sectionTitle('数据质量'));
+        bodyEl.appendChild(_telemetryHealthCard(telemetry));
+        bodyEl.appendChild(_reconcileCard(reconcile, (dash.businessMetrics || {}).iap || {}, (dash.coreMetrics || {}).revenue || {}));
+        bodyEl.appendChild(_guardrailCard(guardrailResults));
 
         // KPI 卡片
         bodyEl.appendChild(_kpiCard('日活 (DAU)', dash.activity.dau, '', _rc(dash.activity.dau, 10, 50)));
@@ -388,8 +431,9 @@ async function _loadData(days = 7) {
         bodyEl.appendChild(_visitSummaryCard(dash.visitStats || {}));
         bodyEl.appendChild(_visitTableCard(dash.recentVisits || []));
 
-        // A/B 结果
+        // A/B 结果（计数 + uplift 统计）
         bodyEl.appendChild(_abCard(abData));
+        bodyEl.appendChild(_abUpliftCard(upliftResults));
 
         const tsEl = document.getElementById('ops-last-refresh');
         if (tsEl) tsEl.textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN');
@@ -473,7 +517,8 @@ function _coreMetricsCard(core) {
       ${_metricCell('活跃·DAU/MAU', _fmtPct(act.dauMau))}
       ${_metricCell('活跃·游玩时长', _fmtNum(act.avgDurationSec, 1) + 's')}
       ${_metricCell('活跃·人均局数', _fmtNum(act.avgSessionsPerUser, 2))}
-      ${_metricCell('收入·ARPDAU', _fmtMoney(rev.arpdau))}
+      ${_metricCell('收入·ARPDAU(混合)', _fmtMoney(rev.arpdau))}
+      ${_metricCell('收入·广告收入', _fmtMoney(rev.adRevenue))}
       ${_metricCell('收入·LTV', _fmtMoney(rev.ltv))}
       ${_metricCell('收入·付费率', _fmtPct(rev.paidRate))}
       ${_metricCell('收入·ARPU', _fmtMoney(rev.arpu))}
@@ -604,6 +649,206 @@ function _topScoreCard(scores) {
     });
     if (!scores?.length) ul.innerHTML = '<li style="color:#475569">暂无数据</li>';
     c.appendChild(ul);
+    return c;
+}
+
+function _northStarCard(ns) {
+    const c = _card('北极星指标（PB 追逐 · 爽感）', 'ops-card--full');
+    if (!ns) {
+        c.innerHTML += '<div class="ops-text" style="font-size:11px">暂无数据（/api/ops/north-star）</div>';
+        return c;
+    }
+    const juice = ns.juiceCoverage ?? 0;
+    const juiceCls = juice < 0.75 ? 'ops-metric-value--warn' : 'ops-metric-value--good';
+    c.innerHTML += `<div class="ops-metric-grid">
+      ${_metricCell('PB 刷新率', _fmtPct(ns.pbBreakRate))}
+      ${_metricCell('PB 逼近率(≥80%)', _fmtPct(ns.pbChaseRate))}
+      ${_metricCell('爽感覆盖率(消行局占比)', _fmtPct(juice), juiceCls)}
+      ${_metricCell('连击触发率(≥2)', _fmtPct(ns.comboReachRate))}
+      ${_metricCell('有效局占比(≥60s)', _fmtPct(ns.engagedSessionRate))}
+      ${_metricCell('人均消行/落子', _fmtNum(ns.avgClearRate, 3))}
+      ${_metricCell('平均时长', _fmtNum(ns.avgDuration, 1) + 's')}
+      ${_metricCell('样本局数', _fmtNum(ns.sessions, 0))}
+    </div>`;
+    return c;
+}
+
+function _kFactorCard(kf) {
+    const c = _card('K 因子（病毒系数）', 'ops-card--wide');
+    if (!kf) {
+        c.innerHTML += '<div class="ops-text" style="font-size:11px">暂无数据（/api/ops/k-factor）</div>';
+        return c;
+    }
+    const k = kf.kFactor ?? 0;
+    const kCls = k >= 1 ? 'ops-good' : k >= 0.3 ? 'ops-warn' : 'ops-bad';
+    c.innerHTML += `<div class="ops-kpi-val ${kCls}">${_fmtNum(k, 3)}<span class="ops-kpi-unit">${kf.viral ? '自传播' : ''}</span></div>`;
+    c.innerHTML += `<div class="ops-text" style="font-size:10px;margin-top:8px">人均邀请：${_fmtNum(kf.invitesPerUser, 3)} · 转化率：${_fmtPct(kf.conversionRate)}</div>`;
+    c.innerHTML += `<div class="ops-text" style="font-size:10px;margin-top:4px">邀请数：${_fmtNum(kf.invitesSent, 0)} · 转化：${_fmtNum(kf.conversions, 0)} · 活跃：${_fmtNum(kf.activeUsers, 0)}</div>`;
+    return c;
+}
+
+function _cohortCard(cohort) {
+    const c = _card('渠道 Cohort · LTV / ROAS', 'ops-card--full');
+    const channels = cohort?.channels || [];
+    if (!channels.length) {
+        c.innerHTML += '<div class="ops-text" style="font-size:11px">暂无渠道数据（/api/ops/cohort-ltv）</div>';
+        return c;
+    }
+    const spendNote = cohort.spendImported
+        ? ''
+        : '<div class="ops-text" style="font-size:9px;color:#64748b;margin-bottom:6px">⚠️ 花费未导入，ROAS 暂为 — （依赖 UA-3 花费导入）</div>';
+    const table = document.createElement('table');
+    table.className = 'ops-table';
+    let rows = '<tr><th>渠道</th><th>安装</th><th>CPI</th><th>ARPU</th><th>ROAS</th><th>D1</th></tr>';
+    for (const ch of channels) {
+        const roas = ch.roas == null ? '—' : _fmtNum(ch.roas, 2);
+        const roasCls = ch.roas == null ? '' : (ch.roas >= 1 ? 'ops-good' : 'ops-warn');
+        const d1 = ch.d1 == null ? '—' : _fmtPct(ch.d1);
+        rows += `<tr>
+          <td>${ch.key}</td>
+          <td>${_fmtNum(ch.installs, 0)}</td>
+          <td>${_fmtMoney(ch.cpi)}</td>
+          <td>${_fmtMoney(ch.arpu)}</td>
+          <td class="${roasCls}">${roas}</td>
+          <td>${d1}</td>
+        </tr>`;
+    }
+    table.innerHTML = rows;
+    c.innerHTML += spendNote;
+    c.appendChild(table);
+    return c;
+}
+
+function _retentionByChannelCard(ret) {
+    const c = _card('分渠道留存（RT-4）', 'ops-card--full');
+    const channels = ret?.channels || [];
+    if (!channels.length) {
+        c.innerHTML += '<div class="ops-text" style="font-size:11px">暂无数据（/api/ops/retention-by-channel）</div>';
+        return c;
+    }
+    const rows = channels.slice(0, 8).map((ch) => `<tr>
+        <td style="padding:3px 6px">${ch.channel}</td>
+        <td style="padding:3px 6px;text-align:right">${ch.installs}</td>
+        <td style="padding:3px 6px;text-align:right">${_fmtPct(ch.d1)}</td>
+        <td style="padding:3px 6px;text-align:right">${_fmtPct(ch.d7)}</td>
+      </tr>`).join('');
+    c.innerHTML += `<table style="width:100%;font-size:11px;border-collapse:collapse">
+      <thead><tr style="color:#64748b"><th style="text-align:left;padding:3px 6px">渠道</th><th style="text-align:right;padding:3px 6px">安装</th><th style="text-align:right;padding:3px 6px">D1</th><th style="text-align:right;padding:3px 6px">D7</th></tr></thead>
+      <tbody>${rows}</tbody></table>`;
+    return c;
+}
+
+function _reconcileCard(rec, iap = {}, revenue = {}) {
+    // 支付看板：IAP 转化/客单/复购/付费率 + 对账（CS-4），横向网格排列（参考业务指标）。
+    const c = _card('支付看板（IAP · 对账）', 'ops-card--full');
+    const matchCls = rec && rec.amountMatch ? 'ops-metric-value--good' : 'ops-metric-value--warn';
+    const cells = [
+        _metricCell('IAP·转化率', _fmtPct(iap.conversionRate)),
+        _metricCell('IAP·客单价', _fmtMoney(iap.avgOrderValue)),
+        _metricCell('IAP·复购率', _fmtPct(iap.repurchaseRate)),
+        _metricCell('付费·ARPU', _fmtMoney(revenue.arpu)),
+        _metricCell('付费·付费率', _fmtPct(revenue.paidRate)),
+    ];
+    if (rec) {
+        cells.push(
+            _metricCell('订单数', _fmtNum(rec.payments?.count, 0)),
+            _metricCell('订单额', '¥' + _fmtNum((rec.payments?.amountMinor || 0) / 100, 2)),
+            _metricCell('退款数', _fmtNum(rec.refunds?.count, 0)),
+            _metricCell('权益撤销', _fmtNum(rec.revocations?.count, 0)),
+            _metricCell('回执对账', rec.amountMatch ? '一致' : '差异', matchCls),
+        );
+    }
+    c.innerHTML += `<div class="ops-metric-grid">${cells.join('\n')}</div>`;
+    return c;
+}
+
+function _guardrailCard(results) {
+    const c = _card('实验护栏（DA-3）', 'ops-card--full');
+    if (!results || !results.length) {
+        c.innerHTML += '<div class="ops-text" style="font-size:11px">暂无运行中的实验</div>';
+        return c;
+    }
+    const sevColor = { error: '#ef4444', warn: '#f59e0b', info: '#64748b' };
+    const blocks = results.map((g) => {
+        const status = g.paused ? '⏸ 已暂停' : (g.recommendPause ? '⚠ 建议暂停' : '✓ 健康');
+        const statusColor = g.paused ? '#ef4444' : (g.recommendPause ? '#f59e0b' : '#10b981');
+        const alerts = (g.alerts || []).map((a) =>
+            `<div style="font-size:10px;color:${sevColor[a.severity] || '#94a3b8'}">• ${a.message}</div>`).join('');
+        return `<div style="border-top:1px solid rgba(91,155,213,.1);padding:6px 0">
+          <div style="font-size:11px;color:#cbd5e1">${g.experiment} <span style="color:${statusColor}">${status}</span></div>
+          ${alerts}
+        </div>`;
+    }).join('');
+    c.innerHTML += blocks;
+    return c;
+}
+
+function _telemetryHealthCard(tel) {
+    const c = _card('埋点健康（投递质量）', 'ops-card--full');
+    if (!tel) {
+        c.innerHTML += '<div class="ops-text" style="font-size:11px">暂无数据（/api/ops/telemetry-health）</div>';
+        return c;
+    }
+    const lossCls = tel.lossRate > 0.02 ? 'ops-metric-value--bad' : 'ops-metric-value--good';
+    const p95Cls = tel.latencyP95 > 2000 ? 'ops-metric-value--warn' : '';
+    const healthCls = tel.healthy ? 'ops-metric-value--good' : (tel.lowSample ? '' : 'ops-metric-value--warn');
+    c.innerHTML += `<div class="ops-metric-grid">
+      ${_metricCell('健康度', tel.healthy ? '健康' : (tel.lowSample ? '样本不足' : '异常'), healthCls)}
+      ${_metricCell('丢失率', _fmtPct(tel.lossRate), lossCls)}
+      ${_metricCell('延迟 p50', _fmtNum(tel.latencyP50, 0) + 'ms')}
+      ${_metricCell('延迟 p95', _fmtNum(tel.latencyP95, 0) + 'ms', p95Cls)}
+      ${_metricCell('延迟均值', _fmtNum(tel.latencyAvg, 0) + 'ms')}
+      ${_metricCell('样本/送达', `${_fmtNum(tel.total, 0)}/${_fmtNum(tel.delivered, 0)}`)}
+    </div>`;
+    if (Array.isArray(tel.alerts) && tel.alerts.length) {
+        const sevColor = { error: '#ef4444', warn: '#f59e0b', info: '#64748b' };
+        const items = tel.alerts.map((a) =>
+            `<div style="font-size:10px;color:${sevColor[a.severity] || '#94a3b8'};margin-top:4px">• ${a.message}</div>`,
+        ).join('');
+        c.innerHTML += `<div style="margin-top:8px">${items}</div>`;
+    }
+    return c;
+}
+
+function _abUpliftCard(upliftResults) {
+    const c = _card('A/B uplift 统计（双比例 z 检验 · 95% CI）', 'ops-card--full');
+    const valid = (upliftResults || []).filter((u) => u && Array.isArray(u.buckets) && u.buckets.length);
+    if (!valid.length) {
+        c.innerHTML += '<div class="ops-text" style="font-size:11px">暂无 uplift 数据（需 exposure / conversion 事件）</div>';
+        return c;
+    }
+    const table = document.createElement('table');
+    table.className = 'ops-table';
+    let rows = '<tr><th>实验</th><th>桶</th><th>曝光</th><th>转化率</th><th>uplift</th><th>95% CI</th><th>p值</th><th>显著</th></tr>';
+    for (const u of valid) {
+        for (const b of u.buckets) {
+            if (b.isControl) {
+                rows += `<tr>
+                  <td>${u.experiment}</td>
+                  <td>桶${b.bucket}(对照)</td>
+                  <td>${_fmtNum(b.n, 0)}</td>
+                  <td>${_fmtPct(b.controlRate)}</td>
+                  <td colspan="4" style="color:#64748b">基线</td>
+                </tr>`;
+                continue;
+            }
+            const sig = b.significant;
+            const upCls = b.upliftAbs > 0 ? 'ops-good' : b.upliftAbs < 0 ? 'ops-bad' : '';
+            const ci = `[${_fmtPct(b.ci95?.[0] ?? 0)}, ${_fmtPct(b.ci95?.[1] ?? 0)}]`;
+            rows += `<tr>
+              <td>${u.experiment}</td>
+              <td>桶${b.bucket}</td>
+              <td>${_fmtNum(b.n, 0)}</td>
+              <td>${_fmtPct(b.treatmentRate)}</td>
+              <td class="${upCls}">${b.upliftAbs >= 0 ? '+' : ''}${_fmtPct(b.upliftAbs)}</td>
+              <td style="color:#94a3b8">${ci}</td>
+              <td>${_fmtNum(b.pValue, 4)}</td>
+              <td class="${sig ? 'ops-good' : 'ops-text'}">${sig ? '✓显著' : '—'}</td>
+            </tr>`;
+        }
+    }
+    table.innerHTML = rows;
+    c.appendChild(table);
     return c;
 }
 

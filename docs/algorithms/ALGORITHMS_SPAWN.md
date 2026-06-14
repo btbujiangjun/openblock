@@ -2393,6 +2393,60 @@ scoreMean/P50/P90, stepsMean, noMoveRate, terminalFillMean, clearInterval, multi
 
 ---
 
+### 14.四 空间规划度量（Spatial Planning，v1.67）
+
+> SSOT：`web/src/spatialPlanning.js`（Python 镜像 `rl_pytorch/spatial_planning.py`，廉价 3 维逐位一致）。
+> 配置：`shared/game_rules.json → spatialPlanning`。
+
+#### 动机：填充率的片面性
+
+填充率只衡量"占了多少"，无法区分"占得整齐"（一整片开放空间）与"占得稀碎"（被切成一堆难用小腔）。
+两块盘面填充率可能都是 0.5，但一块还能放下任意大块/长条、另一块只剩单格缝隙。空间规划度量从
+**拓扑结构、熵增、形状词表机动性**三个互补视角刻画"盘面被推向多可用的状态"，既评单步，也评三块序列后的终局结构。
+
+#### 与现有指标的同质性分析（去重结论）
+
+| 提案视角 | 现有实现 | 处置 |
+|----------|----------|------|
+| 顺序规划 order/path/payoffRegret | `roundQuality.js` 已逐字实现 | 完全同质，复用，不新增 |
+| validPerms / solutionCount / endState | `blockSpawn.evaluateTripletSolutions` | 完全同质，复用 |
+| dock 三块可放性 totalLegal/minLegal | `computeCandidatePlacementMetric` / `placementQuality.unlocking` | dock 维度同质，复用 |
+| holes/flatness 增量 | `placementQuality.holeSafety/tidiness` | 部分同质；缺 concave/regions/transitions/wells 统一 Δ → `computeTopologyDelta` 补齐 |
+| **区域尺寸熵 / 选项熵** | 无任何熵指标 | **纯新增** |
+| **形状词表机动性 familyCoverage/largeShapeCompat** | 无（现有只看当前 dock） | **纯新增** |
+
+#### 三层结构（与 spawnStepDifficulty「廉价特征 vs 全枚举」同构）
+
+1. **廉价层** `spatialPlanningFeatures(grid)` —— 纯几何、单次 BFS、O(n²)、无形状扫描，可进 RL 热路径：
+   - `regionEntropy` = ShannonEntropy(空白连通分量尺寸) / ln(空格数) —— 越高越碎
+   - `largestRegionRatio` = 最大空白连通区 / 总空格 —— 越高开放空间越整片
+   - `smallRegionCellRatio` = ≤4 格小死腔的空格 / 总空格 —— 越高越糟
+
+   去向：RL 落子 `state` 标量 [47-49]（state 187→**204**），生成式出块 `behaviorContext` [63-65]（63→**66**）。
+
+2. **完整层** `computeVocabularyMobility(grid)` —— 对**整个常规 28 形状词表**算可放性（每 spawn 一次，非 MCTS 每节点）：
+   - `vocabMobility` = 还能至少放下一处的形状占比
+   - `familyCoverage` = 还有合法落点的形状家族占比
+   - `largeShapeCompat` = ≥5 格大形状中仍可放的占比
+   - `optionEntropy` = 各家族合法落点分布的归一化熵（选项是否均衡）
+
+3. **序列层** `computeTopologyDelta(before, after)` —— 消费两次 `analyzeBoardTopology` 的全部几何信号
+   （holes/enclosedVoid/concave/regions/transitions/wells），合成带符号的"结构损伤/保全"分，用于落子与三块序列质量。
+
+#### 算法集成点
+
+- **出块难度**：`spawnStepDifficulty` 新增 `fragmentation` 项 = `regionEntropy×0.6 + smallRegionCellRatio×0.4`，
+  权重重平衡为 scd0.26 / board0.18 / flex0.18 / solution0.13 / killer0.13 / **fragmentation0.12**（缺省时该权重按比例重分配）。
+  让"难度"不再只由 fill/scd 决定 —— 这一处自动流向 RL `spawn_diff_aux`、难度桶、面板、透视仪。
+- **玩家能力**：`playerAbilityModel.boardPlanning` 升级为 5 维，新增 `spatialPlanning` 项（权重 0.18），
+  由 `computeSpatialPlanningScore`（保全 + 词表机动性 + 开放空间整片度 + 家族覆盖 + 选项熵）合成。
+- **AI Bot 架构**：RL state / behaviorContext 扩维（旧 checkpoint 因尺寸不符自动从零重训，符合"不考虑兼容性"）；
+  几何 SSOT 跨语言一致（`spatialPlanning.js` ↔ `spatial_planning.py` ↔ `fast_grid`/mlx 镜像）。
+- **观测面**：玩家面板新增 sparkline（区域熵 / 最大开放区 / 小死腔）+ 诊断 pill（机动 / 熵）；
+  DFV 新增 `regionEntropy` sparkline；信号透视仪新增 `sp_*` 信号条目与两条 FLOW_CHAINS。
+
+---
+
 ## 十五、出块参数寻优（SpawnParamTuner）
 
 > 整合：算法原理（全 ML 管线） + 用户操作手册。
@@ -3093,6 +3147,48 @@ playerProfile + dailyRunState
 | 误触率高熟玩家 | — | 收紧 T1/T3 阈值或降低 `rolloutPercent` |
 | 平均局时长下降 > 15% | — | 熔断回退对照组；或 `warmRun.enabled=false` |
 | RL 训练数据污染 | — | 过滤 `warmRunContext.triggered=true` 的 session |
+
+### 17.12 与 PEOG（PB 早期超越守卫）的协作（v1.71）
+
+温暖局是「人群保护」级别的钳制（释放大块 / multiClear / perfectClear），但对**中高 PB 段玩家**（`bestScore ≥ 1200`）的 T3/T4/T5 触发场景，整段释放可能在开局前 6~8 个 spawn 内让玩家超越 PB——进而触发 §三.7.3 新纪录烟花、随后被 `pbOvershootBoost` 推到高压硬挺直至崩盘——本质是"温暖过度反向变成生命透支"。
+
+PEOG（PB Early-Overshoot Guard）在温暖局**之后、blockSpawn 之前**插入一层 spawnHints / 构造算子 yield cap：
+
+```
+adaptiveSpawn.resolveAdaptiveStrategy
+  ├─ applyWarmRun(enhancedConfig, ctx)            // 写入温暖 hints
+  │    ├─ pickWarmTarget(grid, budget, { peogState })
+  │    │     PERFECT_CLEAR  → MULTI_CLEAR_NOW     // PEOG active 时降级
+  │    │     MULTI_CLEAR_NOW → SETUP_FOR_MULTI    // PEOG active 时降级
+  │    └─ guaranteedDelights 由 buildWarmBudget 在 peogIntensity 注入时
+  │          重新配比（perfectClear:0）
+  └─ applyPeogSpawnHintsCap(hints, peogState)     // ★ v1.71 新增
+       multiClearBonus ≤ 0.45 (mild) / ≤ 0.30 (strong)
+       perfectClearBoost ≤ 0.15 (mild) / 0.0 (strong)
+       sizePreference ≤ 0.45 (mild) / ≤ 0.40 (strong)
+       iconBonusTarget ≥ 0.55 / clearGuarantee ≥ 1
+
+blockSpawn.generateDockShapes
+  └─ 构造算子返回后 applyPeogYieldCap()
+       单帧 yield ≤ PB × maxYieldPerSpawnRatio
+       (mild=0.08 / strong=0.05)
+```
+
+**约束**：PEOG **不修改** warmBudget 本身（`spawnsUsed` / `consumedDelights` / `hintIgnoreStreak` 等），只钳制每帧机会面。§17.4 的退出条件（`perfectClearExitCount` / `multiClearExitCount` 等）仍按温暖局原意工作；PEOG 只让"达成退出"的速度更慢，让温暖期与冲分期之间多一个平滑过渡段。
+
+**12 路 bypass 优先级**：与 §4.2 challengeBoostBypass 同纪律，详见 `docs/player/BEST_SCORE_CHASE_STRATEGY.md §4.16`。
+
+**模块契约**：
+
+| 文件 | 职责 |
+|------|------|
+| `web/src/spawn/peog.js` | 核心模块（同步到 mini/cocos）|
+| `web/src/game.js` start() | `buildPeogState`（一次性） + analytics `peog_engaged` |
+| `web/src/game.js` 每 spawn 前 | `evaluatePeogActive` + emit `lifecycle:peog_overshoot_prevented` |
+| `web/src/game.js` onPlace | `consumePeogOnPlace`（累计 yield + 升级判定） |
+| `web/src/adaptiveSpawn.js` 末尾 | `applyPeogSpawnHintsCap` + 写 `stressBreakdown.peog*` |
+| `web/src/bot/blockSpawn.js` | `applyPeogYieldCap` 接入 `findMultiClearCompleter` / `findLargeBlockCompleter` |
+| `web/src/spawn/warmRun.js` | `pickWarmTarget(grid, budget, { peogState })` + `buildWarmBudget(intensity, { peogIntensity })` |
 
 ---
 

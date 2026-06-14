@@ -25,11 +25,16 @@ try {
   console.warn('[spawn-tuning-v2] init failed (fallback DEFAULT theta)', e);
 }
 
+/* 上报发件箱：无网络本地缓存 + 联网批量上报（玩家行为 + 广告按次计费）。
+ * API base 默认空（仅本地缓存、不上报，不影响纯本地玩法）；配置后自动启用。 */
+const reportingOutbox = require('./utils/reportingOutbox');
+
 App({
   globalData: {
     strategyId: 'normal',
     skinId: 'classic',
     lang: 'zh-CN',
+    userId: '',
   },
 
   onLaunch() {
@@ -43,5 +48,24 @@ App({
     } catch (e) {
       console.warn('读取本地存储失败', e);
     }
+
+    // 持久化匿名用户 id（行为 / 广告归因用）
+    try {
+      let uid = wx.getStorageSync('openblock_uid');
+      if (!uid) {
+        uid = `wx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        wx.setStorageSync('openblock_uid', uid);
+      }
+      this.globalData.userId = uid;
+    } catch { /* ignore */ }
+
+    try {
+      reportingOutbox.initReportingOutbox({ platform: 'miniprogram', flushIntervalMs: 15000 });
+      reportingOutbox.enqueue('behavior', {
+        event_type: 'app_open',
+        user_id: this.globalData.userId,
+        timestamp: Date.now(),
+      });
+    } catch { /* ignore */ }
   },
 });

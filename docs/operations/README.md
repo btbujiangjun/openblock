@@ -12,6 +12,7 @@
 
 - [商业化策略](./MONETIZATION.md) —— **权威入口**：IAA+IAP 混合架构、用户分层（Whale/Dolphin/Minnow）、信号→决策管线、`CommercialModelVector`、后端 API、SQLite Schema、KPI 基线、扩展边界；附录含商业化系统综合报告（模块拓扑、漏斗 KPI、演进方向）
 - [商业运营参考分析](./COMMERCIAL_OPERATIONS.md) —— 商业化现状诊断、7项P0–P7改善优先级、集成路径（AdMob/AppLovin/Stripe IAP/Analytics）
+- [增长闭环（发行→承接→变现→再投放）飞轮诊断](./COMMERCIAL_OPERATIONS.md#零增长闭环发行买量--体验承接--商业化再投放飞轮诊断) —— UA 买量飞轮 `LTV>CPI` 判据、三阶段健康度、闭环断点、按环节改进清单与最小可行闭合路径（MVP Loop）
 - [玩家生命周期与成熟度运营蓝图](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md) —— S0–S4 × M0–M4双轴模型、北星指标（D30留存）、5×5决策矩阵、技能/价值评分公式、运营接入点与推荐实验
 - [商业化运营指南](../platform/MONETIZATION_GUIDE.md) —— 跨平台PWA/广告/IAP/签到/分享配置（位于 `docs/platform/`）
 
@@ -25,12 +26,14 @@
 - [留存信号跨平台分析](./RETENTION_SIGNALS_CROSS_PLATFORM.md) —— iOS×Android 16个行为信号与D7留存的Pearson-r相关矩阵，6项跨平台关键发现、8项P0/P1/P2落地策略
 - [留存优化快赢清单](./RETENTION_SIGNALS_CROSS_PLATFORM.md#留存优化快赢清单) —— 上述策略的工程落地方案：精确到文件/函数/行号/改动前后代码的10项优化（总计9人日）
 - [运营看板指标审计](./OPS_DASHBOARD_METRICS_AUDIT.md) —— `/ops` 数据库接入确认、指标SQL口径审计（DAU实际为WAU等）、写路径审计
+- [各端 ↔ 统一后端联通](./COMMERCIAL_OPERATIONS.md) —— 统一网络配置（`shared/client_net_config.json`）、各端离线缓存+联网同步（`reportingOutbox` 指数退避 + envelope 盖 `platform/app_version`）、后端分端统计 `/api/ops/by-platform`
 - [能力偏好分析（离线画像工具）](../algorithms/ALGORITHMS_PLAYER_MODEL.md#十九离线聚合画像与偏好分析playeranalytics) —— 跨局复盘画像：能力6维+时序特质+软概率偏好+出块建议；入口首页菜单卡「📈 能力偏好分析」（`/player-analytics.html?autorun=1`），产品/UI语义见 [`PANEL_PARAMETERS.md §A.6`](../player/PANEL_PARAMETERS.md#a6-离线能力偏好分析页playeranalytics)
 
 ### 分——架构参考
 
 - [MonetizationBus 事件契约](./MONETIZATION_EVENT_BUS_CONTRACT.md) —— `MonetizationBus.js` 的权威事件定义：5个API方法、事件表、设计约束
 - [生命周期/成熟度策略架构](./PLAYER_LIFECYCLE_MATURITY_BLUEPRINT.md#十一生命周期成熟度策略架构数据层编排层策略层) —— 三层架构（数据层+编排层+策略层）解决生命周期信号碎片化问题
+- [增长飞轮模型驱动协调层](../algorithms/ALGORITHMS_MONETIZATION.md) §15.1 —— `unifiedSignals`(信号统一SSOT)/`flywheelObjective`(共同货币+损失厌恶标量化)/`policyArbiter`(全飞轮一致指令束)/`coordinationBandit`(受治理探索)，消除 UA/留存/变现策略拉扯
 
 ### 分——合规
 

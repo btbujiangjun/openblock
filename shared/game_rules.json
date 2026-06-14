@@ -270,13 +270,53 @@
         "clearGuaranteeBoost": 1
       },
       "expertEarlyBoost": {
-        "comment": "高手早期得分机会加速 —— 与 dynamicDifficulty.pbProgress（effectivePB 压缩）配套：压缩在「难度坐标」上让高手更快进挑战区，本机制在「得分机会」维度让其早期盘面多产出多消/清屏/续消，使真实分数上升更快、更早穿过铺垫区（分数玩家自己打出来，非系统改进度）。仅对 bestScore≥expertThreshold 的高手，按 effectivePB 定义的早期相位 rDifficulty<earlyRampUntil 触发；与 farFromPBBoost（按 raw pct<0.30 对所有玩家送爽）互补，覆盖其顾不到的 raw 30%~挑战区真空。救济优先：warmup/recovery/nearMiss/postPbRelease 让位。仅作用于 spawnHints，纪录线不受影响。移除或 enabled=false 即关闭。expertThreshold 建议与 dynamicDifficulty.pbProgress.expertSoftCap 对齐。",
+        "comment": "高手早期得分机会加速 —— 与 dynamicDifficulty.pbProgress（effectivePB 压缩）配套：压缩在「难度坐标」上让高手更快进挑战区，本机制在「得分机会」维度让其早期盘面多产出多消/清屏/续消，使真实分数上升更快、更早穿过铺垫区（分数玩家自己打出来，非系统改进度）。仅对 bestScore≥expertThreshold 的高手，按 effectivePB 定义的早期相位 rDifficulty<earlyRampUntil 触发；与 farFromPBBoost（按 raw pct<0.30 对所有玩家送爽）互补，覆盖其顾不到的 raw 30%~挑战区真空。救济优先：warmup/recovery/nearMiss/postPbRelease 让位。仅作用于 spawnHints，纪录线不受影响。移除或 enabled=false 即关闭。expertThreshold 建议与 dynamicDifficulty.pbProgress.expertSoftCap 对齐。当 earlyOvershootGuard.active=true 时本节 floor 与 PEOG cap 取 min（详见 §4.16）。",
         "enabled": true,
         "expertThreshold": 1200,
         "earlyRampUntil": 0.45,
         "multiClearBonusFloor": 0.5,
         "perfectClearBoostFloor": 0.5,
         "clearGuaranteeBoost": 1
+      },
+      "earlyOvershootGuard": {
+        "comment": "v1.71 PEOG（PB 早期超越守卫）—— 对 bestScore ≥ midHighFloor 的中高分段玩家，在开局前 earlyOvershootGuardSpawns 个 spawn 内压制构造算法/温暖局的高分爆点（multiClear/perfectClear/大块），守住 pct=score/bestScoreAtRunStart < pbApproachCeiling，避免开局阶段就触发 _maybeCelebrateNewBest + pbOvershootBoost 把整局推入高压硬挺导致用户生命透支。只动机会面（spawnHints + 构造算子 yield cap），不动纪录线（bestScore / derivePbCurve / challengeBoost / _maybeCelebrateNewBest 不变）。bypass 12 路按优先级短路：disabled / rollout_out / low_pb / t1_newbie / winback_first_run / manual_remote_force / recovery / near_miss / bottleneck / post_pb_release / late_phase / approach_handoff。与 expertEarlyBoost 冲突时 PEOG cap 优先（min(floor, cap)）。详见 docs/player/BEST_SCORE_CHASE_STRATEGY.md §4.16 / docs/algorithms/ALGORITHMS_SPAWN.md §十七.X。",
+        "enabled": true,
+        "rolloutPercent": 100,
+        "midHighFloor": 1200,
+        "pbApproachCeiling": 0.85,
+        "earlyOvershootGuardSpawns": 8,
+        "escalateAfterApproachCount": 3,
+        "scorePerSpawnSoftCap": 0.06,
+        "intensities": {
+          "peog_mild": {
+            "maxYieldPerSpawnRatio": 0.08,
+            "multiClearMin": 2,
+            "perfectClearAllowed": true,
+            "largeBlockMinSize": 3,
+            "guaranteedDelights": { "multiClear": 1, "monoFlush": 2, "perfectClear": 0 },
+            "spawnHints": {
+              "multiClearBonusCap": 0.45,
+              "perfectClearBoostCap": 0.15,
+              "iconBonusTargetFloor": 0.55,
+              "sizePreferenceCap": 0.45,
+              "clearGuaranteeFloor": 1
+            }
+          },
+          "peog_strong": {
+            "maxYieldPerSpawnRatio": 0.05,
+            "multiClearMin": 2,
+            "perfectClearAllowed": false,
+            "largeBlockMinSize": 3,
+            "guaranteedDelights": { "multiClear": 1, "monoFlush": 1, "perfectClear": 0 },
+            "spawnHints": {
+              "multiClearBonusCap": 0.30,
+              "perfectClearBoostCap": 0.00,
+              "iconBonusTargetFloor": 0.55,
+              "sizePreferenceCap": 0.40,
+              "clearGuaranteeFloor": 1
+            }
+          }
+        }
       }
     },
     "difficultyTuning": {
@@ -451,6 +491,12 @@
           "enabled": false,
           "intensity": "warm_strong",
           "comment": "远端实验/运营强制开关。AB 实验组通过 remoteConfig.warmRun.forceOn 接管；默认关闭。"
+        },
+        "T8_paid_acquisition": {
+          "enabled": true,
+          "intensity": "warm_rescue",
+          "maxRunsProtected": 3,
+          "comment": "RT-1 买量分流承接：付费渠道（channelAttribution.isPaidChannel）用户前 maxRunsProtected 局给最强承接，最大化 D0→D1 与 ROAS 回收；与自然量分流精修。runContext.isPaidChannel 由 game.js 注入。"
         }
       },
       "intensities": {
@@ -701,8 +747,23 @@
       "solutionAbundant": 24,
       "flexibilityFree": 24,
       "comboCellsNorm": 15,
-      "rlStateFeatureComment": "spawnStepDifficultyFeatures 暴露 4 维（scdNorm/comboCellsNorm/comboKillerNorm/comboLongBarNorm）正式拼入 RL 落子 state（→187）。另 blockSpawn 在 stepDifficulty 落库对象上附挂客观几何 contiguousRegions/concaveCorners（来自 boardTopology），供 aggregate-step-difficulty.mjs 按难度桶聚合。",
-      "weights": { "scd": 0.30, "board": 0.20, "flexibility": 0.20, "solution": 0.15, "killer": 0.15 }
+      "rlStateFeatureComment": "spawnStepDifficultyFeatures 暴露 4 维（scdNorm/comboCellsNorm/comboKillerNorm/comboLongBarNorm）正式拼入 RL 落子 state。另 blockSpawn 在 stepDifficulty 落库对象上附挂客观几何 contiguousRegions/concaveCorners（来自 boardTopology），供 aggregate-step-difficulty.mjs 按难度桶聚合。",
+      "fragmentationComment": "v1.67 空间规划：难度分新增 fragmentation 项——盘面空白区域熵(regionEntropy)与小死腔占比(smallRegionCellRatio)的合成，把『占得稀碎』纳入难度，弥补 fill/scd 的片面性。仅当传入 boardCells/topology 时生效，缺省按 0（向后行为不变）。计算 SSOT：web/src/spatialPlanning.js。",
+      "fragmentationFrom": { "regionEntropy": 0.6, "smallRegionCellRatio": 0.4 },
+      "weights": { "scd": 0.26, "board": 0.18, "flexibility": 0.18, "solution": 0.13, "killer": 0.13, "fragmentation": 0.12 }
+    },
+    "spatialPlanning": {
+      "comment": "空间规划（spatial planning）确定性度量 SSOT。填充率只衡量『占多少』，本块从拓扑结构/熵增/形状词表机动性三视角刻画『盘面被推向多可用的状态』。廉价 3 维 spatialPlanningFeatures(regionEntropy/largestRegionRatio/smallRegionCellRatio) 进 RL 落子 state 与生成式 behaviorContext；完整层(vocabMobility/familyCoverage/largeShapeCompat/optionEntropy) 进出块诊断/玩家能力/面板/透视仪；序列层 computeTopologyDelta 消费 analyzeBoardTopology 全部几何信号合成带符号结构损伤分。实现见 web/src/spatialPlanning.js，Python 镜像 rl_pytorch/spatial_planning.py。详见 docs/algorithms/ALGORITHMS_SPAWN.md §15。",
+      "enabled": true,
+      "boardSize": 8,
+      "smallRegionMaxSize": 4,
+      "largeShapeMinCells": 5,
+      "pool": "regular",
+      "topologyDelta": {
+        "weights": { "holes": 0.30, "enclosedVoid": 0.24, "concave": 0.14, "regions": 0.16, "transitions": 0.08, "wells": 0.08 },
+        "damageScale": 6
+      },
+      "abilityWeights": { "preservation": 0.30, "vocabMobility": 0.26, "consolidation": 0.18, "familyCoverage": 0.16, "optionEntropy": 0.10 }
     },
     "flowZone": {
       "comment": "心流参数：多维阈值判定心流状态 + 连续 F(t)=|boardPressure/skillLevel−1| 量化偏移度，各 adjust 随 F(t) 放大。",
@@ -908,7 +969,8 @@
       "mobilityMax": 200,
       "closeLinesMax": 6,
       "fallbackMobilityScore": 0.55,
-      "weights": { "holes": 0.36, "fill": 0.22, "mobility": 0.22, "nearClear": 0.20 }
+      "spatialPlanningComment": "v1.67：spatialPlanning 项把区域熵/最大开放区占比/小死腔占比/形状词表机动性/家族覆盖/选项熵合成单分（SSOT=spatialPlanning.js），弥补 holes/fill 的片面性。仅当 ctx.grid 存在时参与，缺省按比例重分配给其余四项。",
+      "weights": { "holes": 0.30, "fill": 0.18, "mobility": 0.18, "nearClear": 0.16, "spatialPlanning": 0.18 }
     },
     "risk": {
       "frustrationMax": 5,
@@ -1104,7 +1166,7 @@
     "rndCuriosity": {
       "comment": "v11.2 方案 C（opt-in，默认 off）：Random Network Distillation 内在动机（Burda 2018, arXiv:1810.12894）。双 MLP（target 冻结 + predictor 学习），r_intrinsic = β·||target(s) - predictor(s)||²，鼓励访问新颖 state。解决高 ep 后探索退化（entropy→0、score 停滞）问题。⚠️ 启用会引入额外网络与 β 调参；触发条件未到时启用可能干扰已收敛策略。即使 enabled=false 也会定期打印触发条件评估 alert。RL_RND=1/0 可热切换。",
       "enabled": false,
-      "stateDim": 201,
+      "stateDim": 204,
       "hiddenDim": 64,
       "outputDim": 32,
       "beta": 0.1,
@@ -1321,20 +1383,21 @@
     }
   },
   "featureEncoding": {
-    "comment": "state = 62 维标量（25 结构 + 19 颜色 + 4 单步难度 + 3 策略 one-hot + 5 arc one-hot + 6 intent one-hot）+ 64 棋盘 + 75 dock = 201；action = 15；phi = 216。策略维顺序见 strategyIds；arc/intent 顺序见 rlRewardShaping.conditionToken（顺序变更需重训）。Python 训练环境出块默认走 Node worker（scripts/rl-spawn-worker.mjs）与线上一致；RL_SPAWN_ONLINE=0 回退 block_spawn.py。改维度须同步 features 并重训。",
+    "comment": "state = 65 维标量（25 结构 + 19 颜色 + 4 单步难度 + 3 空间规划 + 3 策略 one-hot + 5 arc one-hot + 6 intent one-hot）+ 64 棋盘 + 75 dock = 204；action = 15；phi = 219。空间规划 3 维(regionEntropy/largestRegionRatio/smallRegionCellRatio) 来自 spatialPlanning.js，拼在单步难度之后、策略 one-hot 之前（condition token 仍占标量末 11 维）。策略维顺序见 strategyIds；arc/intent 顺序见 rlRewardShaping.conditionToken（顺序变更需重训）。Python 训练环境出块默认走 Node worker（scripts/rl-spawn-worker.mjs）与线上一致；RL_SPAWN_ONLINE=0 回退 block_spawn.py。改维度须同步 features 并重训。",
     "maxGridWidth": 8,
     "dockMaskSide": 5,
     "strategyIds": ["easy", "normal", "hard"],
     "strategyDim": 3,
     "conditionArcDim": 5,
     "conditionIntentDim": 6,
-    "stateScalarDim": 62,
+    "spatialPlanningDim": 3,
+    "stateScalarDim": 65,
     "colorCount": 8,
     "gridSpatialDim": 64,
     "dockSpatialDim": 75,
-    "stateDim": 201,
+    "stateDim": 204,
     "actionDim": 15,
-    "phiDim": 216,
+    "phiDim": 219,
     "dockSlots": 3,
     "almostFullLineRatio": 0.78,
     "actionNorm": {

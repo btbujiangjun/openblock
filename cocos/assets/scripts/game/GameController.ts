@@ -213,7 +213,7 @@ export class GameController extends Component {
     /** 真实 PlayerProfile（喂给 resolveAdaptiveStrategy 使寻参 θ 生效；本控制器在落子/消行处驱动）。 */
     profile?: AdaptiveProfile;
     /** 出块器引用：新局开始时 resetForNewGame() 清掉跨局 _prevScoreMilestone / specialShapeUsed 等。 */
-    spawner?: { resetForNewGame: () => void };
+    spawner?: { resetForNewGame: () => void; setStrategyId?: (id: string) => void };
     /** 本次落子后的盘面填充率快照（在 'place' 记录，微任务里连同消行结果喂 profile.recordPlace）。 */
     private _pendingPlaceFill = -1;
     /** 本次落子是否触发消行 + 行数（'clear' reason='line' 时更新，微任务 flush 后归零）。 */
@@ -760,6 +760,7 @@ export class GameController extends Component {
         this.hud.setTimeLeft(this.timeLeft > 0 ? this.timeLeft : null);
         this.hud.resetScore();
         this.resetInPlayHud();
+        AudioManager.resetPbChaseBgm();
         this.model.newGame();
         // 新开局：重置回放录制（记录本局每一步落子）。
         this.replay.begin(this.model.grid.size, mode, this.model.skin.id, this.model.best);
@@ -1082,6 +1083,12 @@ export class GameController extends Component {
                 // 追 PB「差 N 分 / 本局 +N」横幅 + 局内破纪录庆祝（对齐 web in-play PB 反馈）。
                 this.refreshBestGap(e.score);
                 this.maybeCelebrateNewBest(e.score);
+                AudioManager.updatePbChaseBgm({
+                    score: e.score,
+                    pbBaseline: this.game.pbBaseline,
+                    placements: this.game.placements,
+                    gameOver: this.model.gameOver,
+                });
                 break;
             case 'nearmiss': {
                 // 「差一行」近失鼓励：展示与否严格对齐 web `shouldShowNearMissPlaceFeedback`
@@ -1270,6 +1277,12 @@ export class GameController extends Component {
         // checkGameOver / endByTime 已经在 model 内 commit 了新 PB（若本局确实超过旧 PB），
         // 这里立即把顶栏 HUD 的"最佳"刷新到新值，避免出现"结算卡显示新 PB 但顶栏仍是旧 PB"的撕裂感。
         this.hud.setBest(this.model.best);
+        AudioManager.updatePbChaseBgm({
+            score: this.model.score,
+            pbBaseline: this.game.pbBaseline,
+            placements: this.game.placements,
+            gameOver: true,
+        });
         AudioManager.sfxGameOver();
         Storage.setNumber(STORAGE_KEYS.best, this.model.best);
         Analytics.track(ANALYTICS_EVENTS.gameOver, { score: this.model.score, mode: this.model.mode });

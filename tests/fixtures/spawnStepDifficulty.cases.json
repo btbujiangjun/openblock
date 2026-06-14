@@ -34,7 +34,7 @@
     },
     "expected": {
       "version": 1,
-      "stepDifficulty": 0.14687426758956892,
+      "stepDifficulty": 0.14843677868669664,
       "bucket": "trivial",
       "scdScore": 0.09374853517913782,
       "scdLevel": "ample",
@@ -45,12 +45,14 @@
       "minFlexibility": null,
       "boardDifficulty": 0,
       "solutionCount": 40,
+      "fragmentation": null,
       "terms": {
         "scd": 0.15624755863189638,
         "board": 0,
         "flexibility": 0.5,
         "solution": 0,
-        "killer": 0
+        "killer": 0,
+        "fragmentation": 0
       },
       "features": [
         0.15624755863189638,
@@ -98,7 +100,7 @@
     },
     "expected": {
       "version": 1,
-      "stepDifficulty": 0.5031206056060747,
+      "stepDifficulty": 0.5030733237029524,
       "bucket": "standard",
       "scdScore": 0.2812412112121496,
       "scdLevel": "ample",
@@ -109,12 +111,14 @@
       "minFlexibility": null,
       "boardDifficulty": 0.5,
       "solutionCount": 10,
+      "fragmentation": null,
       "terms": {
         "scd": 0.4687353520202494,
         "board": 0.5,
         "flexibility": 0.5,
         "solution": 0.5833333333333333,
-        "killer": 0.5
+        "killer": 0.5,
+        "fragmentation": 0
       },
       "features": [
         0.4687353520202494,
@@ -174,7 +178,7 @@
     },
     "expected": {
       "version": 1,
-      "stepDifficulty": 0.8324999999999999,
+      "stepDifficulty": 0.8301136363636363,
       "bucket": "extreme",
       "scdScore": 1.2141989857867295,
       "scdLevel": "scarce",
@@ -185,12 +189,14 @@
       "minFlexibility": null,
       "boardDifficulty": 0.85,
       "solutionCount": 2,
+      "fragmentation": null,
       "terms": {
         "scd": 1,
         "board": 0.85,
         "flexibility": 0.5,
         "solution": 0.9166666666666666,
-        "killer": 0.8333333333333334
+        "killer": 0.8333333333333334,
+        "fragmentation": 0
       },
       "features": [
         1,
@@ -264,7 +270,7 @@
     },
     "expected": {
       "version": 1,
-      "stepDifficulty": 0.69,
+      "stepDifficulty": 0.6886363636363636,
       "bucket": "hard",
       "scdScore": 1.1249531269530435,
       "scdLevel": "scarce",
@@ -275,12 +281,14 @@
       "minFlexibility": null,
       "boardDifficulty": 0.7,
       "solutionCount": null,
+      "fragmentation": null,
       "terms": {
         "scd": 1,
         "board": 0.7,
         "flexibility": 0.5,
         "solution": 0,
-        "killer": 1
+        "killer": 1,
+        "fragmentation": 0
       },
       "features": [
         1,
@@ -322,7 +330,7 @@
     },
     "expected": {
       "version": 1,
-      "stepDifficulty": 0.4872704029453876,
+      "stepDifficulty": 0.4859481241128818,
       "bucket": "standard",
       "scdScore": 0.20454080589077522,
       "scdLevel": "ample",
@@ -333,12 +341,14 @@
       "minFlexibility": null,
       "boardDifficulty": 0.3,
       "solutionCount": null,
+      "fragmentation": null,
       "terms": {
         "scd": 0.34090134315129206,
         "board": 0.3,
         "flexibility": 0.5,
         "solution": 0.5,
-        "killer": 1
+        "killer": 1,
+        "fragmentation": 0
       },
       "features": [
         0.34090134315129206,

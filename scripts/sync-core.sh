@@ -22,6 +22,7 @@ mkdir -p "$DST/lib"
 mkdir -p "$DST/spawn"
 mkdir -p "$DST/tuning/v2"
 mkdir -p "$DST/evaluation"
+mkdir -p "$DST/retention"
 
 # 小程序包不直接携带 JSON，避免开发工具把 JSON 解析成 .json.js 或提示未上传。
 # 共享数据以 CommonJS 数据模块形式进入运行时。
@@ -53,6 +54,8 @@ FILES=(
   "gameRules.js"
   "difficulty.js"
   "boardTopology.js"
+  "spatialPlanning.js"
+  "segmentation.js"
   "playerAbilityModel.js"
   "adaptiveSpawn.js"
   "playerProfile.js"
@@ -61,6 +64,9 @@ FILES=(
   "bot/blockSpawn.js"
   "spawn/commitSpawnContext.js"
   "spawn/warmRun.js"
+  "spawn/peog.js"
+  "retention/campaignManager.js"
+  "retention/winbackTiers.js"
   "tuning/v2/clientPolicyV2.js"
   "evaluation/gridAdapter.js"
   "evaluation/placementQuality.js"

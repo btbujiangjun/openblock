@@ -95,7 +95,9 @@ CONTEXT_DIM = 24
 #          把 L2 SpawnParamTuner → L1 SpawnPolicyNet 的隐式耦合转成显式条件，规避换 θ 不重训的分布漂移。
 # v1.66 P7：61 → 63，尾部追加 2 维客观几何条件（contiguousRegions/concaveCorners，归一化），
 #          与 RL state 同源（boardTopology），让生成式出块显式感知盘面碎片化 / 凹角陷阱。θ 切片 [57:61] 不变。
-BEHAVIOR_CONTEXT_DIM = 63
+# v1.67：63 → 66，尾部追加 3 维空间规划盘面条件（regionEntropy/largestRegionRatio/smallRegionCellRatio，
+#          与 RL state 同源 spatial_planning.py），spawnGeo 缺省 → 0。
+BEHAVIOR_CONTEXT_DIM = 66
 # 客观几何归一化分母（必须与 shared/game_rules.json actionNorm.maxEmptyRegions/maxConcaveCorners 一致）。
 _GEO_REGIONS_MAX = 16
 _GEO_CONCAVE_MAX = 32
@@ -310,6 +312,11 @@ def _parse_behavior_context(ps):
         #   （shared/game_rules.json actionNorm.maxEmptyRegions/maxConcaveCorners）。spawnGeo 缺省 → 0。
         _scale_unit(geo.get('contiguousRegions'), _GEO_REGIONS_MAX),
         _scale_unit(geo.get('concaveCorners'), _GEO_CONCAVE_MAX),
+        # [63-65] 空间规划盘面条件（v1.67）：区域熵 / 最大开放区占比 / 小死腔占比，
+        #   与 RL state 同源（spatial_planning.py）。已是 [0,1]，spawnGeo 缺省 → 0。
+        _clamp01(_safe(geo.get('regionEntropy'), 0)),
+        _clamp01(_safe(geo.get('largestRegionRatio'), 0)),
+        _clamp01(_safe(geo.get('smallRegionCellRatio'), 0)),
     ]
     return np.asarray(values[:BEHAVIOR_CONTEXT_DIM], dtype=np.float32)
 

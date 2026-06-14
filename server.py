@@ -17,6 +17,23 @@ from urllib.parse import urlparse
 from flask import Flask, request, jsonify, g, Response
 from flask_cors import CORS
 
+from server_security import require_write_auth, issue_entitlement, verify_entitlement
+from server_authority import (
+    authoritative_score_check,
+    north_star_metrics,
+    cohort_roi,
+    ab_uplift_from_counts,
+    k_factor,
+    telemetry_quality,
+    evaluate_guardrails,
+)
+from server_payments import (
+    verify_purchase,
+    verify_webhook_signature,
+    parse_webhook_event,
+)
+from server_replay import verify_replay
+
 
 def _load_repo_dotenv():
     """将仓库根目录 `.env` / `.env.local` 载入 os.environ（先 .env 不覆盖已有环境变量，再 .env.local 强制覆盖）。"""
@@ -244,6 +261,8 @@ def _migrate_behaviors_columns(cursor):
         ("event_type", "TEXT NOT NULL DEFAULT ''"),
         ("event_data", "TEXT"),
         ("game_state", "TEXT"),
+        ("platform", "TEXT"),
+        ("app_version", "TEXT"),
         ("timestamp", "INTEGER DEFAULT (strftime('%s', 'now'))"),
         ("created_at", "INTEGER DEFAULT (strftime('%s', 'now'))"),
         ("client_ip", "TEXT"),
@@ -289,6 +308,10 @@ def _migrate_schema(cursor):
     _ensure_column(cursor, "scores", "client_ip", "TEXT")
     _ensure_column(cursor, "payments", "client_ip", "TEXT")
     _ensure_column(cursor, "achievements", "client_ip", "TEXT")
+    # 分端统计：behaviors / ad_revenue 补 platform / app_version 列（旧库迁移）。
+    _ensure_column(cursor, "behaviors", "platform", "TEXT")
+    _ensure_column(cursor, "behaviors", "app_version", "TEXT")
+    _ensure_column(cursor, "ad_revenue", "app_version", "TEXT")
 
     cursor.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='achievements'"
@@ -494,6 +517,8 @@ def init_db():
                 event_type TEXT NOT NULL,
                 event_data TEXT,
                 game_state TEXT,
+                platform TEXT,
+                app_version TEXT,
                 timestamp INTEGER DEFAULT (strftime('%s', 'now')),
                 created_at INTEGER DEFAULT (strftime('%s', 'now')),
                 client_ip TEXT,
@@ -509,6 +534,20 @@ def init_db():
                 strategy TEXT DEFAULT 'normal',
                 timestamp INTEGER DEFAULT (strftime('%s', 'now')),
                 client_ip TEXT
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS score_audits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                reported_score INTEGER NOT NULL,
+                bound INTEGER DEFAULT 0,
+                ok INTEGER DEFAULT 1,
+                reason TEXT,
+                session_id INTEGER,
+                client_ip TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now'))
             )
         """)
 
@@ -575,6 +614,129 @@ def init_db():
                 expires_at INTEGER,
                 client_ip TEXT,
                 created_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS telemetry_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                event TEXT,
+                sent_ts INTEGER NOT NULL,
+                ack_ts INTEGER,
+                lost INTEGER DEFAULT 0,
+                latency_ms INTEGER,
+                client_ip TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS invites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                inviter_id TEXT NOT NULL,
+                invitee_id TEXT,
+                invite_code TEXT,
+                status TEXT DEFAULT 'converted',
+                client_ip TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        # UA-1：MMP 安装归因（每用户一条规范归因）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS attributions (
+                user_id TEXT PRIMARY KEY,
+                media_source TEXT,
+                medium TEXT,
+                campaign TEXT,
+                adset TEXT,
+                creative TEXT,
+                resolver TEXT,
+                via TEXT,
+                client_ip TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        # 广告收益（按次计费回流；与 behaviors 的 ad_show/ad_complete 配套）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ad_revenue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT UNIQUE,
+                user_id TEXT,
+                kind TEXT,
+                revenue_minor INTEGER DEFAULT 0,
+                currency TEXT DEFAULT 'CNY',
+                platform TEXT,
+                filled INTEGER DEFAULT 1,
+                ts INTEGER,
+                client_ip TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        # UA-3：渠道/素材级买量花费（外部导入，按天）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ad_spend (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                channel_key TEXT NOT NULL,
+                source TEXT,
+                content TEXT,
+                spend_minor INTEGER DEFAULT 0,
+                installs INTEGER DEFAULT 0,
+                currency TEXT DEFAULT 'CNY',
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                UNIQUE(date, channel_key)
+            )
+        """)
+
+        # CS-4：支付 Webhook 审计 + 退款 → 权益撤销
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS payment_webhooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT,
+                event_type TEXT,
+                user_id TEXT,
+                sku TEXT,
+                provider_ref TEXT,
+                amount_minor INTEGER DEFAULT 0,
+                raw TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+        # SG-3：服务端画像 + 跨设备同步
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS player_profiles (
+                user_id TEXT PRIMARY KEY,
+                profile TEXT NOT NULL,
+                spend_tier TEXT,
+                value_tier TEXT,
+                segment TEXT,
+                lifecycle_stage TEXT,
+                rev INTEGER DEFAULT 1,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        # DA-3：实验暂停状态（护栏自动暂停写入）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS experiment_state (
+                experiment TEXT PRIMARY KEY,
+                paused INTEGER DEFAULT 0,
+                reason TEXT,
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS entitlement_revocations (
+                user_id TEXT NOT NULL,
+                sku TEXT NOT NULL,
+                reason TEXT,
+                revoked_at INTEGER DEFAULT (strftime('%s', 'now')),
+                UNIQUE(user_id, sku)
             )
         """)
 
@@ -1073,6 +1235,110 @@ def record_behavior():
     return jsonify({"success": True, "id": cursor.lastrowid})
 
 
+@app.route("/api/behavior/batch", methods=["POST"])
+def record_behavior_batch():
+    """
+    批量行为上报（各端「无网络本地缓存 → 联网批量上报」通路的服务端入口）。
+    body: { events: [{ event_type, user_id, session_id, data?, timestamp? }] }
+    幂等：调用方可带 event_id（落到 event_data._eid），重复则忽略（轻量去重）。
+    """
+    data = request.get_json(silent=True) or {}
+    events = data.get("events", [])
+    if not isinstance(events, list) or not events:
+        return jsonify({"success": False, "error": "events required"}), 400
+    # 批次级 meta：事件缺 platform/app_version 时按批次兜底（分端统计）。
+    batch_platform = data.get("platform") or data.get("plat") or ""
+    batch_app_version = data.get("app_version") or data.get("appVersion") or ""
+    client_ip = _client_ip()
+    db = get_db()
+    cur = db.cursor()
+    inserted = 0
+    for ev in events[:500]:
+        event_type = ev.get("event_type") or ev.get("eventType") or ev.get("type") or ""
+        if not event_type:
+            continue
+        ts = ev.get("timestamp")
+        ts = int(time.time() * 1000) if ts is None else (int(ts) * 1000 if int(ts) < 10**12 else int(ts))
+        payload = ev.get("data", ev.get("properties", {})) or {}
+        if ev.get("event_id"):
+            payload = {**payload, "_eid": ev.get("event_id")}
+        platform = ev.get("platform") or batch_platform or ""
+        app_version = ev.get("app_version") or ev.get("appVersion") or batch_app_version or ""
+        cur.execute(
+            "INSERT INTO behaviors (session_id, user_id, event_type, event_data, game_state, platform, app_version, timestamp, client_ip) VALUES (?,?,?,?,?,?,?,?,?)",
+            (
+                ev.get("session_id") or ev.get("sessionId"),
+                ev.get("user_id", "") or ev.get("userId", ""),
+                event_type,
+                json.dumps(payload),
+                json.dumps(ev.get("gameState", {}) or {}),
+                platform,
+                app_version,
+                ts,
+                client_ip,
+            ),
+        )
+        inserted += 1
+    db.commit()
+    return jsonify({"success": True, "inserted": inserted})
+
+
+@app.route("/api/ad/impression", methods=["POST"])
+def record_ad_impression():
+    """
+    广告按次计费回流（需求 2/3）。一次曝光写：
+      - `ad_revenue` 一行（金额=每次计费，去重靠 event_id UNIQUE）；
+      - `behaviors` 的 ad_show（+完播则 ad_complete），供漏斗/看板统计。
+    body: { user_id, kind:'rewarded'|'interstitial', revenue_minor, filled?, completed?,
+            event_id?, session_id?, platform?, ts? }
+    支持单条或批量（events:[...]）。
+    """
+    data = request.get_json(silent=True) or {}
+    items = data.get("events") if isinstance(data.get("events"), list) else [data]
+    # 批次级 meta：单条缺 platform/app_version 时按批次兜底（分端统计）。
+    batch_platform = data.get("platform") or ""
+    batch_app_version = data.get("app_version") or data.get("appVersion") or ""
+    client_ip = _client_ip()
+    db = get_db()
+    cur = db.cursor()
+    recorded = 0
+    revenue_minor_total = 0
+    for it in items[:500]:
+        kind = it.get("kind", "rewarded")
+        user_id = it.get("user_id", "") or it.get("userId", "")
+        revenue_minor = int(it.get("revenue_minor", 0) or 0)
+        filled = 1 if it.get("filled", revenue_minor > 0) else 0
+        completed = it.get("completed", kind != "rewarded" or revenue_minor > 0)
+        ts = it.get("ts")
+        ts = int(time.time() * 1000) if ts is None else (int(ts) * 1000 if int(ts) < 10**12 else int(ts))
+        eid = it.get("event_id") or f"ad_{user_id}_{kind}_{ts}_{recorded}"
+        session_id = it.get("session_id") or it.get("sessionId")
+        platform = it.get("platform") or batch_platform or ""
+        app_version = it.get("app_version") or it.get("appVersion") or batch_app_version or ""
+        try:
+            cur.execute(
+                "INSERT INTO ad_revenue (event_id, user_id, kind, revenue_minor, currency, platform, app_version, filled, ts, client_ip) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (eid, user_id, kind, revenue_minor, it.get("currency", "CNY"), platform, app_version, filled, ts, client_ip),
+            )
+        except sqlite3.IntegrityError:
+            continue  # 去重：event_id 已存在
+        # 漏斗/看板行为（与 web/cocos analytics 同口径，带 platform 供分端统计）
+        cur.execute(
+            "INSERT INTO behaviors (session_id, user_id, event_type, event_data, game_state, platform, app_version, timestamp, client_ip) VALUES (?,?,?,?,?,?,?,?,?)",
+            (session_id, user_id, "ad_show", json.dumps({"kind": kind, "_eid": eid}), "{}", platform, app_version, ts, client_ip),
+        )
+        if completed:
+            cur.execute(
+                "INSERT INTO behaviors (session_id, user_id, event_type, event_data, game_state, platform, app_version, timestamp, client_ip) VALUES (?,?,?,?,?,?,?,?,?)",
+                (session_id, user_id, "ad_complete", json.dumps({"kind": kind, "revenue_minor": revenue_minor, "_eid": eid}), "{}", platform, app_version, ts, client_ip),
+            )
+        recorded += 1
+        revenue_minor_total += revenue_minor
+    db.commit()
+    return jsonify({"success": True, "recorded": recorded, "revenueMinor": revenue_minor_total})
+
+
 @app.route("/api/evaluation/session", methods=["POST"])
 def record_evaluation_session():
     """v1.69 单局评估上报。
@@ -1342,16 +1608,58 @@ def get_behaviors():
 
 
 @app.route("/api/score", methods=["POST"])
+@require_write_auth
 def record_score():
-    """Record a score"""
+    """Record a score（含 CS-1 服务端权威分校验）"""
     data = request.get_json() or {}
     user_id = data.get("user_id", "")
     score = data.get("score", 0)
     strategy = data.get("strategy", "normal")
+    session_id = data.get("session_id")
     client_ip = _client_ip()
 
     db = get_db()
     cursor = db.cursor()
+
+    # ── CS-1：服务端权威分 plausibility 校验 ──
+    # 取本局可验证统计（优先入参，其次最近一局 session.game_stats）。
+    stats = data.get("stats") or {}
+    if not stats:
+        sess_row = None
+        if session_id is not None:
+            sess_row = cursor.execute(
+                "SELECT game_stats FROM sessions WHERE id = ? AND user_id = ?",
+                (session_id, user_id),
+            ).fetchone()
+        if sess_row is None:
+            sess_row = cursor.execute(
+                "SELECT game_stats FROM sessions WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+                (user_id,),
+            ).fetchone()
+        if sess_row and sess_row["game_stats"]:
+            try:
+                stats = json.loads(sess_row["game_stats"]) or {}
+            except (ValueError, TypeError):
+                stats = {}
+
+    audit = authoritative_score_check(score, stats)
+    cursor.execute(
+        """
+        INSERT INTO score_audits (user_id, reported_score, bound, ok, reason, session_id, client_ip)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (user_id, int(score or 0), int(audit["bound"]), 1 if audit["ok"] else 0,
+         audit["reason"], session_id, client_ip),
+    )
+
+    # 默认仅标记不拒绝；置 OPENBLOCK_REJECT_IMPLAUSIBLE_SCORE=1 时拒绝越界分数。
+    reject = os.environ.get("OPENBLOCK_REJECT_IMPLAUSIBLE_SCORE", "0").lower() in (
+        "1", "true", "yes", "on",
+    )
+    if not audit["ok"] and reject:
+        db.commit()
+        return jsonify({"success": False, "error": "implausible_score",
+                        "audit": audit}), 422
 
     cursor.execute(
         """
@@ -1371,7 +1679,7 @@ def record_score():
 
     db.commit()
 
-    return jsonify({"success": True})
+    return jsonify({"success": True, "audit": audit})
 
 
 @app.route("/api/stats", methods=["GET"])
@@ -2551,6 +2859,7 @@ def delete_replay_sessions_zero_score():
 
 
 @app.route("/api/payment/verify", methods=["POST"])
+@require_write_auth
 def verify_payment():
     """
     支付验证 API
@@ -2569,6 +2878,12 @@ def verify_payment():
 
     if not user_id or not sku:
         return jsonify({"error": "user_id and sku required"}), 400
+
+    # MO-2：按 provider 验单（stub 走 HMAC/金额校验，渠道走真实验签骨架）。
+    ok, norm_status, reason = verify_purchase(data)
+    if not ok:
+        return jsonify({"success": False, "verified": False, "reason": reason}), 402
+    status = norm_status or status
 
     db = get_db()
     cur = db.cursor()
@@ -2617,6 +2932,462 @@ def verify_payment():
         )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/entitlement/issue", methods=["POST"])
+@require_write_auth
+def entitlement_issue():
+    """
+    MO-5：服务端确权 —— 依据 payments 表里该用户对某 SKU 的有效购买，签发
+    不可篡改的权益令牌（HMAC 签名）。客户端持令牌，读取权益时由服务端校验，
+    杜绝本地 localStorage 篡改 isAdsRemoved / 订阅状态。
+    """
+    data = request.get_json() or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    sku = data.get("sku", "")
+    if not user_id or not sku:
+        return jsonify({"error": "user_id and sku required"}), 400
+
+    db = get_db()
+    row = db.execute(
+        """
+        SELECT status, expires_at FROM payments
+        WHERE user_id = ? AND sku = ?
+          AND (status = 'completed' OR status = 'paid' OR amount_minor > 0)
+        ORDER BY created_at DESC LIMIT 1
+        """,
+        (user_id, sku),
+    ).fetchone()
+
+    if row is None:
+        return jsonify({"granted": False, "reason": "no_valid_purchase"}), 200
+
+    expires_at = row["expires_at"]
+    token = issue_entitlement(user_id, sku, expires_at)
+    return jsonify({
+        "granted": True,
+        "token": token,
+        "sku": sku,
+        "expires_at": expires_at,
+    })
+
+
+@app.route("/api/entitlement/verify", methods=["POST"])
+def entitlement_verify():
+    """MO-5：校验权益令牌（签名 + 过期）。无需写鉴权，读路径。"""
+    data = request.get_json() or {}
+    token = data.get("token", "")
+    payload, err = verify_entitlement(token)
+    if err:
+        return jsonify({"valid": False, "reason": err}), 200
+    # CS-4：退款撤销 —— 命中撤销名单则令牌失效。
+    try:
+        revoked = get_db().execute(
+            "SELECT 1 FROM entitlement_revocations WHERE user_id = ? AND sku = ? LIMIT 1",
+            (payload.get("uid", ""), payload.get("sku", "")),
+        ).fetchone()
+        if revoked:
+            return jsonify({"valid": False, "reason": "revoked"}), 200
+    except Exception:
+        pass
+    return jsonify({"valid": True, "entitlement": payload})
+
+
+@app.route("/api/attribution/postback", methods=["POST"])
+def attribution_postback():
+    """UA-1：MMP 安装归因回传（S2S）。每用户一条规范归因，幂等覆盖。"""
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    db = get_db()
+    db.execute(
+        """
+        INSERT INTO attributions (user_id, media_source, medium, campaign, adset, creative, resolver, via, client_ip)
+        VALUES (?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            media_source=excluded.media_source, medium=excluded.medium,
+            campaign=excluded.campaign, adset=excluded.adset, creative=excluded.creative,
+            resolver=excluded.resolver, via=excluded.via
+        """,
+        (
+            user_id,
+            data.get("media_source", "organic"),
+            data.get("medium", "organic"),
+            data.get("campaign", "unknown"),
+            data.get("adset", ""),
+            data.get("creative", ""),
+            data.get("resolver", "stub"),
+            data.get("via", "resolved"),
+            _client_ip(),
+        ),
+    )
+    db.commit()
+    return jsonify({"success": True})
+
+
+@app.route("/api/payment/webhook", methods=["POST"])
+def payment_webhook():
+    """
+    CS-4：支付异步通知（含退款）。验签 → 审计 → payment upsert / 退款撤销权益。
+    签名置于 header `X-OB-Signature`（stub 为 HMAC-SHA256(raw_body)）。
+    """
+    raw = request.get_data() or b""
+    provider = (request.args.get("provider") or "stub").lower()
+    signature = request.headers.get("X-OB-Signature", "")
+    if not verify_webhook_signature(provider, raw, signature):
+        return jsonify({"error": "bad_signature"}), 401
+    try:
+        body = json.loads(raw.decode("utf-8")) if raw else {}
+    except (ValueError, UnicodeDecodeError):
+        return jsonify({"error": "bad_body"}), 400
+
+    evt = parse_webhook_event(provider, body)
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        "INSERT INTO payment_webhooks (provider, event_type, user_id, sku, provider_ref, amount_minor, raw) VALUES (?,?,?,?,?,?,?)",
+        (provider, evt["type"], evt["user_id"], evt["sku"], evt["provider_ref"], evt["amount_minor"], raw.decode("utf-8", "replace")[:4000]),
+    )
+
+    if evt["type"] == "payment" and evt["user_id"] and evt["sku"]:
+        cur.execute(
+            "INSERT INTO payments (user_id, sku, provider, provider_ref, amount_minor, currency, status, client_ip) VALUES (?,?,?,?,?,?,?,?)",
+            (evt["user_id"], evt["sku"], provider, evt["provider_ref"], evt["amount_minor"], "CNY", "completed", _client_ip()),
+        )
+    elif evt["type"] == "refund" and evt["user_id"] and evt["sku"]:
+        # 标记原订单退款 + 写撤销名单（令牌校验时失效）
+        cur.execute(
+            "UPDATE payments SET status='refunded' WHERE user_id=? AND sku=?",
+            (evt["user_id"], evt["sku"]),
+        )
+        cur.execute(
+            "INSERT OR IGNORE INTO entitlement_revocations (user_id, sku, reason) VALUES (?,?,?)",
+            (evt["user_id"], evt["sku"], "refund"),
+        )
+    db.commit()
+    return jsonify({"success": True, "type": evt["type"]})
+
+
+@app.route("/api/ops/reconcile", methods=["GET"])
+def ops_reconcile():
+    """CS-4：对账 —— payments 与 webhook 回执的金额/笔数差异。"""
+    days = int(request.args.get("days", 7))
+    since = int(time.time() - days * 86400)
+    db = get_db()
+    pay = db.execute(
+        "SELECT COUNT(*) c, COALESCE(SUM(amount_minor),0) s FROM payments WHERE created_at >= ? AND status IN ('completed','paid')",
+        (since,),
+    ).fetchone()
+    refunds = db.execute(
+        "SELECT COUNT(*) c FROM payments WHERE created_at >= ? AND status='refunded'",
+        (since,),
+    ).fetchone()
+    hooks = db.execute(
+        "SELECT COUNT(*) c, COALESCE(SUM(amount_minor),0) s FROM payment_webhooks WHERE created_at >= ? AND event_type='payment'",
+        (since,),
+    ).fetchone()
+    revoked = db.execute(
+        "SELECT COUNT(*) c FROM entitlement_revocations WHERE revoked_at >= ?",
+        (since,),
+    ).fetchone()
+    return jsonify({
+        "windowDays": days,
+        "payments": {"count": pay["c"], "amountMinor": pay["s"]},
+        "refunds": {"count": refunds["c"]},
+        "webhookPayments": {"count": hooks["c"], "amountMinor": hooks["s"]},
+        "revocations": {"count": revoked["c"]},
+        "amountMatch": pay["s"] == hooks["s"],
+    })
+
+
+@app.route("/api/ops/spend/import", methods=["POST"])
+@require_write_auth
+def ops_spend_import():
+    """
+    UA-3：买量花费导入（媒体后台 API 或 CSV→JSON）。
+    body: { rows: [{ date, channel_key|source, content?, spend_minor|spend, installs? }] }
+    幂等：按 (date, channel_key) UPSERT。
+    """
+    data = request.get_json(silent=True) or {}
+    rows = data.get("rows", [])
+    if not isinstance(rows, list) or not rows:
+        return jsonify({"error": "rows required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    n = 0
+    for r in rows[:5000]:
+        date = str(r.get("date", "")).strip()
+        source = (r.get("source") or "").strip()
+        content = (r.get("content") or "").strip()
+        channel_key = (r.get("channel_key") or (f"{source}/{content}" if content else source) or "organic").strip()
+        if not date or not channel_key:
+            continue
+        spend_minor = int(r.get("spend_minor") if r.get("spend_minor") is not None else round(float(r.get("spend", 0)) * 100))
+        installs = int(r.get("installs", 0) or 0)
+        cur.execute(
+            """
+            INSERT INTO ad_spend (date, channel_key, source, content, spend_minor, installs, currency)
+            VALUES (?,?,?,?,?,?,?)
+            ON CONFLICT(date, channel_key) DO UPDATE SET
+                spend_minor=excluded.spend_minor, installs=excluded.installs,
+                source=excluded.source, content=excluded.content
+            """,
+            (date, channel_key, source, content, spend_minor, installs, r.get("currency", "CNY")),
+        )
+        n += 1
+    db.commit()
+    return jsonify({"success": True, "imported": n})
+
+
+@app.route("/api/ops/retention-by-channel", methods=["GET"])
+def ops_retention_by_channel():
+    """RT-4：分渠道留存切片（按首次会话归因分组的 D1/D7 回访率）。"""
+    days = int(request.args.get("days", 14))
+    db = get_db()
+    win_start_ms = int((time.time() - (days + 7) * 86400) * 1000)
+
+    rows = db.execute(
+        "SELECT user_id, attribution, MIN(start_time) AS first_ts FROM sessions WHERE start_time >= ? GROUP BY user_id",
+        (win_start_ms,),
+    ).fetchall()
+    # 每用户所有活跃"天"（按 UTC 日）
+    act = db.execute(
+        "SELECT DISTINCT user_id, CAST(start_time/86400000 AS INTEGER) AS day FROM sessions WHERE start_time >= ?",
+        (win_start_ms,),
+    ).fetchall()
+    days_by_user = {}
+    for r in act:
+        days_by_user.setdefault(r["user_id"], set()).add(r["day"])
+
+    agg = {}
+    for r in rows:
+        attr = {}
+        if r["attribution"]:
+            try:
+                attr = json.loads(r["attribution"]) or {}
+            except (ValueError, TypeError):
+                attr = {}
+        key = (attr.get("utm_source") or "organic").strip() or "organic"
+        first_day = int(r["first_ts"] // 86400000)
+        uset = days_by_user.get(r["user_id"], set())
+        a = agg.setdefault(key, {"installs": 0, "d1": 0, "d7": 0})
+        a["installs"] += 1
+        if (first_day + 1) in uset:
+            a["d1"] += 1
+        if (first_day + 7) in uset:
+            a["d7"] += 1
+
+    channels = []
+    for key, a in agg.items():
+        inst = a["installs"]
+        channels.append({
+            "channel": key,
+            "installs": inst,
+            "d1": round(a["d1"] / inst, 4) if inst else 0.0,
+            "d7": round(a["d7"] / inst, 4) if inst else 0.0,
+        })
+    channels.sort(key=lambda x: x["installs"], reverse=True)
+    return jsonify({"windowDays": days, "channels": channels})
+
+
+@app.route("/api/ops/by-platform", methods=["GET"])
+def ops_by_platform():
+    """分端统计：按 platform 聚合活跃用户/事件/广告曝光/广告收入。
+
+    数据源：behaviors.platform（行为 + ad_show/ad_complete）与 ad_revenue.platform。
+    缺失 platform 的旧数据归到 'unknown'。窗口默认 14 天。
+    供运营看板做「Web / 小程序 / Cocos / 微信小游戏」分端拆分与对比。
+    """
+    days = int(request.args.get("days", 14))
+    db = get_db()
+    win_start_ms = int((time.time() - days * 86400) * 1000)
+
+    def _norm(p):
+        return (p or "").strip() or "unknown"
+
+    agg = {}
+
+    def _row(p):
+        return agg.setdefault(_norm(p), {
+            "platform": _norm(p),
+            "activeUsers": set(),
+            "events": 0,
+            "adShows": 0,
+            "adRevenueMinor": 0,
+        })
+
+    # 行为：活跃用户 + 事件数 + 广告曝光数（ad_show）
+    for r in db.execute(
+        "SELECT platform, user_id, event_type, COUNT(*) AS n "
+        "FROM behaviors WHERE timestamp >= ? GROUP BY platform, user_id, event_type",
+        (win_start_ms,),
+    ).fetchall():
+        a = _row(r["platform"])
+        if r["user_id"]:
+            a["activeUsers"].add(r["user_id"])
+        a["events"] += r["n"]
+        if r["event_type"] == "ad_show":
+            a["adShows"] += r["n"]
+
+    # 广告收入：按 platform 汇总 ad_revenue（仅填充计金额）
+    for r in db.execute(
+        "SELECT platform, SUM(revenue_minor) AS rev, COUNT(*) AS n "
+        "FROM ad_revenue WHERE ts >= ? GROUP BY platform",
+        (win_start_ms,),
+    ).fetchall():
+        a = _row(r["platform"])
+        a["adRevenueMinor"] += int(r["rev"] or 0)
+
+    platforms = []
+    for a in agg.values():
+        platforms.append({
+            "platform": a["platform"],
+            "activeUsers": len(a["activeUsers"]),
+            "events": a["events"],
+            "adShows": a["adShows"],
+            "adRevenueCny": round(a["adRevenueMinor"] / 100.0, 2),
+        })
+    platforms.sort(key=lambda x: x["activeUsers"], reverse=True)
+    return jsonify({"windowDays": days, "platforms": platforms})
+
+
+@app.route("/api/ops/guardrails", methods=["GET"])
+def ops_guardrails():
+    """
+    DA-3：护栏指标自动告警 / 自动暂停。
+    以护栏事件（success 参数，如 d1_return / engaged）做 uplift，回归显著则建议暂停；
+    autopause=1 时把暂停状态写入 experiment_state。
+    """
+    experiment = (request.args.get("experiment", "") or "").strip()
+    exposure_ev = (request.args.get("exposure", "exposure") or "exposure").strip()
+    guardrail_ev = (request.args.get("success", "d1_return") or "d1_return").strip()
+    autopause = request.args.get("autopause", "0") in ("1", "true", "yes")
+    if not experiment:
+        return jsonify({"error": "experiment required"}), 400
+    try:
+        _ensure_ab_table()
+        db = get_db()
+        rows = db.execute(
+            "SELECT bucket, event, COUNT(*) AS cnt FROM ab_events WHERE experiment=? GROUP BY bucket, event",
+            (experiment,),
+        ).fetchall()
+        buckets = {}
+        for r in rows:
+            buckets.setdefault(str(r["bucket"]), {})[r["event"]] = r["cnt"]
+        uplift = ab_uplift_from_counts(buckets, exposure_event=exposure_ev, success_event=guardrail_ev)
+        verdict = evaluate_guardrails(uplift)
+
+        paused = False
+        if autopause and verdict["recommendPause"]:
+            db.execute(
+                "INSERT INTO experiment_state (experiment, paused, reason, updated_at) VALUES (?,1,?,?) "
+                "ON CONFLICT(experiment) DO UPDATE SET paused=1, reason=excluded.reason, updated_at=excluded.updated_at",
+                (experiment, f"guardrail:{guardrail_ev}", int(time.time())),
+            )
+            db.commit()
+            paused = True
+        else:
+            st = db.execute("SELECT paused FROM experiment_state WHERE experiment=?", (experiment,)).fetchone()
+            paused = bool(st["paused"]) if st else False
+
+        return jsonify({
+            "experiment": experiment,
+            "guardrailEvent": guardrail_ev,
+            "alerts": verdict["alerts"],
+            "recommendPause": verdict["recommendPause"],
+            "worstRel": verdict["worstRel"],
+            "paused": paused,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/experiment/state", methods=["GET"])
+def experiment_state_get():
+    """DA-3：读取实验暂停状态（客户端分流前可查询，已暂停则回退对照）。"""
+    experiment = (request.args.get("experiment", "") or "").strip()
+    db = get_db()
+    if experiment:
+        st = db.execute("SELECT experiment, paused, reason FROM experiment_state WHERE experiment=?", (experiment,)).fetchone()
+        if not st:
+            return jsonify({"experiment": experiment, "paused": False})
+        return jsonify({"experiment": experiment, "paused": bool(st["paused"]), "reason": st["reason"]})
+    rows = db.execute("SELECT experiment, paused, reason FROM experiment_state").fetchall()
+    return jsonify([{"experiment": r["experiment"], "paused": bool(r["paused"]), "reason": r["reason"]} for r in rows])
+
+
+@app.route("/api/profile/sync", methods=["POST"])
+@require_write_auth
+def profile_sync():
+    """
+    SG-3：服务端画像 + 跨设备同步（last-write-wins + rev）。
+    body: { user_id, profile{...}, spendTier?, valueTier?, segment?, lifecycleStage? }
+    """
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    profile = data.get("profile")
+    if not user_id or not isinstance(profile, dict):
+        return jsonify({"error": "user_id and profile required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    row = cur.execute("SELECT rev FROM player_profiles WHERE user_id=?", (user_id,)).fetchone()
+    rev = (row["rev"] + 1) if row else 1
+    cur.execute(
+        """
+        INSERT INTO player_profiles (user_id, profile, spend_tier, value_tier, segment, lifecycle_stage, rev, updated_at)
+        VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            profile=excluded.profile, spend_tier=excluded.spend_tier, value_tier=excluded.value_tier,
+            segment=excluded.segment, lifecycle_stage=excluded.lifecycle_stage,
+            rev=excluded.rev, updated_at=excluded.updated_at
+        """,
+        (
+            user_id, json.dumps(profile, ensure_ascii=False),
+            data.get("spendTier", ""), data.get("valueTier", ""),
+            data.get("segment", ""), data.get("lifecycleStage", ""),
+            rev, int(time.time()),
+        ),
+    )
+    db.commit()
+    return jsonify({"success": True, "rev": rev})
+
+
+@app.route("/api/profile/get", methods=["GET"])
+def profile_get():
+    """SG-3：拉取服务端画像（换设备/重装后恢复）。"""
+    user_id = (request.args.get("user_id", "") or "").strip()
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    row = get_db().execute("SELECT * FROM player_profiles WHERE user_id=?", (user_id,)).fetchone()
+    if not row:
+        return jsonify({"exists": False, "user_id": user_id})
+    try:
+        profile = json.loads(row["profile"]) if row["profile"] else {}
+    except (ValueError, TypeError):
+        profile = {}
+    return jsonify({
+        "exists": True, "user_id": user_id, "profile": profile,
+        "spendTier": row["spend_tier"], "valueTier": row["value_tier"],
+        "segment": row["segment"], "lifecycleStage": row["lifecycle_stage"],
+        "rev": row["rev"], "updatedAt": row["updated_at"],
+    })
+
+
+@app.route("/api/score/replay-verify", methods=["POST"])
+@require_write_auth
+def score_replay_verify():
+    """
+    CS-1：服务端回放重算。body: { user_id, reported_score, events:[...] }。
+    确定性复算总分并比对；偏差超阈值判异常（可与 score_audits 联动）。
+    """
+    data = request.get_json(silent=True) or {}
+    reported = data.get("reported_score", data.get("score", 0))
+    events = data.get("events", [])
+    if not isinstance(events, list):
+        return jsonify({"error": "events must be a list"}), 400
+    result = verify_replay(reported, events)
+    return jsonify(result)
 
 
 @app.route("/api/payments", methods=["GET"])
@@ -3681,6 +4452,262 @@ def ab_results():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/ops/ab-uplift", methods=["GET"])
+def ab_uplift():
+    """
+    DA-2：A/B uplift 统计（双比例 z 检验 + 95% CI + 显著性），以 bucket 0 为对照。
+    参数：experiment（必填）、exposure（曝光事件名，默认 exposure）、success（转化事件名，默认 conversion）。
+    """
+    experiment = (request.args.get("experiment", "") or "").strip()
+    exposure_ev = (request.args.get("exposure", "exposure") or "exposure").strip()
+    success_ev = (request.args.get("success", "conversion") or "conversion").strip()
+    if not experiment:
+        return jsonify({"error": "experiment required"}), 400
+    try:
+        _ensure_ab_table()
+        db = get_db()
+        rows = db.execute(
+            "SELECT bucket, event, COUNT(*) AS cnt FROM ab_events WHERE experiment=? GROUP BY bucket, event",
+            (experiment,),
+        ).fetchall()
+        buckets = {}
+        for r in rows:
+            b = str(r["bucket"])
+            buckets.setdefault(b, {})[r["event"]] = r["cnt"]
+        result = ab_uplift_from_counts(buckets, exposure_event=exposure_ev, success_event=success_ev)
+        return jsonify({
+            "experiment": experiment,
+            "exposureEvent": exposure_ev,
+            "successEvent": success_ev,
+            "buckets": result,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/invite/record", methods=["POST"])
+@require_write_auth
+def invite_record():
+    """SO-2：记录一次邀请转化（被邀请者落地/激活）。"""
+    data = request.get_json(silent=True) or {}
+    inviter_id = data.get("inviter_id", "") or data.get("inviterId", "")
+    invitee_id = data.get("invitee_id", "") or data.get("inviteeId", "")
+    invite_code = data.get("invite_code", "") or data.get("inviteCode", "")
+    if not inviter_id:
+        return jsonify({"error": "inviter_id required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    # 幂等：同一被邀请者只记一次有效转化
+    if invitee_id:
+        existing = cur.execute(
+            "SELECT id FROM invites WHERE invitee_id = ? LIMIT 1", (invitee_id,)
+        ).fetchone()
+        if existing:
+            return jsonify({"success": True, "deduped": True, "invite_id": existing["id"]})
+    cur.execute(
+        "INSERT INTO invites (inviter_id, invitee_id, invite_code, status, client_ip) VALUES (?,?,?,?,?)",
+        (inviter_id, invitee_id, invite_code, "converted", _client_ip()),
+    )
+    db.commit()
+    return jsonify({"success": True, "invite_id": cur.lastrowid})
+
+
+@app.route("/api/ops/k-factor", methods=["GET"])
+def ops_k_factor():
+    """SO-2：K 因子度量（人均邀请 × 邀请转化率）。"""
+    days = int(request.args.get("days", 30))
+    since_ts = int(time.time() - days * 86400)
+    since_ms = since_ts * 1000
+    db = get_db()
+    active_users = db.execute(
+        "SELECT COUNT(DISTINCT user_id) AS c FROM sessions WHERE start_time >= ?",
+        (since_ms,),
+    ).fetchone()["c"]
+    invites_sent = db.execute(
+        "SELECT COUNT(*) AS c FROM invites WHERE created_at >= ?", (since_ts,)
+    ).fetchone()["c"]
+    conversions = db.execute(
+        "SELECT COUNT(*) AS c FROM invites WHERE created_at >= ? AND status = 'converted' AND invitee_id IS NOT NULL AND invitee_id != ''",
+        (since_ts,),
+    ).fetchone()["c"]
+    result = k_factor(invites_sent, conversions, active_users)
+    result.update({
+        "windowDays": days,
+        "activeUsers": active_users,
+        "invitesSent": invites_sent,
+        "conversions": conversions,
+    })
+    return jsonify(result)
+
+
+@app.route("/api/telemetry/report", methods=["POST"])
+@require_write_auth
+def telemetry_report():
+    """
+    DA-4：客户端批量上报埋点投递回执（每条 { event, sentTs, ackTs?, lost? }）。
+    客户端是 loss/latency 的权威来源（只有客户端知道某次发送是否失败）；服务端仅落库供聚合。
+    """
+    data = request.get_json(silent=True) or {}
+    user_id = data.get("user_id", "") or data.get("userId", "")
+    records = data.get("records", [])
+    if not isinstance(records, list) or not records:
+        return jsonify({"error": "records required"}), 400
+    db = get_db()
+    cur = db.cursor()
+    client_ip = _client_ip()
+    inserted = 0
+    for r in records[:500]:
+        try:
+            sent = int(r.get("sentTs"))
+        except (TypeError, ValueError):
+            continue
+        ack_raw = r.get("ackTs")
+        try:
+            ack = int(ack_raw) if ack_raw is not None else None
+        except (TypeError, ValueError):
+            ack = None
+        lost = 1 if (r.get("lost") is True or ack is None or ack <= sent) else 0
+        latency = (ack - sent) if (ack is not None and ack > sent) else None
+        cur.execute(
+            "INSERT INTO telemetry_events (user_id, event, sent_ts, ack_ts, lost, latency_ms, client_ip) VALUES (?,?,?,?,?,?,?)",
+            (user_id, str(r.get("event", "")), sent, ack, lost, latency, client_ip),
+        )
+        inserted += 1
+    db.commit()
+    return jsonify({"success": True, "inserted": inserted})
+
+
+@app.route("/api/ops/telemetry-health", methods=["GET"])
+def ops_telemetry_health():
+    """DA-4：埋点质量聚合（丢失率 + p50/p95 + 阈值告警）。"""
+    days = int(request.args.get("days", 7))
+    since_ts = int(time.time() - days * 86400)
+    db = get_db()
+    rows = db.execute(
+        "SELECT sent_ts, ack_ts, lost FROM telemetry_events WHERE created_at >= ?",
+        (since_ts,),
+    ).fetchall()
+    records = [
+        {"sentTs": r["sent_ts"], "ackTs": r["ack_ts"], "lost": bool(r["lost"])}
+        for r in rows
+    ]
+    result = telemetry_quality(records)
+    result["windowDays"] = days
+    return jsonify(result)
+
+
+@app.route("/api/leaderboard/board", methods=["GET"])
+def leaderboard_board():
+    """
+    SO-1：统一排行榜（scope=all|weekly|friends）。
+      - all：历史最高分（scores 表 MAX）。
+      - weekly：近 7 日最高分。
+      - friends：基于 invites 关系图（你邀请的人 + 邀请你的人 + 自己）排名。
+    """
+    scope = (request.args.get("scope", "all") or "all").lower()
+    limit = request.args.get("limit", 50, type=int)
+    limit = max(1, min(200, limit))
+    user_id = (request.args.get("user_id", "") or "").strip()
+    db = get_db()
+
+    if scope == "weekly":
+        since_ts = int(time.time() - 7 * 86400)
+        rows = db.execute(
+            """
+            SELECT user_id, MAX(score) AS best_score, COUNT(*) AS games
+            FROM scores WHERE timestamp >= ?
+            GROUP BY user_id ORDER BY best_score DESC LIMIT ?
+            """,
+            (since_ts, limit),
+        ).fetchall()
+    elif scope == "friends":
+        if not user_id:
+            return jsonify({"error": "user_id required for friends scope"}), 400
+        friend_rows = db.execute(
+            """
+            SELECT invitee_id AS fid FROM invites WHERE inviter_id = ? AND invitee_id IS NOT NULL AND invitee_id != ''
+            UNION
+            SELECT inviter_id AS fid FROM invites WHERE invitee_id = ?
+            """,
+            (user_id, user_id),
+        ).fetchall()
+        ids = {user_id} | {r["fid"] for r in friend_rows if r["fid"]}
+        placeholders = ",".join("?" for _ in ids)
+        rows = db.execute(
+            f"""
+            SELECT user_id, MAX(score) AS best_score, COUNT(*) AS games
+            FROM scores WHERE user_id IN ({placeholders})
+            GROUP BY user_id ORDER BY best_score DESC LIMIT ?
+            """,
+            (*ids, limit),
+        ).fetchall()
+    else:  # all
+        rows = db.execute(
+            """
+            SELECT user_id, MAX(score) AS best_score, COUNT(*) AS games
+            FROM scores GROUP BY user_id ORDER BY best_score DESC LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    entries = [
+        {
+            "rank": i + 1,
+            "user_id": r["user_id"],
+            "best_score": r["best_score"] or 0,
+            "games": r["games"] or 0,
+            "isMe": bool(user_id) and r["user_id"] == user_id,
+        }
+        for i, r in enumerate(rows)
+    ]
+    my_rank = next((e["rank"] for e in entries if e["isMe"]), None)
+    return jsonify({"scope": scope, "entries": entries, "myRank": my_rank})
+
+
+@app.route("/api/social/pb-compare", methods=["GET"])
+def social_pb_compare():
+    """
+    SO-3：好友 PB 对比 / 挑战。基于 invites 关系图，返回我与好友的最高分排名、
+    与上一名好友的差距（gapToNext，可用于"再得 X 分超过好友 Y"挑战文案）。
+    """
+    user_id = (request.args.get("user_id", "") or "").strip()
+    if not user_id:
+        return jsonify({"error": "user_id required"}), 400
+    db = get_db()
+    friend_rows = db.execute(
+        """
+        SELECT invitee_id AS fid FROM invites WHERE inviter_id = ? AND invitee_id IS NOT NULL AND invitee_id != ''
+        UNION
+        SELECT inviter_id AS fid FROM invites WHERE invitee_id = ?
+        """,
+        (user_id, user_id),
+    ).fetchall()
+    ids = {user_id} | {r["fid"] for r in friend_rows if r["fid"]}
+    placeholders = ",".join("?" for _ in ids)
+    rows = db.execute(
+        f"SELECT user_id, MAX(score) AS best FROM scores WHERE user_id IN ({placeholders}) GROUP BY user_id ORDER BY best DESC",
+        tuple(ids),
+    ).fetchall()
+    ranking = [{"user_id": r["user_id"], "best": r["best"] or 0, "isMe": r["user_id"] == user_id} for r in rows]
+    my_idx = next((i for i, e in enumerate(ranking) if e["isMe"]), None)
+    my_best = ranking[my_idx]["best"] if my_idx is not None else 0
+    gap_to_next = None
+    next_friend = None
+    if my_idx is not None and my_idx > 0:
+        above = ranking[my_idx - 1]
+        gap_to_next = max(0, above["best"] - my_best)
+        next_friend = above["user_id"]
+    return jsonify({
+        "userId": user_id,
+        "myBest": my_best,
+        "myRank": (my_idx + 1) if my_idx is not None else None,
+        "friendCount": len(ids) - 1,
+        "gapToNext": gap_to_next,
+        "nextFriend": next_friend,
+        "ranking": ranking,
+    })
+
+
 # ── 运营看板 API ──────────────────────────────────────────────────────────────
 
 
@@ -3815,8 +4842,12 @@ def ops_dashboard():
             """,
             (since_ms,),
         ).fetchone()["cnt"]
-        # 当前无稳定渠道成本写入，先返回 0 并在前端标记“待接入”
-        acquisition_cost = 0.0
+        # 获客成本：窗口内导入的买量花费（ad_spend，CPI×安装）。
+        acq_cost_row = db.execute(
+            "SELECT COALESCE(SUM(spend_minor),0) AS s FROM ad_spend WHERE date >= ?",
+            (time.strftime("%Y-%m-%d", time.gmtime(since_ts)),),
+        ).fetchone()
+        acquisition_cost = ((acq_cost_row["s"] or 0) / 100.0) if acq_cost_row else 0.0
         # 口径：invite_register / invite_complete 作为渠道转化事件，分母取 invite_click/view
         behavior_counts_rows = db.execute(
             "SELECT event_type, COUNT(*) AS cnt FROM behaviors WHERE timestamp >= ? GROUP BY event_type",
@@ -3969,17 +5000,16 @@ def ops_dashboard():
         ad_impression_rate = _safe_div(ad_show, ad_trigger if ad_trigger > 0 else total_sessions, 4)
         ad_ctr = _safe_div(ad_click, ad_show, 4)
         ad_completion_rate = _safe_div(ad_complete, ad_show, 4)
-        # eCPM 需广告收入数据，当前用 payments 中 provider=ad 作为近似（无则 0）
+        # 广告收益从 ad_revenue 表读取（按次计费回流）；ecpm = 收益*1000 / 展示数
         ad_rev_rows = db.execute(
-            """
-            SELECT SUM(amount_minor) AS s
-            FROM payments
-            WHERE created_at >= ? AND lower(provider) IN ('ad','ads','admob','unityads')
-            """,
-            (since_ts,),
+            "SELECT SUM(revenue_minor) AS s FROM ad_revenue WHERE ts >= ?",
+            (since_ms,),
         ).fetchone()
         ad_revenue_cny = ((ad_rev_rows["s"] or 0) / 100.0) if ad_rev_rows else 0.0
         ecpm = _safe_div(ad_revenue_cny * 1000.0, ad_show, 4)
+        # 混合 ARPDAU =（IAP + 广告）/ DAU —— 增长飞轮核心口径（LTV vs CPI）
+        iap_arpdau = arpdau
+        arpdau = _safe_div(revenue_cny + ad_revenue_cny, active_users, 4)
 
         # ── 业务指标：IAP ──
         iap_conv = paid_rate
@@ -4166,6 +5196,8 @@ def ops_dashboard():
                     },
                     "revenue": {
                         "arpdau": arpdau,
+                        "iapArpdau": iap_arpdau,
+                        "adRevenue": round(ad_revenue_cny, 2),
                         "ltv": ltv,
                         "paidRate": paid_rate,
                         "arpu": arpu,
@@ -4231,6 +5263,146 @@ def ops_dashboard():
         )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ops/north-star", methods=["GET"])
+def ops_north_star():
+    """
+    DA-1：北极星指标（6 项 PB 指标 + 爽感覆盖率）。
+    口径见 server_authority.north_star_metrics 与 docs/player/BEST_SCORE_CHASE_STRATEGY.md。
+    """
+    days = int(request.args.get("days", 7))
+    since_ms = int((time.time() - days * 86400) * 1000)
+    db = get_db()
+
+    rows = db.execute(
+        """
+        SELECT user_id, score, duration, game_stats, start_time
+        FROM sessions
+        WHERE start_time >= ?
+        ORDER BY user_id ASC, start_time ASC
+        """,
+        (since_ms,),
+    ).fetchall()
+
+    sessions = []
+    running_best = {}
+    for r in rows:
+        uid = r["user_id"]
+        score = int(r["score"] or 0)
+        best_before = running_best.get(uid, 0)
+        stats = {}
+        if r["game_stats"]:
+            try:
+                stats = json.loads(r["game_stats"]) or {}
+            except (ValueError, TypeError):
+                stats = {}
+        sessions.append({
+            "score": score,
+            "best_before": best_before,
+            "clears": stats.get("clears", stats.get("totalClears", 0)),
+            "placements": stats.get("placements", stats.get("totalPlacements", 0)),
+            "combo": stats.get("maxCombo", stats.get("combo", 0)),
+            "duration": r["duration"] or 0,
+        })
+        running_best[uid] = max(best_before, score)
+
+    metrics = north_star_metrics(sessions)
+    metrics["windowDays"] = days
+    return jsonify(metrics)
+
+
+@app.route("/api/ops/cohort-ltv", methods=["GET"])
+def ops_cohort_ltv():
+    """
+    UA-2/3：渠道 × 素材 Cohort LTV / ROAS。
+    installs/revenue/arpu 由 sessions.attribution + payments 聚合；spend 需外部导入
+    （UA-3 依赖"花费导入"），未导入时 ROAS 为 null。
+    """
+    days = int(request.args.get("days", 30))
+    by_content = (request.args.get("by", "source") or "source").lower() == "content"
+    since_ms = int((time.time() - days * 86400) * 1000)
+    db = get_db()
+
+    # 每用户首次会话归因 → 渠道 key
+    first_rows = db.execute(
+        """
+        SELECT user_id, attribution, MIN(start_time) AS first_ts
+        FROM sessions
+        WHERE start_time >= ?
+        GROUP BY user_id
+        """,
+        (since_ms,),
+    ).fetchall()
+
+    user_key = {}
+    key_users = {}
+    for r in first_rows:
+        attr = {}
+        if r["attribution"]:
+            try:
+                attr = json.loads(r["attribution"]) or {}
+            except (ValueError, TypeError):
+                attr = {}
+        source = (attr.get("utm_source") or "organic").strip() or "organic"
+        content = (attr.get("utm_content") or "").strip()
+        key = f"{source}/{content}" if (by_content and content) else source
+        user_key[r["user_id"]] = key
+        key_users.setdefault(key, set()).add(r["user_id"])
+
+    # 各用户累计真实回收（元）
+    rev_rows = db.execute(
+        """
+        SELECT user_id, SUM(amount_minor) AS s
+        FROM payments
+        WHERE (status = 'completed' OR status = 'paid' OR amount_minor > 0)
+        GROUP BY user_id
+        """,
+    ).fetchall()
+    user_rev = {r["user_id"]: (r["s"] or 0) / 100.0 for r in rev_rows}
+
+    # 广告收益并入 LTV（真实 LTV = IAP + 广告），使 ROAS 反映双重变现。
+    ad_rev_rows = db.execute(
+        "SELECT user_id, SUM(revenue_minor) AS s FROM ad_revenue WHERE ts >= ? GROUP BY user_id",
+        (since_ms,),
+    ).fetchall()
+    for r in ad_rev_rows:
+        uid = r["user_id"]
+        if uid:
+            user_rev[uid] = user_rev.get(uid, 0.0) + (r["s"] or 0) / 100.0
+
+    # UA-3：按 channel_key 汇总导入花费（窗口内）。key 同 cohort 维度。
+    since_date = time.strftime("%Y-%m-%d", time.gmtime(time.time() - days * 86400))
+    spend_rows = db.execute(
+        "SELECT channel_key, source, content, SUM(spend_minor) AS sm, SUM(installs) AS ins FROM ad_spend WHERE date >= ? GROUP BY channel_key",
+        (since_date,),
+    ).fetchall()
+    spend_by_key = {}
+    for r in spend_rows:
+        k = r["channel_key"]
+        if not by_content and "/" in (k or ""):
+            k = k.split("/", 1)[0]  # 折叠到 source 维度
+        agg = spend_by_key.setdefault(k, 0.0)
+        spend_by_key[k] = agg + (r["sm"] or 0) / 100.0
+    spend_imported = bool(spend_rows)
+
+    rows = []
+    for key, users in key_users.items():
+        revenue = sum(user_rev.get(u, 0.0) for u in users)
+        rows.append({
+            "key": key,
+            "installs": len(users),
+            "spend": float(spend_by_key.get(key, 0.0)),
+            "revenue": revenue,
+            "retainedD1": 0,
+        })
+
+    return jsonify({
+        "windowDays": days,
+        "groupedBy": "content" if by_content else "source",
+        "spendImported": spend_imported,
+        "channels": cohort_roi(rows),
+    })
 
 
 @app.route("/api/ops/visits/export", methods=["GET"])

@@ -26,6 +26,7 @@ import { getSpawnPolicyMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
 import { renderStressMeter, summarizeContributors } from './stressMeter.js';
 import { UI_ICONS } from './uiIcons.js';
 import { analyzeBoardTopology, countUnfillableCells } from './boardTopology.js';
+import { spatialPlanningFeatures, computeSpatialPlanning } from './spatialPlanning.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 import { getAllShapes } from './shapes.js';
 import { computeCandidatePlacementMetric } from './bot/blockSpawn.js';
@@ -505,6 +506,20 @@ const SPAWN_TOOLTIP = {
     warmRunBudget: '温暖局预算（warmRun.budgetSnapshot）：spawnsUsed/maxSpawns 表示已消耗/总预算（按强度配额），'
         + 'consumedDelights 记录已发生的多消/清屏/同色清行次数；当 spawnsUsed 达上限或 hintIgnoreStreak≥3 或'
         + ' 达成爽感配额后退出。',
+    /* v1.71 PEOG（PB 早期超越守卫）—— 中高 PB 段开局生命透支防护。详见
+     * docs/player/BEST_SCORE_CHASE_STRATEGY.md §4.16 + ALGORITHMS_SPAWN.md §17.12。 */
+    peogIntensity: 'PEOG 强度（spawnHints.peog.intensity）：mild=默认（cap=PB×0.08、保留 perfectClearTriplet）、'
+        + 'strong=升级档（cap=PB×0.05、禁用 perfectClearTriplet）。连续 3 次 pct 触达 0.95×pbApproachCeiling 时'
+        + '自动升级，升级单向不可降级。',
+    peogYieldCap: 'PEOG 单帧 yield 上限（spawnHints.peog.maxYieldPerSpawn）：本帧构造算子候选的"期望分数收益"'
+        + '上限。超限的候选（如 multiClear 3 线 yield=180 / perfectClearTriplet yield≈12800）会被剔除或降级，'
+        + '避免开局段一次性爆分超 PB。已被 cap 砍掉的次数见 yieldCapHits。',
+    peogApproach: 'PEOG 接近 PB 次数（peog.approachCount）：累计 pct ≥ 0.95×ceiling 的落子次数。'
+        + '达到 escalateAfterApproachCount（默认 3）时从 mild 升级到 strong（cap 收紧 + 禁清屏）。',
+    peogBypass: 'PEOG 豁免原因（stressBreakdown.peogBypass）：守卫为何未激活。6 路开局期（buildPeogState 一次性判定）：'
+        + 'disabled / rollout_out / low_pb / t1_newbie / winback_first_run / manual_remote_force；'
+        + '6 路实时（evaluatePeogActive 每 spawn 判定，单向永久关闭）：recovery / near_miss / bottleneck / '
+        + 'post_pb_release / late_phase（自然到期）/ approach_handoff（pct≥ceiling 移交 challengeBoost）。',
     /* v1.70.3 构造策略：把 constructiveSpawn 的关键诊断字段做面板可视化（kinds/retry/inject/crowding）。 */
     constructiveKind: '本轮构造策略（spawnDiagnostics.constructive.kind / kinds[]）：multiClear=拥挤多消（一手 ≥2 行/列）、'
         + 'completer=单线补全（C1 逆向缺口→形状）、setup=先铺后清造势（C2 跨 dock 续接）、order=高压顺序锚（C3 权重偏置）。'
@@ -1095,13 +1110,26 @@ function _buildLiveSnapshotForSeries(game) {
             const enclosed = Number.isFinite(topo.enclosedVoidCells) ? topo.enclosedVoidCells : null;
             const isolated = Number.isFinite(topo.isolatedHoles) ? topo.isolatedHoles : null;
             const uiHoles = enclosed != null ? enclosed : (isolated != null ? isolated : topo.holes);
+            /* v1.67：空间规划廉价 3 维实时写入 spawnGeo（与 game._spawnGeoForSnapshot 对齐），
+             * 让"区域熵 / 最大开放区 / 小死腔"作为 sparkline 指标每帧刷新。SSOT=spatialPlanning.js。 */
+            let regionEntropy = null;
+            let largestRegionRatio = null;
+            let smallRegionCellRatio = null;
+            try {
+                [regionEntropy, largestRegionRatio, smallRegionCellRatio] = spatialPlanningFeatures(game.grid);
+            } catch { /* ignore */ }
             slim.spawnGeo = {
                 holes: uiHoles,
                 holesIsolated: isolated,
                 holesCoverable: topo.holes,
                 flatness: Number.isFinite(topo.flatness) ? topo.flatness : null,
                 firstMoveFreedom,
-                solutionCount
+                solutionCount,
+                contiguousRegions: Number.isFinite(topo.contiguousRegions) ? topo.contiguousRegions : null,
+                concaveCorners: Number.isFinite(topo.concaveCorners) ? topo.concaveCorners : null,
+                regionEntropy,
+                largestRegionRatio,
+                smallRegionCellRatio
             };
         } catch {
             /* ignore */
@@ -1742,6 +1770,29 @@ function _render(game) {
                     decisionCells.push(_decisionCell('预算', `${used}/${b.maxSpawns} · ${dStr}`, SPAWN_TOOLTIP.warmRunBudget));
                 }
             }
+            /* v1.71 PEOG：当 spawnHints.peog.active=true 时把强度 / yield cap / 接近次数 /
+             * cap 命中次数一次性铺到 spawn 快照卡片，让玩家与开发者都能看到「为什么开局
+             * 没出 perfectClear / 为什么多消 3 线被换成 2 线」。bypass 状态走 stressBreakdown
+             * 走 stressMeter 折叠区，不在此处展示（避免与 warmRun 块争位）。 */
+            const peog = h?.peog;
+            if (peog?.active) {
+                const intensLabel = { peog_mild: '轻档', peog_strong: '强档' }[peog.intensity] ?? peog.intensity;
+                decisionCells.push(_decisionCell('守卫', intensLabel, SPAWN_TOOLTIP.peogIntensity));
+                const cap = Number(peog.maxYieldPerSpawn);
+                if (Number.isFinite(cap) && cap > 0) {
+                    const hits = Number(peog.yieldCapHits) || 0;
+                    const capStr = hits > 0 ? `≤${Math.round(cap)} · 拒${hits}` : `≤${Math.round(cap)}`;
+                    decisionCells.push(_decisionCell('cap', capStr, SPAWN_TOOLTIP.peogYieldCap));
+                }
+                const apc = Number(peog.approachCount) || 0;
+                if (apc > 0) {
+                    decisionCells.push(_decisionCell('接近', `×${apc}`, SPAWN_TOOLTIP.peogApproach));
+                }
+            } else if (ins?.stressBreakdown?.peogBypass) {
+                /* 守卫未激活但有 bypass 原因 → 短标签（让开发者知道"这局为什么没守卫"）。 */
+                const bypassShort = String(ins.stressBreakdown.peogBypass).replace(/_/g, '·');
+                decisionCells.push(_decisionCell('守卫·关', bypassShort, SPAWN_TOOLTIP.peogBypass));
+            }
             /* v1.70.3 构造策略 cells：把 spawnDiagnostics.constructive 的关键字段做可视化。
              * 仅在 enabled=true 且本轮有 kind / 候选 / inject / retry / cooldown 任一信号时展示，
              * 避免空 dock 时撑满面板。 */
@@ -1837,6 +1888,25 @@ function _render(game) {
              * / flatness / firstMoveFreedom / tripletSolutionCount），此处不再重复显示，
              * 只保留曲线未覆盖的"近满 / 多消候选 / 清屏候选"等纯候选判定信号。 */
             if (nearFullLines > 0) diagPills.push(_spawnPill(`近满 ${nearFullLines}`, SPAWN_TOOLTIP.nearFull));
+            /* v1.67 空间规划诊断 pill：词表机动性（盘面对整个形状库还剩多少入口）+ 区域熵
+             * （开放空间被切得多碎）。填充率/空洞之外的"可规划性"视角。SSOT=spatialPlanning.js。 */
+            if (game.grid?.cells?.length) {
+                try {
+                    const sp = ins.spawnDiagnostics?.spatialPlanning || computeSpatialPlanning(game.grid);
+                    if (sp && sp.vocabMobility != null) {
+                        diagPills.push(_spawnPill(
+                            `机动 ${Math.round(sp.vocabMobility * 100)}%`,
+                            '形状词表机动性：常规 28 形状中当前盘面还能至少放下一处的占比。越高说明盘面对各种形状都留有入口、未来更可规划；越低说明只剩少数形状能落，逼近死局。填充率无法刻画此维度。SSOT=spatialPlanning.js。'
+                        ));
+                    }
+                    if (sp && Number.isFinite(sp.regionEntropy)) {
+                        diagPills.push(_spawnPill(
+                            `熵 ${Math.round(sp.regionEntropy * 100)}%`,
+                            '空白区域熵：空格按 4-连通分量切分后尺寸分布的归一化香农熵。低=开放空间整片（好），高=被切成很多不均匀小岛（碎片化、难规划）。SSOT=spatialPlanning.js。'
+                        ));
+                    }
+                } catch { /* ignore */ }
+            }
             const liveMultiCandidates = _countLiveMultiClearCandidates(game.grid, game.dockBlocks);
             if (liveMultiCandidates != null) {
                 diagPills.push(_spawnPill(`多消候选 ${liveMultiCandidates}`, SPAWN_TOOLTIP.multiClear));

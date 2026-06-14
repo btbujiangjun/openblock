@@ -28,9 +28,10 @@ SpawnPolicyNet — 联合分布 + 风格化 + 可解性 + 个性化骨架。
 forward(board, behavior_context, history, target_difficulty=None,
         playstyle_id=None, prev_shapes=None) -> dict
   - board:            (B, 8, 8) float
-  - behavior_context: (B, 63)   float（V3.1 用户行为特征；v1.57.1 56→57 加 sprint；
+  - behavior_context: (B, 66)   float（V3.1 用户行为特征；v1.57.1 56→57 加 sprint；
                                        v1.61.0 57→61 尾部加 4 维归一化 PB 曲线 θ 显式条件；
-                                       v1.66 P7 61→63 尾部加 2 维客观几何 contiguousRegions/concaveCorners）
+                                       v1.66 P7 61→63 尾部加 2 维客观几何 contiguousRegions/concaveCorners；
+                                       v1.67 63→66 尾部加 3 维空间规划 regionEntropy/largestRegionRatio/smallRegionCellRatio）
   - history:          (B, 3, 3) long（PAD=NUM_SHAPES）
   - target_difficulty:(B, 1)    float ∈ [0,1]
   - playstyle_id:     (B,)      long  ∈ [0, NUM_PLAYSTYLES) or None

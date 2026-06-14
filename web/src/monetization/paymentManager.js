@@ -52,7 +52,12 @@ function _riskBucket(risk01) {
 export function getDynamicPricingBonus(stageCode, unifiedRisk01) {
     if (!getFlag('dynamicPricing')) return 0;
     const row = DYNAMIC_PRICING_MATRIX[stageCode] || DYNAMIC_PRICING_MATRIX.S0;
-    return Number(row[_riskBucket(unifiedRisk01)]) || 0;
+    let bonus = Number(row[_riskBucket(unifiedRisk01)]) || 0;
+    /* 飞轮协调器（默认 off）：高 churn 时禁止加价，与 flywheelObjective.constraints
+     * （churn≥0.5 → noDynamicMarkup）和 offer=retention_gift/experience=relief 方向一致，
+     * 消除「动态加价 vs 留存救济/首充窗」的拉扯。 */
+    if (getFlag('coordinationArbiter') && bonus > 0 && Number(unifiedRisk01) >= 0.5) bonus = 0;
+    return bonus;
 }
 
 /**

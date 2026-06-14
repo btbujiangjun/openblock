@@ -5,6 +5,7 @@ Kenney UI Audio, CC0 1.0, https://kenney.nl/assets/ui-audio
 Kenney Casino Audio, CC0 1.0, https://kenney.nl/assets/casino-audio
 rubberduck Water/Splash/Slime SFX, CC0, https://opengameart.org/content/40-cc0-water-splash-slime-sfx
 rubberduck Creature SFX, CC0, https://opengameart.org/content/80-cc0-creature-sfx
+hernandack Short Loops Background Music Pack, freely usable research BGM, https://opengameart.org/content/short-loops-background-music-pack
 
 Usage: research/test audio overrides. Replace before production if project policy requires curated assets.
 Generated mapping policy:
@@ -19,3 +20,15 @@ Generated mapping policy:
 - Excludes harsh, hoarse, or balloon-deflate-like tokens: glitch/scratch/error/bong/close/minimize/back/scream/hurt/burp/cough/snore/breath/burble/spit/poof/pfft/fart/deflate/balloon/click/tick, plus theme-specific bans checked by `audit_theme_audio.py`.
 - External files are research overrides; code falls back to procedural SFX when missing or disabled.
 - Current theme remap manifest: `theme_audio_mapping_manifest.json`; latest audit output: `theme_audio_audit_report.json`.
+
+PB chase BGM research import:
+- Purpose: game-level personal-best chase motif, independent of skins.
+- Runtime mapping:
+  - `pb_near.ogg` <- `A Brand New Wisdom.ogg`, plays at 80%-95% of run-start PB.
+  - `pb_sprint.ogg` <- `Just Saying Tho.ogg`, plays at 95%-100% of run-start PB.
+  - `pb_release.ogg` <- `Swinging Sweet.ogg`, plays once after breaking run-start PB.
+- Bundled paths:
+  - Web: `web/public/audio/game/pb_chase/`
+  - Mini Program: `miniprogram/assets/audio/game/pb_chase/`
+  - Cocos: `cocos/assets/resources/audio/game/pb_chase/`
+- Policy: these are research files downloaded from the web for validation. Replace with commissioned or final licensed masters before production if product policy requires exclusive music identity.

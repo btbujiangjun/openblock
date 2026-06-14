@@ -8,7 +8,33 @@
 /* v1.56.1：getPlayerMaturity / getMaturityInsights 当前未使用，但保留导入 doc-link
  * 备注以便后续接入；删除 import 以通过 lint。需要时从 './playerMaturity.js' 重新导入。 */
 
+import { deriveValueTier } from '../segmentation.js';
+
 const STORAGE_KEY = 'openblock_vip_system_v1';
+
+/* SG-2：价值 tier（T0–T5）唯一口径 —— 与 segmentation SSOT 对齐。
+ *
+ * 此前 adTrigger._isLtvShielded 通过 `window.__vipSystem.getCurrentTier()?.id` 读取
+ * T2–T5 来对核心付费用户做插屏护盾，但 vipSystem 从未提供 getCurrentTier，也从未
+ * 注册 window.__vipSystem —— 该护盾分支恒为死键。这里补齐：
+ *   - getCurrentTier() 按「累计 IAP 净额」走 segmentation.deriveValueTier 得 T-tier；
+ *   - 模块加载时注册 window.__vipSystem，让 adTrigger 的护盾真正生效；
+ *   - tier.benefits 暴露权益（去广告等），实现 VIP↔频控的自动联动。
+ *
+ * 累计付费金额由 iapAdapter 维护的 spend 账本提供（同一 localStorage key）。 */
+const SPEND_LEDGER_KEY = 'openblock_mon_spend_v1';
+
+function _readLifetimeSpend() {
+    try {
+        const raw = localStorage.getItem(SPEND_LEDGER_KEY);
+        if (!raw) return 0;
+        const data = JSON.parse(raw);
+        const minor = Number(data?.totalMinor ?? 0);
+        return Number.isFinite(minor) ? minor / 100 : 0;
+    } catch {
+        return 0;
+    }
+}
 
 const VIP_LEVELS = {
     vip0: {
@@ -287,4 +313,32 @@ export function getVipLeaderboard() {
 
 export function invalidateVipCache() {
     _vipDataCache = null;
+}
+
+/**
+ * SG-2：当前价值 tier（T0–T5），adTrigger LTV 护盾 / 权益联动的唯一口径。
+ * @param {number} [spendOverride] 累计付费金额（元），省略则读 spend 账本
+ * @returns {{ id:string, name:string, benefits:string[], spend:number }}
+ */
+export function getCurrentTier(spendOverride) {
+    const spend = Number.isFinite(Number(spendOverride))
+        ? Math.max(0, Number(spendOverride))
+        : _readLifetimeSpend();
+    const tier = deriveValueTier(spend);
+    return { id: tier.id, name: tier.name, benefits: tier.benefits, spend };
+}
+
+/** tier 是否解锁某权益（如 'ad_removal_all'）。 */
+export function tierHasBenefit(benefit, spendOverride) {
+    return getCurrentTier(spendOverride).benefits.includes(benefit);
+}
+
+/* 注册 window 钩子：让 adTrigger 的懒注入读取（避免循环依赖）。 */
+if (typeof window !== 'undefined') {
+    window.__vipSystem = Object.assign(window.__vipSystem || {}, {
+        getCurrentTier,
+        tierHasBenefit,
+        getVipStatus,
+        getVipBenefits,
+    });
 }

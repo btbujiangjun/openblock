@@ -19,6 +19,7 @@
 import { analyzeBoardTopology } from './boardTopology.js';
 import { GAME_RULES } from './gameRules.js';
 import { clamp01 } from './lib/math.js';
+import { computeSpatialPlanning, computeSpatialPlanningScore } from './spatialPlanning.js';
 /* v1.48 (2026-05) — `getPlayerAbilityModel` facade 适配器依赖。
  * 静态 import 不引入循环依赖（personalization / ltvPredictor / MonetizationBus
  * 均不 import 本文件）；任何模块加载失败都被适配器内部的 try/catch 软化为空骨架。 */
@@ -283,12 +284,37 @@ export function buildPlayerAbilityVector(profile, ctx = {}) {
         ? Math.min(1, mobility / num(boardCfg.mobilityMax, 200))
         : num(boardCfg.fallbackMobilityScore, 0.55);
     const nearClearScore = Math.min(1, closeLines / num(boardCfg.closeLinesMax, 6));
-    const boardPlanning = clamp01(
-        (1 - holePenalty) * num(boardWeights.holes, 0.36)
-        + (1 - fillPenalty) * num(boardWeights.fill, 0.22)
-        + mobilityScore * num(boardWeights.mobility, 0.22)
-        + nearClearScore * num(boardWeights.nearClear, 0.20)
-    );
+
+    /* v1.67：盘面规划接入"空间规划"——填充率/空洞只看"占多少/有没有洞"，无法刻画
+     * "开放空间是否整片、对形状词表是否还留有多种入口"。spatialPlanning 把区域熵、最大开放区
+     * 占比、小死腔占比、形状词表机动性、家族覆盖、选项熵合成单分；grid 缺省时该项不参与，
+     * 权重按比例重分配给原四项（避免回放/无盘面上下文时虚高）。SSOT：spatialPlanning.js。 */
+    let spatialPlanningScore = null;
+    let spatialPlanningDescriptor = null;
+    if (ctx.grid?.cells?.length) {
+        spatialPlanningDescriptor = computeSpatialPlanning(ctx.grid);
+        spatialPlanningScore = computeSpatialPlanningScore({
+            preservation: 0.5,
+            vocabMobility: spatialPlanningDescriptor.vocabMobility,
+            largestRegionRatio: spatialPlanningDescriptor.largestRegionRatio,
+            smallRegionCellRatio: spatialPlanningDescriptor.smallRegionCellRatio,
+            familyCoverage: spatialPlanningDescriptor.familyCoverage,
+            optionEntropy: spatialPlanningDescriptor.optionEntropy,
+        });
+    }
+    const wbHoles = num(boardWeights.holes, 0.30);
+    const wbFill = num(boardWeights.fill, 0.18);
+    const wbMobility = num(boardWeights.mobility, 0.18);
+    const wbNearClear = num(boardWeights.nearClear, 0.16);
+    const wbSpatialActive = spatialPlanningScore != null ? num(boardWeights.spatialPlanning, 0.18) : 0;
+    const boardWeightSum = wbHoles + wbFill + wbMobility + wbNearClear + wbSpatialActive;
+    const boardPlanning = boardWeightSum > 0 ? clamp01((
+        (1 - holePenalty) * wbHoles
+        + (1 - fillPenalty) * wbFill
+        + mobilityScore * wbMobility
+        + nearClearScore * wbNearClear
+        + (spatialPlanningScore != null ? spatialPlanningScore * wbSpatialActive : 0)
+    ) / boardWeightSum) : 0;
 
     /* v2 riskLevel：在原 fill / holes / frustration / roundsSinceClear / (1-control) 五项之外
      * 加入两个动态信号：
@@ -393,6 +419,14 @@ export function buildPlayerAbilityVector(profile, ctx = {}) {
             boardFillVelocity: round(fillVelocityRaw, 4),
             lockRisk: round(lockRiskScore),
             recencyDecay: round(recencyDecay),
+            // v1.67 空间规划（grid 缺省时为 null，不参与 boardPlanning）
+            spatialPlanningScore: spatialPlanningScore != null ? round(spatialPlanningScore) : null,
+            spatialRegionEntropy: spatialPlanningDescriptor ? round(spatialPlanningDescriptor.regionEntropy) : null,
+            spatialLargestRegionRatio: spatialPlanningDescriptor ? round(spatialPlanningDescriptor.largestRegionRatio) : null,
+            spatialSmallRegionCellRatio: spatialPlanningDescriptor ? round(spatialPlanningDescriptor.smallRegionCellRatio) : null,
+            spatialVocabMobility: spatialPlanningDescriptor && spatialPlanningDescriptor.vocabMobility != null ? round(spatialPlanningDescriptor.vocabMobility) : null,
+            spatialFamilyCoverage: spatialPlanningDescriptor && spatialPlanningDescriptor.familyCoverage != null ? round(spatialPlanningDescriptor.familyCoverage) : null,
+            spatialOptionEntropy: spatialPlanningDescriptor && spatialPlanningDescriptor.optionEntropy != null ? round(spatialPlanningDescriptor.optionEntropy) : null,
         },
         windows: {
             control: controlMetrics.windowSize ?? null,

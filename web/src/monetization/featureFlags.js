@@ -166,6 +166,16 @@ export const FLAG_DEFAULTS = {
      * 而不是规则版；默认 off。
      */
     adInsertionBandit: false,
+
+    /**
+     * 飞轮协调器（coordination/policyArbiter）总开关。
+     * 当 off（默认=影子模式）时，adTrigger / paymentManager 仍走各自原有规则路径，
+     * 协调器只可被显式调用（coordinate(signals)）做日志/对照，不改变线上决策；
+     * 当 on 时，变现侧（插屏门控、动态加价 offer）改由统一信号 + policyArbiter 仲裁，
+     * 保证三飞轮在「同一信号·同一目标·同一约束」下一致决策（消除拉扯）。
+     * 默认 off：先影子验证一致性，再金丝雀放量。
+     */
+    coordinationArbiter: false,
 };
 
 /** 从 localStorage 加载已持久化的 flag 覆盖 */

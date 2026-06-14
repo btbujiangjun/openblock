@@ -1234,6 +1234,33 @@ export const REPLAY_METRICS = [
         fmt: 'int',
         tooltip:
             '解法（展示）：当前各未放置候选块在盘面上可独立落下的合法位置数之和。新一波三块出现时、每落下一子后（候选组合变化）重算并写入曲线；与投放区「解法」pill 同源。\n📈 看图：同一轮内随落子减少；三块全部落下后至下轮出块前可能无候选（显示 —）。'
+    },
+    {
+        key: 'regionEntropy',
+        label: '区域熵',
+        group: 'game',
+        extract: ps => ps.spawnGeo?.regionEntropy,
+        fmt: 'pct',
+        tooltip:
+            '空白区域熵（0~100%）：把空格按 4-连通分量切分后，区域尺寸分布的香农熵 / ln(空格数)。\n填充率只看"占多少"，区域熵看"占得整不整齐"：一整片开放空间→熵≈0；被切成很多不均匀小岛→熵→100%。\n📈 看图：消行后通常回落（空间重新连片）；持续高位=盘面碎片化、可规划性差。与「最大开放区」反向、与「小死腔」同向。SSOT=spatialPlanning.js。'
+    },
+    {
+        key: 'largestRegionRatio',
+        label: '最大开放区',
+        group: 'game',
+        extract: ps => ps.spawnGeo?.largestRegionRatio,
+        fmt: 'pct',
+        tooltip:
+            '最大开放区占比（0~100%）：最大空白连通区 / 总空格数。衡量"开放空间是否整片"——越高越能容纳大块与长条。\n📈 看图：100%=所有空格连成一片（最健康）；下滑=空间被切割，留给大形状的入口变少。与「区域熵」「小死腔」互补。SSOT=spatialPlanning.js。'
+    },
+    {
+        key: 'smallRegionCellRatio',
+        label: '小死腔',
+        group: 'game',
+        extract: ps => ps.spawnGeo?.smallRegionCellRatio,
+        fmt: 'pct',
+        tooltip:
+            '小死腔占比（0~100%）：处于"≤4 格小型空腔"的空格 / 总空格数。这些碎块只能塞单格/小块，是难以利用的死空间。\n📈 看图：升高=盘面被切出大量难用小腔（即使填充率不高也很危险）；与「空洞」口径不同——空洞看绝对个数，本指标看"碎块占整体空间的比例"。SSOT=spatialPlanning.js。'
     }
 ];
 

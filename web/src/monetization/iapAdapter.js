@@ -14,6 +14,9 @@ import { setAdsRemoved } from './adAdapter.js';
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 
 const STORAGE_KEY = 'openblock_mon_purchases_v1';
+/* MO-4：累计付费账本（与购买状态分离，consumable/过期订阅也累加，作为真实
+ * lifetimeSpend 唯一真源；vipSystem.getCurrentTier / orchestrator updateMaturity 读取）。 */
+const SPEND_LEDGER_KEY = 'openblock_mon_spend_v1';
 
 /** 产品目录 */
 export const PRODUCTS = {
@@ -377,6 +380,7 @@ export async function purchase(productId) {
 
     if (result.success) {
         _applyPurchase(product);
+        _recordSpend(product?.priceNum ?? 0);
         const receipt = result.receipt || result.transactionId || '';
         void _syncPurchaseToServer(product, receipt);
         /* v1.49.x P0-1：统一双 emit。
@@ -403,4 +407,44 @@ export async function purchase(productId) {
 /** 获取所有购买状态快照（调试用） */
 export function getPurchasesSnapshot() {
     return _loadPurchases();
+}
+
+/* ── MO-4：累计付费账本 ──────────────────────────────────────────────────── */
+
+function _loadSpendLedger() {
+    try {
+        const raw = localStorage.getItem(SPEND_LEDGER_KEY);
+        if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    return { totalMinor: 0, count: 0, firstTs: null, lastTs: null };
+}
+
+/** 记一笔成功付费（金额单位：元）到累计账本。 */
+function _recordSpend(amountCny) {
+    const minor = Math.round(Math.max(0, Number(amountCny) || 0) * 100);
+    if (minor <= 0) return;
+    const ledger = _loadSpendLedger();
+    const now = Date.now();
+    ledger.totalMinor = (Number(ledger.totalMinor) || 0) + minor;
+    ledger.count = (Number(ledger.count) || 0) + 1;
+    ledger.firstTs = ledger.firstTs ?? now;
+    ledger.lastTs = now;
+    try {
+        localStorage.setItem(SPEND_LEDGER_KEY, JSON.stringify(ledger));
+    } catch { /* ignore */ }
+}
+
+/**
+ * 累计真实付费金额（元）。MO-4：闭合飞轮第④步「付费回流建模」的唯一口径，
+ * 供 vipSystem.getCurrentTier（价值 tier）与 playerMaturity.updateMaturity（ValueScore）读取。
+ */
+export function getLifetimeSpend() {
+    const ledger = _loadSpendLedger();
+    const minor = Number(ledger.totalMinor) || 0;
+    return +(minor / 100).toFixed(2);
+}
+
+/** 累计付费笔数（首充判定等）。 */
+export function getPurchaseCount() {
+    return Number(_loadSpendLedger().count) || 0;
 }

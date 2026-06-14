@@ -10,8 +10,6 @@
  * 3. 转化分析
  * 4. 用户旅程追踪
  */
-import { getApiBaseUrl, isSqliteClientDatabase } from '../config.mjs';
-
 const ANALYTICS_STORAGE_KEY = 'openblock_analytics_v1';
 
 /**
@@ -126,7 +124,6 @@ class AnalyticsTracker {
         this._events = [];
         this._funnelData = {};
         this._sessionId = null;
-        this._lastSync = 0;
     }
 
     /**
@@ -205,10 +202,28 @@ class AnalyticsTracker {
         
         this._saveEvents();
         
-        // 尝试同步到服务端
-        this._trySyncEvent(event);
+        // 入发件箱（无网络本地缓存 + 联网批量上报；去重靠 event_id）。
+        this._reportEvent(event);
         
         console.log('[Analytics] Tracked:', eventType, properties);
+    }
+
+    /**
+     * 把单条事件投递到上报发件箱（reportingOutbox）。
+     * 经 globalThis hook 解耦，跨端安全：mp/cocos 无 outbox 时为 no-op。
+     */
+    _reportEvent(event) {
+        const outbox = (typeof globalThis !== 'undefined') ? globalThis.__reportingOutbox : null;
+        if (!outbox?.enqueue) return;
+        try {
+            outbox.enqueue('behavior', {
+                event_type: event.type,
+                user_id: event.userId,
+                session_id: event.sessionId,
+                data: event.properties || {},
+                timestamp: event.timestamp,
+            });
+        } catch { /* 不阻塞主流程 */ }
     }
 
     /**
@@ -241,43 +256,6 @@ class AnalyticsTracker {
                     funnelProgress.completedAt = Date.now();
                 }
             }
-        }
-    }
-
-    /**
-     * 尝试同步事件到服务端
-     */
-    _trySyncEvent(_event) {
-        if (!isSqliteClientDatabase()) return;
-        
-        // 每 30 秒批量同步一次
-        if (Date.now() - this._lastSync < 30000) return;
-        
-        this._lastSync = Date.now();
-        
-        // 获取最近的事件
-        const recentEvents = this._events.slice(-50);
-        
-        this._syncEventsToServer(recentEvents);
-    }
-
-    /**
-     * 同步事件到服务端
-     */
-    async _syncEventsToServer(events) {
-        try {
-            const base = getApiBaseUrl().replace(/\/+$/, '');
-            await fetch(`${base}/api/analytics/events`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    user_id: this._userId,
-                    session_id: this._sessionId,
-                    events
-                })
-            });
-        } catch {
-            // 静默失败
         }
     }
 

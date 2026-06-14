@@ -56,6 +56,25 @@ describe('warmRun · 触发器矩阵', () => {
         expect(r.intensity).toBe('warm_strong');
     });
 
+    it('T8 买量分流承接（isPaidChannel 首会话）命中 → warm_rescue', () => {
+        const p = makeProfile({ lifetimePlacements: 500, lifetimeGames: 1 });
+        const r = evaluateWarmTriggers(p, { isPaidChannel: true });
+        expect(r.hits.some((h) => h.id === 'T8_paid_acquisition')).toBe(true);
+        expect(r.intensity).toBe('warm_rescue');
+    });
+
+    it('T8 自然量（isPaidChannel=false）不命中', () => {
+        const p = makeProfile({ lifetimePlacements: 500, lifetimeGames: 1 });
+        const r = evaluateWarmTriggers(p, { isPaidChannel: false });
+        expect(r.hits.some((h) => h.id === 'T8_paid_acquisition')).toBe(false);
+    });
+
+    it('T8 付费但已过保护局数（lifetimeGames≥maxRunsProtected）不命中', () => {
+        const p = makeProfile({ lifetimePlacements: 500, lifetimeGames: 10 });
+        const r = evaluateWarmTriggers(p, { isPaidChannel: true });
+        expect(r.hits.some((h) => h.id === 'T8_paid_acquisition')).toBe(false);
+    });
+
     it('T3 单局连挫（consecutiveNonClears≥6）命中 → warm_strong', () => {
         const p = makeProfile({ lifetimePlacements: 500, lifetimeGames: 50, consecutiveNonClears: 6 });
         const r = evaluateWarmTriggers(p, {});

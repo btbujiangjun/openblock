@@ -29,6 +29,7 @@ export default {
     'menu.editor': 'Level editor',
     'menu.docs': 'Docs',
     'menu.personalData': 'Wallet · stats',
+    'menu.leaderboard': 'Leaderboard',
     'menu.ops': 'Ops dashboard',
     'menu.localeLabel': 'Language',
     'menu.localeAria': 'Interface language',

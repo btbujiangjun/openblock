@@ -645,6 +645,9 @@ describe('auditProfile — 端到端', () => {
                 flatness: 0.7,
                 firstMoveFreedom: 12,
                 solutionCount: 30,
+                regionEntropy: 0.45,
+                largestRegionRatio: 0.7,
+                smallRegionCellRatio: 0.1,
             },
             adaptive: {
                 stress: 0.45,

@@ -30,6 +30,7 @@ import { initChannelAttribution } from './channelAttribution.js';
 import { fetchRemoteConfig } from './remoteConfig.js';
 import { initMiniGoals } from './miniGoals.js';
 import { initOpsDashboard, openOpsDashboard } from './opsDashboard.js';
+import { initLeaderboardScreen } from './social/leaderboardScreen.js';
 // v10.15 P0 彩蛋 / 惊喜系统
 import { createAudioFx } from './effects/audioFx.js';
 import { installSkinTransition } from './effects/skinTransition.js';
@@ -182,6 +183,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     bindNativeExitButtons({ game, audioFx });
     initBackButtonHandler({ game });
     initMonetization(game);
+
+    /* DA-4：埋点质量回执采集器（仅在接入后端时启用；失败不阻塞游戏）。 */
+    if (isSqliteClientDatabase()) {
+        /* 上报发件箱：广告按次计费 + 玩家行为统一走「本地缓存 → 联网批量上报」。
+         * 先于 telemetry/analytics 装载，使 globalThis hook 尽早就绪。 */
+        import('./net/reportingOutbox.js').then((outbox) => {
+            globalThis.__reportingOutbox = outbox;
+            outbox.initReportingOutbox({
+                apiBase: getApiBaseUrl(),
+                platform: 'web',
+                appVersion: import.meta.env.VITE_APP_VERSION || undefined,
+                flushIntervalMs: 15000,
+            });
+        }).catch(() => { /* not critical */ });
+
+        import('./telemetry/telemetryReporter.js').then(({ initTelemetryReporter }) => {
+            let uid = '';
+            try { uid = localStorage.getItem('bb_user_id') || ''; } catch { /* ignore */ }
+            initTelemetryReporter({ userId: uid, apiBase: getApiBaseUrl(), intervalMs: 30000 });
+        }).catch(() => { /* not critical */ });
+
+        /* UA-1：解析并上报安装归因（配置化 Provider，默认 stub）。 */
+        import('./attribution/attributionProvider.js').then(({ reportInstallAttribution }) => {
+            void reportInstallAttribution({ apiBase: getApiBaseUrl() });
+        }).catch(() => { /* not critical */ });
+    }
 
     /* v2.0: spawn-tuning v2 — d_curve 寻参 + 灰度切量 (失败不阻塞游戏, 自动 fallback DEFAULT) */
     import('./tuning/v2/policyMetricsV2.js').then(({ initPolicyMetricsV2 }) => {
@@ -361,6 +388,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 运营看板（初始化 Screen + 菜单按钮绑定）
     initOpsDashboard(game);
     document.getElementById('ops-menu-btn')?.addEventListener('click', openOpsDashboard);
+
+    // 排行榜（SO-1：全服 / 周榜 / 好友）—— Screen 初始化即绑定菜单按钮
+    initLeaderboardScreen(game);
     document.getElementById('menu-personal-data-btn')?.addEventListener('click', async () => {
         try {
             const mod = await import('./progression/personalDashboard.js');

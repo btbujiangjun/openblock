@@ -451,6 +451,9 @@ const HINT_CN = {
      * 包含 intensity/phase/target/triggerIds/budgetSnapshot 等。DFV 中作为单一节点
      * 显示，详情用 HINT_TIP.warmRun。 */
     warmRun:         '温暖局',
+    /* v1.71 PEOG：spawnHints.peog 是 PB 早期超越守卫的钳制元数据复合字段，
+     * 含 intensity/maxYieldPerSpawn/yieldCapHits/approachCount/perfectClearAllowed 等。 */
+    peog:            'PEOG 守卫',
     /* v1.70.3 构造策略（spawnDiagnostics.constructive 虚拟 hint）：把出块构造层的
      * kind/crowding/retry/inject/cooldown 几个关键信号显式暴露到 DFV。 */
     constructiveKind:    '构造策略',
@@ -480,6 +483,7 @@ const HINT_SHORT_CN = {
     motivationIntent: '动机',
     behaviorSegment: '分组',
     warmRun: '温暖',
+    peog:    '守卫',
     constructiveKind:    '构造',
     constructiveCrowd:   '拥挤',
     constructiveRetry:   '续约',
@@ -519,6 +523,17 @@ const HINT_TIP = {
         + 'target（perfect_clear / multi_clear_now / setup_for_multi / mono_flush / comfort_flow）、'
         + 'triggerIds（命中触发器集合）、budgetSnapshot（已消耗/总预算 + 爽感配额进度）、'
         + 'largeBlockMinRatio（三连中大块下限）、forbidJagged（T/Z 形钳制）。',
+    /* v1.71 PEOG：spawnHints.peog 是 PB 早期超越守卫的钳制元数据复合字段。 */
+    peog: 'PEOG · PB 早期超越守卫（spawnHints.peog）：v1.71 新增。\n'
+        + '触发：bestScore ≥ midHighFloor(1200) ∧ warmRunState.spawnsUsed < guardSpawns(8) ∧ pct < pbApproachCeiling(0.85) ∧ '
+        + 'NOT bypass(12 路)。\n'
+        + '字段：active（守卫态布尔）、intensity（peog_mild 默认 cap=PB×0.08 / peog_strong 升级档 cap=PB×0.05 禁清屏，升级单向）、'
+        + 'maxYieldPerSpawn（本帧 yield cap）、yieldCapHits（已被 cap 砍掉的构造算子候选累计数）、'
+        + 'approachCount（pct≥0.95×ceiling 累计触达次数，达 3 升级）、perfectClearAllowed（mild=true / strong=false）、'
+        + 'largeBlockMinSize（大块面积下限 mild=3 / strong=3）。\n'
+        + '与 expertEarlyBoost 冲突时 PEOG cap 优先（min(floor=0.5, cap=0.45)）；bypass 单向永久（active=false 后不再恢复）；'
+        + '不动 bestScore / derivePbCurve / _maybeCelebrateNewBest 任一纪录线。\n'
+        + '详见 docs/player/BEST_SCORE_CHASE_STRATEGY.md §4.16 / ALGORITHMS_SPAWN.md §17.12。',
     /* v1.70.3 构造策略复合 tip（虚拟 hint，来源 spawnDiagnostics.constructive，不在 spawnHints 内）。 */
     constructiveKind: '构造策略（spawnDiagnostics.constructive.kind / kinds[]）：blockSpawn 构造层本轮做了什么。\n'
         + 'multiClear=拥挤多消（一手 ≥2 行/列爽感峰值）；completer=单线补全（C1 逆向缺口→形状）；'
@@ -951,6 +966,8 @@ const SPARK_SERIES = [
     { key: 'frust',      label: 'frust',     color: '#ef4444', range: [0, 8],      format: (v) => Math.round(v).toString() },
     { key: 'pressurePhase', label: 'pressurePhase', color: '#06b6d4', range: [0, 1],
       format: (v) => (v <= 0.2 ? '低' : v >= 0.8 ? '高' : '中') },
+    /* v1.67 空间规划：区域熵（空白被切多碎，越高越碎片化）。来源 spawnDiagnostics.spatialPlanning（SSOT=spatialPlanning.js）。 */
+    { key: 'regionEntropy', label: 'regionEntropy', color: '#c084fc', range: [0, 1], format: (v) => v.toFixed(2) },
 ];
 const SPARK_BUFFER_LEN = 240;
 
@@ -1166,6 +1183,17 @@ function _dfvFingerprint(insight, profile, live) {
         `live.cr:${roundCoarse(lv.clearRate)}`,
     ];
     for (const k of Object.keys(b)) parts.push(`${k}:${roundCoarse(b[k])}`);
+    /* v1.71 PEOG：三态字段（boolean / enum / string）roundCoarse 都返回 'x'，
+     * 需要单独入指纹以确保 DFV 在 active→bypass、mild→strong 切换时立刻重渲染。 */
+    parts.push(`peog.a:${b.peogActive === true ? 1 : 0}`);
+    parts.push(`peog.i:${b.peogIntensity ?? ''}`);
+    parts.push(`peog.b:${b.peogBypass ?? ''}`);
+    /* spawnHints.peog 字段（cap/hits/approachCount）也参与（数字字段用 roundCoarse 失真小）。 */
+    const _hpeog = h?.peog;
+    if (_hpeog && _hpeog.active) {
+        parts.push(`peog.hits:${roundCoarse(_hpeog.yieldCapHits)}`);
+        parts.push(`peog.ap:${roundCoarse(_hpeog.approachCount)}`);
+    }
     /* v1.59.17：阶段③ chosen 纳入指纹——blockSpawn 重新 spawn 后 chosen[] 变化（id/reason），
      * 即便 stress/intent 未变化（极少见但发生），DFV 也应重渲染 chosen 节点行。 */
     const diag = i.spawnDiagnostics;
@@ -2769,6 +2797,10 @@ class DecisionFlowViz {
         const stressVal = _dfvStress(insight);
         const phaseRaw = insight?.spawnHints?.pressurePhase
             ?? insight?.spawnDiagnostics?.pressurePhase;
+        const _sp = insight?.spawnDiagnostics?.spatialPlanning;
+        const regionEntropyVal = Number.isFinite(_sp?.regionEntropy)
+            ? _sp.regionEntropy
+            : (Number.isFinite(insight?.spawnGeo?.regionEntropy) ? insight.spawnGeo.regionEntropy : NaN);
         this._sampleSeries({
             stress: Number.isFinite(stressVal) ? stressVal : NaN,
             momentum: Number(ctx.profile.momentum) || 0,
@@ -2776,6 +2808,7 @@ class DecisionFlowViz {
             boardFill: liveBoardFill,
             frust: Number(ctx.profile.frustrationLevel) || 0,
             pressurePhase: _pressurePhaseToSpark(phaseRaw),
+            regionEntropy: regionEntropyVal,
         });
         this._frameCount++;
         /* v1.60.42 GPU 优化：sparkline 降频 %2→%6（active 档 30fps 时 ≈5Hz）。

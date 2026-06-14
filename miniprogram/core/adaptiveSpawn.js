@@ -60,6 +60,7 @@ let _softDeps_math = {}; try { _softDeps_math = require('./lib/math'); } catch (
  * 避免循环依赖：warmRun.js 仅 import gameRules + lifecycleSignals，不反向 import 本文件。
  * 该模块内的 normalizeStress 与本文件同源（B-Clean v1.55.17），由 tests/warmRun.test.js 锁定。 */
 let _softDeps_warmRun = {}; try { _softDeps_warmRun = require('./spawn/warmRun'); } catch (_e) { /* miniprogram 不分发 spawn/ 子目录，软依赖回退空骨架 */ } const { applyWarmRun } = _softDeps_warmRun;
+let _softDeps_peog = {}; try { _softDeps_peog = require('./spawn/peog'); } catch (_e) { /* miniprogram 不分发 spawn/ 子目录，软依赖回退空骨架 */ } const { applyPeogSpawnHintsCap } = _softDeps_peog;
 
 /* ------------------------------------------------------------------ */
 /*  v1.17：harvest / payoff 触发的最低占用率门槛
@@ -3277,15 +3278,45 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     /* v1.70 warm_run 钳制层：未激活时透传，激活时返回钳制后的新对象。
      * 注意：applyWarmRun 内部完全是纯函数，依赖 grid（来自 ctx.grid 或 ctx._gridRef）做
      * delight target 选择；若 ctx 未带 grid 则降级为 COMFORT_FLOW（不影响数值钳制）。 */
+    let _withWarm = _preWarmReturn;
     if (_warmRunActive) {
         try {
-            return applyWarmRun(_preWarmReturn, ctx, { grid: ctx?.grid || ctx?._gridRef || null });
+            _withWarm = applyWarmRun(_preWarmReturn, ctx, { grid: ctx?.grid || ctx?._gridRef || null });
         } catch (_e) {
             /* 异常时退回未钳制版本，保证 fail-open。 */
-            return _preWarmReturn;
+            _withWarm = _preWarmReturn;
         }
     }
-    return _preWarmReturn;
+
+    /* v1.71 PEOG（PB 早期超越守卫）钳制层：在 warmRun 之后叠加。
+     * 中高 PB 段（bestScore ≥ midHighFloor）开局守卫，防止温暖局 + 构造算法 +
+     * expertEarlyBoost 三者叠加在前 8 个 spawn 内送出 ≥ PB 的爆点。
+     * - 仅在 ctx.peogState?.active === true 时生效；
+     * - 内部纯函数，spawnHints 字段取 min(cap) / max(floor)，与 expertEarlyBoost 冲突时 PEOG 优先；
+     * - bypass 12 路在 game.js 的 buildPeogState / evaluatePeogActive 中已先行判定，
+     *   到此处只看 active flag。 */
+    if (ctx?.peogState?.active === true) {
+        try {
+            /* stressBreakdown 写入 peog 三字段（与 §4.2 challengeBoostBypass 同纪律）。 */
+            const _sb = _withWarm._stressBreakdown || stressBreakdown || {};
+            _sb.peogActive = true;
+            _sb.peogIntensity = ctx.peogState.intensity || 'peog_mild';
+            _sb.peogBypass = null;
+            _withWarm._stressBreakdown = _sb;
+            return applyPeogSpawnHintsCap(_withWarm, ctx.peogState);
+        } catch (_e) {
+            return _withWarm;
+        }
+    }
+    /* PEOG 未激活时，把 bypass 原因（若有）写到 stressBreakdown 便于看板诊断。 */
+    if (ctx?.peogState) {
+        const _sb = _withWarm._stressBreakdown || stressBreakdown || {};
+        _sb.peogActive = false;
+        _sb.peogBypass = ctx.peogState.bypass || null;
+        _sb.peogIntensity = null;
+        _withWarm._stressBreakdown = _sb;
+    }
+    return _withWarm;
 }
 
 module.exports = { applySpawnPrior, DEFAULT_SPAWN_PARAMS_PB_CURVE, denormalizeStress, derivePbCurve, deriveSpawnIntent, MIN_BEST_FOR_MILESTONE_TOAST, normalizeStress, resetAdaptiveMilestone, resolveAdaptiveStrategy, snapshotInsightGeometry, SPAWN_PARAM_KEYS, STRESS_NORM_OFFSET, STRESS_NORM_SCALE };

@@ -61,6 +61,7 @@ import {
 } from '../monetization/personalization.js';
 import { getAdFreqSnapshot } from '../monetization/adTrigger.js';
 import { updateMaturity } from '../retention/playerMaturity.js';
+import { getLifetimeSpend } from '../monetization/iapAdapter.js';
 
 let _enabled = true;
 
@@ -173,9 +174,10 @@ export function onSessionEnd(profile, sessionResult, { tracker = null } = {}) {
         maxLevel: Math.max(0, Math.floor(score / 1000)),
         totalScore: score,
         achievementCount: 0,
-        /* lifetimeSpend / lifetimeAdImpressions 当前 PlayerProfile 没有累计字段，
-         * Phase 2 的"动态定价矩阵"会引入；此处先传 0 占位，等 P1-3 / P2-5 接通后再回写。 */
-        totalSpend: 0,
+        /* MO-4：付费数据回流 —— 把 iapAdapter 维护的累计真实付费（元）喂进 ValueScore，
+         * 闭合飞轮第④步。cocos 端 iapAdapter 为桩（getLifetimeSpend → null），回退 0。
+         * adExposureCount 由 maturity 内部按 gameData.adsWatched 自累加，这里不重复传。 */
+        totalSpend: _safe(() => getLifetimeSpend(), 'getLifetimeSpend') ?? 0,
         adExposureCount: 0,
         daysSinceInstall: profile.daysSinceInstall ?? 0,
         retainedDays: profile.daysSinceInstall ?? 0,

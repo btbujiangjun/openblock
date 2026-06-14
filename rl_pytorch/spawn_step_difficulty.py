@@ -6,10 +6,12 @@ consolidate 成 0~1 难度分 + 5 档桶，用于：
   - RL / 出块模型 **数据集标注**（按难度桶分层、加权、反事实分组）；
   - 离线「难度桶 × 算法」聚合（scripts/aggregate-step-difficulty.mjs 的 Python 侧对照）。
 
-两侧公式必须保持一致（跨语言契约测试见 tests/spawn_step_difficulty_test.py 与
+两侧公式必须保持一致（跨语言契约测试见 tests/test_spawn_step_difficulty.py 与
 tests/spawnStepDifficulty.test.js）。`spawn_step_difficulty_features` 暴露的 4 维子向量
-已正式拼入 RL 落子 state（当前 187 维：另含 2 维客观几何 contiguousRegions/concaveCorners），
+已正式拼入 RL 落子 state（当前 204 维：另含 2 维客观几何 contiguousRegions/concaveCorners
+与 v1.67 的 3 维空间规划 regionEntropy/largestRegionRatio/smallRegionCellRatio），
 由 rl_pytorch/features.py 与 web/src/bot/features.js 共同调用，保证 JS/Python 逐位一致。
+v1.67：compute_spawn_step_difficulty 新增 fragmentation 项（spatial_features 激活时）。
 
 详见 docs/algorithms/ALGORITHMS_SPAWN.md §14.二 与 docs/algorithms/ALGORITHMS_RL.md §3。
 """
@@ -33,12 +35,16 @@ DEFAULT_STEP_DIFFICULTY_CONFIG = {
     "solutionAbundant": 24,
     "flexibilityFree": 24,
     "comboCellsNorm": 15,
+    # v1.67 空间规划：fragmentation 项 = regionEntropy + smallRegionCellRatio 合成。
+    # 仅当 compute_spawn_step_difficulty 收到 spatial_features 时生效；缺省自动重分配权重。
+    "fragmentationFrom": {"regionEntropy": 0.6, "smallRegionCellRatio": 0.4},
     "weights": {
-        "scd": 0.30,
-        "board": 0.20,
-        "flexibility": 0.20,
-        "solution": 0.15,
-        "killer": 0.15,
+        "scd": 0.26,
+        "board": 0.18,
+        "flexibility": 0.18,
+        "solution": 0.13,
+        "killer": 0.13,
+        "fragmentation": 0.12,
     },
 }
 
@@ -209,7 +215,7 @@ def spawn_step_difficulty_features(
     cfg: Optional[dict] = None,
 ) -> List[float]:
     """RL 单步难度特征子向量（SSOT，确定性、廉价、无 DFS/无落点扫描）——
-    供 rl_pytorch/features.py 与 web/src/bot/features.js 拼入 RL state 标量段（当前 187 维）。
+    供 rl_pytorch/features.py 与 web/src/bot/features.js 拼入 RL state 标量段（当前 204 维）。
 
     仅依赖「候选三块几何 + 盘面占用数」，可在 MCTS 热路径每节点调用。
     返回固定 4 维（均已 clamp 到 [0,1]）：
@@ -245,9 +251,14 @@ def compute_spawn_step_difficulty(
     solution_metrics: Optional[dict] = None,
     count_legal: Optional[Callable[[Matrix], int]] = None,
     category_of: Optional[Callable] = None,
+    spatial_features: Optional[Sequence[float]] = None,
     cfg: Optional[dict] = None,
 ) -> dict:
-    """把单步难度原语 consolidate 成 0~1 分 + 5 档桶（P2）。与 JS 公式逐项对齐。"""
+    """把单步难度原语 consolidate 成 0~1 分 + 5 档桶（P2）。与 JS 公式逐项对齐。
+
+    spatial_features=[regionEntropy, largestRegionRatio, smallRegionCellRatio]（来自
+    spatial_planning.spatial_planning_features）时启用 fragmentation 项；缺省自动重分配权重。
+    """
     c = _merge_config(cfg)
     cls = classify_triplet(shapes, count_legal, category_of, c)
     scd = scd_score(cls["comboTotalCells"], occupied_count, c)
@@ -273,14 +284,40 @@ def compute_spawn_step_difficulty(
 
     killer_term = _clamp01((cls["comboKillerCnt"] + cls["comboLongBarCnt"] * 0.5) / 3)
 
+    ff = c.get("fragmentationFrom") or {}
+    fragmentation_term = None
+    if isinstance(spatial_features, (list, tuple)) and len(spatial_features) >= 3:
+        region_entropy = _clamp01(spatial_features[0])
+        small_region_cell_ratio = _clamp01(spatial_features[2])
+        fragmentation_term = _clamp01(
+            region_entropy * float(ff.get("regionEntropy", 0) or 0)
+            + small_region_cell_ratio * float(ff.get("smallRegionCellRatio", 0) or 0)
+        )
+
     w = c["weights"]
-    step_difficulty = _clamp01(
-        w["scd"] * scd_norm
-        + w["board"] * board_term
-        + w["flexibility"] * flex_term
-        + w["solution"] * solution_term
-        + w["killer"] * killer_term
+    w_frag_active = float(w.get("fragmentation", 0) or 0) if fragmentation_term is not None else 0.0
+    w_sum = (
+        float(w.get("scd", 0) or 0)
+        + float(w.get("board", 0) or 0)
+        + float(w.get("flexibility", 0) or 0)
+        + float(w.get("solution", 0) or 0)
+        + float(w.get("killer", 0) or 0)
+        + w_frag_active
     )
+    if w_sum > 0:
+        step_difficulty = _clamp01(
+            (
+                w["scd"] * scd_norm
+                + w["board"] * board_term
+                + w["flexibility"] * flex_term
+                + w["solution"] * solution_term
+                + w["killer"] * killer_term
+                + (w_frag_active * fragmentation_term if fragmentation_term is not None else 0.0)
+            )
+            / w_sum
+        )
+    else:
+        step_difficulty = 0.0
 
     return {
         "version": SPAWN_STEP_DIFFICULTY_VERSION,
@@ -295,11 +332,13 @@ def compute_spawn_step_difficulty(
         "minFlexibility": cls["minFlexibility"],
         "boardDifficulty": board_difficulty if isinstance(board_difficulty, (int, float)) else None,
         "solutionCount": solution_count,
+        "fragmentation": fragmentation_term,
         "terms": {
             "scd": scd_norm,
             "board": board_term,
             "flexibility": flex_term,
             "solution": solution_term,
             "killer": killer_term,
+            "fragmentation": fragmentation_term if fragmentation_term is not None else 0,
         },
     }

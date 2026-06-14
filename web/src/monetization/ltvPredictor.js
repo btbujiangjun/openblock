@@ -138,6 +138,79 @@ export function getLTVEstimate(profile, attribution) {
     };
 }
 
+/* ── UA-4：真实回流校准 ───────────────────────────────────────────────────
+ *
+ * 规则线性模型给出的 ltv30/出价建议是「先验」。当某渠道/分群积累了足够的真实
+ * 30 日回收样本后，用「真实均值 / 预测均值」做一次保守回归修正，把先验拉向后验：
+ *
+ *   factor = clamp( realizedAvg / predictedAvg, [1-maxAdj, 1+maxAdj] )
+ *   ltv*_cal = ltv* × shrink(factor, n)     // 样本越多越相信后验
+ *
+ * shrink 用样本量做经验贝叶斯收缩：n<minSamples 时几乎不动先验，n 越大越贴后验。
+ * 这样既能在冷启动期保护先验，又能在数据充分时跟上真实 ROAS。 */
+const CAL_DEFAULTS = Object.freeze({
+    maxAdj: 0.6,        // 单次校准对先验的最大相对调整（±60%）
+    minSamples: 20,     // 低于该样本量时收缩力度强（信先验）
+    fullSamples: 200,   // 达到该样本量时几乎完全信后验
+});
+
+function _clamp(v, lo, hi) {
+    return Math.max(lo, Math.min(hi, v));
+}
+
+/**
+ * 由「预测均值 / 真实均值 / 样本量」计算校准因子（>0）。
+ * @param {{ predictedAvg:number, realizedAvg:number, samples:number }} obs
+ * @param {object} [cfg]
+ * @returns {number} 校准乘子（1=不变）
+ */
+export function computeCalibrationFactor(obs, cfg = CAL_DEFAULTS) {
+    const { maxAdj, minSamples, fullSamples } = { ...CAL_DEFAULTS, ...cfg };
+    const predicted = Number(obs?.predictedAvg);
+    const realized = Number(obs?.realizedAvg);
+    const samples = Math.max(0, Number(obs?.samples) || 0);
+    if (!(predicted > 0) || !(realized >= 0)) return 1;
+
+    const raw = _clamp(realized / predicted, 1 - maxAdj, 1 + maxAdj);
+    // 经验贝叶斯收缩权重：[0,1]
+    const w = _clamp((samples - minSamples) / Math.max(1, fullSamples - minSamples), 0, 1);
+    return 1 + (raw - 1) * w;
+}
+
+/**
+ * 把校准因子作用到一份 LTV 估算上（ltv30/60/90 + 出价建议同步缩放）。
+ * @param {ReturnType<typeof getLTVEstimate>} estimate
+ * @param {number} factor computeCalibrationFactor 的输出
+ */
+export function calibrateLtv(estimate, factor) {
+    const f = Number(factor);
+    if (!Number.isFinite(f) || f <= 0 || f === 1) {
+        return { ...estimate, calibrationFactor: 1, calibrated: false };
+    }
+    return {
+        ...estimate,
+        ltv30: +(estimate.ltv30 * f).toFixed(2),
+        ltv60: +(estimate.ltv60 * f).toFixed(2),
+        ltv90: +(estimate.ltv90 * f).toFixed(2),
+        bidRecommendation: +(estimate.bidRecommendation * f).toFixed(2),
+        calibrationFactor: +f.toFixed(4),
+        calibrated: true,
+    };
+}
+
+/**
+ * 一步到位：预测 + 校准（出价建议接入真实 30d 回收回归修正）。
+ * @param {import('../playerProfile.js').PlayerProfile} profile
+ * @param {{ first?: {source:string}, last?: {source:string} }} [attribution]
+ * @param {{ predictedAvg:number, realizedAvg:number, samples:number }} [realized] 渠道/分群真实回收样本
+ */
+export function getCalibratedLTVEstimate(profile, attribution, realized) {
+    const base = getLTVEstimate(profile, attribution);
+    if (!realized) return { ...base, calibrationFactor: 1, calibrated: false };
+    const factor = computeCalibrationFactor(realized);
+    return calibrateLtv(base, factor);
+}
+
 /**
  * 渲染 LTV 预测卡片 HTML（供 commercialInsight.js 插入）
  */

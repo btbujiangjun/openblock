@@ -278,6 +278,19 @@ export const SIGNAL_LABELS = {
         label: '高手早段豁免',
         hint: '诊断字段：本帧 expertEarlyBoost 触发条件满足但被绕过的原因。非数值贡献分量。',
     },
+    /* v1.71 PEOG（PB 早期超越守卫）—— 中高分段开局守卫，详见 docs/player/BEST_SCORE_CHASE_STRATEGY.md §4.16。 */
+    peogActive: {
+        label: 'PEOG 守卫态',
+        hint: '诊断标志：PB 早期超越守卫（earlyOvershootGuard）激活态。中高 PB（≥midHighFloor，默认 1200）玩家开局前 8 个 spawn 内主动钳制温暖局/构造算法的得分爆点，守住 pct<pbApproachCeiling(0.85)。仅作用于 spawnHints + 构造算子 yield cap，不动纪录线。非数值贡献分量。',
+    },
+    peogIntensity: {
+        label: 'PEOG 强度',
+        hint: '诊断字段：PEOG 当前强度档 —— peog_mild（默认，cap=PB×0.08，保留 perfectClearTriplet）/ peog_strong（连续 3 次 pct 触达 0.95×ceiling 时升级，cap=PB×0.05，禁用 perfectClearTriplet）。升级单向不可降级。非数值贡献分量。',
+    },
+    peogBypass: {
+        label: 'PEOG 豁免原因',
+        hint: '诊断字段：PEOG 当前 bypass 原因（12 路按优先级短路）—— 6 路开局期：disabled/rollout_out/low_pb/t1_newbie/winback_first_run/manual_remote_force；6 路实时（永久关闭）：recovery/near_miss/bottleneck/post_pb_release/late_phase/approach_handoff。bypass 一旦触发整局不再恢复 active。非数值贡献分量。',
+    },
     occupancyDampingBypassed: {
         label: '占用衰减豁免',
         hint: '诊断标志：本帧本应触发 occupancyDamping（盘面占用率 < 50% → 衰减正向 stress），但因 PB 后段 / 强信号主导被绕过。非数值贡献分量。',

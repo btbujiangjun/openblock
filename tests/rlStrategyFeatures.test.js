@@ -20,8 +20,8 @@ import { Grid } from '../web/src/grid.js';
 describe('RL strategy + condition features', () => {
     it('维度常量与 featureEncoding 一致', () => {
         expect(rlTrainingStrategyIds()).toEqual(FEATURE_ENCODING.strategyIds);
-        expect(FEATURE_ENCODING.stateDim).toBe(201);
-        expect(FEATURE_ENCODING.stateScalarDim).toBe(62);
+        expect(FEATURE_ENCODING.stateDim).toBe(204);
+        expect(FEATURE_ENCODING.stateScalarDim).toBe(65);
         expect(CONDITION_DIM).toBe(ARC_DIM + INTENT_DIM);
         expect(CONDITION_DIM).toBe(11);
     });

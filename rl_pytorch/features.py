@@ -1,6 +1,7 @@
 """与 web/src/bot/features.js 一致的数值特征（常数来自 shared/game_rules.json）。
 
-v6: 内部热路径使用 fast_grid numpy 加速，外部接口不变。state 含策略 one-hot（190 维）。
+v6: 内部热路径使用 fast_grid numpy 加速，外部接口不变。
+v1.67：state=204（含 4 单步难度 + 3 空间规划 + 3 策略 one-hot + 11 condition token）。
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import numpy as np
 from .game_rules import FEATURE_ENCODING, rl_bonus_block_icons
 from . import fast_grid as _fg
 from .spawn_step_difficulty import spawn_step_difficulty_features
+from .spatial_planning import spatial_planning_features
 from .strategy_features import encode_strategy_onehot
 from .condition_token import encode_condition_onehot
 
@@ -187,12 +189,17 @@ def extract_state_features(
     unplaced_shapes = [b["shape"] for b in dock if not b.get("placed")]
     diff_scalars = spawn_step_difficulty_features(unplaced_shapes, int(bf["filled"]))
 
+    # 空间规划廉价 3 维（regionEntropy/largestRegionRatio/smallRegionCellRatio）——
+    # SSOT 来自 spatial_planning.py，与 web/src/bot/features.js 逐位一致。
+    spatial_scalars = spatial_planning_features(_fg.grid_to_np(grid))
+
     strategy_vec = encode_strategy_onehot(strategy_id)
     condition_vec = encode_condition_onehot(arc, intent)
     scalars = np.array(
         base_scalars
         + _encode_color_summary(grid, dock).tolist()
         + diff_scalars
+        + spatial_scalars
         + strategy_vec.tolist()
         + condition_vec.tolist(),
         dtype=np.float32,

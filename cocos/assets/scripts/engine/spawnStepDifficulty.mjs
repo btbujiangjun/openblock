@@ -47,13 +47,17 @@ export const DEFAULT_STEP_DIFFICULTY_CONFIG = Object.freeze({
     flexibilityFree: 24,
     /* RL 状态特征：三块总格归一化分母（≈3 块 × 典型 5 格） */
     comboCellsNorm: 15,
-    /* P2 合成权重（和为 1） */
+    /* v1.67 空间规划：fragmentation 项 = 空白区域熵 + 小死腔占比的合成（来自 spatialPlanning.js）。
+     * 仅当 computeSpawnStepDifficulty 收到 spatialFeatures 时生效；缺省自动把该权重重分配给其余项。 */
+    fragmentationFrom: { regionEntropy: 0.6, smallRegionCellRatio: 0.4 },
+    /* P2 合成权重（和为 1，v1.67 引入 fragmentation 后重平衡） */
     weights: {
-        scd: 0.30,
-        board: 0.20,
-        flexibility: 0.20,
-        solution: 0.15,
-        killer: 0.15
+        scd: 0.26,
+        board: 0.18,
+        flexibility: 0.18,
+        solution: 0.13,
+        killer: 0.13,
+        fragmentation: 0.12
     }
 });
 
@@ -214,8 +218,8 @@ export function scdLevel(scd, cfg) {
 
 /**
  * RL 单步难度特征子向量（SSOT，确定性、廉价、无 DFS/无落点扫描）——
- * 供 `web/src/bot/features.js` 与 `rl_pytorch/features.py` 拼入 RL state 标量段（当前 187 维：
- * 末段为 4 维单步难度 + 2 维客观几何 contiguousRegions/concaveCorners）。
+ * 供 `web/src/bot/features.js` 与 `rl_pytorch/features.py` 拼入 RL state 标量段（当前 204 维：
+ * 含 4 维单步难度 + 2 维客观几何 contiguousRegions/concaveCorners + 3 维空间规划）。
  * 仅依赖「候选三块几何 + 盘面占用数」，故可在 MCTS 热路径每节点调用。
  *
  * 返回固定 4 维（均已 clamp 到 [0,1]）：
@@ -264,6 +268,8 @@ export function difficultyBucket(stepDifficulty) {
  * @param {object|null} [input.solutionMetrics] evaluateTripletSolutions 返回值（可空）
  * @param {(data:number[][])=>number} [input.countLegal] 形状在盘面合法落点数
  * @param {(shape:any)=>string} [input.categoryOf] 形状家族
+ * @param {number[]} [input.spatialFeatures] 空间规划廉价 3 维 [regionEntropy, largestRegionRatio, smallRegionCellRatio]
+ *   （来自 spatialPlanning.spatialPlanningFeatures）。提供时启用 fragmentation 项；缺省自动重分配其权重。
  * @param {object} [cfg]
  */
 export function computeSpawnStepDifficulty(input = {}, cfg) {
@@ -274,7 +280,8 @@ export function computeSpawnStepDifficulty(input = {}, cfg) {
         boardDifficulty = null,
         solutionMetrics = null,
         countLegal = null,
-        categoryOf = null
+        categoryOf = null,
+        spatialFeatures = null
     } = input;
 
     const cls = classifyTriplet(shapes, { countLegal, categoryOf }, c);
@@ -303,14 +310,31 @@ export function computeSpawnStepDifficulty(input = {}, cfg) {
     /* killer 压力：致命块占比 + 长条占比的较温和合成（各 /3） */
     const killerTerm = clamp01((cls.comboKillerCnt + cls.comboLongBarCnt * 0.5) / 3);
 
+    /* v1.67 fragmentation：空白区域熵 + 小死腔占比的合成（弥补 fill/scd 的片面性）。
+     * spatialFeatures 缺省时该项不参与，其权重按比例重分配给其余 5 项（避免难度系统性偏低）。 */
+    const ff = c.fragmentationFrom || {};
+    let fragmentationTerm = null;
+    if (Array.isArray(spatialFeatures) && spatialFeatures.length >= 3) {
+        const regionEntropy = clamp01(spatialFeatures[0]);
+        const smallRegionCellRatio = clamp01(spatialFeatures[2]);
+        fragmentationTerm = clamp01(
+            regionEntropy * (Number(ff.regionEntropy) || 0)
+            + smallRegionCellRatio * (Number(ff.smallRegionCellRatio) || 0)
+        );
+    }
+
     const w = c.weights;
-    const stepDifficulty = clamp01(
+    const wFragActive = fragmentationTerm != null ? (Number(w.fragmentation) || 0) : 0;
+    const wSum = (Number(w.scd) || 0) + (Number(w.board) || 0) + (Number(w.flexibility) || 0)
+        + (Number(w.solution) || 0) + (Number(w.killer) || 0) + wFragActive;
+    const stepDifficulty = wSum > 0 ? clamp01((
         w.scd * scdNorm
         + w.board * boardTerm
         + w.flexibility * flexTerm
         + w.solution * solutionTerm
         + w.killer * killerTerm
-    );
+        + (fragmentationTerm != null ? wFragActive * fragmentationTerm : 0)
+    ) / wSum) : 0;
 
     return {
         version: SPAWN_STEP_DIFFICULTY_VERSION,
@@ -325,12 +349,14 @@ export function computeSpawnStepDifficulty(input = {}, cfg) {
         minFlexibility: cls.minFlexibility,
         boardDifficulty: Number.isFinite(boardDifficulty) ? boardDifficulty : null,
         solutionCount,
+        fragmentation: fragmentationTerm,
         terms: {
             scd: scdNorm,
             board: boardTerm,
             flexibility: flexTerm,
             solution: solutionTerm,
-            killer: killerTerm
+            killer: killerTerm,
+            fragmentation: fragmentationTerm != null ? fragmentationTerm : 0
         }
     };
 }

@@ -258,6 +258,23 @@ export function evaluateWarmTriggers(profile, runContext = {}) {
         });
     }
 
+    /* —— T8 买量分流承接（RT-1）——
+     * 买量用户 CPI 已花，首会话承接质量直接决定 D0→D1 与 ROAS 回收。对来自付费
+     * 渠道（channelAttribution.isPaidChannel）的用户，在其前 maxRunsProtected 局给最强
+     * 承接（默认 warm_rescue），与自然量分流精修。config 缺省时用内置默认，保证开箱可用。 */
+    const T8 = triggers.T8_paid_acquisition;
+    if (T8?.enabled !== false && runContext.isPaidChannel) {
+        const lifetimeGames = Number(profile?.lifetimeGames) || 0;
+        const maxRuns = T8?.maxRunsProtected ?? 3;
+        if (lifetimeGames < maxRuns) {
+            hits.push({
+                id: 'T8_paid_acquisition',
+                intensity: T8?.intensity || 'warm_rescue',
+                reason: `paidChannel & lifetimeGames=${lifetimeGames}<${maxRuns}`,
+            });
+        }
+    }
+
     /* 合并：取强度最高者。 */
     let intensity = null;
     let lifecycle = null;
@@ -281,9 +298,12 @@ export function evaluateWarmTriggers(profile, runContext = {}) {
  * 根据 intensity 构造温暖局预算（局开始时调用一次）。
  *
  * @param {string} intensity 'warm_mild' | 'warm_strong' | 'warm_rescue'
+ * @param {{ peogIntensity?: string }} [opts] v1.71 PEOG：传入 peogIntensity（'peog_mild' | 'peog_strong'）
+ *   时按 peogChase.earlyOvershootGuard.intensities[peogIntensity].guaranteedDelights 重新配比，
+ *   把"高分释放（perfectClear/双 multiClear）"换成"颜色清晰节奏舒适（monoFlush 偏多）"。
  * @returns {object} warmBudget 对象（mutate by reference）
  */
-export function buildWarmBudget(intensity) {
+export function buildWarmBudget(intensity, opts = {}) {
     const cfg = readWarmRunConfig();
     const budgetCfg = cfg?.budget ?? {};
     const intensCfg = cfg?.intensities?.[intensity] ?? {};
@@ -292,6 +312,17 @@ export function buildWarmBudget(intensity) {
         ? budgetCfg.phaseSplit.slice()
         : [0.33, 0.45, 0.22];
     const phaseStrength = budgetCfg.phaseStrength ?? { early: 1.0, mid: 0.7, late: 0.4 };
+
+    let guaranteedDelights = { ...(intensCfg.guaranteedDelights ?? { multiClear: 2, monoFlush: 1, perfectClear: 1 }) };
+    /* v1.71 PEOG override：当 PEOG 激活时把 guaranteedDelights 换成保护配比。 */
+    if (opts?.peogIntensity) {
+        const peogCfg = GAME_RULES?.adaptiveSpawn?.pbChase?.earlyOvershootGuard ?? null;
+        const peogOverride = peogCfg?.intensities?.[opts.peogIntensity]?.guaranteedDelights;
+        if (peogOverride && typeof peogOverride === 'object') {
+            guaranteedDelights = { ...peogOverride };
+        }
+    }
+
     return {
         intensity,
         maxSpawns,
@@ -299,8 +330,9 @@ export function buildWarmBudget(intensity) {
         phaseSplit,
         phaseStrength: { ...phaseStrength },
         consumedDelights: { multiClear: 0, monoFlush: 0, perfectClear: 0 },
-        guaranteedDelights: { ...(intensCfg.guaranteedDelights ?? { multiClear: 2, monoFlush: 1, perfectClear: 1 }) },
+        guaranteedDelights,
         hintIgnoreStreak: 0,
+        peogIntensity: opts?.peogIntensity || null,
         startedAt: Date.now(),
     };
 }
@@ -395,31 +427,40 @@ export function shouldExitWarmRun(budget, runContext = {}) {
  *
  * @param {object} grid Grid 实例
  * @param {object} budget warmBudget
+ * @param {{ peogState?: object }} [opts] v1.71 PEOG 透传：active 时 PERFECT_CLEAR →
+ *   MULTI_CLEAR_NOW、MULTI_CLEAR_NOW（若超 cap）→ SETUP_FOR_MULTI 映射降级
  * @returns {string} WARM_TARGETS 之一
  */
-export function pickWarmTarget(grid, budget) {
+export function pickWarmTarget(grid, budget, opts = {}) {
     const cfg = readWarmRunConfig();
     const choreo = cfg?.delightChoreography ?? {};
     if (choreo.enabled === false) return WARM_TARGETS.COMFORT_FLOW;
 
     const fill = typeof grid?.getFillRatio === 'function' ? grid.getFillRatio() : 0;
     const phase = getWarmPhase(budget);
+    const peogActive = opts?.peogState?.active === true;
 
     /* perfectClear 触发：棋盘只剩少量空格（remainingEmpty ≤ pcMaxCells）
      * 此时下一组三连若能恰好填满即可清屏。
+     * v1.71 PEOG：active 时 PERFECT_CLEAR 一律降级为 MULTI_CLEAR_NOW（保留爽感，
+     * 但避免一次性 PB×2~3 的爆点，详见 docs/player/BEST_SCORE_CHASE_STRATEGY.md §4.16）。
      * 注意：perfectClearBoardFillCeiling 是「fill 上限」语义已废弃（与 maxRemaining
      * 在 8×8 盘面上互斥）；保留字段仅作向后兼容，实际判定以 remainingEmpty 为准。 */
     const remainingEmpty = _countEmpty(grid);
     const pcMaxCells = choreo.perfectClearMaxRemainingCells ?? 15;
     if (budget && budget.guaranteedDelights?.perfectClear > (budget.consumedDelights.perfectClear ?? 0)
         && remainingEmpty > 0 && remainingEmpty <= pcMaxCells) {
-        return WARM_TARGETS.PERFECT_CLEAR;
+        return peogActive ? WARM_TARGETS.MULTI_CLEAR_NOW : WARM_TARGETS.PERFECT_CLEAR;
     }
 
-    /* 检测近满线 ≥ 2 → 立刻多消。 */
+    /* 检测近满线 ≥ 2 → 立刻多消。
+     * v1.71 PEOG：active 时 MULTI_CLEAR_NOW 让位给 SETUP_FOR_MULTI（推迟一拍，
+     * 让分数曲线平滑爬升，避免开局段一次性多消触发 D4 早超 PB）。 */
     if (typeof grid?.cells === 'object') {
         const near = _scanNearFullLines(grid, 2);
-        if (near.length >= 2) return WARM_TARGETS.MULTI_CLEAR_NOW;
+        if (near.length >= 2) {
+            return peogActive ? WARM_TARGETS.SETUP_FOR_MULTI : WARM_TARGETS.MULTI_CLEAR_NOW;
+        }
     }
 
     /* 空棋盘 / 低填充 → setup 多消机会。 */
@@ -490,7 +531,10 @@ export function applyWarmRun(enhancedConfig, ctx, opts = {}) {
 
     /* —— spawnHints 钳制 —— */
     const baseHints = enhancedConfig.spawnHints || {};
-    const target = opts.grid ? pickWarmTarget(opts.grid, state.budget) : WARM_TARGETS.COMFORT_FLOW;
+    /* v1.71 PEOG 透传：让 pickWarmTarget 在守卫激活时做目标映射降级。 */
+    const target = opts.grid
+        ? pickWarmTarget(opts.grid, state.budget, { peogState: ctx?.peogState ?? null })
+        : WARM_TARGETS.COMFORT_FLOW;
     const phase = getWarmPhase(state.budget);
     const phaseStrength = (state.budget?.phaseStrength?.[phase] ?? 1.0);
 

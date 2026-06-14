@@ -33,6 +33,7 @@ import { registerWechat } from './platform/wechat/WechatAdapters';
 import { registerNativeMonetization, hasNativeMonetization } from './platform/NativeMonetization';
 import { makeAnalyticsSink } from './platform/AnalyticsSink';
 import { CloudSync } from './platform/CloudSync';
+import { ReportingOutbox } from './platform/ReportingOutbox';
 import { Motion, initMotion } from './platform/Motion';
 import { VisualFx, initVisualFx } from './platform/VisualFx';
 import { FrameRate } from './platform/FrameRate';
@@ -240,7 +241,7 @@ export class Bootstrap extends Component {
         ctrl.wire({
             model, meta, board, ambientFx, lineFx, fx, overlayFx, dock, hud, ghost,
             skillBar, metaPanel, shakeTarget: play, bgNode, playerCtx, profile, spawner,
-            onSkinAccentChange: (accent, _dark) => {
+            onSkinAccentChange: (accent: Color, _dark: Color) => {
                 for (const n of this._buttons) {
                     const pb = n.getComponent(PillButton);
                     if (pb) pb.setSkinStroke(accent);
@@ -771,6 +772,17 @@ export class Bootstrap extends Component {
             CloudSync.configureHttp(cloudHttp);
             // 入场尝试 flush 一次离线队列（上次断网未上传的最新一份）。
             CloudSync.flush();
+        }
+        // 上报发件箱：玩家行为 + 广告按次计费统一走「本地缓存 → 联网批量上报」。
+        // apiBase 取 cloudHttp.base 的服务根（去掉 /cloud 子路径）；未配置则仅本地缓存。
+        if (cloudHttp?.base) {
+            const apiBase = cloudHttp.base.replace(/\/cloud\/?$/, '').replace(/\/+$/, '');
+            ReportingOutbox.configure({
+                apiBase,
+                userId: cloudHttp.userId || '',
+                platform: Platform.isWechat() ? 'wechat_game' : 'cocos',
+                flushIntervalMs: 15000,
+            });
         }
         // 拉云存档（best 取较大者；coins 取较大者；save 仅在本地为空时灌入，避免覆盖更新的本地局况）
         if (flag('cloudSave')) {

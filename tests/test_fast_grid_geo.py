@@ -1,7 +1,7 @@
 """客观几何难度（contiguous_regions / concave_corners / height_std）测试。
 
 与 web/src/boardTopology.js countEmptyRegions / countConcaveCorners 跨语言同口径，
-并校验 fast_board_features 暴露新键、extract_state_features 维度 = 187。
+并校验 fast_board_features 暴露新键、extract_state_features 维度 = 204。
 """
 import numpy as np
 
@@ -66,9 +66,9 @@ def test_fast_board_features_exposes_new_keys():
 
 
 def test_state_dim_matches_encoding():
-    # v12：state = 25 结构 + 19 颜色 + 4 spawn_diff + 3 strategy + 11 condition + 64 grid + 75 dock = 201
-    assert F.STATE_FEATURE_DIM == 201
-    assert F.PHI_DIM == 216
+    # v1.67：state = 25 结构 + 19 颜色 + 4 spawn_diff + 3 spatial + 3 strategy + 11 condition + 64 grid + 75 dock = 204
+    assert F.STATE_FEATURE_DIM == 204
+    assert F.PHI_DIM == 219
     sim = OpenBlockSimulator("normal")
     st = F.extract_state_features(sim.grid, sim.dock)
-    assert st.shape[0] == 201
+    assert st.shape[0] == 204

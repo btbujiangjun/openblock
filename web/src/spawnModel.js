@@ -16,6 +16,7 @@ import { getApiBaseUrl } from './config.js';
 import { getShapeById } from './shapes.js';
 import { analyzeBoardTopology } from './boardTopology.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
+import { spatialPlanningFeatures } from './spatialPlanning.js';
 
 const SPAWN_MODE_KEY = 'ob_spawn_mode';
 export const SPAWN_MODE_RULE = 'rule';
@@ -26,9 +27,12 @@ export const SPAWN_MODEL_CONTEXT_DIM = 24;
 /* v1.57.1：56 → 57，spawnIntent one-hot 6 → 7 维（新增 'sprint'）。
  * v1.61.0：57 → 61，尾部追加 4 维归一化 PB 曲线 θ 显式条件（见 SPAWN_PB_THETA_RANGES）。
  * v1.66 P7：61 → 63，尾部追加 2 维客观几何（contiguousRegions/concaveCorners，与 RL state 同源）。
+ * v1.67：63 → 66，尾部追加 3 维空间规划盘面条件（regionEntropy/largestRegionRatio/smallRegionCellRatio，
+ *   与 RL state 同源，SSOT=spatialPlanning.js）。这些是放置前的盘面属性（非输出泄漏），让生成式出块
+ *   能显式条件于"开放空间是否整片/被切多碎"。
  * 必须与 rl_pytorch/spawn_model/dataset.py `BEHAVIOR_CONTEXT_DIM` 保持一致，
- * 否则 model-v3 推理时前端拼接维度与后端 `board_proj.in_features`（64+63=127）不符。 */
-export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 63;
+ * 否则 model-v3 推理时前端拼接维度与后端 `board_proj.in_features`（64+66=130）不符。 */
+export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 66;
 // 客观几何归一化分母（须与 rl_pytorch/spawn_model/dataset.py 与 game_rules.json actionNorm 一致）。
 const _GEO_REGIONS_MAX = 16;
 const _GEO_CONCAVE_MAX = 32;
@@ -247,6 +251,17 @@ function _spawnIntentOneHot(intent) {
     return out;
 }
 
+/* 空间规划尾段 3 维：优先实时从 grid 计算（与 RL state 同源），grid 缺省回退已记录的 spawnGeo。 */
+function _spatialPlanningTail(grid, a) {
+    if (grid?.cells?.length) return spatialPlanningFeatures(grid);
+    const geo = a?.spawnGeo || {};
+    return [
+        _clamp01(_finiteNumber(geo.regionEntropy, 0)),
+        _clamp01(_finiteNumber(geo.largestRegionRatio, 0)),
+        _clamp01(_finiteNumber(geo.smallRegionCellRatio, 0)),
+    ];
+}
+
 function _buildBehaviorContext(grid, profile, adaptiveInsight, topology, ability) {
     const base = _buildContext24(grid, profile, adaptiveInsight);
     const metrics = profile.metrics || {};
@@ -303,6 +318,8 @@ function _buildBehaviorContext(grid, profile, adaptiveInsight, topology, ability
         // [61-62] 客观几何条件（v1.66 P7）：空白连通块数 / 凹角陷阱数，与 RL state 同源（boardTopology）。
         _scaleUnit(topo.contiguousRegions ?? a.spawnGeo?.contiguousRegions, _GEO_REGIONS_MAX),
         _scaleUnit(topo.concaveCorners ?? a.spawnGeo?.concaveCorners, _GEO_CONCAVE_MAX),
+        // [63-65] 空间规划盘面条件（v1.67）：区域熵 / 最大开放区占比 / 小死腔占比，与 RL state 同源（spatialPlanning）。
+        ..._spatialPlanningTail(grid, a),
     ].slice(0, SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM);
 }
 

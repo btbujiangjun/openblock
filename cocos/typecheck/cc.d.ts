@@ -12,6 +12,7 @@ declare module 'cc' {
     export type Color = any; export const Color: any;
     export type Graphics = any; export const Graphics: any;
     export type EventTouch = any; export const EventTouch: any;
+    export type Mask = any; export const Mask: any;
     export type v3 = any; export const v3: any;
     export type AudioClip = any; export const AudioClip: any;
     export type AudioSource = any; export const AudioSource: any;

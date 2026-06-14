@@ -1,0 +1,45 @@
+{
+  "_comment": "LO-1 运营活动日历配置（SSOT）。start/end 为 ISO 日期或留空表示长期；recurring=weekly|daily 表示周期活动。",
+  "campaigns": [
+    {
+      "id": "newbie_week",
+      "name": "新手七日礼",
+      "type": "onboarding",
+      "audience": "new",
+      "start": "",
+      "end": "",
+      "rewards": ["hint_pack_5", "skin_starter"],
+      "priority": 100
+    },
+    {
+      "id": "weekend_double",
+      "name": "周末奖励翻倍",
+      "type": "recurring",
+      "audience": "all",
+      "recurring": "weekly",
+      "weekdays": [5, 6],
+      "rewards": ["coin_boost_2x"],
+      "priority": 60
+    },
+    {
+      "id": "season1_launch",
+      "name": "赛季一开启",
+      "type": "season",
+      "audience": "all",
+      "start": "2026-06-01",
+      "end": "2026-08-31",
+      "rewards": ["season_pass_intro"],
+      "priority": 80
+    },
+    {
+      "id": "winback_special",
+      "name": "回归专享礼",
+      "type": "winback",
+      "audience": "at_risk",
+      "start": "",
+      "end": "",
+      "rewards": ["winback_gift"],
+      "priority": 90
+    }
+  ]
+}

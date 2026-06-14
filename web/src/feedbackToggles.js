@@ -1,3 +1,5 @@
+import { stopPbChaseBgm } from './effects/pbChaseBgm.js';
+
 const VISUAL_STORAGE_KEY = 'openblock_visualfx_v1';
 /* v1.55.10 回滚：v2 迁移过激进，把不少用户主动想保留的 high 偏好抹掉了；
  * 改回单 key v1，新默认沿用 high，把"降画质"的决定权交还用户（点 🖼 按钮）。
@@ -178,6 +180,7 @@ export function initFeedbackToggles({ game, audioFx, ambient } = {}) {
          * 之前 prefs.sound 和 prefs.haptic 是分开的两个开关，UI 上只暴露音效一个，
          * 导致用户开音效时震动可能因为历史 haptic=false 不响应。统一控制更直观。 */
         audioFx?.setHaptic?.(on);
+        if (!on) stopPbChaseBgm();
         setButtonState(soundBtn, {
             enabled: on,
             onIcon: '🔊',

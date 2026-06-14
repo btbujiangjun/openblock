@@ -4,6 +4,7 @@
  * 在 Bootstrap 用 Analytics.useSink(makeAnalyticsSink()) 注入。
  */
 import { AnalyticsSink } from '../../core';
+import { ReportingOutbox } from './ReportingOutbox';
 
 interface WxReportApi {
     reportEvent?: (id: string, params: Record<string, unknown>) => void;
@@ -20,6 +21,13 @@ class PlatformSink implements AnalyticsSink {
         this.endpoint = endpoint;
     }
     send(event: string, params: Record<string, unknown>): void {
+        // 行为统一入「无网络本地缓存 + 联网批量上报」发件箱（与 web/mp 同口径）。
+        // 未配置 apiBase 时 enabled=false，enqueue 仍本地缓存，待配置后补传。
+        try {
+            const sid = (params && (params.sid as string)) || '';
+            ReportingOutbox.behavior(event, params || {}, sid);
+        } catch { /* ignore */ }
+
         const api = wx();
         if (api?.reportEvent) { try { api.reportEvent(event, params); return; } catch { /* fall through */ } }
         if (api?.reportAnalytics) { try { api.reportAnalytics(event, params); return; } catch { /* fall through */ } }

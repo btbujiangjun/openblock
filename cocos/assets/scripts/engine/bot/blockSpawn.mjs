@@ -40,7 +40,9 @@ import { getAllShapes, getShapeCategory, pickShapeByCategoryWeights, isSpecialSh
 import { GAME_RULES } from '../gameRules.mjs';
 import { analyzeBoardTopology, detectNearClears } from '../boardTopology.mjs';
 import { computeSpawnStepDifficulty } from '../spawnStepDifficulty.mjs';
+import { spatialPlanningFeatures, computeSpatialPlanning } from '../spatialPlanning.mjs';
 import { findCompleterShapes, findSetupShapes, isClearTargetValid, findMultiClearCompleter, findLargeBlockCompleter } from './constructiveSpawn.mjs';
+import { applyPeogYieldCap } from '../spawn/peog.mjs';
 import { defaultRng, fisherYatesInPlace } from '../lib/seededRng.mjs';
 import { pickByPlatform } from '../config/platformProfile.mjs';
 
@@ -2159,9 +2161,19 @@ function _enforceWarmRunConstraints(triplet, grid, weights, cfg) {
     const catalog = allShapes
         .filter((s) => !SPECIAL_SHAPES.includes(s.id))
         .filter((s) => (weights?.[getShapeCategory(s.id)] ?? 0) > 0);
-    const largeCandidates = findLargeBlockCompleter(grid, catalog, {
-        minSize: 4, maxResults: 6, budget: 1500,
+    /* v1.71 PEOG：active 时把 minSize 由 4 降为配置（默认 3），把大块面积压一档；
+     * 同时对返回候选做 yield cap（避免一次性大块抬高后续清线期望）。peogState 由
+     * generateDockShapes 调用方通过 cfg 透传。 */
+    const _peogStateLB = cfg?.peogState ?? null;
+    const _lbMinSize = (_peogStateLB?.active && Number(cfg?.peogLargeBlockMinSize) > 0)
+        ? Number(cfg.peogLargeBlockMinSize)
+        : 4;
+    let largeCandidates = findLargeBlockCompleter(grid, catalog, {
+        minSize: _lbMinSize, maxResults: 6, budget: 1500,
     });
+    if (_peogStateLB?.active) {
+        largeCandidates = applyPeogYieldCap(largeCandidates, _peogStateLB);
+    }
     if (!largeCandidates.length) {
         if (cfg.diagnostics) cfg.diagnostics.warmRunPostCheck = 'no-large-candidate';
         return;
@@ -2760,9 +2772,15 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                         .map((s) => ({ id: s.id, data: s.data }));
                     const _injectBudget = Number.isFinite(_consCfg.injectMultiClearBudget)
                         ? _consCfg.injectMultiClearBudget : 4000;
-                    const _mcHits = findMultiClearCompleter(grid, _allCatalog, {
+                    /* v1.71 PEOG：multiClear 候选先做 yield cap（peog_strong 也允许 multiClear，
+                     * 仅 perfectClearTriplet 前置短路）。读 ctx.peogState（game.js 透传）。 */
+                    const _peogStateMc = ctx?.peogState ?? null;
+                    let _mcHits = findMultiClearCompleter(grid, _allCatalog, {
                         minClears: 2, maxResults: 3, budget: _injectBudget,
                     });
+                    if (_peogStateMc?.active) {
+                        _mcHits = applyPeogYieldCap(_mcHits, _peogStateMc);
+                    }
                     if (_mcHits.length > 0) {
                         const _allMap = new Map(getAllShapes().map((s) => [s.id, s]));
                         for (const hit of _mcHits) {
@@ -3795,20 +3813,25 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
             try {
                 const holePressure = Math.max(0, Math.min(1, (topo.holes ?? 0) / 8));
                 const boardDifficulty = Math.max(0, Math.min(1, fill + holePressure * 0.8));
+                /* v1.67 空间规划：把盘面"空白结构"纳入单步难度。spatialFeatures 廉价 3 维（区域熵/
+                 * 最大开放区占比/小死腔占比）激活 computeSpawnStepDifficulty 的 fragmentation 项——
+                 * 让难度不再只由 fill/scd 决定，"占得稀碎"也算难。SSOT=spatialPlanning.js。 */
+                const spatialFeatures = spatialPlanningFeatures(grid);
                 diagnostics.stepDifficulty = computeSpawnStepDifficulty({
                     shapes: triplet,
                     occupiedCount: occupied,
                     boardDifficulty,
                     solutionMetrics,
+                    spatialFeatures,
                     countLegal: (data) => countLegalPlacements(grid, data),
                     categoryOf: (shape) => getShapeCategory(shape?.id)
                 }, stepDiffCfg);
-                /* 附挂客观几何难度（空白连通块数 / 凹角数）——computeSpawnStepDifficulty 是
-                 * 纯三块+占用的跨语言 SSOT，不耦合盘面几何；这里 post-hoc 挂到落库对象上，
-                 * 供 aggregate-step-difficulty.mjs 按难度桶聚合、DFV 透视。 */
+                /* 附挂客观几何难度（空白连通块数 / 凹角数）+ 完整空间规划画像（含形状词表机动性），
+                 * 供 aggregate-step-difficulty.mjs 按难度桶聚合、玩家面板 / DFV / 透视仪消费。 */
                 if (diagnostics.stepDifficulty) {
                     diagnostics.stepDifficulty.contiguousRegions = topo.contiguousRegions ?? null;
                     diagnostics.stepDifficulty.concaveCorners = topo.concaveCorners ?? null;
+                    diagnostics.spatialPlanning = computeSpatialPlanning(grid);
                 }
             } catch {
                 diagnostics.stepDifficulty = null;
@@ -3827,6 +3850,12 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
                     forbidJagged: warmRunForbidJagged,
                     target: warmRunTarget,
                     diagnostics,
+                    /* v1.71 PEOG 透传：让 _enforceWarmRunConstraints 内部对 large 候选做
+                     * yield cap + minSize 下调。peogState 来自 ctx.peogState（game.js 注入）。 */
+                    peogState: ctx?.peogState ?? null,
+                    peogLargeBlockMinSize: ctx?.peogState?.active
+                        ? (Number(hints?.peog?.largeBlockMinSize) || 3)
+                        : null,
                 });
             } catch (_e) {
                 /* fail-open：温暖局校验失败不阻塞出块 */

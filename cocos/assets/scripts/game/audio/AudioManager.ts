@@ -1,4 +1,4 @@
-import { AudioClip, AudioSource, Node, assetManager, director, sys } from 'cc';
+import { AudioClip, AudioSource, Node, assetManager, director, resources, sys } from 'cc';
 
 /**
  * 音频适配（Phase 2）。两条路径：
@@ -246,12 +246,16 @@ function nativePathToFileUri(path: string): string {
 class AudioManagerImpl {
     enabled = true;
     private source: AudioSource | null = null;
+    private pbBgmSource: AudioSource | null = null;
     private clips: Record<string, AudioClip> = {};
+    private pbBgmClips: Record<string, AudioClip> = {};
     private loading: Record<string, boolean> = {};
     private pending: Record<string, number[]> = {};
     private ctx: AudioContext | null = null;
     private ctxTried = false;
     private unlockArmed = false;
+    private pbBgmPhase: 'off' | 'near' | 'sprint' | 'release' = 'off';
+    private pbReleasePlayedThisRun = false;
 
     /**
      * 对齐 web `_primeOutput`：在第一次用户手势时 resume() AudioContext。
@@ -319,6 +323,15 @@ class AudioManagerImpl {
         return this.source;
     }
 
+    private ensurePbBgmSource(): AudioSource {
+        if (this.pbBgmSource) return this.pbBgmSource;
+        const n = new Node('PbChaseBgm');
+        director.getScene()?.addChild(n);
+        director.addPersistRootNode(n);
+        this.pbBgmSource = n.addComponent(AudioSource);
+        return this.pbBgmSource;
+    }
+
     register(name: string, clip: AudioClip): void {
         this.clips[name] = clip;
     }
@@ -331,6 +344,7 @@ class AudioManagerImpl {
         this.enabled = on;
         if (!on) {
             this.stopBgm();
+            this.stopPbChaseBgm(false);
             return;
         }
         this.preloadSfx();
@@ -574,6 +588,82 @@ class AudioManagerImpl {
         if (this.bgmOn) this.stopBgm(true);
         else this.startBgm();
         return this.bgmOn;
+    }
+
+    private loadPbBgmClip(phase: 'near' | 'sprint' | 'release', onReady: (clip: AudioClip) => void): void {
+        const cached = this.pbBgmClips[phase];
+        if (cached) {
+            onReady(cached);
+            return;
+        }
+        resources.load(`audio/game/pb_chase/pb_${phase}`, AudioClip, (err: Error | null, clip: AudioClip | null) => {
+            if (err || !clip) {
+                if (DEBUG_AUDIO) console.warn(`[AudioManager] PB BGM load failed: ${phase}`, err);
+                return;
+            }
+            this.pbBgmClips[phase] = clip;
+            onReady(clip);
+        });
+    }
+
+    private playPbBgmPhase(phase: 'near' | 'sprint' | 'release', volume: number): void {
+        if (!this.enabled) return;
+        if (this.pbBgmPhase === phase && this.pbBgmSource?.playing) {
+            this.pbBgmSource.volume = volume;
+            return;
+        }
+        this.pbBgmPhase = phase;
+        this.loadPbBgmClip(phase, (clip) => {
+            if (!this.enabled || this.pbBgmPhase !== phase) return;
+            const source = this.ensurePbBgmSource();
+            try {
+                source.stop();
+                source.clip = clip;
+                source.loop = phase !== 'release';
+                source.volume = volume;
+                source.play();
+            } catch (err) {
+                if (DEBUG_AUDIO) console.warn('[AudioManager] PB BGM play failed', err);
+            }
+        });
+    }
+
+    updatePbChaseBgm(input: { score: number; pbBaseline: number; placements: number; gameOver?: boolean }): void {
+        if (!this.enabled) {
+            this.stopPbChaseBgm(false);
+            return;
+        }
+        const base = Number(input.pbBaseline) || 0;
+        const score = Number(input.score) || 0;
+        if (base < 200 || (Number(input.placements) || 0) < 3) {
+            this.stopPbChaseBgm(false);
+            return;
+        }
+        if (score > base) {
+            if (!this.pbReleasePlayedThisRun) {
+                this.pbReleasePlayedThisRun = true;
+                this.playPbBgmPhase('release', 0.16);
+            }
+            return;
+        }
+        if (input.gameOver) {
+            this.stopPbChaseBgm(false);
+            return;
+        }
+        const pct = score / base;
+        if (pct >= 0.95) this.playPbBgmPhase('sprint', 0.15);
+        else if (pct >= 0.80) this.playPbBgmPhase('near', 0.12);
+        else this.stopPbChaseBgm(false);
+    }
+
+    stopPbChaseBgm(resetRun = true): void {
+        try { this.pbBgmSource?.stop(); } catch { /* ignore */ }
+        this.pbBgmPhase = 'off';
+        if (resetRun) this.pbReleasePlayedThisRun = false;
+    }
+
+    resetPbChaseBgm(): void {
+        this.stopPbChaseBgm(true);
     }
 }
 

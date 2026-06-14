@@ -22,6 +22,8 @@ import { isGameOverScreenActive, runAfterPopupQuiet } from '../popupCoordinator.
 import { getLTVEstimate } from './ltvPredictor.js';
 import { getCommercialModelContext, updateRealtimeSignals } from './personalization.js';
 import { buildCommercialModelVector, shouldAllowMonetizationAction } from './commercialModel.js';
+import { resolveUnifiedSignals } from '../coordination/unifiedSignals.js';
+import { coordinate } from '../coordination/policyArbiter.js';
 
 // ── 频控配置 ──────────────────────────────────────────────────────────────────
 const AD_CONFIG = {
@@ -200,7 +202,30 @@ function _canShowInterstitial(game) {
     if (_isLtvShielded(game) && Math.random() < LTV_SHIELD_INTERSTITIAL_SKIP_PROB) return false;
     const model = _commercialVector(game);
     if (model && !shouldAllowMonetizationAction(model, 'interstitial')) return false;
+    /* 飞轮协调器（默认 off=影子）：用统一信号 + policyArbiter 做跨飞轮一致门控。
+     * 只会更严（在已有频控/flow/疲劳护栏之上叠加 churn/payer/newbie 一致约束），
+     * 不会放宽——保证变现与留存/体验在同一信号·同一目标下不互相拉扯。 */
+    if (_arbiterBlocksInterstitial(game)) return false;
     return true;
+}
+
+/** flag on 时由统一信号 + policyArbiter 判定插屏是否被跨飞轮约束拦下。 */
+function _arbiterBlocksInterstitial(game) {
+    if (!getFlag('coordinationArbiter')) return false;
+    const profile = game?.playerProfile;
+    if (!profile) return false;
+    try {
+        const model = _commercialVector(game);
+        const signals = resolveUnifiedSignals(profile, {
+            commercialChurnRisk01: model?.churnRisk,
+            payerScore: model?.payerScore,
+            adFatigue: model?.adFatigueRisk,
+        });
+        const plan = coordinate(signals, { userId: game?.userId || '' });
+        return !plan.ad.allowInterstitial;
+    } catch {
+        return false;  // 协调器异常绝不阻断既有路径
+    }
 }
 
 /** P1-2 / P3-4：导出供单测 / 看板 / commercialInsight 检查"当前广告决策"的护栏状态。 */
