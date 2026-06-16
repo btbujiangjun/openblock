@@ -58,18 +58,45 @@ function walkFiles(dir) {
   return out.sort();
 }
 
-function ensureCleanDir(dir) {
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(dir, { recursive: true });
-}
-
 function sameFile(a, b) {
   return fs.existsSync(a) && fs.readFileSync(a).equals(fs.readFileSync(b));
 }
 
-function copyFile(src, dest) {
+function copyFileIfChanged(src, dest) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
+  if (sameFile(src, dest)) return false;
   fs.copyFileSync(src, dest);
+  return true;
+}
+
+function managedRoots() {
+  return [
+    ...COPIES.map((item) => item.dest),
+    ...MERGES.map((item) => item.dest),
+  ];
+}
+
+/** 增量同步：只更新有变化的资源，删除 plan 外过期文件；保留仍有效的 .meta（Cocos UUID 稳定）。 */
+function syncIncremental(plan) {
+  const expectedAbs = new Set(plan.map((item) => item.dest));
+  let copied = 0;
+  for (const item of plan) {
+    if (copyFileIfChanged(item.src, item.dest)) copied++;
+  }
+  let removed = 0;
+  for (const root of managedRoots()) {
+    if (!fs.existsSync(root)) continue;
+    for (const rel of walkFiles(root)) {
+      const abs = path.join(root, rel);
+      if (!expectedAbs.has(abs)) {
+        fs.unlinkSync(abs);
+        const meta = `${abs}.meta`;
+        if (fs.existsSync(meta)) fs.unlinkSync(meta);
+        removed++;
+      }
+    }
+  }
+  return { copied, removed, total: plan.length };
 }
 
 function buildCopyPlan() {
@@ -99,11 +126,6 @@ function buildCopyPlan() {
     }
   }
   return plan;
-}
-
-function cleanTargets() {
-  for (const item of COPIES) ensureCleanDir(item.dest);
-  for (const item of MERGES) ensureCleanDir(item.dest);
 }
 
 function writeManifest(plan) {
@@ -152,8 +174,9 @@ const plan = buildCopyPlan();
 if (verify) {
   verifyPlan(plan);
 } else {
-  cleanTargets();
-  for (const item of plan) copyFile(item.src, item.dest);
+  const { copied, removed, total } = syncIncremental(plan);
   writeManifest(plan);
-  console.log(`[sync-cocos-resources] synced ${plan.length} files to ${path.relative(ROOT, OUT_ROOT)}`);
+  console.log(
+    `[sync-cocos-resources] synced ${total} files (${copied} updated, ${removed} stale removed) → ${path.relative(ROOT, OUT_ROOT)}`,
+  );
 }
