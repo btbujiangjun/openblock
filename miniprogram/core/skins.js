@@ -385,6 +385,7 @@ const SKINS = {
     "gridOuter": "#D8C8A4",
     "gridCell": "#EDE0C4",
     "gridGap": 0,
+    "gridLine": "rgba(110,80,36,0.28)",
     "blockInset": 3,
     "blockRadius": 7,
     "blockStyle": "cartoon",
@@ -416,6 +417,7 @@ const SKINS = {
     "gridOuter": "#8AAEC8",
     "gridCell": "#A8C4D8",
     "gridGap": 0,
+    "gridLine": "rgba(30,80,130,0.32)",
     "blockInset": 2,
     "blockRadius": 8,
     "blockStyle": "cartoon",
@@ -633,6 +635,7 @@ const SKINS = {
     "gridOuter": "#160408",
     "gridCell": "#341018",
     "gridGap": 1,
+    "gridLine": "rgba(255,112,136,0.24)",
     "blockInset": 2,
     "blockRadius": 5,
     "blockStyle": "cartoon",
@@ -819,6 +822,7 @@ const SKINS = {
     "gridOuter": "#0E0E12",
     "gridCell": "#1A1A20",
     "gridGap": 1,
+    "gridLine": "rgba(255,255,255,0.07)",
     "blockInset": 2,
     "blockRadius": 7,
     "blockStyle": "cartoon",
@@ -850,6 +854,7 @@ const SKINS = {
     "gridOuter": "#C0AC90",
     "gridCell": "#D8CCBA",
     "gridGap": 0,
+    "gridLine": "rgba(90,66,38,0.24)",
     "blockInset": 3,
     "blockRadius": 8,
     "blockStyle": "cartoon",
@@ -877,16 +882,6 @@ const SKINS = {
       "📼",
       "🎚️",
       "🎛️"
-    ],
-    "blockIconAssets": [
-      "/assets/skins/arcadeCabinet/block-0.svg",
-      "/assets/skins/arcadeCabinet/block-1.svg",
-      "/assets/skins/arcadeCabinet/block-2.svg",
-      "/assets/skins/arcadeCabinet/block-3.svg",
-      "/assets/skins/arcadeCabinet/block-4.svg",
-      "/assets/skins/arcadeCabinet/block-5.svg",
-      "/assets/skins/arcadeCabinet/block-6.svg",
-      "/assets/skins/arcadeCabinet/block-7.svg"
     ],
     "gridOuter": "#050815",
     "gridCell": "#10172A",
@@ -919,19 +914,10 @@ const SKINS = {
       "🪛",
       "🪫"
     ],
-    "blockIconAssets": [
-      "/assets/skins/circuitBoard/block-0.svg",
-      "/assets/skins/circuitBoard/block-1.svg",
-      "/assets/skins/circuitBoard/block-2.svg",
-      "/assets/skins/circuitBoard/block-3.svg",
-      "/assets/skins/circuitBoard/block-4.svg",
-      "/assets/skins/circuitBoard/block-5.svg",
-      "/assets/skins/circuitBoard/block-6.svg",
-      "/assets/skins/circuitBoard/block-7.svg"
-    ],
     "gridOuter": "#061A12",
     "gridCell": "#0D2A1D",
     "gridGap": 1,
+    "gridLine": "rgba(82, 255, 170, 0.16)",
     "blockInset": 2,
     "blockRadius": 5,
     "blockStyle": "neon",
@@ -960,19 +946,10 @@ const SKINS = {
       "🛴",
       "🎳"
     ],
-    "blockIconAssets": [
-      "/assets/skins/toyBox/block-0.svg",
-      "/assets/skins/toyBox/block-1.svg",
-      "/assets/skins/toyBox/block-2.svg",
-      "/assets/skins/toyBox/block-3.svg",
-      "/assets/skins/toyBox/block-4.svg",
-      "/assets/skins/toyBox/block-5.svg",
-      "/assets/skins/toyBox/block-6.svg",
-      "/assets/skins/toyBox/block-7.svg"
-    ],
     "gridOuter": "#CCB88C",
     "gridCell": "#F4E8CE",
     "gridGap": 0,
+    "gridLine": "rgba(110, 82, 42, 0.18)",
     "blockInset": 3,
     "blockRadius": 9,
     "blockStyle": "cartoon",
@@ -1000,16 +977,6 @@ const SKINS = {
       "🟨",
       "🔸",
       "🔹"
-    ],
-    "blockIconAssets": [
-      "/assets/skins/mineralCave/block-0.svg",
-      "/assets/skins/mineralCave/block-1.svg",
-      "/assets/skins/mineralCave/block-2.svg",
-      "/assets/skins/mineralCave/block-3.svg",
-      "/assets/skins/mineralCave/block-4.svg",
-      "/assets/skins/mineralCave/block-5.svg",
-      "/assets/skins/mineralCave/block-6.svg",
-      "/assets/skins/mineralCave/block-7.svg"
     ],
     "gridOuter": "#12131C",
     "gridCell": "#202132",
@@ -1042,16 +1009,6 @@ const SKINS = {
       "🧵",
       "🫙"
     ],
-    "blockIconAssets": [
-      "/assets/skins/alchemyLab/block-0.svg",
-      "/assets/skins/alchemyLab/block-1.svg",
-      "/assets/skins/alchemyLab/block-2.svg",
-      "/assets/skins/alchemyLab/block-3.svg",
-      "/assets/skins/alchemyLab/block-4.svg",
-      "/assets/skins/alchemyLab/block-5.svg",
-      "/assets/skins/alchemyLab/block-6.svg",
-      "/assets/skins/alchemyLab/block-7.svg"
-    ],
     "gridOuter": "#17120A",
     "gridCell": "#2A2112",
     "gridGap": 1,
@@ -1083,19 +1040,10 @@ const SKINS = {
       "🪲",
       "🫘"
     ],
-    "blockIconAssets": [
-      "/assets/skins/botanicalStudy/block-0.svg",
-      "/assets/skins/botanicalStudy/block-1.svg",
-      "/assets/skins/botanicalStudy/block-2.svg",
-      "/assets/skins/botanicalStudy/block-3.svg",
-      "/assets/skins/botanicalStudy/block-4.svg",
-      "/assets/skins/botanicalStudy/block-5.svg",
-      "/assets/skins/botanicalStudy/block-6.svg",
-      "/assets/skins/botanicalStudy/block-7.svg"
-    ],
     "gridOuter": "#BFC7A8",
     "gridCell": "#E7E8D8",
     "gridGap": 0,
+    "gridLine": "rgba(82, 98, 58, 0.18)",
     "blockInset": 3,
     "blockRadius": 8,
     "blockStyle": "flat",
@@ -1124,19 +1072,10 @@ const SKINS = {
       "🗜️",
       "📍"
     ],
-    "blockIconAssets": [
-      "/assets/skins/spaceDock/block-0.svg",
-      "/assets/skins/spaceDock/block-1.svg",
-      "/assets/skins/spaceDock/block-2.svg",
-      "/assets/skins/spaceDock/block-3.svg",
-      "/assets/skins/spaceDock/block-4.svg",
-      "/assets/skins/spaceDock/block-5.svg",
-      "/assets/skins/spaceDock/block-6.svg",
-      "/assets/skins/spaceDock/block-7.svg"
-    ],
     "gridOuter": "#06101F",
     "gridCell": "#101A30",
     "gridGap": 1,
+    "gridLine": "rgba(120, 190, 255, 0.14)",
     "blockInset": 2,
     "blockRadius": 6,
     "blockStyle": "neon",
@@ -1164,16 +1103,6 @@ const SKINS = {
       "⚜️",
       "🏚️",
       "🪦"
-    ],
-    "blockIconAssets": [
-      "/assets/skins/dungeonLoot/block-0.svg",
-      "/assets/skins/dungeonLoot/block-1.svg",
-      "/assets/skins/dungeonLoot/block-2.svg",
-      "/assets/skins/dungeonLoot/block-3.svg",
-      "/assets/skins/dungeonLoot/block-4.svg",
-      "/assets/skins/dungeonLoot/block-5.svg",
-      "/assets/skins/dungeonLoot/block-6.svg",
-      "/assets/skins/dungeonLoot/block-7.svg"
     ],
     "gridOuter": "#0F0C10",
     "gridCell": "#1D1720",
@@ -1206,19 +1135,10 @@ const SKINS = {
       "📑",
       "📃"
     ],
-    "blockIconAssets": [
-      "/assets/skins/origamiPaper/block-0.svg",
-      "/assets/skins/origamiPaper/block-1.svg",
-      "/assets/skins/origamiPaper/block-2.svg",
-      "/assets/skins/origamiPaper/block-3.svg",
-      "/assets/skins/origamiPaper/block-4.svg",
-      "/assets/skins/origamiPaper/block-5.svg",
-      "/assets/skins/origamiPaper/block-6.svg",
-      "/assets/skins/origamiPaper/block-7.svg"
-    ],
     "gridOuter": "#C9BFAE",
     "gridCell": "#ECE5D8",
     "gridGap": 0,
+    "gridLine": "rgba(100, 82, 60, 0.18)",
     "blockInset": 3,
     "blockRadius": 4,
     "blockStyle": "flat",
@@ -1246,16 +1166,6 @@ const SKINS = {
       "📏",
       "🧭",
       "🪙"
-    ],
-    "blockIconAssets": [
-      "/assets/skins/museumRelic/block-0.svg",
-      "/assets/skins/museumRelic/block-1.svg",
-      "/assets/skins/museumRelic/block-2.svg",
-      "/assets/skins/museumRelic/block-3.svg",
-      "/assets/skins/museumRelic/block-4.svg",
-      "/assets/skins/museumRelic/block-5.svg",
-      "/assets/skins/museumRelic/block-6.svg",
-      "/assets/skins/museumRelic/block-7.svg"
     ],
     "gridOuter": "#17120C",
     "gridCell": "#281F14",
@@ -1288,19 +1198,10 @@ const SKINS = {
       "🫖",
       "🏕️"
     ],
-    "blockIconAssets": [
-      "/assets/skins/winterCabin/block-0.svg",
-      "/assets/skins/winterCabin/block-1.svg",
-      "/assets/skins/winterCabin/block-2.svg",
-      "/assets/skins/winterCabin/block-3.svg",
-      "/assets/skins/winterCabin/block-4.svg",
-      "/assets/skins/winterCabin/block-5.svg",
-      "/assets/skins/winterCabin/block-6.svg",
-      "/assets/skins/winterCabin/block-7.svg"
-    ],
     "gridOuter": "#E0D7C8",
     "gridCell": "#F3EFE6",
     "gridGap": 0,
+    "gridLine": "rgba(90, 72, 52, 0.16)",
     "blockInset": 3,
     "blockRadius": 8,
     "blockStyle": "cartoon",
@@ -1329,23 +1230,77 @@ const SKINS = {
       "☁️",
       "💡"
     ],
-    "blockIconAssets": [
-      "/assets/skins/rainyWindow/block-0.svg",
-      "/assets/skins/rainyWindow/block-1.svg",
-      "/assets/skins/rainyWindow/block-2.svg",
-      "/assets/skins/rainyWindow/block-3.svg",
-      "/assets/skins/rainyWindow/block-4.svg",
-      "/assets/skins/rainyWindow/block-5.svg",
-      "/assets/skins/rainyWindow/block-6.svg",
-      "/assets/skins/rainyWindow/block-7.svg"
-    ],
     "gridOuter": "#07101A",
     "gridCell": "#101C2A",
     "gridGap": 1,
+    "gridLine": "rgba(120, 180, 220, 0.12)",
     "blockInset": 2,
     "blockRadius": 7,
     "blockStyle": "cartoon",
     "clearFlash": "rgba(140,210,255,0.58)"
+  },
+  "inkGarden": {
+    "id": "inkGarden",
+    "name": "🖌️ 水墨雅集",
+    "blockColors": [
+      "#9DAECE",
+      "#B5A7CB",
+      "#AAB091",
+      "#C2AA88",
+      "#9EB0B2",
+      "#C5A5AB",
+      "#9FAFBA",
+      "#BAAC8B"
+    ],
+    "blockIcons": [
+      "💮",
+      "🪻",
+      "🎍",
+      "💐",
+      "🫧",
+      "🪨",
+      "🌰",
+      "🖋️"
+    ],
+    "blockIconAssets": [
+      "/assets/skins/inkGarden/block-0.png",
+      "/assets/skins/inkGarden/block-1.png",
+      "/assets/skins/inkGarden/block-2.png",
+      "/assets/skins/inkGarden/block-3.png",
+      "/assets/skins/inkGarden/block-4.png",
+      "/assets/skins/inkGarden/block-5.png",
+      "/assets/skins/inkGarden/block-6.png",
+      "/assets/skins/inkGarden/block-7.png"
+    ],
+    "gridOuter": "#E8E0D4",
+    "gridCell": "#F5EFE6",
+    "gridGap": 1,
+    "gridLine": "rgba(110, 98, 86, 0.06)",
+    "blockInset": 2,
+    "blockRadius": 0,
+    "blockStyle": "cartoon",
+    "blockIconInset": 0.03,
+    "blockIconEnhance": {
+      "brightness": 1.1,
+      "contrast": 1.06,
+      "saturate": 1.18
+    },
+    "blockBevel": {
+      "topLift": 0.07,
+      "botDark": 0.038,
+      "botShadeAlpha": 0.045,
+      "innerStroke": "rgba(255,255,255,0.42)",
+      "outerStroke": "rgba(82,68,52,0.26)",
+      "assetOverlay": true,
+      "overlayTop": 0.08,
+      "overlayBottom": 0.04
+    },
+    "boardTexture": {
+      "type": "xuanPaper",
+      "opacity": 0.34,
+      "intensity": 0.55
+    },
+    "clearFlash": "rgba(180, 200, 185, 0.55)"
   },
   "fiesta": {
     "id": "fiesta",
@@ -1409,6 +1364,7 @@ const SKIN_CATEGORIES = [
       "cafe",
       "sakura",
       "botanicalStudy",
+      "inkGarden",
       "mineralCave",
       "winterCabin",
       "rainyWindow"
@@ -1587,6 +1543,7 @@ const BOARD_WATERMARKS = {
   mineralCave: { icons: ['💍', '🔦'], opacity: 0.052, hdIcons: ['◾', '◽', '▪️', '▫️', '⬛'] },
   alchemyLab: { icons: ['⚗️', '🧪'], opacity: 0.052, hdIcons: ['☣️', '☢️', '♨️', '⚕️', '☤'] },
   botanicalStudy: { icons: ['🥀', '🫛'], opacity: 0.10, hdIcons: ['🫐', '🥦', '🍅', '🍆', '🥒'] },
+  inkGarden: { icons: ['🪭', '📜'], opacity: 0.11, scale: 0.26, hdIcons: ['⛰️', '🎑', '🍶', '🌫️', '🏞️'] },
   spaceDock: { icons: ['🛰️', '🧑‍🚀'], opacity: 0.045, hdIcons: ['✦', '✧', '✹', '✺', '✷'] },
   dungeonLoot: { icons: ['🪤', '🕳️'], opacity: 0.05, hdIcons: ['⛓', '⌬', '⟡', '⟢', '✶'] },
   origamiPaper: { icons: ['✉️', '📄'], opacity: 0.11, hdIcons: ['▱', '△', '◇', '□', '▽'] },

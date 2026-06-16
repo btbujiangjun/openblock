@@ -251,18 +251,18 @@ describe('mahjong 与 boardgame 姊妹皮肤的 HD 水印做错位', () => {
 });
 
 /* ============================================================================
- * 4. 全量 40 个皮肤 HD emoji 换装约束（v10.34 扩充后）
+ * 4. 全量 41 个皮肤 HD emoji 换装约束（v10.34 扩充 + inkGarden 水墨雅集）
  *
  * 这是本文件的核心约束：所有皮肤共享同一套"换皮不换轨"产品契约。
  * 任意单个皮肤违反以下约束将立即失败，防止后续 PR 不小心引入回归。
  * ============================================================================ */
 
 describe('全量皮肤 HD emoji 换装 — v1.49 终版统一约束', () => {
-    /** 收集所有皮肤的 boardWatermark 视图（仅含有 boardWatermark 的皮肤；当前应为 40/40）。 */
+    /** 收集所有皮肤的 boardWatermark 视图（仅含有 boardWatermark 的皮肤；当前应为 41/41）。 */
     const allSkins = Object.entries(WEB_SKINS).filter(([, s]) => s.boardWatermark);
 
-    it('应该有 40 个皮肤都定义了 boardWatermark', () => {
-        expect(allSkins.length).toBe(40);
+    it('应该有 41 个皮肤都定义了 boardWatermark', () => {
+        expect(allSkins.length).toBe(41);
     });
 
     it('约束 1：每个皮肤都必须声明 hdIcons（HD 模式 emoji 换装）', () => {
@@ -344,7 +344,7 @@ describe('全量皮肤 HD emoji 换装 — v1.49 终版统一约束', () => {
         const table = Object.fromEntries(
             allSkins.map(([id, s]) => [id, s.boardWatermark.hdIcons]),
         );
-        // 锁定当前 40 款 HD 水印设计；后续如调整，需同步更新 CHANGELOG / SKINS_CATALOG
+        // 锁定当前 41 款 HD 水印设计；后续如调整，需同步更新 CHANGELOG / SKINS_CATALOG
         expect(table).toMatchSnapshot();
     });
 });

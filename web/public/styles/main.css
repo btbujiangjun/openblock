@@ -262,6 +262,29 @@ body {
     overscroll-behavior: none;
 }
 
+/* 水墨雅集：页面与候选区 — 整块宣纸纹理（纤维噪声叠暖色渐变），候选块 canvas 保持透明 */
+html[data-skin-id="inkGarden"] body {
+    background-color: var(--bg-color);
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9 0.16' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23p)' opacity='0.05'/%3E%3C/svg%3E"),
+        linear-gradient(175deg, #EDE4D6 0%, var(--bg-color) 52%, #E4DACE 100%);
+}
+
+html[data-skin-id="inkGarden"] .block-dock {
+    background-color: var(--bg-color);
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9 0.16' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23p)' opacity='0.05'/%3E%3C/svg%3E"),
+        linear-gradient(180deg, color-mix(in srgb, var(--cell-empty, var(--grid-bg)) 12%, var(--bg-color)) 0%, var(--bg-color) 100%);
+    background-size: 180px 180px, 100% 100%;
+}
+
+html[data-skin-id="inkGarden"] #game-wrapper {
+    background: var(--grid-bg);
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--grid-line, rgba(110, 98, 86, 0.06)) 55%, transparent),
+        0 4px 14px rgba(62, 48, 36, 0.05);
+}
+
 /* 拖动候选块时锁定主列滚动，避免与拖拽手势冲突、误触出滚动条 */
 body.block-drag-active #app {
     overflow: hidden;
@@ -8292,6 +8315,26 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
     transition: transform .18s, border-color .18s;
 }
 .lore-card__icons span:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--accent-color, #38bdf8) 50%, transparent);
+}
+
+/* 外部 UI 子图（如水墨雅集）：图鉴与盘面 blockIconAssets 一致 */
+.lore-card__icons--assets {
+    gap: 6px;
+}
+.lore-card__icons--assets .lore-block-icon {
+    display: block;
+    width: 38px;
+    height: 38px;
+    object-fit: cover;
+    border-radius: 2px;
+    border: 1px solid color-mix(in srgb, var(--accent-color, #38bdf8) 18%, rgba(255, 255, 255, 0.08));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    background: rgba(0, 0, 0, 0.18);
+    transition: transform .18s, border-color .18s;
+}
+.lore-card__icons--assets .lore-block-icon:hover {
     transform: translateY(-2px);
     border-color: color-mix(in srgb, var(--accent-color, #38bdf8) 50%, transparent);
 }

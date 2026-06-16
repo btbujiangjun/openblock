@@ -63,6 +63,7 @@ const SKIN_SOUND_PROFILES = {
   museumRelic: { root: 294, group: 'royal', texture: 1100 },
   winterCabin: { root: 262, group: 'wood', texture: 800 },
   rainyWindow: { root: 330, group: 'water', texture: 1500 },
+  inkGarden: { root: 392, group: 'royal', texture: 1600 },
   fiesta: { root: 440, group: 'party', texture: 2600 },
 };
 

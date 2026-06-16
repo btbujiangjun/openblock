@@ -107,6 +107,7 @@ export default {
     'skin.name.museumRelic': '⚱️ Museum Relic',
     'skin.name.winterCabin': '🪵 Winter Cabin',
     'skin.name.rainyWindow': '🌧️ Rainy Window',
+    'skin.name.inkGarden': '🖌️ Ink Wash Garden',
 
     'boot.fileProtocol': '스크립트가 로드되지 않았습니다. 프로젝트 루트에서 npm run dev를 실행하고 터미널의 로컬 주소를 여세요. file://로 열지 마세요.',
 };

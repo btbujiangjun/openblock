@@ -80,6 +80,10 @@ export const CLASSIC_PALETTE = [
  *   blockColors: string[],
  *   blockIcons?: string[],
  *   blockIconAssets?: string[],
+ *   blockIconInset?: number,
+ *   blockIconEnhance?: { brightness?: number, contrast?: number, saturate?: number },
+ *   blockBevel?: { topLift?: number, botDark?: number, botShadeAlpha?: number, innerStroke?: string, outerStroke?: string, assetOverlay?: boolean, overlayTop?: number, overlayBottom?: number },
+ *   boardTexture?: { type?: 'xuanPaper', opacity?: number, intensity?: number, seed?: number },
  *   boardWatermark?: BoardWatermark,
  *   gridOuter: string,
  *   gridCell: string,
@@ -1180,7 +1184,6 @@ export const SKINS = {
         name: '📺 复古街机',
         boardWatermark: { icons: ['📺', '📻'], opacity: 0.055, hdIcons: ['🖲️', '🔳', '📠', '🧮', '🔣'] },
         blockIcons: ['📺', '📟', '💽', '📀', '💿', '📼', '🎚️', '🎛️'],
-        blockIconAssets: ['/assets/skins/arcadeCabinet/block-0.svg', '/assets/skins/arcadeCabinet/block-1.svg', '/assets/skins/arcadeCabinet/block-2.svg', '/assets/skins/arcadeCabinet/block-3.svg', '/assets/skins/arcadeCabinet/block-4.svg', '/assets/skins/arcadeCabinet/block-5.svg', '/assets/skins/arcadeCabinet/block-6.svg', '/assets/skins/arcadeCabinet/block-7.svg'],
         blockColors: ['#35E06F', '#FF3B6B', '#20C8FF', '#FFD13D', '#B05CFF', '#FF8A24', '#40E0D0', '#F4F4F8'],
         gridOuter: '#050815',
         gridCell: '#10172A',
@@ -1204,7 +1207,6 @@ export const SKINS = {
         name: '🧲 电路矩阵',
         boardWatermark: { icons: ['🧲', '📶'], opacity: 0.048, hdIcons: ['⌁', '⎍', '⏚', '⟟', '⟠'] },
         blockIcons: ['🧲', '📶', '🟢', '🟣', '🟡', '🟤', '🪛', '🪫'],
-        blockIconAssets: ['/assets/skins/circuitBoard/block-0.svg', '/assets/skins/circuitBoard/block-1.svg', '/assets/skins/circuitBoard/block-2.svg', '/assets/skins/circuitBoard/block-3.svg', '/assets/skins/circuitBoard/block-4.svg', '/assets/skins/circuitBoard/block-5.svg', '/assets/skins/circuitBoard/block-6.svg', '/assets/skins/circuitBoard/block-7.svg'],
         blockColors: ['#2FE68A', '#48B8FF', '#D6F75A', '#A978FF', '#F5A642', '#B07848', '#6EE7C8', '#FF5E7A'],
         gridOuter: '#061A12',
         gridCell: '#0D2A1D',
@@ -1229,7 +1231,6 @@ export const SKINS = {
         name: '🧸 玩具箱子',
         boardWatermark: { icons: ['🧸', '🧩'], opacity: 0.078, hdIcons: ['🛼', '🥏', '🪇', '🪈', '🪗'] },
         blockIcons: ['🧸', '🪀', '🪁', '🧩', '🪆', '🛝', '🛴', '🎳'],
-        blockIconAssets: ['/assets/skins/toyBox/block-0.svg', '/assets/skins/toyBox/block-1.svg', '/assets/skins/toyBox/block-2.svg', '/assets/skins/toyBox/block-3.svg', '/assets/skins/toyBox/block-4.svg', '/assets/skins/toyBox/block-5.svg', '/assets/skins/toyBox/block-6.svg', '/assets/skins/toyBox/block-7.svg'],
         blockColors: ['#E8527A', '#F38C32', '#F7D04A', '#58C56A', '#42A7E8', '#9B72F0', '#F06DB8', '#38C8BE'],
         gridOuter: '#CCB88C',
         gridCell: '#F4E8CE',
@@ -1261,7 +1262,6 @@ export const SKINS = {
         name: '💍 宝石矿洞',
         boardWatermark: { icons: ['💍', '🔦'], opacity: 0.052, hdIcons: ['◾', '◽', '▪️', '▫️', '⬛'] },
         blockIcons: ['💍', '🔦', '🧱', '🟫', '🟪', '🟨', '🔸', '🔹'],
-        blockIconAssets: ['/assets/skins/mineralCave/block-0.svg', '/assets/skins/mineralCave/block-1.svg', '/assets/skins/mineralCave/block-2.svg', '/assets/skins/mineralCave/block-3.svg', '/assets/skins/mineralCave/block-4.svg', '/assets/skins/mineralCave/block-5.svg', '/assets/skins/mineralCave/block-6.svg', '/assets/skins/mineralCave/block-7.svg'],
         blockColors: ['#54D3D8', '#B38AF6', '#D6A15C', '#8C6A4A', '#7A54D6', '#D8BC4C', '#E06A3A', '#4A8EE8'],
         gridOuter: '#12131C',
         gridCell: '#202132',
@@ -1285,7 +1285,6 @@ export const SKINS = {
         name: '⚗️ 炼金工坊',
         boardWatermark: { icons: ['⚗️', '🧪'], opacity: 0.052, hdIcons: ['☣️', '☢️', '♨️', '⚕️', '☤'] },
         blockIcons: ['⚗️', '🧪', '🧫', '🧴', '🧂', '🪶', '🧵', '🫙'],
-        blockIconAssets: ['/assets/skins/alchemyLab/block-0.svg', '/assets/skins/alchemyLab/block-1.svg', '/assets/skins/alchemyLab/block-2.svg', '/assets/skins/alchemyLab/block-3.svg', '/assets/skins/alchemyLab/block-4.svg', '/assets/skins/alchemyLab/block-5.svg', '/assets/skins/alchemyLab/block-6.svg', '/assets/skins/alchemyLab/block-7.svg'],
         blockColors: ['#8BD450', '#4AC7C0', '#C06BE8', '#D8B04A', '#B87333', '#58A6E8', '#E06088', '#6DAA60'],
         gridOuter: '#17120A',
         gridCell: '#2A2112',
@@ -1309,7 +1308,6 @@ export const SKINS = {
         name: '🥀 植物标本',
         boardWatermark: { icons: ['🥀', '🫛'], opacity: 0.10, hdIcons: ['🫐', '🥦', '🍅', '🍆', '🥒'] },
         blockIcons: ['🥀', '🫛', '🫒', '🍓', '🫚', '🪴', '🪲', '🫘'],
-        blockIconAssets: ['/assets/skins/botanicalStudy/block-0.svg', '/assets/skins/botanicalStudy/block-1.svg', '/assets/skins/botanicalStudy/block-2.svg', '/assets/skins/botanicalStudy/block-3.svg', '/assets/skins/botanicalStudy/block-4.svg', '/assets/skins/botanicalStudy/block-5.svg', '/assets/skins/botanicalStudy/block-6.svg', '/assets/skins/botanicalStudy/block-7.svg'],
         blockColors: ['#8C4A5A', '#4F7F55', '#6C9B4A', '#B24F5A', '#9C7240', '#5F8A68', '#486A50', '#8A6A4B'],
         gridOuter: '#BFC7A8',
         gridCell: '#E7E8D8',
@@ -1341,7 +1339,6 @@ export const SKINS = {
         name: '🛰️ 太空船坞',
         boardWatermark: { icons: ['🛰️', '🧑‍🚀'], opacity: 0.045, hdIcons: ['✦', '✧', '✹', '✺', '✷'] },
         blockIcons: ['🛰️', '🧑‍🚀', '👨‍🚀', '👩‍🚀', '🛞', '🧯', '🗜️', '📍'],
-        blockIconAssets: ['/assets/skins/spaceDock/block-0.svg', '/assets/skins/spaceDock/block-1.svg', '/assets/skins/spaceDock/block-2.svg', '/assets/skins/spaceDock/block-3.svg', '/assets/skins/spaceDock/block-4.svg', '/assets/skins/spaceDock/block-5.svg', '/assets/skins/spaceDock/block-6.svg', '/assets/skins/spaceDock/block-7.svg'],
         blockColors: ['#4AD8FF', '#8C7CFF', '#56E6A4', '#F6C84A', '#EF6A7A', '#6FA8FF', '#B6E6FF', '#D48BFF'],
         gridOuter: '#06101F',
         gridCell: '#101A30',
@@ -1366,7 +1363,6 @@ export const SKINS = {
         name: '🪤 地牢宝藏',
         boardWatermark: { icons: ['🪤', '🕳️'], opacity: 0.05, hdIcons: ['⛓', '⌬', '⟡', '⟢', '✶'] },
         blockIcons: ['🪤', '🕳️', '🪓', '🧰', '📦', '⚜️', '🏚️', '🪦'],
-        blockIconAssets: ['/assets/skins/dungeonLoot/block-0.svg', '/assets/skins/dungeonLoot/block-1.svg', '/assets/skins/dungeonLoot/block-2.svg', '/assets/skins/dungeonLoot/block-3.svg', '/assets/skins/dungeonLoot/block-4.svg', '/assets/skins/dungeonLoot/block-5.svg', '/assets/skins/dungeonLoot/block-6.svg', '/assets/skins/dungeonLoot/block-7.svg'],
         blockColors: ['#B88438', '#686070', '#B84A3A', '#4F8A70', '#8C6A42', '#C6A64A', '#B04A68', '#586078'],
         gridOuter: '#0F0C10',
         gridCell: '#1D1720',
@@ -1390,7 +1386,6 @@ export const SKINS = {
         name: '✉️ 折纸纸艺',
         boardWatermark: { icons: ['✉️', '📄'], opacity: 0.11, hdIcons: ['▱', '△', '◇', '□', '▽'] },
         blockIcons: ['✉️', '📄', '🏷️', '🔖', '🧾', '📰', '📑', '📃'],
-        blockIconAssets: ['/assets/skins/origamiPaper/block-0.svg', '/assets/skins/origamiPaper/block-1.svg', '/assets/skins/origamiPaper/block-2.svg', '/assets/skins/origamiPaper/block-3.svg', '/assets/skins/origamiPaper/block-4.svg', '/assets/skins/origamiPaper/block-5.svg', '/assets/skins/origamiPaper/block-6.svg', '/assets/skins/origamiPaper/block-7.svg'],
         blockColors: ['#D86A88', '#E29B52', '#D8C86A', '#78A870', '#64A8C8', '#9B7AC8', '#C47AA0', '#8CA0B8'],
         gridOuter: '#C9BFAE',
         gridCell: '#ECE5D8',
@@ -1422,7 +1417,6 @@ export const SKINS = {
         name: '⚱️ 博物遗珍',
         boardWatermark: { icons: ['⚱️', '🔎'], opacity: 0.052, hdIcons: ['⌛', '⏳', '♜', '♞', '♝'] },
         blockIcons: ['⚱️', '🔎', '🗄️', '🖼️', '🪞', '📏', '🧭', '🪙'],
-        blockIconAssets: ['/assets/skins/museumRelic/block-0.svg', '/assets/skins/museumRelic/block-1.svg', '/assets/skins/museumRelic/block-2.svg', '/assets/skins/museumRelic/block-3.svg', '/assets/skins/museumRelic/block-4.svg', '/assets/skins/museumRelic/block-5.svg', '/assets/skins/museumRelic/block-6.svg', '/assets/skins/museumRelic/block-7.svg'],
         blockColors: ['#B0703C', '#8A6A48', '#506A78', '#9B4F4A', '#7A6AA0', '#C0A05A', '#4F8068', '#8C7850'],
         gridOuter: '#17120C',
         gridCell: '#281F14',
@@ -1446,7 +1440,6 @@ export const SKINS = {
         name: '🪵 冬日木屋',
         boardWatermark: { icons: ['🪵', '🧤'], opacity: 0.08, hdIcons: ['🪡', '🧶', '🥾', '🫎', '🫕'] },
         blockIcons: ['🪵', '🧤', '🧣', '🧦', '🛷', '🔥', '🫖', '🏕️'],
-        blockIconAssets: ['/assets/skins/winterCabin/block-0.svg', '/assets/skins/winterCabin/block-1.svg', '/assets/skins/winterCabin/block-2.svg', '/assets/skins/winterCabin/block-3.svg', '/assets/skins/winterCabin/block-4.svg', '/assets/skins/winterCabin/block-5.svg', '/assets/skins/winterCabin/block-6.svg', '/assets/skins/winterCabin/block-7.svg'],
         blockColors: ['#7A5130', '#B04A4A', '#2F6F88', '#C09854', '#556B84', '#D06A38', '#6F8A70', '#A05A48'],
         gridOuter: '#E0D7C8',
         gridCell: '#F3EFE6',
@@ -1478,7 +1471,6 @@ export const SKINS = {
         name: '🌧️ 雨窗夜灯',
         boardWatermark: { icons: ['🌧️', '☔'], opacity: 0.05, hdIcons: ['♒', '≋', '∿', '∽', '◌'] },
         blockIcons: ['🌧️', '☔', '💧', '💦', '🪟', '🌂', '☁️', '💡'],
-        blockIconAssets: ['/assets/skins/rainyWindow/block-0.svg', '/assets/skins/rainyWindow/block-1.svg', '/assets/skins/rainyWindow/block-2.svg', '/assets/skins/rainyWindow/block-3.svg', '/assets/skins/rainyWindow/block-4.svg', '/assets/skins/rainyWindow/block-5.svg', '/assets/skins/rainyWindow/block-6.svg', '/assets/skins/rainyWindow/block-7.svg'],
         blockColors: ['#4C8FB8', '#6AA0D0', '#3FC0D0', '#58D0B8', '#A8B8C8', '#8A74C8', '#6A7A90', '#D8B858'],
         gridOuter: '#07101A',
         gridCell: '#101C2A',
@@ -1494,6 +1486,57 @@ export const SKINS = {
             '--accent-color': '#6AA0D0',
             '--accent-dark':  '#D8B858',
             '--h1-color':     '#B8D8F0'
+        }
+    },
+
+    /** 水墨雅集：四君子与文房 —— 宣纸底色、淡彩水墨与方块插画 */
+    inkGarden: {
+        id: 'inkGarden',
+        name: '🖌️ 水墨雅集',
+        boardWatermark: {
+            icons: ['🪭', '📜'],
+            opacity: 0.11,
+            scale: 0.26,
+            hdIcons: ['⛰️', '🎑', '🍶', '🌫️', '🏞️'],
+        },
+        boardTexture: { type: 'xuanPaper', opacity: 0.34, intensity: 0.55 },
+        blockIcons: ['💮', '🪻', '🎍', '💐', '🫧', '🪨', '🌰', '🖋️'],
+        blockIconAssets: ['/assets/skins/inkGarden/block-0.png', '/assets/skins/inkGarden/block-1.png', '/assets/skins/inkGarden/block-2.png', '/assets/skins/inkGarden/block-3.png', '/assets/skins/inkGarden/block-4.png', '/assets/skins/inkGarden/block-5.png', '/assets/skins/inkGarden/block-6.png', '/assets/skins/inkGarden/block-7.png'],
+        blockIconInset: 0.03,
+        blockIconEnhance: { brightness: 1.10, contrast: 1.06, saturate: 1.18 },
+        blockBevel: {
+            topLift: 0.07,
+            botDark: 0.038,
+            botShadeAlpha: 0.045,
+            innerStroke: 'rgba(255,255,255,0.42)',
+            outerStroke: 'rgba(82,68,52,0.26)',
+            assetOverlay: true,
+            overlayTop: 0.08,
+            overlayBottom: 0.04,
+        },
+        // 与子图边缘同色相、提亮至对比度上限，满铺 PNG 时作加载占位
+        blockColors: ['#9DAECE', '#B5A7CB', '#AAB091', '#C2AA88', '#9EB0B2', '#C5A5AB', '#9FAFBA', '#BAAC8B'],
+        gridOuter: '#E8E0D4',
+        gridCell: '#F5EFE6',
+        gridLine: 'rgba(110, 98, 86, 0.06)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 0,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(180, 200, 185, 0.55)',
+        cssBg: '#E8E0D4',
+        uiDark: false,
+        cssVars: {
+            '--text-primary':     '#2A2420',
+            '--text-secondary':   '#5C544C',
+            '--accent-color':     '#8E4A4A',
+            '--accent-dark':      '#4A5858',
+            '--shadow':           'rgba(42, 36, 32, 0.12)',
+            '--h1-color':         '#5A4848',
+            '--stat-surface':     'rgba(250, 246, 238, 0.94)',
+            '--stat-label-color': '#6E645C',
+            '--select-bg':        '#F3EBE0',
+            '--select-border':    'rgba(90, 80, 72, 0.22)'
         }
     },
 
@@ -1530,7 +1573,7 @@ export const SKIN_LIST = Object.values(SKINS);
 /** 皮肤分类（与 SKINS_CATALOG.md 大类对齐，合并小类以减少选择噪音） */
 export const SKIN_CATEGORIES = [
     { id: 'classic',   label: '🔰 经典 · 科技', skins: ['classic', 'titanium', 'aurora', 'neonCity', 'candy', 'toon', 'pixel8', 'arcadeCabinet', 'circuitBoard', 'spaceDock'] },
-    { id: 'nature',    label: '🌿 自然 · 清新', skins: ['ocean', 'sunset', 'forest', 'dawn', 'summer', 'cafe', 'sakura', 'botanicalStudy', 'mineralCave', 'winterCabin', 'rainyWindow'] },
+    { id: 'nature',    label: '🌿 自然 · 清新', skins: ['ocean', 'sunset', 'forest', 'dawn', 'summer', 'cafe', 'sakura', 'botanicalStudy', 'inkGarden', 'mineralCave', 'winterCabin', 'rainyWindow'] },
     { id: 'life',      label: '🏷️ 生活 · 庆典', skins: ['food', 'music', 'pets', 'universe', 'fiesta', 'apple', 'koi', 'toyBox'] },
     { id: 'fantasy',   label: '🧿 奇幻 · 文化', skins: ['fantasy', 'fairy', 'greece', 'demon', 'jurassic', 'forbidden', 'mahjong', 'alchemyLab', 'dungeonLoot', 'origamiPaper', 'museumRelic'] },
 ];
@@ -1691,6 +1734,7 @@ export function applySkinToDocument(skin) {
     root.style.setProperty('--skin-wm-gridgap-frac', String((2 * inset + gap) / wmRef));
     root.dataset.skinBlockStyle = skin.blockStyle;
     root.dataset.uiTheme = skin.uiDark ? 'dark' : 'light';
+    root.dataset.skinId = skin.id;
 
     root.style.setProperty('--grid-bg', skin.gridOuter);
     root.style.setProperty('--cell-empty', skin.gridCell);

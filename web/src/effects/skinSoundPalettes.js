@@ -74,6 +74,7 @@ export const SKIN_SOUND_THEMES = {
     museumRelic:   { preset: 'royal', root: 294, material: 'wood', motif: 'gong' },
     winterCabin:   { preset: 'wood', root: 262, material: 'wood', motif: 'cafe' },
     rainyWindow:   { preset: 'water', root: 330, material: 'glass', motif: 'bubble' },
+    inkGarden:     { preset: 'warm', root: 392, scale: EASTERN, material: 'paper', motif: 'sakura' },
     fiesta:    { preset: 'fiesta', root: 440, material: 'party', motif: 'confetti' },
 };
 

@@ -103,7 +103,7 @@ import {
     replayStateAt
 } from './moveSequence.js';
 import { Database } from './database.js';
-import { Renderer, syncGridDisplayPx } from './renderer.js';
+import { Renderer, syncGridDisplayPx, preloadBlockIconAssets } from './renderer.js';
 import { BackendSync } from './services/backendSync.js';
 import { emit as emitMonetizationEvent } from './monetization/MonetizationBus.js';
 import {
@@ -199,6 +199,13 @@ export class Game {
          * 切 RL 面板等触发 resize 后盘面会停留在空白上。registry 一个 markDirty 回调
          * 保证下一帧立刻补画。 */
         this.renderer.onCanvasReset?.(() => this.markDirty());
+        try { preloadBlockIconAssets(getActiveSkin()); } catch { /* ignore */ }
+        if (typeof window !== 'undefined') {
+            window.addEventListener('openblock:block-icon-assets-loaded', () => {
+                this.markDirty();
+                try { this.refreshDockSkin(); } catch { /* ignore */ }
+            });
+        }
         this.db = new Database();
 
         this.score = 0;
@@ -1136,6 +1143,8 @@ export class Game {
          *   触发的 cellSize 重算）。
          */
         onSkinAfterApply((id) => {
+            try { this.renderer?.invalidateSkinCaches?.(); } catch { /* ignore */ }
+            try { preloadBlockIconAssets(SKINS[id] || getActiveSkin()); } catch { /* ignore */ }
             try { window.__ambientParticles?.applySkin?.(id); } catch { /* ignore */ }
             try { window.__effectLayer?.setRenderer?.(this.renderer); } catch { /* ignore */ }
             try {
@@ -2152,6 +2161,11 @@ export class Game {
         }
     }
 
+    /** 候选区单槽 canvas：保持透明（纹理 / 底色由 .block-dock 的 CSS 整体承担，避免逐槽方块） */
+    _paintDockSlotCanvas(ctx, slotPx) {
+        ctx.clearRect(0, 0, slotPx, slotPx);
+    }
+
     /**
      * @param {Array<{ id: string, shape: number[][], colorIdx: number, placed: boolean }>} descriptors
      * @param {{ logSpawn?: boolean, spawnShapeIds?: string[] }} [opts]
@@ -2208,6 +2222,7 @@ export class Game {
             // 以确保 flex 压缩时宽高同步收缩（aspect-ratio:1/1 生效），不出现变形。
             const ctx = canvas.getContext('2d');
             ctx.scale(dockDpr, dockDpr);   // 坐标系仍用逻辑像素
+            this._paintDockSlotCanvas(ctx, slotPx);
             const ox = (slotPx - block.width * cell) / 2;
             const oy = (slotPx - block.height * cell) / 2;
             ctx.save();
@@ -2377,7 +2392,7 @@ export class Game {
             const ctx = cvs.getContext('2d');
             ctx.setTransform(1, 0, 0, 1, 0, 0);
             ctx.scale(dockDpr, dockDpr);
-            ctx.clearRect(0, 0, slotPx, slotPx);
+            this._paintDockSlotCanvas(ctx, slotPx);
             const ox = (slotPx - block.width * cell) / 2;
             const oy = (slotPx - block.height * cell) / 2;
             ctx.save();

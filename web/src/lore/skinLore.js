@@ -78,6 +78,7 @@ const LORE = {
     /* 隐藏皮肤（Konami 解锁） */
     apple:      '乔布斯在车库里点亮的第一块屏幕——四十年来，每一次落子都是对完美的不妥协。至繁归于至简，每一格像素都是灵魂的显影。',
     zen:        '竹林深处茶香袅袅——一盏清茗映着远山的轮廓，每一次落子都如水墨晕开。棋盘是宣纸，方块是诗行。',
+    inkGarden:  '宣纸上梅兰竹菊依次晕开——松影与文房四宝在淡彩里呼吸。每一枚方块都是一幅小画，落子如题款落印。',
     cafe:       '午后的阳光穿过书页落在木桌上——拿铁的奶泡里藏着一个微小的漩涡。每一格方块都散发着烘焙的余温。',
     garden:     '篱笆上的牵牛花迎着晨露绽放——蝴蝶在花丛中画出看不见的地图。每一次消除，都是一季花开的圆满。',
     doodle:     '课桌上铅笔在草稿纸上飞舞——彩色蜡笔画出的世界没有规则，只有无限的可能。每一格都是天马行空的想象力。',
@@ -240,16 +241,21 @@ function _renderPage(panel, cursor, ids) {
         || skin.gridLine
         || '#38bdf8';
 
-    // icon 阵列：取 blockIcons 前 8 个（覆盖 8 种 colorIdx），让玩家看到该皮肤完整元素集
+    // icon 阵列：优先 blockIconAssets（与子图一致），否则 emoji / 麻将 canvas
     const blockIcons = (skin.blockIcons || []).slice(0, 8);
+    const blockAssets = (skin.blockIconAssets || []).slice(0, 8);
     const iconsClass = id === 'mahjong'
         ? 'lore-card__icons lore-card__icons--mahjong'
-        : 'lore-card__icons';
+        : blockAssets.length >= 8
+            ? 'lore-card__icons lore-card__icons--assets'
+            : 'lore-card__icons';
     const iconRow = blockIcons.length > 0
         ? `<div class="${iconsClass}" aria-label="该主题的方块图标">
               ${id === 'mahjong'
             ? blockIcons.map(() => '<canvas class="lore-mj-tile"></canvas>').join('')
-            : blockIcons.map(e => `<span>${_escape(e)}</span>`).join('')}
+            : blockAssets.length >= 8
+                ? blockAssets.map((src) => `<img class="lore-block-icon" src="${_escape(src)}" alt="" loading="lazy" decoding="async"/>`).join('')
+                : blockIcons.map(e => `<span>${_escape(e)}</span>`).join('')}
            </div>`
         : '';
 

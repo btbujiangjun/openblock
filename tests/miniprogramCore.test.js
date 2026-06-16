@@ -77,7 +77,11 @@ const {
   RELIEF_HOLE_FILL_MIN: MP_RELIEF_HOLE_FILL_MIN,
 } = requireCjs('../miniprogram/core/bot/blockSpawn.js');
 
-const EXTERNAL_UI_SKIN_IDS = [
+/* 仅这些皮肤使用真实外部子图（PNG/SVG 美术）；其余 v10.34 批次的 12 款曾共用
+ * 同一张占位 SVG（蓝圆 + 字母），视觉无差异，已移除 blockIconAssets 回退到各自
+ * 专属 emoji + 色板渲染（差异性由 emoji 集 / blockColors / 背景 / blockStyle 承担）。 */
+const ASSET_SKIN_IDS = ['inkGarden'];
+const EMOJI_FALLBACK_SKIN_IDS = [
   'arcadeCabinet',
   'circuitBoard',
   'toyBox',
@@ -277,8 +281,8 @@ describe('miniprogram core parity', () => {
     }
   });
 
-  it('keeps all 40 miniprogram skins mobile optimized and readable', () => {
-    expect(SKIN_LIST).toHaveLength(40);
+  it('keeps all 41 miniprogram skins mobile optimized and readable', () => {
+    expect(SKIN_LIST).toHaveLength(41);
     for (const skin of SKIN_LIST) {
       expect(skin.mobileOptimized).toBe(true);
       expect(skin.blockColors).toHaveLength(8);
@@ -296,18 +300,27 @@ describe('miniprogram core parity', () => {
     }
   });
 
-  it('syncs external UI icon assets for newly expanded skins', () => {
-    for (const id of EXTERNAL_UI_SKIN_IDS) {
+  it('syncs external UI icon assets for asset-based skins', () => {
+    for (const id of ASSET_SKIN_IDS) {
       const skin = SKIN_LIST.find((item) => item.id === id);
       expect(skin, id).toBeDefined();
       expect(skin.blockIconAssets, id).toHaveLength(8);
       for (const asset of skin.blockIconAssets) {
-        expect(asset).toMatch(/^\/assets\/skins\/[^/]+\/block-[0-7]\.svg$/);
+        expect(asset).toMatch(/^\/assets\/skins\/[^/]+\/block-[0-7]\.(svg|png)$/);
         const webAsset = path.resolve(__dirname, '..', 'web/public', asset.replace(/^\//, ''));
         const mpAsset = path.resolve(__dirname, '..', 'miniprogram', asset.replace(/^\//, ''));
         expect(fs.existsSync(webAsset), webAsset).toBe(true);
         expect(fs.existsSync(mpAsset), mpAsset).toBe(true);
       }
+    }
+  });
+
+  it('emoji-fallback skins drop the shared placeholder assets and keep 8 distinct emojis', () => {
+    for (const id of EMOJI_FALLBACK_SKIN_IDS) {
+      const skin = SKIN_LIST.find((item) => item.id === id);
+      expect(skin, id).toBeDefined();
+      expect(skin.blockIconAssets, id).toBeUndefined();
+      expect(skin.blockIcons, id).toHaveLength(8);
     }
   });
 

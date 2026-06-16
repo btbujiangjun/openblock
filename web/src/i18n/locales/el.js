@@ -107,6 +107,7 @@ export default {
     'skin.name.museumRelic': '⚱️ Museum Relic',
     'skin.name.winterCabin': '🪵 Winter Cabin',
     'skin.name.rainyWindow': '🌧️ Rainy Window',
+    'skin.name.inkGarden': '🖌️ Ink Wash Garden',
 
     'boot.fileProtocol': 'Το σενάριο δεν φορτώθηκε. Εκτελέστε npm run dev στη ρίζα του έργου και ανοίξτε την τοπική διεύθυνση — όχι με file://.',
 };

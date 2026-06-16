@@ -102,6 +102,7 @@ const MESSAGES = {
       museumRelic: '⚱️ 博物遗珍',
       winterCabin: '🪵 冬日木屋',
       rainyWindow: '🌧️ 雨窗夜灯',
+      inkGarden: '🖌️ 水墨雅集',
     },
   },
   en: {
@@ -197,6 +198,7 @@ const MESSAGES = {
       museumRelic: '⚱️ Museum Relic',
       winterCabin: '🪵 Winter Cabin',
       rainyWindow: '🌧️ Rainy Window',
+      inkGarden: '🖌️ Ink Wash Garden',
     },
   },
 };

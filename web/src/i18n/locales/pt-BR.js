@@ -107,6 +107,7 @@ export default {
     'skin.name.museumRelic': '⚱️ Museum Relic',
     'skin.name.winterCabin': '🪵 Winter Cabin',
     'skin.name.rainyWindow': '🌧️ Rainy Window',
+    'skin.name.inkGarden': '🖌️ Ink Wash Garden',
 
     'boot.fileProtocol': 'O script não carregou. Execute npm run dev na raiz do projeto e abra o URL local do terminal; não use file://.',
 };

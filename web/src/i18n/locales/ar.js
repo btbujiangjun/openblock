@@ -107,6 +107,7 @@ export default {
     'skin.name.museumRelic': '⚱️ Museum Relic',
     'skin.name.winterCabin': '🪵 Winter Cabin',
     'skin.name.rainyWindow': '🌧️ Rainy Window',
+    'skin.name.inkGarden': '🖌️ Ink Wash Garden',
 
     'boot.fileProtocol': 'لم يُحمّل السكربت. نفّذ npm run dev من جذر المشروع وافتح عنوان المتصفّح المحلي؛ لا تستخدم file://.',
 };

@@ -107,6 +107,7 @@ export default {
     'skin.name.museumRelic': '⚱️ Museum Relic',
     'skin.name.winterCabin': '🪵 Winter Cabin',
     'skin.name.rainyWindow': '🌧️ Rainy Window',
+    'skin.name.inkGarden': '🖌️ Ink Wash Garden',
 
     'boot.fileProtocol': 'สคริปต์ไม่โหลด ให้รัน npm run dev ที่รากโปรเจ็กต์แล้วเปิด URL ในเทอร์มินัล อย่าใช้ file://',
 };

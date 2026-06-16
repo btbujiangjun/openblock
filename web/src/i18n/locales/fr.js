@@ -107,6 +107,7 @@ export default {
     'skin.name.museumRelic': '⚱️ Museum Relic',
     'skin.name.winterCabin': '🪵 Winter Cabin',
     'skin.name.rainyWindow': '🌧️ Rainy Window',
+    'skin.name.inkGarden': '🖌️ Ink Wash Garden',
 
     'boot.fileProtocol': 'Le script du jeu ne s’est pas chargé. Lancez npm run dev à la racine du projet et ouvrez l’URL locale indiquée dans le terminal ; n’ouvrez pas le HTML en file://.',
 };

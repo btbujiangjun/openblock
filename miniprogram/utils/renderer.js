@@ -13,6 +13,7 @@
  */
 
 const { paintMahjongTileIcon } = require('./mahjongTileIcon.js');
+const { paintBoardTexture } = require('./boardTexture.js');
 
 const CLASSIC_PALETTE = [
   '#70AD47', '#5B9BD5', '#ED7D31', '#FFC000',
@@ -54,6 +55,50 @@ function lighten(hex, pct) {
   const c = hexToRgb(hex);
   if (!c) return hex;
   return `rgb(${Math.min(255, Math.floor(c.r + (255 - c.r) * pct))},${Math.min(255, Math.floor(c.g + (255 - c.g) * pct))},${Math.min(255, Math.floor(c.b + (255 - c.b) * pct))})`;
+}
+
+function blockIconEnhanceFilter(skin) {
+  const e = skin?.blockIconEnhance;
+  if (!e) return '';
+  const b = e.brightness ?? 1;
+  const c = e.contrast ?? 1;
+  const s = e.saturate ?? 1;
+  if (b === 1 && c === 1 && s === 1) return '';
+  return `brightness(${b}) contrast(${c}) saturate(${s})`;
+}
+
+function resolveBlockBevel(skin, lightBoard) {
+  const b = skin?.blockBevel;
+  return {
+    topLift: b?.topLift ?? (lightBoard ? 0.08 : 0.16),
+    botDark: b?.botDark ?? (lightBoard ? 0.04 : 0.12),
+    botShadeAlpha: b?.botShadeAlpha ?? (lightBoard ? 0.05 : 0.14),
+    innerStroke: b?.innerStroke ?? (lightBoard ? 'rgba(255,255,255,0.46)' : 'rgba(255,255,255,0.34)'),
+    outerStroke: b?.outerStroke ?? (lightBoard ? 'rgba(68,56,40,0.42)' : 'rgba(0,0,0,0.48)'),
+    assetOverlay: b?.assetOverlay ?? false,
+    overlayTop: b?.overlayTop ?? 0.10,
+    overlayBottom: b?.overlayBottom ?? 0.05,
+  };
+}
+
+function paintAssetSoftOverlay(ctx, bx, by, size, r, bevel) {
+  if (!bevel.assetOverlay) return;
+  ctx.save();
+  roundRect(ctx, bx, by, size, size, r);
+  ctx.clip();
+  const hl = ctx.createLinearGradient(bx, by, bx, by + size);
+  hl.addColorStop(0, `rgba(255,255,255,${bevel.overlayTop})`);
+  hl.addColorStop(0.28, 'rgba(255,255,255,0.00)');
+  ctx.fillStyle = hl;
+  roundRect(ctx, bx, by, size, size, r);
+  ctx.fill();
+  const sh = ctx.createLinearGradient(bx, by, bx, by + size);
+  sh.addColorStop(0.80, 'rgba(0,0,0,0.00)');
+  sh.addColorStop(1, `rgba(0,0,0,${bevel.overlayBottom})`);
+  ctx.fillStyle = sh;
+  roundRect(ctx, bx, by, size, size, r);
+  ctx.fill();
+  ctx.restore();
 }
 
 /** RGB→HSL（与 web/src/renderer.js `_rgbToHsl` 同源）。 */
@@ -269,6 +314,10 @@ class GameRenderer {
       }
     }
 
+    if (skin.boardTexture) {
+      paintBoardTexture(ctx, offsetX, offsetY, total, total, skin.boardTexture, this._qualityMode || 'high');
+    }
+
     // Pass 3：盘面水印（在底色之上、网格线/方块之下）
     this._renderBoardWatermark(offsetX, offsetY, total, skin);
 
@@ -388,8 +437,12 @@ class GameRenderer {
 
     // 带 icon 皮肤的方块色降饱和（对齐 web `paintBlockCell`：深盘 ×0.55 / 浅盘 ×0.92），
     // 让中心 emoji 在哑光底色上更清晰。在此入口统一处理，盘面/候选/ghost 三处一致。
-    if (skin.blockIcons && skin.blockIcons.length) {
+    // 有 blockIconAssets 时保留原色，使窄边框与子图底色一致。
+    if (skin.blockIcons && skin.blockIcons.length && !skin.blockIconAssets?.length) {
       color = desaturateColor(color, this._isLightBoard() ? 0.92 : 0.55);
+    }
+    if (skin.blockIconAssets?.length && skin.blockIconEnhance && style === 'flat') {
+      color = lighten(color, 0.04);
     }
 
     if (style === 'bevel3d') return this._paintBevel3d(bx, by, s, r, color);
@@ -407,11 +460,8 @@ class GameRenderer {
     const ctx = this._ctx;
     const skin = this._skin;
     const lightBoard = this._isLightBoard();
-    const topLift = lightBoard ? 0.08 : 0.16;
-    const botDark = lightBoard ? 0.04 : 0.12;
-    const botShadeAlpha = lightBoard ? 0.05 : 0.14;
-    const innerStroke = lightBoard ? 'rgba(255,255,255,0.46)' : 'rgba(255,255,255,0.34)';
-    const outerStroke = lightBoard ? 'rgba(68,56,40,0.42)' : 'rgba(0,0,0,0.48)';
+    const bevel = resolveBlockBevel(skin, lightBoard);
+    const { topLift, botDark, botShadeAlpha, innerStroke, outerStroke } = bevel;
 
     // 1. 主色弱渐变
     const baseG = ctx.createLinearGradient(bx, by, bx, by + s);
@@ -441,7 +491,6 @@ class GameRenderer {
     ctx.lineWidth = 1;
     roundRect(ctx, bx + 1, by + 1, s - 2, s - 2, Math.max(0, r - 1));
     ctx.stroke();
-    void skin;
   }
 
   /** bevel3d —— 4 梯形浮雕（与 web bevel3d 同光照模型；零描边）。 */
@@ -639,13 +688,26 @@ class GameRenderer {
   /** flat —— 纯色 + 极弱描边。 */
   _paintFlat(bx, by, s, r, color) {
     const ctx = this._ctx;
+    const skin = this._skin;
+    const skipFlatStroke = Array.isArray(skin.blockIconAssets) && skin.blockIconAssets.length > 0;
     ctx.fillStyle = color;
-    roundRect(ctx, bx, by, s, s, r);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.14)';
-    ctx.lineWidth = 1;
-    roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, Math.max(0, r - 0.5));
-    ctx.stroke();
+    if (r > 0) {
+      roundRect(ctx, bx, by, s, s, r);
+      ctx.fill();
+      if (!skipFlatStroke) {
+        ctx.strokeStyle = 'rgba(0,0,0,0.14)';
+        ctx.lineWidth = 1;
+        roundRect(ctx, bx + 0.5, by + 0.5, s - 1, s - 1, Math.max(0, r - 0.5));
+        ctx.stroke();
+      }
+    } else {
+      ctx.fillRect(bx, by, s, s);
+      if (!skipFlatStroke) {
+        ctx.strokeStyle = 'rgba(0,0,0,0.14)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx + 0.5, by + 0.5, s - 1, s - 1);
+      }
+    }
   }
 
   /** isLightBoardSkin 复刻（对齐 web）：gridCell 相对亮度 ≥ 0.78 视为浅盘。 */
@@ -676,9 +738,19 @@ class GameRenderer {
     if (assetImg) {
       roundRect(ctx, bx, by, s, s, r);
       ctx.clip();
-      const pad = Math.max(2, s * 0.18);
+      const insetFrac = typeof skin.blockIconInset === 'number' ? skin.blockIconInset : 0.18;
+      const padMin = Array.isArray(skin.blockIconAssets) && skin.blockIconAssets.length ? 1 : 2;
+      const pad = insetFrac <= 0 ? 0 : Math.max(padMin, s * insetFrac);
+      const filt = blockIconEnhanceFilter(skin);
       ctx.globalAlpha = 1.0;
+      if (filt) ctx.filter = filt;
       ctx.drawImage(assetImg, bx + pad, by + pad, s - pad * 2, s - pad * 2);
+      if (filt) ctx.filter = 'none';
+      paintAssetSoftOverlay(ctx, bx, by, s, r, resolveBlockBevel(skin, this._isLightBoard()));
+      ctx.restore();
+      return;
+    }
+    if (assetUrl) {
       ctx.restore();
       return;
     }

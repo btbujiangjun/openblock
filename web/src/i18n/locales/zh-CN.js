@@ -281,6 +281,7 @@ export default {
     'skin.name.museumRelic': '⚱️ 博物遗珍',
     'skin.name.winterCabin': '🪵 冬日木屋',
     'skin.name.rainyWindow': '🌧️ 雨窗夜灯',
+    'skin.name.inkGarden': '🖌️ 水墨雅集',
 
     'boot.fileProtocol': '游戏脚本未加载。Web 调试请执行 npm run dev；Android/iOS 离线模式请执行 npm run mobile:build 后重装最新安装包。',
 

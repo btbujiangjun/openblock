@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — v10.34 批次 12 款皮肤「icon 雷同」修复（移除共用占位 SVG）
+
+`winterCabin / rainyWindow / mineralCave` 等皮肤看起来 icon 雷同，根因排查：v10.34 经典 UI 批次的 **12 款皮肤共用同一张占位 SVG**（统一 `#7dd3fc` 蓝圆 + 白弧，仅 2–4 个英文字母标签不同），从未替换成真实美术，方块视觉几乎一致。
+
+- **移除 12 款的 `blockIconAssets`**（`arcadeCabinet / circuitBoard / toyBox / mineralCave / alchemyLab / botanicalStudy / spaceDock / dungeonLoot / origamiPaper / museumRelic / winterCabin / rainyWindow`），回退到各自**专属 emoji + blockColors** 渲染。差异性由「全局唯一 emoji 集 + 专属色板 + 专属背景 + blockStyle」承担，与 catalog 其余 28 款 emoji 皮肤同一质量基线。
+- `inkGarden`（真实 PNG 美术）不受影响，继续走 `blockIconAssets`。
+- 占位 SVG 文件暂留仓库（未引用），待补真实美术后恢复 `blockIconAssets`。
+- 同步：`miniprogram/core/skins.js` 重新生成；`tests/miniprogramCore.test.js` 拆分 `ASSET_SKIN_IDS`（仅 inkGarden 校验资源存在）与 `EMOJI_FALLBACK_SKIN_IDS`（校验 12 款无 blockIconAssets、保留 8 emoji）；`SKINS_CATALOG.md §4.20` 记录回退与新约定。
+
+### Added/Fixed — 🖌️ 水墨雅集（inkGarden）皮肤 + 皮肤切换绘图修复 + 三端同步
+
+新增水墨主题皮肤并系统性修复皮肤切换/候选区绘图问题：
+
+- **新增 `inkGarden` 水墨雅集皮肤**：浅色宣纸盘面 + 外部 PNG 子图（梅兰竹菊 + 文房四宝），`cartoon` + `blockBevel` 轻浮雕 + `blockIconEnhance` 提亮，`boardTexture:xuanPaper` 程序化宣纸纹理烘焙进 L0 离屏层。皮肤总数 40 → **41**。
+- **修复候选区逐槽底色回归（核心绘图错误）**：此前为 dock 加纹理时，`drawDockSlotBackground` 对**每个皮肤**的每个候选槽 canvas 填了不透明 `cssBg` 矩形，形成「候选格子」；切换浅/深皮肤（如宝石矿洞 → 冬日木屋）时与 dock 的 CSS 背景错位，呈现绘图错误。改为候选槽 canvas 透明，纹理由 `.block-dock` 整体 CSS 承担（web + 小程序同步，移除两端 `drawDockSlotBackground`）。
+- **皮肤切换缓存失效加固**：新增 `invalidateSkinCaches()` 统一清空 L0 背景 / 回退背景层 / 落子格层 / 水印漂移缓存；离屏层 cache key 纳入 `boardTexture` 签名与 `blockStyle`，确保任意皮肤切换都重绘。
+- **HD 水印唯一性修正**：inkGarden hdIcons `🎐` 与 forbidden、`🏯` 与 pixel8 冲突，改为全局唯一的 `🌫️` / `🏞️`（水墨山水意象）。
+- **三端同步**：sync 脚本 `keep` 白名单补 `gridLine / blockIconInset / blockIconEnhance / blockBevel / boardTexture`，`BOARD_WATERMARKS` 补 inkGarden 条目；小程序 `core/skins.js` 重新生成（41 款）；22 个 web locale + 小程序 i18n 皮肤名、`skinLore`（web + cocos）、声效 palette 全部补齐；cocos inkGarden 资源 + manifest 注册。
+- **回归**：`vitest run` 177 files / 3102 passed，`eslint` 0 error；HD 水印快照已更新为 41 款。
+
 ### Fixed — v1.70.3 出块算法 review + 全仓 lint 清零（0 error）
 
 承接 v1.70.3，对出块完整链路做正确性 review 并修复全部遗留 lint 错误：

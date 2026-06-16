@@ -88,10 +88,15 @@ for (const [key, skin] of Object.entries(webSkins)) {
     gridOuter: skin.gridOuter,
     gridCell: skin.gridCell,
     gridGap: skin.gridGap,
+    gridLine: skin.gridLine,
     blockInset: skin.blockInset,
     blockRadius: skin.blockRadius,
     blockStyle: skin.blockStyle,
     cellStyle: skin.cellStyle,
+    blockIconInset: skin.blockIconInset,
+    blockIconEnhance: skin.blockIconEnhance,
+    blockBevel: skin.blockBevel,
+    boardTexture: skin.boardTexture,
     clearFlash: skin.clearFlash,
   };
 }
@@ -242,6 +247,7 @@ const BOARD_WATERMARKS = {
   mineralCave: { icons: ['💍', '🔦'], opacity: 0.052, hdIcons: ['◾', '◽', '▪️', '▫️', '⬛'] },
   alchemyLab: { icons: ['⚗️', '🧪'], opacity: 0.052, hdIcons: ['☣️', '☢️', '♨️', '⚕️', '☤'] },
   botanicalStudy: { icons: ['🥀', '🫛'], opacity: 0.10, hdIcons: ['🫐', '🥦', '🍅', '🍆', '🥒'] },
+  inkGarden: { icons: ['🪭', '📜'], opacity: 0.11, scale: 0.26, hdIcons: ['⛰️', '🎑', '🍶', '🌫️', '🏞️'] },
   spaceDock: { icons: ['🛰️', '🧑‍🚀'], opacity: 0.045, hdIcons: ['✦', '✧', '✹', '✺', '✷'] },
   dungeonLoot: { icons: ['🪤', '🕳️'], opacity: 0.05, hdIcons: ['⛓', '⌬', '⟡', '⟢', '✶'] },
   origamiPaper: { icons: ['✉️', '📄'], opacity: 0.11, hdIcons: ['▱', '△', '◇', '□', '▽'] },

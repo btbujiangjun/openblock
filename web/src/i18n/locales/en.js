@@ -275,6 +275,7 @@ export default {
     'skin.name.museumRelic': '⚱️ Museum Relic',
     'skin.name.winterCabin': '🪵 Winter Cabin',
     'skin.name.rainyWindow': '🌧️ Rainy Window',
+    'skin.name.inkGarden': '🖌️ Ink Wash Garden',
 
     'boot.fileProtocol': 'Game script did not load. For web debugging run npm run dev; for Android/iOS offline mode run npm run mobile:build and reinstall the latest app package.',
 

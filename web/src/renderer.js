@@ -5,6 +5,7 @@
 import { CONFIG } from './config.js';
 import { getActiveSkin, getBlockColors, SKINS } from './skins.js';
 import { paintMahjongTileIcon } from './mahjongTileIcon.js';
+import { paintBoardTexture } from './boardTexture.js';
 
 /* 高清模式盘面水印漂移
  *
@@ -208,19 +209,106 @@ function roundRectPath(ctx, x, y, w, h, r) {
  * @param {CanvasRenderingContext2D} ctx
  */
 const _iconAssetCache = new Map();
+/** @type {Set<Renderer>} */
+const _activeRenderers = new Set();
+let _iconAssetLoadRaf = 0;
 
-function _getBlockIconAsset(url) {
+function _notifyBlockIconAssetsLoaded() {
+    for (const r of _activeRenderers) r._gridLayerKey = '';
+    if (typeof window === 'undefined') return;
+    if (_iconAssetLoadRaf) return;
+    _iconAssetLoadRaf = requestAnimationFrame(() => {
+        _iconAssetLoadRaf = 0;
+        window.dispatchEvent(new CustomEvent('openblock:block-icon-assets-loaded'));
+    });
+}
+
+/** 皮肤切换 / 开局时预载 blockIconAssets，减少盘面离屏缓存烘焙 emoji 回退帧 */
+export function preloadBlockIconAssets(skin) {
+    if (!Array.isArray(skin?.blockIconAssets) || !skin.blockIconAssets.length) return;
+    if (typeof Image !== 'function') return;
+    for (const url of skin.blockIconAssets) {
+        if (!url) continue;
+        _getBlockIconAsset(url, true);
+    }
+}
+
+function _blockIconAssetsSig(skin) {
+    if (!Array.isArray(skin?.blockIconAssets) || !skin.blockIconAssets.length) return '';
+    let sig = '';
+    for (const url of skin.blockIconAssets) {
+        const e = _iconAssetCache.get(url);
+        sig += e?.ready ? '1' : (e?.failed ? 'f' : '0');
+    }
+    return sig;
+}
+
+function _boardTextureSig(skin) {
+    const t = skin?.boardTexture;
+    if (!t?.type) return '';
+    return `${t.type}|${t.opacity ?? ''}|${t.intensity ?? ''}|${t.seed ?? ''}`;
+}
+
+function _getBlockIconAsset(url, preloadOnly = false) {
     if (!url || typeof Image !== 'function') return null;
     let entry = _iconAssetCache.get(url);
     if (!entry) {
         const img = new Image();
         entry = { img, ready: false, failed: false };
-        img.onload = () => { entry.ready = true; };
+        img.onload = () => {
+            entry.ready = true;
+            _notifyBlockIconAssetsLoaded();
+        };
         img.onerror = () => { entry.failed = true; };
         img.src = url;
         _iconAssetCache.set(url, entry);
     }
+    if (preloadOnly) return null;
     return entry.ready && !entry.failed ? entry.img : null;
+}
+
+function _blockIconEnhanceFilter(skin) {
+    const e = skin?.blockIconEnhance;
+    if (!e) return '';
+    const b = e.brightness ?? 1;
+    const c = e.contrast ?? 1;
+    const s = e.saturate ?? 1;
+    if (b === 1 && c === 1 && s === 1) return '';
+    return `brightness(${b}) contrast(${c}) saturate(${s})`;
+}
+
+function _resolveBlockBevel(skin, lightBoard) {
+    const b = skin?.blockBevel;
+    return {
+        topLift: b?.topLift ?? (lightBoard ? 0.08 : 0.16),
+        botDark: b?.botDark ?? (lightBoard ? 0.04 : 0.12),
+        botShadeAlpha: b?.botShadeAlpha ?? (lightBoard ? 0.05 : 0.14),
+        innerStroke: b?.innerStroke ?? (lightBoard ? 'rgba(255,255,255,0.46)' : 'rgba(255,255,255,0.34)'),
+        outerStroke: b?.outerStroke ?? (lightBoard ? 'rgba(68,56,40,0.42)' : 'rgba(0,0,0,0.48)'),
+        assetOverlay: b?.assetOverlay ?? false,
+        overlayTop: b?.overlayTop ?? 0.10,
+        overlayBottom: b?.overlayBottom ?? 0.05,
+    };
+}
+
+function _paintAssetSoftOverlay(ctx, bx, by, size, r, bevel) {
+    if (!bevel.assetOverlay) return;
+    ctx.save();
+    roundRectPath(ctx, bx, by, size, size, r);
+    ctx.clip();
+    const hl = ctx.createLinearGradient(bx, by, bx, by + size);
+    hl.addColorStop(0, `rgba(255,255,255,${bevel.overlayTop})`);
+    hl.addColorStop(0.28, 'rgba(255,255,255,0.00)');
+    ctx.fillStyle = hl;
+    roundRectPath(ctx, bx, by, size, size, r);
+    ctx.fill();
+    const sh = ctx.createLinearGradient(bx, by, bx, by + size);
+    sh.addColorStop(0.80, 'rgba(0,0,0,0.00)');
+    sh.addColorStop(1, `rgba(0,0,0,${bevel.overlayBottom})`);
+    ctx.fillStyle = sh;
+    roundRectPath(ctx, bx, by, size, size, r);
+    ctx.fill();
+    ctx.restore();
 }
 
 function _paintIcon(ctx, bx, by, size, r, color, skin) {
@@ -238,12 +326,20 @@ function _paintIcon(ctx, bx, by, size, r, color, skin) {
         ctx.save();
         roundRectPath(ctx, bx, by, size, size, r);
         ctx.clip();
-        const pad = Math.max(2, size * 0.18);
+        const insetFrac = typeof skin.blockIconInset === 'number' ? skin.blockIconInset : 0.18;
+        const padMin = Array.isArray(skin.blockIconAssets) && skin.blockIconAssets.length ? 1 : 2;
+        const pad = insetFrac <= 0 ? 0 : Math.max(padMin, size * insetFrac);
+        const filt = _blockIconEnhanceFilter(skin);
         ctx.globalAlpha = 1.0;
+        if (filt) ctx.filter = filt;
         ctx.drawImage(assetImg, bx + pad, by + pad, size - pad * 2, size - pad * 2);
+        if (filt) ctx.filter = 'none';
+        _paintAssetSoftOverlay(ctx, bx, by, size, r, _resolveBlockBevel(skin, isLightBoardSkin(skin)));
         ctx.restore();
         return;
     }
+    // 已配置 PNG 子图时勿回退 emoji（双层阴影会像 3D 凸起）；等资源就绪后离屏层会重建
+    if (assetUrl) return;
     // 麻将：象牙立体牌 + 传统设色阴刻（仍用 U+1F000 字符，不经彩色 emoji 叠画）
     if (skin.id === 'mahjong') {
         ctx.save();
@@ -313,26 +409,35 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     // 色相和明度完全保留，emoji 在哑光底色上对比更清晰。
     // originalColor 保留用于 _paintIcon 的 colorIdx 索引查找。
     const originalColor = color;
-    if (skin.blockIcons && skin.blockIcons.length) {
+    if (skin.blockIcons && skin.blockIcons.length && !skin.blockIconAssets?.length) {
         // 浅色盘面配置多为低饱和底，再 ×0.55 易压成「灰黑团」；略降即可
         const satFactor = isLightBoardSkin(skin) ? 0.92 : 0.55;
         color = desaturateColor(color, satFactor);
     }
 
     if (skin.blockStyle === 'flat') {
+        // PNG 子图皮肤：窄边框由 blockIconInset 留白 + blockColors 底色呈现，不再叠黑色描边
+        const skipFlatStroke = Array.isArray(skin.blockIconAssets) && skin.blockIconAssets.length > 0;
+        if (skipFlatStroke && skin.blockIconEnhance) {
+            color = lightenColor(color, 0.04);
+        }
         ctx.fillStyle = color;
         if (r > 0) {
             roundRectPath(ctx, bx, by, size, size, r);
             ctx.fill();
-            ctx.strokeStyle = 'rgba(0,0,0,0.14)';
-            ctx.lineWidth = 1;
-            roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
-            ctx.stroke();
+            if (!skipFlatStroke) {
+                ctx.strokeStyle = 'rgba(0,0,0,0.14)';
+                ctx.lineWidth = 1;
+                roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+                ctx.stroke();
+            }
         } else {
             ctx.fillRect(bx, by, size, size);
-            ctx.strokeStyle = 'rgba(0,0,0,0.2)';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
+            if (!skipFlatStroke) {
+                ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(bx + 0.5, by + 0.5, size - 1, size - 1);
+            }
         }
         _paintIcon(ctx, bx, by, size, r, originalColor, skin);
         return;
@@ -418,11 +523,8 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
      */
     if (skin.blockStyle === 'cartoon') {
         const lightBoard = isLightBoardSkin(skin);
-        const topLift = lightBoard ? 0.08 : 0.16;
-        const botDark = lightBoard ? 0.04 : 0.12;
-        const botShadeAlpha = lightBoard ? 0.05 : 0.14;
-        const innerStroke = lightBoard ? 'rgba(255,255,255,0.46)' : 'rgba(255,255,255,0.34)';
-        const outerStroke = lightBoard ? 'rgba(68,56,40,0.42)' : 'rgba(0,0,0,0.48)';
+        const bevel = _resolveBlockBevel(skin, lightBoard);
+        const { topLift, botDark, botShadeAlpha, innerStroke, outerStroke } = bevel;
         // 1. 主色弱渐变 — 浅色盘面再减轻底部压暗，避免整体发黑
         const baseG = ctx.createLinearGradient(bx, by, bx, by + size);
         baseG.addColorStop(0,    lightenColor(color, topLift));
@@ -898,6 +1000,7 @@ export class Renderer {
      *          三层拆分（详见 renderBackground 头注释），缺任一即回退到"全部画在主 canvas"的旧行为。
      */
     constructor(canvas, opts = {}) {
+        _activeRenderers.add(this);
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
         this.cellSize = CONFIG.CELL_SIZE;
@@ -1613,11 +1716,21 @@ export class Renderer {
     }
 
     /**
+     * 皮肤切换 / 几何变化时失效所有盘面离屏缓存（L0 背景、回退背景层、落子格层）。
+     */
+    invalidateSkinCaches() {
+        this._boardBgKey = '';
+        this._bgLayerKey = '';
+        this._gridLayerKey = '';
+        this._bgDirty = true;
+        if (this._watermarkDrift) this._watermarkDrift.key = '';
+    }
+
+    /**
      * v10.15: 标记需要重绘背景（皮肤切换 / cssVars 更新等场景）。
-     * 当前 game.render() 每帧都重绘，此方法保留为皮肤切换时的扩展钩子。
      */
     markBackgroundDirty() {
-        this._bgDirty = true;
+        this.invalidateSkinCaches();
     }
 
     /**
@@ -1748,7 +1861,7 @@ export class Renderer {
     /** v1.60.47：把背景静态层（bg-under）画进 L0/bgCanvas；签名（皮肤/尺寸/dpr/画质）未变则跳过。 */
     _refreshBoardBgLayer(skin) {
         const dpr = this.dpr || 1;
-        const key = `${skin.id ?? skin.name ?? '?'}|${this.gridSize}|${this.cellSize.toFixed(3)}|${dpr}|${this._qualityMode}`;
+        const key = `${skin.id ?? skin.name ?? '?'}|${this.gridSize}|${this.cellSize.toFixed(3)}|${dpr}|${this._qualityMode}|${_boardTextureSig(skin)}`;
         if (key === this._boardBgKey) return;
         const cx = this.bgCtx;
         cx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -1818,6 +1931,18 @@ export class Renderer {
                 }
             }
         }
+
+        if (skin.boardTexture) {
+            paintBoardTexture(
+                ctx,
+                -10,
+                -10,
+                this.logicalW + 20,
+                this.logicalH + 20,
+                skin.boardTexture,
+                this._qualityMode,
+            );
+        }
     }
 
     /** v1.60.46：绘制 watermark 之上的背景静态层（网格线）到指定 ctx。 */
@@ -1855,7 +1980,7 @@ export class Renderer {
     _getBackgroundLayers(skin) {
         if (typeof document === 'undefined') return null;
         const dpr = this.dpr || 1;
-        const key = `${skin.id ?? skin.name ?? '?'}|${this.gridSize}|${this.cellSize.toFixed(3)}|${dpr}|${this._qualityMode}`;
+        const key = `${skin.id ?? skin.name ?? '?'}|${this.gridSize}|${this.cellSize.toFixed(3)}|${dpr}|${this._qualityMode}|${_boardTextureSig(skin)}`;
         if (key === this._bgLayerKey && this._bgUnderLayer) {
             return { under: this._bgUnderLayer, over: this._bgOverLayer };
         }
@@ -1942,7 +2067,8 @@ export class Renderer {
                 cellSig += (v == null) ? '.' : (v < 36 ? v.toString(36) : `(${v})`);
             }
         }
-        const key = `${skin.id ?? skin.name ?? '?'}|${n}|${this.cellSize.toFixed(3)}|${dpr}|${cellSig}`;
+        const iconSig = _blockIconAssetsSig(skin);
+        const key = `${skin.id ?? skin.name ?? '?'}|${skin.blockStyle ?? ''}|${n}|${this.cellSize.toFixed(3)}|${dpr}|${cellSig}|${iconSig}|${_boardTextureSig(skin)}`;
         if (key === this._gridLayerKey && this._gridLayer) return this._gridLayer;
 
         const pw = Math.max(1, Math.round(this.logicalW * dpr));
