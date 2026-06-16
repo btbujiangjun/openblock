@@ -473,8 +473,9 @@ export class BoardView extends Component {
         const cell = this.cellSize;
         const half = this.boardPx / 2;
         const size = this._size;
-        // 对齐 web `_paintBackgroundOver` 的 lineWidth=1：常规格(40-55px)→1px；超大格才到 2px。
-        const lw = Math.max(1, Math.round(cell * 0.025));
+        // 对齐 web `_paintBackgroundOver` 的 lineWidth=1（× skin.gridLineWidth）：常规格→1px；浅线皮肤可加倍。
+        const lineMul = skin.gridLineWidth ?? 1;
+        const lw = Math.max(1, Math.round(Math.max(1, Math.round(cell * 0.025)) * lineMul));
         const halfLw = lw / 2;
 
         lg.fillColor = lineColor;

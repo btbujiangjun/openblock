@@ -53,8 +53,10 @@ export interface Skin {
     gridCell: string;
     /** 盘面外框/容器底色 */
     gridOuter?: string;
-    /** 网格线色（cocos 暂未画线，保留以对齐数据） */
+    /** 网格线色；false 关闭 */
     gridLine?: string | false;
+    /** 网格线粗细倍率（默认 1；果韵匠心等浅线皮肤可设 1.5 提升 Cocos/高分屏可读性） */
+    gridLineWidth?: number;
     gridGap?: number;
     blockInset?: number;
     blockRadius?: number;

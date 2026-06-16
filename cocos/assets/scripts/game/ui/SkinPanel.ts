@@ -27,7 +27,13 @@ export class SkinPanel extends Component {
     private _scrollMin = 0;
     private _scrollMax = 0;
     private _scrollLastY = 0;
+    /** 速度采样时间戳（秒），用于把逐帧 dy 换算成与帧率无关的 px/s 速度。 */
+    private _scrollLastT = 0;
+    /** 抛掷速度，单位 px/s（松手后惯性按 velocity*dt 推进，帧率无关）。 */
     private _scrollVelocity = 0;
+    /** 手指是否按下：按住期间只跟手，不跑惯性，避免「跟手 + 惯性」双重位移。 */
+    private _pressed = false;
+    /** 本次手势是否已判定为滚动（兼作点击抑制：松手后短暂保持以吞掉误触点选）。 */
     private _scrollDragging = false;
     private _touchLayer: Node | null = null;
     private _viewport: Node | null = null;
@@ -211,13 +217,23 @@ export class SkinPanel extends Component {
 
     /** 累计滑动距离（绝对值），超过阈值才判定为「滚动」而非「点击」。 */
     private _scrollAccumDist = 0;
-    private static readonly SCROLL_TAP_THRESHOLD = 10;
+    private static readonly SCROLL_TAP_THRESHOLD = 8;
+    /** 惯性衰减：每秒保留的速度比例（≈ 60fps 下逐帧 0.92）。帧率无关。 */
+    private static readonly INERTIA_DECAY = 0.0067;
+    /** 越界（橡皮筋区）时的额外快速衰减，制造「冲出后被拉回」的回弹手感。 */
+    private static readonly OVERSCROLL_DECAY = 0.0008;
+    /** 回弹刚度（越大回弹越快）。 */
+    private static readonly BOUNCE_STIFFNESS = 16;
+    /** 抛掷速度上限（px/s），防止超快甩动导致瞬移。 */
+    private static readonly MAX_FLING = 4200;
 
     private _onScrollStart(e: EventTouch): void {
         if (!this._scrollContent || this.closed) return;
         const loc = e.getUILocation();
         this._scrollLastY = loc.y;
+        this._scrollLastT = SkinPanel._now();
         this._scrollVelocity = 0;
+        this._pressed = true;
         this._scrollDragging = false;
         this._scrollAccumDist = 0;
         e.propagationStopped = true;
@@ -226,20 +242,31 @@ export class SkinPanel extends Component {
     private _onScrollMove(e: EventTouch): void {
         if (!this._scrollContent || this.closed) return;
         const loc = e.getUILocation();
+        const now = SkinPanel._now();
         const dy = loc.y - this._scrollLastY;
+        // 采样间隔钳制在 [1/120s, 1/15s]，避免稀疏/抖动事件算出离谱速度
+        const dt = Math.min(1 / 15, Math.max(1 / 120, now - this._scrollLastT));
         this._scrollLastY = loc.y;
+        this._scrollLastT = now;
         this._scrollAccumDist += Math.abs(dy);
         if (this._scrollAccumDist > SkinPanel.SCROLL_TAP_THRESHOLD) this._scrollDragging = true;
         if (!this._scrollDragging) return;
-        this._scrollVelocity = dy * 0.6;
+        // 1) 纯跟手：直接按 dy 位移（越界橡皮筋阻尼），不再在 move 里设惯性
         this._applyScroll(dy);
+        // 2) 速度采样：瞬时速度（px/s）与历史做加权平滑，偏重最近一帧以获得灵敏的 fling
+        const inst = dy / dt;
+        this._scrollVelocity = this._scrollVelocity * 0.35 + inst * 0.65;
         e.propagationStopped = true;
     }
 
     private _onScrollEnd(e: EventTouch): void {
         e.propagationStopped = true;
+        this._pressed = false;
         if (this._scrollDragging) {
-            this.scheduleOnce(() => { this._scrollDragging = false; }, 0.05);
+            // 松手后立即进入惯性（update 因 _pressed=false 接管）；
+            // _scrollDragging 再保持一小段时间用于吞掉误触点选，然后清除。
+            this._scrollVelocity = Math.max(-SkinPanel.MAX_FLING, Math.min(SkinPanel.MAX_FLING, this._scrollVelocity));
+            this.scheduleOnce(() => { this._scrollDragging = false; }, 0.06);
             return;
         }
         if (this.closed || !this._scrollContent?.isValid) return;
@@ -262,6 +289,13 @@ export class SkinPanel extends Component {
         }
     }
 
+    /** 当前时间（秒），优先用高精度时钟。 */
+    private static _now(): number {
+        const p = (globalThis as { performance?: { now(): number } }).performance;
+        return (p && typeof p.now === 'function' ? p.now() : Date.now()) / 1000;
+    }
+
+    /** 跟手位移：越界进入橡皮筋区（位移按 0.3 衰减），不直接 clamp 以保留可拉拽的回弹空间。 */
     private _applyScroll(deltaY: number): void {
         if (!this._scrollContent) return;
         const pos = this._scrollContent.position;
@@ -275,23 +309,38 @@ export class SkinPanel extends Component {
     }
 
     update(dt: number): void {
-        if (!this._scrollContent) return;
-        // 惯性衰减（仅松手后）
-        if (Math.abs(this._scrollVelocity) > 0.5) {
-            this._applyScroll(this._scrollVelocity);
-            this._scrollVelocity *= 0.92;
+        const content = this._scrollContent;
+        if (!content) return;
+        // 按住期间完全由 move 跟手驱动，update 不介入（杜绝双重位移 / 按住漂移）
+        if (this._pressed) return;
+        if (dt <= 0) return;
+
+        const pos = content.position;
+        let y = pos.y;
+        const min = this._scrollMin;
+        const max = this._scrollMax;
+        const outOfBounds = y < min || y > max;
+
+        // 惯性推进（px/s，帧率无关）
+        if (Math.abs(this._scrollVelocity) > 2) {
+            y += this._scrollVelocity * dt;
+            const decay = outOfBounds ? SkinPanel.OVERSCROLL_DECAY : SkinPanel.INERTIA_DECAY;
+            this._scrollVelocity *= Math.pow(decay, dt);
         } else {
             this._scrollVelocity = 0;
         }
-        // 边界回弹
-        const pos = this._scrollContent.position;
-        if (pos.y < this._scrollMin) {
-            const newY = pos.y + (this._scrollMin - pos.y) * Math.min(1, dt * 8);
-            this._scrollContent.setPosition(pos.x, newY, pos.z);
-        } else if (pos.y > this._scrollMax) {
-            const newY = pos.y + (this._scrollMax - pos.y) * Math.min(1, dt * 8);
-            this._scrollContent.setPosition(pos.x, newY, pos.z);
+
+        // 边界回弹（指数趋近，帧率无关）
+        const k = Math.min(1, dt * SkinPanel.BOUNCE_STIFFNESS);
+        if (y < min) {
+            y += (min - y) * k;
+            if (min - y < 0.5) { y = min; this._scrollVelocity = 0; }
+        } else if (y > max) {
+            y += (max - y) * k;
+            if (y - max < 0.5) { y = max; this._scrollVelocity = 0; }
         }
+
+        content.setPosition(pos.x, y, pos.z);
     }
 
     // ────────────────── 渲染辅助 ──────────────────

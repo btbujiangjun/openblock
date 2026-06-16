@@ -55,6 +55,13 @@ const SKIN_ACCENT: Record<string, [string, string]> = {
     doodle:     ['#4488CC', '#66AAEE'],    zen:        ['#88A888', '#A8C8A8'],
     cyberpunk:  ['#FF00CC', '#00FFCC'],    fiesta:     ['#FF6020', '#FFD020'],
     zodiac:     ['#D02020', '#FFD700'],    apple:      ['#8868D8', '#A888F0'],
+    arcadeCabinet:  ['#35E06F', '#FF3B6B'],  circuitBoard:   ['#2FE68A', '#D6F75A'],
+    spaceDock:      ['#4AD8FF', '#8C7CFF'],  botanicalStudy: ['#5F8A68', '#486A50'],
+    inkGarden:      ['#8E4A4A', '#4A5858'],  mineralCave:    ['#54D3D8', '#B38AF6'],
+    winterCabin:    ['#A05A48', '#2F6F88'],  rainyWindow:    ['#6AA0D0', '#D8B858'],
+    toyBox:         ['#E8527A', '#42A7E8'],  alchemyLab:     ['#8BD450', '#D8B04A'],
+    dungeonLoot:    ['#B88438', '#C6A64A'],  origamiPaper:   ['#D86A88', '#8CA0B8'],
+    museumRelic:    ['#C0A05A', '#B0703C'],
 };
 
 export function accentColor(skin: Skin, alpha = 255): Color {

@@ -2,7 +2,7 @@
  * 皮肤/调色板 —— 与 web/src/skins.js 同源（颜色 / icon / 盘面色板对齐）。
  *
  * 移植范围：cocos 渲染所需的数据字段（blockColors / blockIcons / gridOuter / gridCell /
- * gridLine / gridGap / blockInset / blockRadius / blockStyle / clearFlash / cssBg / uiDark）。
+ * gridLine / gridLineWidth / gridGap / blockInset / blockRadius / blockStyle / clearFlash / cssBg / uiDark）。
  * 未移植 web 专属字段（boardWatermark / cssVars）—— 它们属于 DOM/HUD 主题，cocos 端不消费。
  *
  * 默认皮肤与 web 一致：titanium。
@@ -446,7 +446,8 @@ export const SKINS: Record<string, Skin> = {
         blockColors: ['#C8C8CC', '#8E8E93', '#D4B88C', '#E8B4B8', '#5F7488', '#A8BCC8', '#6261E7', '#E55934'],
         gridOuter: '#0E0E12',
         gridCell: '#1A1A20',
-        gridLine: 'rgba(255,255,255,0.07)',
+        gridLine: 'rgba(218,218,226,0.38)',
+        gridLineWidth: 1.5,
         gridGap: 1,
         blockInset: 2,
         blockRadius: 7,
@@ -488,6 +489,235 @@ export const SKINS: Record<string, Skin> = {
         blockStyle: 'cartoon',
         clearFlash: 'rgba(255,220,100,0.85)',
         cssBg: '#100420',
+        uiDark: true,
+    },
+
+    /** 复古街机柜：CRT 像素屏、投币灯箱与经典 UI 标牌 */
+    arcadeCabinet: {
+        id: 'arcadeCabinet',
+        name: '📺 复古街机',
+        blockIcons: ['📺', '📟', '💽', '📀', '💿', '📼', '🎚️', '🎛️'],
+        blockColors: ['#35E06F', '#FF3B6B', '#20C8FF', '#FFD13D', '#B05CFF', '#FF8A24', '#40E0D0', '#F4F4F8'],
+        gridOuter: '#050815',
+        gridCell: '#10172A',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'pixel8',
+        clearFlash: 'rgba(90,240,180,0.78)',
+        cssBg: '#060914',
+        uiDark: true,
+    },
+
+    /** 电路矩阵：深绿 PCB、铜线与信号节点 */
+    circuitBoard: {
+        id: 'circuitBoard',
+        name: '🧲 电路矩阵',
+        blockIcons: ['🧲', '📶', '🟢', '🟣', '🟡', '🟤', '🪛', '🪫'],
+        blockColors: ['#2FE68A', '#48B8FF', '#D6F75A', '#A978FF', '#F5A642', '#B07848', '#6EE7C8', '#FF5E7A'],
+        gridOuter: '#061A12',
+        gridCell: '#0D2A1D',
+        gridLine: 'rgba(82,255,170,0.16)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 5,
+        blockStyle: 'neon',
+        clearFlash: 'rgba(80,255,180,0.62)',
+        cssBg: '#03100C',
+        uiDark: true,
+    },
+
+    /** 太空船坞：离子蓝、泊位灯、舱门与轨道设施 */
+    spaceDock: {
+        id: 'spaceDock',
+        name: '🛰️ 太空船坞',
+        blockIcons: ['🛰️', '🧑‍🚀', '👨‍🚀', '👩‍🚀', '🛞', '🧯', '🗜️', '📍'],
+        blockColors: ['#4AD8FF', '#8C7CFF', '#56E6A4', '#F6C84A', '#EF6A7A', '#6FA8FF', '#B6E6FF', '#D48BFF'],
+        gridOuter: '#06101F',
+        gridCell: '#101A30',
+        gridLine: 'rgba(120,190,255,0.14)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'neon',
+        clearFlash: 'rgba(120,220,255,0.70)',
+        cssBg: '#030814',
+        uiDark: true,
+    },
+
+    /** 植物标本馆：纸张、标本签、温室与柔和自然色（浅色系） */
+    botanicalStudy: {
+        id: 'botanicalStudy',
+        name: '🥀 植物标本',
+        blockIcons: ['🥀', '🫛', '🫒', '🍓', '🫚', '🪴', '🪲', '🫘'],
+        blockColors: ['#8C4A5A', '#4F7F55', '#6C9B4A', '#B24F5A', '#9C7240', '#5F8A68', '#486A50', '#8A6A4B'],
+        gridOuter: '#BFC7A8',
+        gridCell: '#E7E8D8',
+        gridLine: 'rgba(82,98,58,0.18)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 8,
+        blockStyle: 'flat',
+        clearFlash: 'rgba(170,220,130,0.62)',
+        cssBg: '#D9DDC8',
+        uiDark: false,
+    },
+
+    /** 水墨雅集：四君子与文房 —— 宣纸底色、淡彩水墨（cocos 无 PNG 方块/宣纸纹理，回退 cartoon 面 + emoji） */
+    inkGarden: {
+        id: 'inkGarden',
+        name: '🖌️ 水墨雅集',
+        blockIcons: ['💮', '🪻', '🎍', '💐', '🫧', '🪨', '🌰', '🖋️'],
+        blockColors: ['#9DAECE', '#B5A7CB', '#AAB091', '#C2AA88', '#9EB0B2', '#C5A5AB', '#9FAFBA', '#BAAC8B'],
+        gridOuter: '#E8E0D4',
+        gridCell: '#F5EFE6',
+        gridLine: 'rgba(110,98,86,0.06)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 0,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(180,200,185,0.55)',
+        cssBg: '#E8E0D4',
+        uiDark: false,
+    },
+
+    /** 宝石矿洞：岩层、晶簇、矿灯与低饱和矿物光 */
+    mineralCave: {
+        id: 'mineralCave',
+        name: '💍 宝石矿洞',
+        blockIcons: ['💍', '🔦', '🧱', '🟫', '🟪', '🟨', '🔸', '🔹'],
+        blockColors: ['#54D3D8', '#B38AF6', '#D6A15C', '#8C6A4A', '#7A54D6', '#D8BC4C', '#E06A3A', '#4A8EE8'],
+        gridOuter: '#12131C',
+        gridCell: '#202132',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(160,230,255,0.58)',
+        cssBg: '#0A0B12',
+        uiDark: true,
+    },
+
+    /** 冬日木屋：雪窗、暖炉、羊毛织物和松木香气（浅色系） */
+    winterCabin: {
+        id: 'winterCabin',
+        name: '🪵 冬日木屋',
+        blockIcons: ['🪵', '🧤', '🧣', '🧦', '🛷', '🔥', '🫖', '🏕️'],
+        blockColors: ['#7A5130', '#B04A4A', '#2F6F88', '#C09854', '#556B84', '#D06A38', '#6F8A70', '#A05A48'],
+        gridOuter: '#E0D7C8',
+        gridCell: '#F3EFE6',
+        gridLine: 'rgba(90,72,52,0.16)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 8,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(210,235,255,0.66)',
+        cssBg: '#D8D0C2',
+        uiDark: false,
+    },
+
+    /** 雨窗夜灯：玻璃雨滴、街灯反射和柔暗蓝灰 */
+    rainyWindow: {
+        id: 'rainyWindow',
+        name: '🌧️ 雨窗夜灯',
+        blockIcons: ['🌧️', '☔', '💧', '💦', '🪟', '🌂', '☁️', '💡'],
+        blockColors: ['#4C8FB8', '#6AA0D0', '#3FC0D0', '#58D0B8', '#A8B8C8', '#8A74C8', '#6A7A90', '#D8B858'],
+        gridOuter: '#07101A',
+        gridCell: '#101C2A',
+        gridLine: 'rgba(120,180,220,0.12)',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(140,210,255,0.58)',
+        cssBg: '#050B12',
+        uiDark: true,
+    },
+
+    /** 玩具箱子：积木、拼图和童年游乐场的软糖色块（浅色系） */
+    toyBox: {
+        id: 'toyBox',
+        name: '🧸 玩具箱子',
+        blockIcons: ['🧸', '🪀', '🪁', '🧩', '🪆', '🛝', '🛴', '🎳'],
+        blockColors: ['#E8527A', '#F38C32', '#F7D04A', '#58C56A', '#42A7E8', '#9B72F0', '#F06DB8', '#38C8BE'],
+        gridOuter: '#CCB88C',
+        gridCell: '#F4E8CE',
+        gridLine: 'rgba(110,82,42,0.18)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 9,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,220,120,0.75)',
+        cssBg: '#EFE1C2',
+        uiDark: false,
+    },
+
+    /** 炼金工坊：瓶罐、粉末与铜绿实验台 */
+    alchemyLab: {
+        id: 'alchemyLab',
+        name: '⚗️ 炼金工坊',
+        blockIcons: ['⚗️', '🧪', '🧫', '🧴', '🧂', '🪶', '🧵', '🫙'],
+        blockColors: ['#8BD450', '#4AC7C0', '#C06BE8', '#D8B04A', '#B87333', '#58A6E8', '#E06088', '#6DAA60'],
+        gridOuter: '#17120A',
+        gridCell: '#2A2112',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(180,255,140,0.60)',
+        cssBg: '#100C08',
+        uiDark: true,
+    },
+
+    /** 地牢宝藏：暗石地牢、金币反光与探险道具 */
+    dungeonLoot: {
+        id: 'dungeonLoot',
+        name: '🪤 地牢宝藏',
+        blockIcons: ['🪤', '🕳️', '🪓', '🧰', '📦', '⚜️', '🏚️', '🪦'],
+        blockColors: ['#B88438', '#686070', '#B84A3A', '#4F8A70', '#8C6A42', '#C6A64A', '#B04A68', '#586078'],
+        gridOuter: '#0F0C10',
+        gridCell: '#1D1720',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 6,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(255,210,110,0.62)',
+        cssBg: '#09070A',
+        uiDark: true,
+    },
+
+    /** 折纸纸艺：柔色纸面、折线和安静和风（浅色系） */
+    origamiPaper: {
+        id: 'origamiPaper',
+        name: '✉️ 折纸纸艺',
+        blockIcons: ['✉️', '📄', '🏷️', '🔖', '🧾', '📰', '📑', '📃'],
+        blockColors: ['#D86A88', '#E29B52', '#D8C86A', '#78A870', '#64A8C8', '#9B7AC8', '#C47AA0', '#8CA0B8'],
+        gridOuter: '#C9BFAE',
+        gridCell: '#ECE5D8',
+        gridLine: 'rgba(100,82,60,0.18)',
+        gridGap: 0,
+        blockInset: 3,
+        blockRadius: 4,
+        blockStyle: 'flat',
+        clearFlash: 'rgba(255,235,190,0.66)',
+        cssBg: '#DED3C2',
+        uiDark: false,
+    },
+
+    /** 博物遗珍：展柜暗金、考古标签与时间尘埃 */
+    museumRelic: {
+        id: 'museumRelic',
+        name: '⚱️ 博物遗珍',
+        blockIcons: ['⚱️', '🔎', '🗄️', '🖼️', '🪞', '📏', '🧭', '🪙'],
+        blockColors: ['#B0703C', '#8A6A48', '#506A78', '#9B4F4A', '#7A6AA0', '#C0A05A', '#4F8068', '#8C7850'],
+        gridOuter: '#17120C',
+        gridCell: '#281F14',
+        gridGap: 1,
+        blockInset: 2,
+        blockRadius: 7,
+        blockStyle: 'cartoon',
+        clearFlash: 'rgba(230,190,120,0.58)',
+        cssBg: '#0E0A06',
         uiDark: true,
     },
 
@@ -541,10 +771,10 @@ export interface SkinCategory {
 }
 
 export const SKIN_CATEGORIES: SkinCategory[] = [
-    { id: 'classic',   label: '🔰 经典 · 科技', skins: ['classic', 'titanium', 'aurora', 'neonCity', 'candy', 'toon', 'pixel8'] },
-    { id: 'nature',    label: '🌿 自然 · 清新', skins: ['ocean', 'sunset', 'forest', 'dawn', 'summer', 'cafe', 'sakura'] },
-    { id: 'life',      label: '🏷️ 生活 · 庆典', skins: ['food', 'music', 'pets', 'universe', 'fiesta', 'apple', 'koi'] },
-    { id: 'fantasy',   label: '🧿 奇幻 · 文化', skins: ['fantasy', 'fairy', 'greece', 'demon', 'jurassic', 'forbidden', 'mahjong'] },
+    { id: 'classic',   label: '🔰 经典 · 科技', skins: ['classic', 'titanium', 'aurora', 'neonCity', 'candy', 'toon', 'pixel8', 'arcadeCabinet', 'circuitBoard', 'spaceDock'] },
+    { id: 'nature',    label: '🌿 自然 · 清新', skins: ['ocean', 'sunset', 'forest', 'dawn', 'summer', 'cafe', 'sakura', 'botanicalStudy', 'inkGarden', 'mineralCave', 'winterCabin', 'rainyWindow'] },
+    { id: 'life',      label: '🏷️ 生活 · 庆典', skins: ['food', 'music', 'pets', 'universe', 'fiesta', 'apple', 'koi', 'toyBox'] },
+    { id: 'fantasy',   label: '🧿 奇幻 · 文化', skins: ['fantasy', 'fairy', 'greece', 'demon', 'jurassic', 'forbidden', 'mahjong', 'alchemyLab', 'dungeonLoot', 'origamiPaper', 'museumRelic'] },
 ];
 
 export function getSkinCategories(): Array<{ id: string; label: string; skins: Skin[] }> {
@@ -594,6 +824,19 @@ const WATERMARKS: Record<string, BoardWatermark> = {
     apple: { icons: ['🍎', '✨'], opacity: 0.05 },
     cafe: { icons: ['☕', '📖'], opacity: 0.10 },
     fiesta: { icons: ['🎉', '🎊'], opacity: 0.08 },
+    arcadeCabinet: { icons: ['📺', '📻'], opacity: 0.055 },
+    circuitBoard: { icons: ['🧲', '📶'], opacity: 0.048 },
+    spaceDock: { icons: ['🛰️', '🧑‍🚀'], opacity: 0.045 },
+    botanicalStudy: { icons: ['🥀', '🫛'], opacity: 0.10 },
+    inkGarden: { icons: ['🪭', '📜'], opacity: 0.11, scale: 0.26 },
+    mineralCave: { icons: ['💍', '🔦'], opacity: 0.052 },
+    winterCabin: { icons: ['🪵', '🧤'], opacity: 0.08 },
+    rainyWindow: { icons: ['🌧️', '☔'], opacity: 0.05 },
+    toyBox: { icons: ['🧸', '🧩'], opacity: 0.078 },
+    alchemyLab: { icons: ['⚗️', '🧪'], opacity: 0.052 },
+    dungeonLoot: { icons: ['🪤', '🕳️'], opacity: 0.05 },
+    origamiPaper: { icons: ['✉️', '📄'], opacity: 0.11 },
+    museumRelic: { icons: ['⚱️', '🔎'], opacity: 0.052 },
 };
 
 /** 取皮肤盘面水印（含已下线皮肤别名映射）；无则返回 null。 */

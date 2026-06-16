@@ -1,6 +1,27 @@
-import { Color, Graphics, Label } from 'cc';
+import { Color, Graphics, Label, sys } from 'cc';
 import { Skin } from '../../core';
 import { blockFaceColor, lightenInto, darkenInto, blockMetrics, blockIcon, isLightBoard } from './palette';
+
+/**
+ * 仅 iOS / macOS 原生端为 true。Android / Web / 小游戏均为 false。
+ * iOS 原生 Cocos 对 system-font + Apple Color Emoji 的 glyph 栅格化存在「大字号上限」：
+ * 请求字号超过某阈值后，实际 bitmap 不再增大（仍以小 bitmap 渲染在大字框内 → 表现为「小图」）。
+ * 该阈值随 iOS / 引擎版本略有差异，但「小字号区间」在各版本上都稳定按请求尺寸出图。
+ * 因此 iOS 统一走「烘焙字号 = min(目标字号, 安全上限) + 节点放大」，对高/低版本都保证尺寸正确：
+ *   - 目标 ≤ 安全上限：原字号烘焙、scale=1 → 完全清晰（dock 候选块等小图标即此路径）；
+ *   - 目标 > 安全上限：在安全上限烘焙再 upscale → 尺寸正确，且是 Label 路径在该机能拿到的最高分辨率。
+ * 其余平台无此上限，按目标字号直接烘焙即清晰（= Android 渲染效果）。
+ */
+const IS_IOS_NATIVE = sys.isNative && (sys.os === sys.OS.IOS || sys.os === sys.OS.OSX);
+
+/**
+ * iOS emoji 烘焙「安全上限」（节点局部坐标 px）。取值原则：
+ *   - 必须 ≤ 各 iOS/引擎版本的实际钳制阈值，否则大图标在某些版本上仍会出小图；
+ *   - 又要尽量大以减少大图标的放大糊化。
+ * 实测当前主流版本钳制阈值 ≈20；取 20 在「现役机型尺寸最准/最清」与「老版本不出小图」间取平衡
+ * （若个别老版本阈值更低，大图标仅略偏小 + 略糊，不会出现严重小图）。
+ */
+const IOS_EMOJI_BAKE_CEILING = 20;
 
 /**
  * 逐格绘制复用的 scratch Color（避免 paintBlockFace 每格 5-6 次 new Color 的 GC 压力：
@@ -452,22 +473,18 @@ export function applyIconLabel(l: Label, em: string, fs: number): void {
 export const ICON_FONT_FAMILY = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif';
 
 /**
- * 固定参考字号：所有 emoji glyph 统一以此字号烘焙一次，视觉尺寸完全交给「节点缩放」控制。
- * 取 64 足够大：盘面格通常 cell≈50~60 → 目标字号 ~28~32，downscale 到 ~0.45 仍清晰；
- * 偶发更大格（平板）upscale 也只到 ~0.7，肉眼无糊感。
- */
-export const ICON_BAKE_FS = 64;
-
-/**
- * iOS 稳健版图标设置：固定参考字号烘焙 glyph + 缩放节点到目标视觉字号。
+ * 跨平台稳健图标设置 —— 按平台分流，保证「与 Android 渲染效果一致 + 全部 iOS 版本（高/低）尺寸正确」：
  *
- * 背景：iOS 原生（cocos 3.8.x）对 system-font + Apple Color Emoji 在「string 不变、仅 fontSize 变化」
- * 时不重新烘焙 glyph 纹理（`applyIconLabel` 的清 string 兜底在部分机型/版本仍不可靠）。表现为
- * 「方块放大了但 emoji 滞留小字号」—— 拖拽 ghost 已用本法（GameController.drawGhostIconsScaled）
- * 稳定规避；这里抽出共享实现，让盘面落子 / 涌入 / 翻转 / 飞散等所有图标路径同样免疫该缺陷。
+ *  ● 非 iOS（Android / Web / 小游戏）：**按目标字号直接烘焙 glyph，scale=1** → 原生分辨率清晰
+ *    （= Android 原本效果）。这些平台无 emoji 字号上限，无需任何缩放绕过。
  *
- * 关键：fontSize 恒为 ICON_BAKE_FS（永不变化）→ glyph 只烘焙一次、永不触发重烘焙；
- *       目标尺寸由 `node.setScale` 实现，跨平台一致（与 Android/Web 视觉对齐）。
+ *  ● iOS 原生：**烘焙字号 = min(目标字号, IOS_EMOJI_BAKE_CEILING) + 节点缩放到目标**：
+ *      - 目标 ≤ 上限（dock 候选块等小图标）：原字号烘焙、scale=1 → 完全清晰；
+ *      - 目标 > 上限（盘面大图标）：在安全上限烘焙再 upscale → 尺寸正确，且是 Label 路径该机最高分辨率。
+ *    关键：烘焙字号被钳到 ≤ 安全上限，落在「各 iOS 版本都按请求尺寸出图」的稳定区间 → 高/低版本都不出小图。
+ *    同一图标池目标字号固定 → 烘焙字号固定 → 不触发 iOS「仅 fontSize 变化不重烘焙」短路（只烘焙一次）。
+ *
+ * 各路都显式设 overflow=NONE + 居中对齐（对齐 ghost），避免大字号下 Label 自动换行/裁剪导致字形变形。
  *
  * @param l        复用的 Label
  * @param em       emoji 字符串
@@ -487,13 +504,28 @@ export function applyIconLabelScaled(l: Label, em: string, targetFs: number): vo
         };
         anyL.useSystemFont = true;
         anyL.fontFamily = ICON_FONT_FAMILY;
-        // fontSize 恒定 → 不触发 iOS 的 fontSize-only 重烘焙短路（glyph 永远只烘焙一次）。
-        if (anyL.fontSize !== ICON_BAKE_FS) { anyL.fontSize = ICON_BAKE_FS; anyL.lineHeight = ICON_BAKE_FS; }
-        if (anyL.string !== em) anyL.string = em;
+        // 大字号下避免自动换行/裁剪把字形压小变形（与 drawGhostIconsScaled 同设）。
+        if (Label.Overflow) l.overflow = Label.Overflow.NONE;
+        if (Label.HorizontalAlign) l.horizontalAlign = Label.HorizontalAlign.CENTER;
+        if (Label.VerticalAlign) l.verticalAlign = Label.VerticalAlign.CENTER;
         const CacheModeEnum = (Label as unknown as { CacheMode?: { NONE?: unknown } })?.CacheMode;
         if (CacheModeEnum && CacheModeEnum.NONE != null) anyL.cacheMode = CacheModeEnum.NONE;
-        const s = targetFs / ICON_BAKE_FS;
-        node.setScale(s, s, 1);
+
+        if (IS_IOS_NATIVE) {
+            // 烘焙字号钳到安全上限内（各版本稳定按请求出图），目标更大时由 node.setScale 放大。
+            const targetR = Math.max(1, Math.round(targetFs));
+            const bakeFs = Math.min(targetR, IOS_EMOJI_BAKE_CEILING);
+            if (anyL.fontSize !== bakeFs) { anyL.fontSize = bakeFs; anyL.lineHeight = bakeFs; }
+            if (anyL.string !== em) anyL.string = em;
+            const s = targetFs / bakeFs;
+            node.setScale(s, s, 1);
+        } else {
+            // 非 iOS：按目标字号直接烘焙，scale=1 → 原生分辨率清晰（与 Android 一致）。
+            const fsR = Math.max(1, Math.round(targetFs));
+            if (anyL.fontSize !== fsR) { anyL.fontSize = fsR; anyL.lineHeight = fsR; }
+            if (anyL.string !== em) anyL.string = em;
+            node.setScale(1, 1, 1);
+        }
     } catch {
         // 兜底：旧版本 API 缺失时退回 fontSize 直设（Android/Web 正常；iOS 退化为旧行为）。
         try {
