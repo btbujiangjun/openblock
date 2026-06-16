@@ -124,6 +124,14 @@ if [[ -x "$SCRIPT_DIR/patch-splash.sh" ]]; then
     "$SCRIPT_DIR/patch-splash.sh" "$COCOS_DIR/build/ios/data" || true
 fi
 
+# 同步 iOS 原生渲染模板（AppDelegate/ViewController，对齐 Android AppActivity 渲染策略）。
+if [[ -x "$SCRIPT_DIR/patch-ios-native.sh" ]]; then
+    "$SCRIPT_DIR/patch-ios-native.sh" "$COCOS_DIR" || {
+        echo "✗ patch-ios-native.sh 失败；请在 Xcode 编译前手动运行。" >&2
+        exit 1
+    }
+fi
+
 # 覆盖 iOS LaunchScreen 启动图（详见 patch-ios-launch.sh）。Cocos Creator 每次 build 都会从
 # 内置 splash 模板重新生成 native/engine/ios/LaunchScreenBackground{,Portrait,Landscape}.png
 # （Cocos 官方 logo），所以必须在 Creator 后、xcodebuild 前把它们覆盖成我们的图。

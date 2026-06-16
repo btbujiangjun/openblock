@@ -451,6 +451,59 @@ export function applyIconLabel(l: Label, em: string, fs: number): void {
  */
 export const ICON_FONT_FAMILY = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif';
 
+/**
+ * 固定参考字号：所有 emoji glyph 统一以此字号烘焙一次，视觉尺寸完全交给「节点缩放」控制。
+ * 取 64 足够大：盘面格通常 cell≈50~60 → 目标字号 ~28~32，downscale 到 ~0.45 仍清晰；
+ * 偶发更大格（平板）upscale 也只到 ~0.7，肉眼无糊感。
+ */
+export const ICON_BAKE_FS = 64;
+
+/**
+ * iOS 稳健版图标设置：固定参考字号烘焙 glyph + 缩放节点到目标视觉字号。
+ *
+ * 背景：iOS 原生（cocos 3.8.x）对 system-font + Apple Color Emoji 在「string 不变、仅 fontSize 变化」
+ * 时不重新烘焙 glyph 纹理（`applyIconLabel` 的清 string 兜底在部分机型/版本仍不可靠）。表现为
+ * 「方块放大了但 emoji 滞留小字号」—— 拖拽 ghost 已用本法（GameController.drawGhostIconsScaled）
+ * 稳定规避；这里抽出共享实现，让盘面落子 / 涌入 / 翻转 / 飞散等所有图标路径同样免疫该缺陷。
+ *
+ * 关键：fontSize 恒为 ICON_BAKE_FS（永不变化）→ glyph 只烘焙一次、永不触发重烘焙；
+ *       目标尺寸由 `node.setScale` 实现，跨平台一致（与 Android/Web 视觉对齐）。
+ *
+ * @param l        复用的 Label
+ * @param em       emoji 字符串
+ * @param targetFs 目标视觉字号（= iconFontSize(faceSize)，或动画期的缩放后字号）；<=0 则隐藏节点
+ */
+export function applyIconLabelScaled(l: Label, em: string, targetFs: number): void {
+    const node = l.node;
+    if (targetFs <= 0) { node.active = false; return; }
+    try {
+        const anyL = l as unknown as {
+            string: string;
+            useSystemFont: boolean;
+            fontFamily: string;
+            fontSize: number;
+            lineHeight: number;
+            cacheMode?: unknown;
+        };
+        anyL.useSystemFont = true;
+        anyL.fontFamily = ICON_FONT_FAMILY;
+        // fontSize 恒定 → 不触发 iOS 的 fontSize-only 重烘焙短路（glyph 永远只烘焙一次）。
+        if (anyL.fontSize !== ICON_BAKE_FS) { anyL.fontSize = ICON_BAKE_FS; anyL.lineHeight = ICON_BAKE_FS; }
+        if (anyL.string !== em) anyL.string = em;
+        const CacheModeEnum = (Label as unknown as { CacheMode?: { NONE?: unknown } })?.CacheMode;
+        if (CacheModeEnum && CacheModeEnum.NONE != null) anyL.cacheMode = CacheModeEnum.NONE;
+        const s = targetFs / ICON_BAKE_FS;
+        node.setScale(s, s, 1);
+    } catch {
+        // 兜底：旧版本 API 缺失时退回 fontSize 直设（Android/Web 正常；iOS 退化为旧行为）。
+        try {
+            l.useSystemFont = true; l.fontFamily = ICON_FONT_FAMILY;
+            l.fontSize = targetFs; l.lineHeight = targetFs; l.string = em;
+            l.node.setScale(1, 1, 1);
+        } catch { /* ignore */ }
+    }
+}
+
 /** 形状绘制参数：把"在 (left, top) 处按 cell 平铺一组实体格 + 可选 emoji"抽象为一处实现。 */
 export interface DrawShapeOpts {
     /** 形状矩阵：1 = 实体格，0 = 空白。 */

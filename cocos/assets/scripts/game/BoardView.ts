@@ -1,7 +1,7 @@
 import { _decorator, Component, Graphics, UITransform, Node, Label, Color, UIOpacity, Sprite, SpriteFrame, resources } from 'cc';
 import { Grid, Skin, getWatermark, flag, ClearedCell } from '../core';
 import { blockColor, cellEmptyColor, gridOuterColor, gridLineColor, blockMetrics, blockIcon } from './skin/palette';
-import { paintBlockFace, iconFontSize, drawShapeFaces, applyIconLabel } from './skin/blockPaint';
+import { paintBlockFace, iconFontSize, drawShapeFaces, applyIconLabelScaled } from './skin/blockPaint';
 import { Motion } from './platform/Motion';
 import { VisualFx } from './platform/VisualFx';
 
@@ -436,7 +436,9 @@ export class BoardView extends Component {
                     const l = this.icon(iconN++);
                     l.node.active = true;
                     l.node.setPosition(cellX + cell / 2, cellY + cell / 2, 0);
-                    applyIconLabel(l, em, fs);
+                    // 稳健版：固定参考字号烘焙 + 节点缩放，与拖拽 ghost 同尺寸同做法，
+                    // 规避 iOS「方块放大但 emoji 滞留小字号」（落子后图标变小的根因）。
+                    applyIconLabelScaled(l, em, fs);
                 }
             }
         }
@@ -786,7 +788,7 @@ export class BoardView extends Component {
                         if (em && fs > 0) {
                             const l = this.icon(iconN++);
                             l.node.active = true;
-                            applyIconLabel(l, em, fs);
+                            applyIconLabelScaled(l, em, fs);
                             l.node.setPosition(faceCx, faceCy, 0);
                         }
                     }
@@ -803,7 +805,7 @@ export class BoardView extends Component {
                         if (em && fs > 0) {
                             const l = this.icon(iconN++);
                             l.node.active = true;
-                            applyIconLabel(l, em, fs);
+                            applyIconLabelScaled(l, em, fs);
                             l.node.setPosition(
                                 -half + gx * cell + cell / 2,
                                 half - (gy2 + 1) * cell + cell / 2,
@@ -920,7 +922,7 @@ export class BoardView extends Component {
                     if (em && fs > 0) {
                         const l = this.icon(iconN++);
                         l.node.active = true;
-                        applyIconLabel(l, em, Math.max(1, Math.round(fs * scale)));
+                        applyIconLabelScaled(l, em, Math.max(1, fs * scale));
                         l.node.setPosition(iconX, iconY, 0);
                     }
                 }
@@ -1022,7 +1024,7 @@ export class BoardView extends Component {
                     if (em && fs > 0 && alpha > 0.35) {
                         const l = this.icon(iconN++);
                         l.node.active = true;
-                        applyIconLabel(l, em, Math.max(1, Math.round(fs * Math.min(sX, sY))));
+                        applyIconLabelScaled(l, em, Math.max(1, fs * Math.min(sX, sY)));
                         l.node.setPosition(fcx, fcy, 0);
                     }
                 }
