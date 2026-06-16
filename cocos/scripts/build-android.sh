@@ -310,8 +310,14 @@ echo "  Android 工程：$ANDROID_PROJ"
 
 # 品牌化开机 splash 为产品 icon（详见 patch-splash.sh）。在 Cocos 输出后、gradle 打包前修改 data/src/settings.json，
 # gradle 会把它作为 asset 拷进 APK。失败不致命，仅 warning。
-if [[ -x "$SCRIPT_DIR/patch-splash.sh" ]]; then
-    "$SCRIPT_DIR/patch-splash.sh" "$COCOS_DIR/build/android/data" || true
+# ⚠️ 用 $COCOS_DIR/scripts 而非 $SCRIPT_DIR：第 31 行 source android-env.sh 时，其内部同名
+#    SCRIPT_DIR 会覆盖本脚本的 SCRIPT_DIR（指向 repo/scripts），导致 patch-splash 守卫永远 false、
+#    被静默跳过（splash 退回 cocos logo 的真正根因）。COCOS_DIR 在 source 之前算好且不被污染。
+SPLASH_PATCH="$COCOS_DIR/scripts/patch-splash.sh"
+if [[ -x "$SPLASH_PATCH" ]]; then
+    "$SPLASH_PATCH" "$COCOS_DIR/build/android/data" || true
+else
+    echo "⚠ 未找到可执行的 patch-splash.sh（$SPLASH_PATCH），splash 维持 Creator 默认。" >&2
 fi
 
 if [[ "$DO_OPEN" -eq 1 && "$DO_APK" -eq 0 && "$DO_AAB" -eq 0 ]]; then
@@ -361,6 +367,10 @@ if [[ "$DO_DEBUG" -eq 1 ]]; then VARIANT="Debug"; fi
 # 清理 APK 输出目录，强制 Gradle 重新执行 package + assemble，确保每次构建产出最新 APK。
 echo "▶ 清理旧 APK 输出 ..."
 rm -rf "$ANDROID_PROJ/build/openblock-cocos/outputs/apk" 2>/dev/null || true
+# patch-splash 改写的是 data/src/settings.json（assets 软链源）。Gradle 的 mergeAssets 任务
+# 可能因增量判定沿用上一次合并结果（旧 cocos splash），故清掉已合并的 assets 中间产物，
+# 强制本次从 patch 后的 data 重新合并，确保产品 icon splash 真正进包。
+rm -rf "$ANDROID_PROJ/build/openblock-cocos/intermediates/assets" 2>/dev/null || true
 
 run_gradle_task() {
     local task="$1"
