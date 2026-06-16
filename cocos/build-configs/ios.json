@@ -2,6 +2,7 @@
   "platform": "ios",
   "debug": false,
   "md5Cache": false,
+  "startScene": "a1b2c3d4-0000-4e5f-8a9b-0c1d2e3f4a5c",
   "packages": {
     "ios": {
       "packageName": "com.ceshi.game.zy3",

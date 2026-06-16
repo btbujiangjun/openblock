@@ -8,12 +8,15 @@
 #   cocos/scripts/build-android.sh --apk                   # 构建后打 debug/release APK（按配置 debug 字段决定）
 #   cocos/scripts/build-android.sh --aab                   # 构建后打 Android App Bundle
 #   cocos/scripts/build-android.sh --install               # 构建 APK 并安装到已连接设备
+#   cocos/scripts/build-android.sh --debug                 # 静默：强制 debug APK → adb 安装 → 启动 App
+#   cocos/scripts/build-android.sh --debug --logcat        # 静默部署后实时抓取该 App 的 logcat
 #   cocos/scripts/build-android.sh path/to/android.json --apk
 #
 # 环境变量：
 #   COCOS_CREATOR   覆盖 Cocos Creator 可执行文件路径
 #   ANDROID_HOME    Android SDK 根目录（Gradle/adb 需要）
 #   JAVA_HOME       JDK 路径（Cocos/Gradle 需要）
+#   ADB_SERIAL      指定目标设备序列号（多设备时透传给 adb -s）
 #
 # 退出码：构建成功 0；失败 1。
 
@@ -32,6 +35,9 @@ DO_OPEN=0
 DO_APK=0
 DO_AAB=0
 DO_INSTALL=0
+DO_DEBUG=0
+DO_LAUNCH=0
+DO_LOGCAT=0
 
 for arg in "$@"; do
     case "$arg" in
@@ -39,6 +45,10 @@ for arg in "$@"; do
         --apk)     DO_APK=1 ;;
         --aab)     DO_AAB=1 ;;
         --install) DO_INSTALL=1; DO_APK=1 ;;
+        # --debug：静默打 debug 包并部署到设备进行 adb 调试。
+        #   强制 debug 变体（不看配置 debug 字段）+ 打 APK + adb 安装 + 启动 App。
+        --debug)   DO_DEBUG=1; DO_APK=1; DO_INSTALL=1; DO_LAUNCH=1 ;;
+        --logcat)  DO_LOGCAT=1 ;;
         --*)       echo "✗ 未知参数：$arg" >&2; exit 1 ;;
         *)         CONFIG="$arg" ;;
     esac
@@ -135,6 +145,28 @@ Android SDK/NDK 未配置或组件不完整。请先完成以下步骤：
 EOF
 }
 
+print_scene_import_help() {
+    cat >&2 <<EOF
+
+检测到「初始场景不存在 / Number of all scenes: 0」：Cocos 没有把项目资源识别为场景。
+根因：assets 下的 .meta 仍是占位（"importer": "*"），从未被 Cocos 编辑器正确导入。
+注意：命令行 \`cocos --build\`（即本脚本）不会做完整导入，它要求项目先被【Cocos
+编辑器 GUI】导入过——清空 library/ 缓存重试也无效（已验证）。
+
+修复（一次性，必须用 GUI，不是 Android Studio）：
+  1. 用 Cocos Creator 编辑器打开本项目，等右下角资源导入进度跑完。
+     编辑器会保留现有 UUID，仅把 importer 从 "*" 纠正为 scene/typescript/image 等，
+     并生成正确的 library 产物，不会破坏脚本/预制体间的引用：
+       open -a "Cocos Creator" || "$CREATOR" --project "$COCOS_DIR"
+     （或在 Cocos Dashboard 里手动打开 $COCOS_DIR 这个工程目录）
+  2. 验证已修复：下面这行应从 "*" 变成 "scene"
+       grep importer "$COCOS_DIR/assets/scene/Game.scene.meta"
+  3. 关闭编辑器后重新无头打包：
+       cocos/scripts/build-android.sh --debug
+
+EOF
+}
+
 preflight_android_env() {
     if ! detect_java_env; then
         print_java_help
@@ -224,6 +256,9 @@ if grep -E "$BUILD_ERROR" "$LOG" | grep -Ev "$NOISE|$BENIGN_BUILD_ERROR" >/dev/n
     if grep -Eq '找不到 Android NDK/SDK 路径|Android NDK/SDK' "$LOG"; then
         print_android_env_help "$(android_api_level)"
     fi
+    if grep -Eq '初始场景不存在|在 Bundle 中，无法设置为初始场景|Number of all scenes: 0' "$LOG"; then
+        print_scene_import_help
+    fi
     exit 1
 fi
 
@@ -294,6 +329,7 @@ if [[ "$DO_APK" -eq 0 && "$DO_AAB" -eq 0 ]]; then
     echo "         打 APK： cocos/scripts/build-android.sh --apk"
     echo "         打 AAB： cocos/scripts/build-android.sh --aab"
     echo "       安装真机： cocos/scripts/build-android.sh --install"
+    echo "   静默 adb 调试： cocos/scripts/build-android.sh --debug [--logcat]"
     exit 0
 fi
 
@@ -318,6 +354,8 @@ is_debug_config() {
 
 VARIANT="Release"
 if is_debug_config; then VARIANT="Debug"; fi
+# --debug 静默调试链路：忽略配置里的 debug 字段，强制 debug 变体（带可调试签名/标志）。
+if [[ "$DO_DEBUG" -eq 1 ]]; then VARIANT="Debug"; fi
 
 # Gradle 增量构建会因为 assets 未变而跳过打包（UP-TO-DATE），导致 APK 不更新。
 # 清理 APK 输出目录，强制 Gradle 重新执行 package + assemble，确保每次构建产出最新 APK。
@@ -351,6 +389,12 @@ find "$ANDROID_PROJ" -path "*/outputs/apk/*/*.apk" -type f 2>/dev/null | sort | 
 echo "  AAB："
 find "$ANDROID_PROJ" -path "*/outputs/bundle/*/*.aab" -type f 2>/dev/null | sort | tail -5 | sed 's/^/    /' || true
 
+android_package_name() {
+    grep -E '"packageName"[[:space:]]*:' "$CONFIG" \
+        | sed -E 's/.*"packageName"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' \
+        | head -1
+}
+
 if [[ "$DO_INSTALL" -eq 1 ]]; then
     if ! command -v adb >/dev/null 2>&1; then
         if [[ -n "${ANDROID_HOME:-}" && -x "$ANDROID_HOME/platform-tools/adb" ]]; then
@@ -363,13 +407,86 @@ if [[ "$DO_INSTALL" -eq 1 ]]; then
         ADB="adb"
     fi
 
+    # 多设备时用 ADB_SERIAL 指定目标；否则在恰好一台设备时自动选中，便于静默部署。
+    ADB_ARGS=()
+    if [[ -n "${ADB_SERIAL:-}" ]]; then
+        ADB_ARGS=(-s "$ADB_SERIAL")
+    fi
+
+    DEVICE_COUNT="$("$ADB" devices 2>/dev/null | awk 'NR>1 && $2=="device"' | wc -l | tr -d ' ')"
+    if [[ "${DEVICE_COUNT:-0}" -eq 0 ]]; then
+        echo "✗ 未检测到已连接的 adb 设备。请连接真机（开启 USB 调试）或启动模拟器。" >&2
+        echo "  检查：\"$ADB\" devices" >&2
+        exit 1
+    fi
+    if [[ "$DEVICE_COUNT" -gt 1 && -z "${ADB_SERIAL:-}" ]]; then
+        echo "✗ 检测到多台 adb 设备，请用环境变量 ADB_SERIAL 指定目标：" >&2
+        "$ADB" devices | awk 'NR>1 && $2=="device" {print "    "$1}' >&2
+        exit 1
+    fi
+
     APK="$(find "$ANDROID_PROJ" -path "*/outputs/apk/*/*.apk" -type f 2>/dev/null | sort | tail -1)"
     if [[ -z "$APK" ]]; then
         echo "✗ 未找到 APK，无法安装。" >&2
         exit 1
     fi
+    PKG="$(android_package_name)"
+
     echo "▶ 安装到已连接设备：$APK"
-    "$ADB" install -r "$APK"
+    INSTALL_OUT="$("$ADB" ${ADB_ARGS[@]+"${ADB_ARGS[@]}"} install -r "$APK" 2>&1)"
+    INSTALL_RC=$?
+    echo "$INSTALL_OUT"
+    if [[ "$INSTALL_RC" -ne 0 ]]; then
+        # 签名不一致（设备上已装了用其它 keystore 签名的同包名 App）无法原地覆盖更新。
+        # debug 部署场景下自动卸载旧包再装一次；卸载会清除该 App 的本地数据。
+        if echo "$INSTALL_OUT" | grep -q 'INSTALL_FAILED_UPDATE_INCOMPATIBLE\|signatures do not match'; then
+            if [[ -n "$PKG" ]]; then
+                echo "⚠ 设备上已存在签名不同的 $PKG，自动卸载旧包后重装（会清除其本地数据）..." >&2
+                "$ADB" ${ADB_ARGS[@]+"${ADB_ARGS[@]}"} uninstall "$PKG" >/dev/null 2>&1 || true
+                "$ADB" ${ADB_ARGS[@]+"${ADB_ARGS[@]}"} install -r "$APK" || {
+                    echo "✗ adb 安装失败（卸载重装后仍失败）。" >&2
+                    exit 1
+                }
+            else
+                echo "✗ adb 安装失败：签名不一致，且未能解析 packageName 无法自动卸载。" >&2
+                echo "  请手动卸载后重试： \"$ADB\" uninstall <packageName>" >&2
+                exit 1
+            fi
+        else
+            echo "✗ adb 安装失败。" >&2
+            exit 1
+        fi
+    fi
+
+    if [[ "$DO_LAUNCH" -eq 1 ]]; then
+        if [[ -z "$PKG" ]]; then
+            echo "⚠ 未能从配置解析 packageName，跳过自动启动。" >&2
+        else
+            echo "▶ 启动 App：$PKG"
+            "$ADB" ${ADB_ARGS[@]+"${ADB_ARGS[@]}"} shell monkey -p "$PKG" \
+                -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || {
+                echo "⚠ 自动启动失败，请手动在设备上打开 App。" >&2
+            }
+
+            if [[ "$DO_LOGCAT" -eq 1 ]]; then
+                echo "▶ 抓取 logcat（Ctrl-C 退出）..."
+                # 清空旧日志后按进程过滤；进程可能尚未就绪，短暂重试。
+                "$ADB" ${ADB_ARGS[@]+"${ADB_ARGS[@]}"} logcat -c >/dev/null 2>&1 || true
+                PID=""
+                for _ in 1 2 3 4 5 6 7 8 9 10; do
+                    PID="$("$ADB" ${ADB_ARGS[@]+"${ADB_ARGS[@]}"} shell pidof "$PKG" 2>/dev/null | tr -d '\r')"
+                    [[ -n "$PID" ]] && break
+                    sleep 0.5
+                done
+                if [[ -n "$PID" ]]; then
+                    exec "$ADB" ${ADB_ARGS[@]+"${ADB_ARGS[@]}"} logcat --pid "$PID"
+                else
+                    echo "⚠ 未取到进程 PID，回退为全量 logcat。" >&2
+                    exec "$ADB" ${ADB_ARGS[@]+"${ADB_ARGS[@]}"} logcat
+                fi
+            fi
+        fi
+    fi
 fi
 
 exit 0
