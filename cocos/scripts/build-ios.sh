@@ -110,6 +110,14 @@ rm -f "$LOG"
 echo ""
 echo "✔ Cocos 构建成功。"
 
+# 修补内置 native 引擎（half.h / tetgen.cpp），消除 Xcode 16+ 编译错误与 sprintf 警告。
+if [[ -x "$SCRIPT_DIR/patch-native-engine.sh" ]]; then
+    "$SCRIPT_DIR/patch-native-engine.sh" || {
+        echo "✗ patch-native-engine.sh 失败；请在 Xcode 编译前手动运行。" >&2
+        exit 1
+    }
+fi
+
 # 关闭开机 splash（详见 patch-splash.sh）。在 Cocos 输出后修改 data/src/settings.json，
 # Xcode 工程会把它作为 bundle resource 拷进 ipa。失败不致命，仅 warning。
 if [[ -x "$SCRIPT_DIR/patch-splash.sh" ]]; then

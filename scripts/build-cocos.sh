@@ -53,7 +53,7 @@ find_creator() {
     )
   fi
   if [ "${#candidates[@]}" -gt 0 ]; then
-    echo "${candidates[-1]}"; return 0
+    echo "${candidates[$((${#candidates[@]} - 1))]}"; return 0
   fi
   return 1
 }
@@ -120,6 +120,15 @@ else
   exit "$CREATOR_EXIT"
 fi
 rm -f "$BUILD_LOG"
+
+# iOS / Android 原生工程在 Xcode / Android Studio 中编译前，需先修补 Creator 内置引擎。
+if [[ "$PLATFORM" == "ios" || "$PLATFORM" == "android" ]]; then
+    PATCH_SCRIPT="$ROOT/cocos/scripts/patch-native-engine.sh"
+    if [[ -x "$PATCH_SCRIPT" ]]; then
+        echo "==> 修补 Cocos native 引擎（Xcode/clang 兼容）"
+        "$PATCH_SCRIPT" || { echo "✗ patch-native-engine.sh 失败" >&2; exit 1; }
+    fi
+fi
 
 echo "✓ 完成。产物目录: $OUT"
 case "$PLATFORM" in
