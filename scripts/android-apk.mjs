@@ -16,10 +16,11 @@ const androidDir = join(root, 'mobile', 'android');
 const gradlew = join(androidDir, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
 
 function findJavaHome() {
-    const brew = spawnSync('brew', ['--prefix', 'openjdk@21'], { encoding: 'utf8' });
-    if (brew.status === 0 && brew.stdout?.trim()) {
-        const home = join(brew.stdout.trim(), 'libexec', 'openjdk.jdk', 'Contents', 'Home');
-        if (existsSync(join(home, 'bin', 'java'))) return home;
+    const r = spawnSync('bash', [join(root, 'scripts/android-env.sh'), '--java-home', 'mobile'], {
+        encoding: 'utf8',
+    });
+    if (r.status === 0 && r.stdout?.trim()) {
+        return r.stdout.trim();
     }
     return process.env.JAVA_HOME || '';
 }

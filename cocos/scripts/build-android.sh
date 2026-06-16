@@ -23,6 +23,9 @@ CREATOR="${COCOS_CREATOR:-/Applications/Cocos/Creator/3.8.8/CocosCreator.app/Con
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COCOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$COCOS_DIR/.." && pwd)"
+# shellcheck source=../../scripts/android-env.sh
+source "$REPO_ROOT/scripts/android-env.sh"
 
 CONFIG=""
 DO_OPEN=0
@@ -60,29 +63,12 @@ fi
 SDKMANAGER=""
 
 detect_java_env() {
-    # 优先复用用户显式配置；其次尝试 macOS java_home；最后尝试 Android Studio 自带 JBR。
-    if [[ -n "${JAVA_HOME:-}" && -x "$JAVA_HOME/bin/java" ]]; then
-        return 0
+    local home
+    if ! home="$(android_resolve_java_home cocos)"; then
+        return 1
     fi
-
-    local home=""
-    home="$(/usr/libexec/java_home 2>/dev/null || true)"
-    if [[ -n "$home" && -x "$home/bin/java" ]]; then
-        export JAVA_HOME="$home"
-        return 0
-    fi
-
-    local jbr
-    for jbr in \
-        "/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
-        "/Applications/Android Studio.app/Contents/jre/Contents/Home"; do
-        if [[ -x "$jbr/bin/java" ]]; then
-            export JAVA_HOME="$jbr"
-            return 0
-        fi
-    done
-
-    return 1
+    export JAVA_HOME="$home"
+    return 0
 }
 
 print_java_help() {
@@ -108,29 +94,14 @@ EOF
 }
 
 detect_android_env() {
-    local default_sdk="$HOME/Library/Android/sdk"
-    if [[ -z "${ANDROID_HOME:-}" && -d "$default_sdk" ]]; then
-        export ANDROID_HOME="$default_sdk"
-    fi
-    if [[ -z "${ANDROID_SDK_ROOT:-}" && -n "${ANDROID_HOME:-}" ]]; then
-        export ANDROID_SDK_ROOT="$ANDROID_HOME"
-    fi
-
+    android_detect_sdk_env
+    local sdk
+    sdk="$(android_default_sdk)"
     if [[ -n "${ANDROID_HOME:-}" ]]; then
         if [[ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]]; then
             SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
         elif [[ -x "$ANDROID_HOME/tools/bin/sdkmanager" ]]; then
             SDKMANAGER="$ANDROID_HOME/tools/bin/sdkmanager"
-        fi
-    fi
-
-    # Cocos/Gradle 常见变量都补上；真正路径仍需在 Cocos GUI 外部程序里保存一次。
-    if [[ -z "${ANDROID_NDK_HOME:-}" && -n "${ANDROID_HOME:-}" && -d "$ANDROID_HOME/ndk" ]]; then
-        local ndk
-        ndk="$(ls -d "$ANDROID_HOME/ndk/"* 2>/dev/null | sort -V | tail -1)"
-        if [[ -n "$ndk" ]]; then
-            export ANDROID_NDK_HOME="$ndk"
-            export NDK_ROOT="$ndk"
         fi
     fi
 }
@@ -263,6 +234,12 @@ if ! grep -Eq 'build Task .*Finished' "$LOG"; then
     exit 1
 fi
 
+find_android_studio_app() { android_find_studio_app; }
+
+open_android_studio() {
+    android_open_studio "$1"
+}
+
 find_android_project() {
     local candidates=(
         "$COCOS_DIR/build/android/proj"
@@ -303,9 +280,8 @@ if [[ -x "$SCRIPT_DIR/patch-splash.sh" ]]; then
 fi
 
 if [[ "$DO_OPEN" -eq 1 && "$DO_APK" -eq 0 && "$DO_AAB" -eq 0 ]]; then
-    echo "▶ 打开 Android Studio：$ANDROID_PROJ"
     if command -v open >/dev/null 2>&1; then
-        open -a "Android Studio" "$ANDROID_PROJ" || open "$ANDROID_PROJ"
+        open_android_studio "$ANDROID_PROJ" || exit 1
     else
         echo "  请手动用 Android Studio 打开：$ANDROID_PROJ"
     fi
@@ -313,7 +289,7 @@ if [[ "$DO_OPEN" -eq 1 && "$DO_APK" -eq 0 && "$DO_AAB" -eq 0 ]]; then
 fi
 
 if [[ "$DO_APK" -eq 0 && "$DO_AAB" -eq 0 ]]; then
-    echo "  打开 Android Studio： open -a \"Android Studio\" \"$ANDROID_PROJ\""
+    echo "  打开 Android Studio： cocos/scripts/build-android.sh --open"
     echo "  或下次直接： cocos/scripts/build-android.sh --open"
     echo "         打 APK： cocos/scripts/build-android.sh --apk"
     echo "         打 AAB： cocos/scripts/build-android.sh --aab"
