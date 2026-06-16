@@ -30,6 +30,8 @@ declare module 'cc' {
     export type Input = any; export const Input: any;
     export type Sprite = any; export const Sprite: any;
     export type SpriteFrame = any; export const SpriteFrame: any;
+    export type Texture2D = any; export const Texture2D: any;
+    export type ImageAsset = any; export const ImageAsset: any;
     export type UIOpacity = any; export const UIOpacity: any;
     export type resources = any; export const resources: any;
     export type Layers = any; export const Layers: any;

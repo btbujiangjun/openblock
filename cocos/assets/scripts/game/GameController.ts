@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, Graphics, UITransform, Vec3, Color, Label, input, Input, EventTouch, view, screen, sys, UIOpacity, Tween, tween } from 'cc';
+import { _decorator, Component, Node, Graphics, UITransform, Vec3, Color, Label, Sprite, input, Input, EventTouch, view, screen, sys, UIOpacity, Tween, tween } from 'cc';
 import {
     GameModel, GameEvent, ShapeMatrix, MetaState, grantCheckinReward, findHint, listBestPlacements, SKILLS, SkillId,
     Progression, AchievementState, SeasonPass, SeasonTask, SeasonTaskType, SeasonChestState, DailyState, dateKey, listSkinIds, getSkin, t,
@@ -37,6 +37,7 @@ import { Modal, TapBus, screenToLocal, inheritLayer } from './ui/uiKit';
 import { guard, reportFatal } from './ui/Fatal';
 import { blockColor, bgColor, accentColor, accentDarkColor, blockIcon, blockMetrics } from './skin/palette';
 import { drawShapeFaces, iconFontSize, ICON_FONT_FAMILY } from './skin/blockPaint';
+import { skinHasImageBlocks, ensureSkinBlockFrames } from './skin/skinSprites';
 import { consumeFestivalRecommendation, consumeWeekendTrial, consumeBirthdayGift } from './skin/seasonalRecommend';
 import { Storage, STORAGE_KEYS } from './platform/Storage';
 import { AudioManager } from './audio/AudioManager';
@@ -254,6 +255,9 @@ export class GameController extends Component {
     private dragLastSeenAtMs = 0;
     private _ghostIconRoot: Node | null = null;
     private _ghostIcons: Label[] = [];
+    /** 图片皮肤（blockIconAssets）拖拽 ghost 的贴图层与池。 */
+    private _ghostSpriteRoot: Node | null = null;
+    private _ghostSprites: Sprite[] = [];
     /**
      * tap-to-select：上一次触摸是「点按候选块后未拖动直接松手」→ ghost 保持悬浮，等待下一次触摸完成
      * 「点板面落子」或「点别的候选块切换/点同槽位取消选中」。这是大多数休闲方块拼图（Block Blast 等）
@@ -3003,6 +3007,20 @@ export class GameController extends Component {
         // 把 icon 根置于 Graphics 之上，确保图标绘制在立体面之上（与 dock `_iconRoot` 行为一致）。
         this._ghostIconRoot.setSiblingIndex(9999);
 
+        // 图片皮肤（水墨雅集等）：ghost 也用整面贴图，跳过 emoji；否则走绘面 + 缩放 emoji。
+        const imgSkin = skinHasImageBlocks(skin);
+        let spritePool: { getSprite: (i: number) => Sprite; hideRemaining: (n: number) => void } | undefined;
+        if (imgSkin) {
+            ensureSkinBlockFrames(skin, () => { if (this.dragShape) { try { this.drawGhost(); } catch { /* ignore */ } } });
+            this.ensureGhostSpriteRoot();
+            spritePool = {
+                getSprite: (i: number) => this.ghostSprite(i),
+                hideRemaining: (n: number) => this.hideGhostSprites(n),
+            };
+        } else {
+            this.hideGhostSprites();
+        }
+
         // 方块面用盘面 cell 绘制；emoji 不走 drawShapeFaces 的 fontSize 路径，改由下方手动缩放。
         drawShapeFaces(g, skin, {
             shape: this.dragShape,
@@ -3010,8 +3028,40 @@ export class GameController extends Component {
             cell,
             left: -(sw * cell) / 2,
             top: (sh * cell) / 2,
-        });
-        this.drawGhostIconsScaled(cell, sw, sh);
+        }, undefined, spritePool);
+        if (!imgSkin) this.drawGhostIconsScaled(cell, sw, sh);
+    }
+
+    private ensureGhostSpriteRoot(): void {
+        if (this._ghostSpriteRoot?.isValid) return;
+        this._ghostSprites = [];
+        this._ghostSpriteRoot = new Node('ghostSprites');
+        this._ghostSpriteRoot.parent = this.ghost;
+        inheritLayer(this._ghostSpriteRoot, this.ghost);
+        this._ghostSpriteRoot.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        // 置于 Graphics 之上（图片皮肤不画 icon，无需考虑 icon 层）。
+        this._ghostSpriteRoot.setSiblingIndex(9000);
+    }
+
+    private ghostSprite(i: number): Sprite {
+        let s = this._ghostSprites[i];
+        if (!s) {
+            const n = new Node('gblk');
+            n.parent = this._ghostSpriteRoot!;
+            inheritLayer(n, this._ghostSpriteRoot!);
+            n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+            s = n.addComponent(Sprite);
+            if (Sprite.SizeMode) s.sizeMode = Sprite.SizeMode.CUSTOM;
+            this._ghostSprites[i] = s;
+        }
+        return s;
+    }
+
+    private hideGhostSprites(from = 0): void {
+        for (let i = from; i < this._ghostSprites.length; i++) {
+            const s = this._ghostSprites[i];
+            if (s?.node?.isValid) s.node.active = false;
+        }
     }
 
     /**
@@ -3244,6 +3294,7 @@ export class GameController extends Component {
                 const g = this.ghost.getComponent(Graphics);
                 if (g) g.clear();
                 for (const l of this._ghostIcons) if (l?.node) l.node.active = false;
+                this.hideGhostSprites();
             } catch (err) { console.warn('[OpenBlock] cancelDrag ghost', err); }
         }
         try {

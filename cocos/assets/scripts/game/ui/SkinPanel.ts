@@ -1,8 +1,9 @@
-import { _decorator, Component, Node, Color, UITransform, Label, Graphics, UIOpacity, Vec3, tween, view, Mask, EventTouch } from 'cc';
+import { _decorator, Component, Node, Color, UITransform, Label, Graphics, UIOpacity, Vec3, tween, view, Mask, EventTouch, Sprite } from 'cc';
 import { Modal, dimBg, card, label, closeX, TapBus, bindEngineClick, inheritLayer, screenToLocal } from './uiKit';
 import { SKINS, listSkinIds, Skin, t, getSkinCategories, tSkinName } from '../../core';
 import { blockColor, gridOuterColor, cellEmptyColor, blockIcon } from '../skin/palette';
 import { iconFontSize } from '../skin/blockPaint';
+import { skinHasImageBlocks, getSkinBlockFrame, ensureSkinBlockFrames } from '../skin/skinSprites';
 import { Motion } from '../platform/Motion';
 
 const { ccclass } = _decorator;
@@ -190,6 +191,7 @@ export class SkinPanel extends Component {
         const { previewSize, px0, py0 } = this.previewGeom(w, h);
         this.drawMiniBoard(g, skin, px0, py0, previewSize);
         this.drawMiniIcons(n, skin, px0, py0, previewSize);
+        this.drawMiniSprites(n, skin, px0, py0, previewSize);
 
         const nameNode = new Node('name');
         nameNode.parent = n;
@@ -412,7 +414,42 @@ export class SkinPanel extends Component {
         }
     }
 
+    /** 图片皮肤（blockIconAssets）迷你预览：在 previewPattern 的实体格上铺整面贴图（替代纯色 + emoji）。 */
+    private drawMiniSprites(parent: Node, skin: Skin, x0: number, y0: number, size: number): void {
+        if (!skinHasImageBlocks(skin)) return;
+        ensureSkinBlockFrames(skin, () => {
+            if (this.closed || !parent?.isValid) return;
+            const n = 4;
+            const cell = size / n;
+            const inset = 2;
+            const fsize = cell - inset * 2;
+            const pattern = SkinPanel.previewPattern(skin);
+            for (let gy = 0; gy < n; gy++) {
+                for (let gx = 0; gx < n; gx++) {
+                    const v = pattern[gy][gx];
+                    if (v === 0) continue;
+                    const sf = getSkinBlockFrame(skin, v - 1);
+                    if (!sf) continue;
+                    const cx = x0 + gx * cell + cell / 2;
+                    const cy = y0 + (n - 1 - gy) * cell + cell / 2;
+                    const sn = new Node('miniblk');
+                    sn.parent = parent;
+                    inheritLayer(sn, parent);
+                    sn.setPosition(cx, cy, 0);
+                    const ut = sn.addComponent(UITransform);
+                    ut.setAnchorPoint(0.5, 0.5);
+                    ut.setContentSize(fsize, fsize);
+                    const sp = sn.addComponent(Sprite);
+                    if (Sprite.SizeMode) sp.sizeMode = Sprite.SizeMode.CUSTOM;
+                    sp.spriteFrame = sf;
+                }
+            }
+        });
+    }
+
     private drawMiniIcons(parent: Node, skin: Skin, x0: number, y0: number, size: number): void {
+        // 图片皮肤用整面贴图（drawMiniSprites），不叠加 emoji（与 web 一致）。
+        if (skinHasImageBlocks(skin)) return;
         if (!skin.blockIcons || !skin.blockIcons.length) return;
         const n = 4;
         const cell = size / n;

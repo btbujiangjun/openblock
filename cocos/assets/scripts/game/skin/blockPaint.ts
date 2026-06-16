@@ -1,6 +1,7 @@
-import { Color, Graphics, Label, sys } from 'cc';
+import { Color, Graphics, Label, Sprite, UITransform, sys } from 'cc';
 import { Skin } from '../../core';
 import { blockFaceColor, lightenInto, darkenInto, blockMetrics, blockIcon, isLightBoard } from './palette';
+import { skinHasImageBlocks, getSkinBlockFrame } from './skinSprites';
 
 /**
  * 仅 iOS / macOS 原生端为 true。Android / Web / 小游戏均为 false。
@@ -562,6 +563,17 @@ export interface DrawShapeIconPool {
     hideRemaining: (fromIndex: number) => void;
 }
 
+/** Sprite 池回调：图片皮肤（blockIconAssets）用整面贴图渲染方块，复用 emoji 同款池模式。 */
+export interface DrawShapeSpritePool {
+    /** 返回（或按需创建）第 i 个方块 Sprite；返回 null 则本格回退绘面。 */
+    getSprite: (i: number) => Sprite | null;
+    /** 把超出本次使用数量的 Sprite 全部 hide。 */
+    hideRemaining: (fromIndex: number) => void;
+}
+
+/** Sprite 着色 scratch（白色 × alpha，避免逐格 new Color）。 */
+const _spriteTint = new Color(255, 255, 255, 255);
+
 /**
  * 共享方块"形状面"绘制：BoardView 的落点 ghost、DockView 的候选块、GameController 的拖拽 ghost、
  * 以及 SkinPanel 的迷你预览均走同一管线，避免三处分别推演产生质感漂移。
@@ -576,19 +588,44 @@ export function drawShapeFaces(
     skin: Skin,
     opts: DrawShapeOpts,
     iconPool?: DrawShapeIconPool,
+    spritePool?: DrawShapeSpritePool,
 ): number {
     const { shape, colorIdx, cell, left, top, alpha = 255, skipCell } = opts;
     const { inset, radius } = blockMetrics(skin, cell);
     const fsize = cell - inset * 2;
+    // 图片皮肤：整面贴图替代绘面 + emoji（与 web blockIconAssets 一致）。
+    const imgSkin = skinHasImageBlocks(skin);
+    const imgSize = Math.max(1, cell - Math.max(2, Math.round(cell * 0.06)));
     let iconN = 0;
+    let spriteN = 0;
     for (let y = 0; y < shape.length; y++) {
         for (let x = 0; x < shape[y].length; x++) {
             if (!shape[y][x]) continue;
             if (skipCell?.(x, y)) continue;
             const cellX = left + x * cell;
             const cellY = top - (y + 1) * cell;
-            paintBlockFace(g, cellX + inset, cellY + inset, fsize, radius, skin, colorIdx, alpha);
-            if (iconPool) {
+            let drewSprite = false;
+            if (imgSkin && spritePool) {
+                const sf = getSkinBlockFrame(skin, colorIdx);
+                if (sf) {
+                    const s = spritePool.getSprite(spriteN);
+                    if (s) {
+                        s.node.active = true;
+                        if (s.spriteFrame !== sf) s.spriteFrame = sf;
+                        (s.node.getComponent(UITransform) || s.node.addComponent(UITransform)).setContentSize(imgSize, imgSize);
+                        s.node.setPosition(cellX + cell / 2, cellY + cell / 2, 0);
+                        _spriteTint.set(255, 255, 255, alpha);
+                        s.color = _spriteTint;
+                        spriteN++;
+                        drewSprite = true;
+                    }
+                }
+            }
+            if (!drewSprite) {
+                // 非图片皮肤，或贴图尚未加载完成 → 绘面占位（图片皮肤不画 emoji）。
+                paintBlockFace(g, cellX + inset, cellY + inset, fsize, radius, skin, colorIdx, alpha);
+            }
+            if (!imgSkin && iconPool) {
                 const em = blockIcon(skin, colorIdx);
                 const fs = em ? iconFontSize(fsize) : 0;
                 if (em && fs > 0) {
@@ -608,5 +645,6 @@ export function drawShapeFaces(
         }
     }
     iconPool?.hideRemaining(iconN);
+    spritePool?.hideRemaining(spriteN);
     return iconN;
 }

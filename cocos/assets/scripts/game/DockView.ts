@@ -1,6 +1,7 @@
-import { _decorator, Component, Graphics, UITransform, Node, Label, Color, sys } from 'cc';
+import { _decorator, Component, Graphics, UITransform, Node, Label, Color, Sprite, sys } from 'cc';
 import { DockBlock, Skin } from '../core';
 import { drawShapeFaces, ICON_FONT_FAMILY } from './skin/blockPaint';
+import { skinHasImageBlocks, ensureSkinBlockFrames } from './skin/skinSprites';
 import { inheritLayer, screenToLocal } from './ui/uiKit';
 
 const { ccclass, property } = _decorator;
@@ -31,6 +32,9 @@ export class DockView extends Component {
     private _skin: Skin | null = null;
     private _iconRoot: Node | null = null;
     private _icons: Label[] = [];
+    /** 图片皮肤（blockIconAssets）的候选块贴图层。 */
+    private _spriteRoot: Node | null = null;
+    private _blockSprites: Sprite[] = [];
     /** 与 web `.dock-block canvas` 等价的每槽触控节点（5×cell 方形）。 */
     /** 每槽 5×cell 命中参照节点（仅用于 pickBlock 坐标换算，不注册节点级触摸，避免 iOS 断触）。 */
     private _pickNodes: Node[] = [];
@@ -54,6 +58,12 @@ export class DockView extends Component {
         uit.setContentSize(this.dockWidth, this.dockHeight);
         uit.setAnchorPoint(0.5, 0.5);
         this._g = this.node.getComponent(Graphics) || this.node.addComponent(Graphics);
+        // 图片皮肤贴图层：位于 Graphics 之上、图标层之下（图片皮肤本就不画图标）。
+        this._spriteRoot = new Node('blockSprites');
+        this._spriteRoot.parent = this.node;
+        inheritLayer(this._spriteRoot, this.node);
+        this._spriteRoot.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        this._spriteRoot.setSiblingIndex(5000);
         this._iconRoot = new Node('icons');
         this._iconRoot.parent = this.node;
         inheritLayer(this._iconRoot, this.node);
@@ -249,13 +259,34 @@ export class DockView extends Component {
         return l;
     }
 
+    private blockSprite(i: number): Sprite {
+        let s = this._blockSprites[i];
+        if (!s) {
+            const n = new Node('dblk');
+            n.parent = this._spriteRoot!;
+            inheritLayer(n, this._spriteRoot!);
+            n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+            s = n.addComponent(Sprite);
+            if (Sprite.SizeMode) s.sizeMode = Sprite.SizeMode.CUSTOM;
+            this._blockSprites[i] = s;
+        }
+        return s;
+    }
+
     render(blocks: DockBlock[], skin: Skin): void {
         this._blocks = blocks;
         this._skin = skin;
+        // 图片皮肤：候选块贴图按需加载，加载完成后若仍是当前皮肤则重绘一次。
+        if (skinHasImageBlocks(skin)) {
+            ensureSkinBlockFrames(skin, () => {
+                if (this._skin?.id === skin.id && this.node?.isValid) this.render(this._blocks, skin);
+            });
+        }
         const g = this._g!;
         g.clear();
         const cell = this.cell;
         let iconCursor = 0;
+        let spriteCursor = 0;
         for (const b of blocks) {
             if (b.placed) continue;
             // 拖拽中的槽位默认完全不画（候选块已"被拿到指尖"）。
@@ -267,6 +298,8 @@ export class DockView extends Component {
             const h = shape.length * cell;
             const cx = this.slotCenterX(b.index);
             const startIcon = iconCursor;
+            const startSprite = spriteCursor;
+            let spriteMax = 0;
             const used = drawShapeFaces(
                 g,
                 skin,
@@ -283,10 +316,16 @@ export class DockView extends Component {
                     getIcon: (i) => this.icon(startIcon + i),
                     hideRemaining: () => { /* Dock 累计 icon 数 → 由本方法最后统一回收 */ },
                 },
+                {
+                    getSprite: (i) => { spriteMax = Math.max(spriteMax, i + 1); return this.blockSprite(startSprite + i); },
+                    hideRemaining: () => { /* Dock 累计 sprite 数 → 由本方法最后统一回收 */ },
+                },
             );
             iconCursor += used;
+            spriteCursor += spriteMax;
         }
         for (let i = iconCursor; i < this._icons.length; i++) this._icons[i].node.active = false;
+        for (let i = spriteCursor; i < this._blockSprites.length; i++) this._blockSprites[i].node.active = false;
         // 已放置 + 拖拽中的槽位关闭触控：避免拖拽中再次点击原槽位激活第二次（web 也走 disable 路径）。
         for (let i = 0; i < 3; i++) {
             const pick = this._pickNodes[i];

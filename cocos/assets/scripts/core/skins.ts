@@ -568,6 +568,14 @@ export const SKINS: Record<string, Skin> = {
         id: 'inkGarden',
         name: '🖌️ 水墨雅集',
         blockIcons: ['💮', '🪻', '🎍', '💐', '🫧', '🪨', '🌰', '🖋️'],
+        // 与 web `blockIconAssets` 严格一致：8 张水墨 PNG 满铺格面（命中后跳过绘面 + emoji）。
+        // 路径为 resources 下可加载路径（不含扩展名），运行期按需加载为 SpriteFrame 缓存。
+        blockIconAssets: [
+            'assets/skins/inkGarden/block-0', 'assets/skins/inkGarden/block-1',
+            'assets/skins/inkGarden/block-2', 'assets/skins/inkGarden/block-3',
+            'assets/skins/inkGarden/block-4', 'assets/skins/inkGarden/block-5',
+            'assets/skins/inkGarden/block-6', 'assets/skins/inkGarden/block-7',
+        ],
         blockColors: ['#9DAECE', '#B5A7CB', '#AAB091', '#C2AA88', '#9EB0B2', '#C5A5AB', '#9FAFBA', '#BAAC8B'],
         gridOuter: '#E8E0D4',
         gridCell: '#F5EFE6',

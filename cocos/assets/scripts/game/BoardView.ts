@@ -2,6 +2,7 @@ import { _decorator, Component, Graphics, UITransform, Node, Label, Color, UIOpa
 import { Grid, Skin, getWatermark, flag, ClearedCell } from '../core';
 import { blockColor, cellEmptyColor, gridOuterColor, gridLineColor, blockMetrics, blockIcon } from './skin/palette';
 import { paintBlockFace, iconFontSize, drawShapeFaces, applyIconLabelScaled } from './skin/blockPaint';
+import { skinHasImageBlocks, getSkinBlockFrame, ensureSkinBlockFrames } from './skin/skinSprites';
 import { Motion } from './platform/Motion';
 import { VisualFx } from './platform/VisualFx';
 
@@ -90,6 +91,14 @@ export class BoardView extends Component {
     private _spriteRoot: Node | null = null;
     private _blockFrame: SpriteFrame | null = null;
     private _blockSprites: Sprite[] = [];
+    /** 最近一次 render 的 grid，用于图片皮肤贴图异步加载完成后重绘一次。 */
+    private _grid: Grid | null = null;
+    /** 图片皮肤 ghost 贴图池（落点预览，半透明），挂在 _ghostRoot 下。 */
+    private _ghostSprites: Sprite[] = [];
+    /** 图片皮肤过场动画（floodFill / flipWave / flyOut）的逐帧贴图池，挂在 _spriteRoot 下。 */
+    private _flySprites: Sprite[] = [];
+    private _flyN = 0;
+    private _flyTint = new Color(255, 255, 255, 255);
     private _iconRoot: Node | null = null;
     private _icons: Label[] = [];
     /** Layer 6：拖拽 / 提示 ghost（半透明）。renderGhost() 仅重画此层，blocks 层保持不变 → 拖拽更省。 */
@@ -294,6 +303,14 @@ export class BoardView extends Component {
 
     setSkin(skin: Skin): void {
         this._skin = skin;
+        // 图片皮肤（水墨雅集等）：预加载方块贴图，加载完成后若仍是当前皮肤则重绘一次。
+        if (skinHasImageBlocks(skin)) {
+            ensureSkinBlockFrames(skin, () => {
+                if (this._skin?.id === skin.id && this._grid && this.node?.isValid) {
+                    this.render(this._grid, skin);
+                }
+            });
+        }
     }
 
     /** 动态调整盘面边长（保持正方形）。由布局层在可见区域/安全区变化时调用。 */
@@ -347,6 +364,63 @@ export class BoardView extends Component {
         return l;
     }
 
+    /** 图片皮肤落点 ghost 的贴图节点池（挂在 _ghostRoot 下，半透明）。 */
+    private ghostSprite(i: number): Sprite {
+        let s = this._ghostSprites[i];
+        if (!s) {
+            const n = new Node('gblk');
+            n.parent = this._ghostRoot!;
+            n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+            s = n.addComponent(Sprite);
+            if (Sprite.SizeMode) s.sizeMode = Sprite.SizeMode.CUSTOM;
+            this._ghostSprites[i] = s;
+        }
+        return s;
+    }
+
+    private hideGhostSprites(from = 0): void {
+        for (let i = from; i < this._ghostSprites.length; i++) this._ghostSprites[i].node.active = false;
+    }
+
+    /** 隐藏稳态方块贴图池（过场动画期间让位给 _flySprites，避免双层叠绘）。 */
+    private hideBlockSprites(from = 0): void {
+        for (let i = from; i < this._blockSprites.length; i++) this._blockSprites[i].node.active = false;
+    }
+
+    private flySprite(i: number): Sprite {
+        let s = this._flySprites[i];
+        if (!s) {
+            const n = new Node('fblk');
+            n.parent = this._spriteRoot!;
+            n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+            s = n.addComponent(Sprite);
+            if (Sprite.SizeMode) s.sizeMode = Sprite.SizeMode.CUSTOM;
+            this._flySprites[i] = s;
+        }
+        return s;
+    }
+
+    private hideFlySprites(from = 0): void {
+        for (let i = from; i < this._flySprites.length; i++) this._flySprites[i].node.active = false;
+    }
+
+    /**
+     * 过场动画期图片皮肤的单格贴图绘制：以 (cx,cy) 为中心、边长 size 铺一张方块贴图。
+     * 返回 true 表示已用贴图（调用方跳过 paintBlockFace）；贴图未加载完返回 false（回退绘面占位）。
+     */
+    private flyImageFace(skin: Skin, cx: number, cy: number, size: number, colorIdx: number, alpha = 255): boolean {
+        const sf = getSkinBlockFrame(skin, colorIdx);
+        if (!sf) return false;
+        const s = this.flySprite(this._flyN++);
+        s.node.active = true;
+        if (s.spriteFrame !== sf) s.spriteFrame = sf;
+        (s.node.getComponent(UITransform) || s.node.addComponent(UITransform)).setContentSize(size, size);
+        s.node.setPosition(cx, cy, 0);
+        this._flyTint.set(255, 255, 255, alpha);
+        s.color = this._flyTint;
+        return true;
+    }
+
     /** 当前皮肤实际生效的 gap（优先 skin.gridGap，缺省 fallback 到 @property `gap`）。 */
     private skinGap(skin: Skin): number {
         return Math.max(0, skin.gridGap ?? this.gap);
@@ -371,6 +445,7 @@ export class BoardView extends Component {
     render(grid: Grid, skin: Skin): void {
         this._size = grid.size;
         this._skin = skin;
+        this._grid = grid;
         const bg = this._bgG!;
         const blk = this._blocksG!;
         const cell = this.cellSize;
@@ -410,7 +485,10 @@ export class BoardView extends Component {
 
         // ─── Step 4 + 5: blocks + icons ──────────────────────────────────────
         blk.clear();
-        const useSprites = !!this._blockFrame && flag('spriteBlocks');
+        // 图片皮肤（blockIconAssets，如水墨雅集）：整面贴图渲染，跳过绘面 + emoji（与 web 一致）。
+        const imgSkin = skinHasImageBlocks(skin);
+        const useSprites = !imgSkin && !!this._blockFrame && flag('spriteBlocks');
+        const imgSize = Math.max(1, cell - Math.max(2, gap * 2));
         let iconN = 0;
         let spN = 0;
         for (let gy = 0; gy < grid.size; gy++) {
@@ -420,6 +498,21 @@ export class BoardView extends Component {
                 const cellX = -half + gx * cell;
                 const cellY = half - (gy + 1) * cell;
                 const fsize = cell - inset * 2;
+                if (imgSkin) {
+                    const sf = getSkinBlockFrame(skin, v);
+                    if (sf) {
+                        const s = this.blockSprite(spN++);
+                        s.node.active = true;
+                        if (s.spriteFrame !== sf) s.spriteFrame = sf;
+                        (s.node.getComponent(UITransform) || s.node.addComponent(UITransform)).setContentSize(imgSize, imgSize);
+                        s.node.setPosition(cellX + cell / 2, cellY + cell / 2, 0);
+                        s.color = Color.WHITE;
+                    } else {
+                        // 贴图尚未加载完成 → 绘面占位（用皮肤 blockColors，无 emoji）。
+                        paintBlockFace(blk, cellX + inset, cellY + inset, fsize, radius, skin, v);
+                    }
+                    continue;
+                }
                 if (useSprites) {
                     const s = this.blockSprite(spN++);
                     s.node.active = true;
@@ -449,6 +542,7 @@ export class BoardView extends Component {
         // GameController 在状态变更后调 render()；若没紧跟 renderGhost()，旧的 ghost 必须消失。
         // 用独立 _ghostG → 拖拽期间只清/重画此层，blocks 层保持不变，省 60+ 帧的方块重画成本。
         this._ghostG?.clear();
+        this.hideGhostSprites();
     }
 
     /**
@@ -631,6 +725,11 @@ export class BoardView extends Component {
         const cell = this.cellSize;
         const half = this.boardPx / 2;
         g.clear();
+        // 图片皮肤：落点 ghost 也用半透明贴图（与盘面已放方块同款），否则回退绘面。
+        const spritePool = skinHasImageBlocks(skin)
+            ? { getSprite: (i: number) => this.ghostSprite(i), hideRemaining: (n: number) => this.hideGhostSprites(n) }
+            : undefined;
+        if (!spritePool) this.hideGhostSprites();
         // alpha=140 ≈ web globalAlpha=0.5。盘面 ghost 不画 emoji（仅 dock/ghost 卡片画图标）。
         drawShapeFaces(g, skin, {
             shape,
@@ -645,7 +744,7 @@ export class BoardView extends Component {
                 const cy = gy + y;
                 return cx < 0 || cx >= grid.size || cy < 0 || cy >= grid.size;
             },
-        });
+        }, undefined, spritePool);
     }
 
     /**
@@ -660,6 +759,9 @@ export class BoardView extends Component {
         const half = this.boardPx / 2;
         const { inset, radius } = blockMetrics(skin, cell);
         const fsize = cell - inset * 2;
+        // 图片皮肤：过场动画也用贴图；隐藏稳态贴图池，避免与逐帧 fly 贴图双层叠绘。
+        const imgSkin = skinHasImageBlocks(skin);
+        if (imgSkin) this.hideBlockSprites();
         interface FlyCell { gx: number; gy: number; colorIdx: number; jit: number; jit2: number }
         interface RowData { cells: FlyCell[]; offset: number; startTime: number; done: boolean }
 
@@ -741,6 +843,7 @@ export class BoardView extends Component {
                 }
 
                 flyG.clear();
+                this._flyN = 0;
 
                 let iconN = 0;
                 for (let ri = 0; ri < rowIdx; ri++) {
@@ -783,14 +886,17 @@ export class BoardView extends Component {
                         const faceCx = -half + c.gx * cell + cell / 2 + (cosR * ox * sx - sinR * oy * sy);
                         const faceCy = half - (c.gy + 1) * cell + cell / 2 + (sinR * ox * sx + cosR * oy * sy);
                         const sz = fsize * Math.min(sx, sy);
-                        paintBlockFace(flyG, faceCx - sz / 2, faceCy - sz / 2, sz, radius, skin, c.colorIdx);
-
-                        const em = blockIcon(skin, c.colorIdx);
-                        if (em && fs > 0) {
-                            const l = this.icon(iconN++);
-                            l.node.active = true;
-                            applyIconLabelScaled(l, em, fs);
-                            l.node.setPosition(faceCx, faceCy, 0);
+                        if (!(imgSkin && this.flyImageFace(skin, faceCx, faceCy, sz, c.colorIdx))) {
+                            paintBlockFace(flyG, faceCx - sz / 2, faceCy - sz / 2, sz, radius, skin, c.colorIdx);
+                        }
+                        if (!imgSkin) {
+                            const em = blockIcon(skin, c.colorIdx);
+                            if (em && fs > 0) {
+                                const l = this.icon(iconN++);
+                                l.node.active = true;
+                                applyIconLabelScaled(l, em, fs);
+                                l.node.setPosition(faceCx, faceCy, 0);
+                            }
                         }
                     }
                 }
@@ -800,27 +906,30 @@ export class BoardView extends Component {
                     for (let gx = 0; gx < n; gx++) {
                         const v = grid.cells[gy2][gx];
                         if (v === null) continue;
-                        paintBlockFace(flyG, -half + gx * cell + inset, half - (gy2 + 1) * cell + inset, fsize, radius, skin, v);
-
-                        const em = blockIcon(skin, v);
-                        if (em && fs > 0) {
-                            const l = this.icon(iconN++);
-                            l.node.active = true;
-                            applyIconLabelScaled(l, em, fs);
-                            l.node.setPosition(
-                                -half + gx * cell + cell / 2,
-                                half - (gy2 + 1) * cell + cell / 2,
-                                0,
-                            );
+                        const scx = -half + gx * cell + cell / 2;
+                        const scy = half - (gy2 + 1) * cell + cell / 2;
+                        if (!(imgSkin && this.flyImageFace(skin, scx, scy, fsize, v))) {
+                            paintBlockFace(flyG, -half + gx * cell + inset, half - (gy2 + 1) * cell + inset, fsize, radius, skin, v);
+                        }
+                        if (!imgSkin) {
+                            const em = blockIcon(skin, v);
+                            if (em && fs > 0) {
+                                const l = this.icon(iconN++);
+                                l.node.active = true;
+                                applyIconLabelScaled(l, em, fs);
+                                l.node.setPosition(scx, scy, 0);
+                            }
                         }
                     }
                 }
                 for (let i = iconN; i < this._icons.length; i++) this._icons[i].node.active = false;
+                if (imgSkin) this.hideFlySprites(this._flyN);
 
                 const allDone = rowIdx >= rows.length && doneCount >= rows.length;
                 if (!allDone) {
                     raf(tick);
                 } else {
+                    if (imgSkin) this.hideFlySprites();
                     this.render(grid, skin);
                     onAllLand?.();
                     this._rowFlipWave(grid, skin, colorCount, onLand, onFlipRow, resolve);
@@ -837,6 +946,8 @@ export class BoardView extends Component {
         const { inset, radius } = blockMetrics(skin, cell);
         const fsize = cell - inset * 2;
         const fs = iconFontSize(fsize);
+        const imgSkin = skinHasImageBlocks(skin);
+        if (imgSkin) this.hideBlockSprites();
         const TOTAL_MS = 2000;
         const FLIP_MS = 300;
         const STAGGER = Math.min(180, (TOTAL_MS - FLIP_MS) / Math.max(n - 1, 1));
@@ -872,6 +983,7 @@ export class BoardView extends Component {
             if (!flyG?.node?.isValid) { resolve(); return; }
             const elapsed = Date.now() - startTime;
             flyG.clear();
+            this._flyN = 0;
 
             let iconN = 0;
             for (let lineIdx = 0; lineIdx < n; lineIdx++) {
@@ -917,23 +1029,28 @@ export class BoardView extends Component {
                         iconX = colCenterX;
                         iconY = half - (gy + 0.5) * cell;
                     }
-                    paintBlockFace(flyG, baseX, baseY, sizeScaled, Math.max(0, radius * scale), skin, v);
-
-                    const em = blockIcon(skin, v);
-                    if (em && fs > 0) {
-                        const l = this.icon(iconN++);
-                        l.node.active = true;
-                        applyIconLabelScaled(l, em, Math.max(1, fs * scale));
-                        l.node.setPosition(iconX, iconY, 0);
+                    if (!(imgSkin && this.flyImageFace(skin, iconX, iconY, sizeScaled, v))) {
+                        paintBlockFace(flyG, baseX, baseY, sizeScaled, Math.max(0, radius * scale), skin, v);
+                    }
+                    if (!imgSkin) {
+                        const em = blockIcon(skin, v);
+                        if (em && fs > 0) {
+                            const l = this.icon(iconN++);
+                            l.node.active = true;
+                            applyIconLabelScaled(l, em, Math.max(1, fs * scale));
+                            l.node.setPosition(iconX, iconY, 0);
+                        }
                     }
                 }
             }
             for (let i = iconN; i < this._icons.length; i++) this._icons[i].node.active = false;
+            if (imgSkin) this.hideFlySprites(this._flyN);
 
             const allFlipped = elapsed >= (n - 1) * STAGGER + FLIP_MS;
             if (!allFlipped) {
                 raf2(flipTick);
             } else {
+                if (imgSkin) this.hideFlySprites();
                 this.render(grid, skin);
                 this._boardFlyOut(grid, skin, resolve);
             }
@@ -954,6 +1071,8 @@ export class BoardView extends Component {
         const { inset, radius } = blockMetrics(skin, cell);
         const fsize = cell - inset * 2;
         const fs = iconFontSize(fsize);
+        const imgSkin = skinHasImageBlocks(skin);
+        if (imgSkin) this.hideBlockSprites();
         const flyG = this._blocksG!;
         const FLYOUT_MS = 1600;
         const boardPx = this.boardPx;
@@ -978,6 +1097,7 @@ export class BoardView extends Component {
             if (!flyG?.node?.isValid) { resolve(); return; }
             const t = clamp01((Date.now() - start) / FLYOUT_MS);
             flyG.clear();
+            this._flyN = 0;
 
             let iconN = 0;
             for (let gx = 0; gx < n; gx++) {
@@ -1019,24 +1139,29 @@ export class BoardView extends Component {
                     if (alpha <= 0.02) continue;
                     const a255 = Math.round(alpha * 255);
 
-                    paintBlockFace(flyG, fcx - sz / 2, fcy - sz / 2, sz, Math.max(0, radius * Math.min(sX, sY)), skin, v, a255);
-
-                    const em = blockIcon(skin, v);
-                    if (em && fs > 0 && alpha > 0.35) {
-                        const l = this.icon(iconN++);
-                        l.node.active = true;
-                        applyIconLabelScaled(l, em, Math.max(1, fs * Math.min(sX, sY)));
-                        l.node.setPosition(fcx, fcy, 0);
+                    if (!(imgSkin && this.flyImageFace(skin, fcx, fcy, sz, v, a255))) {
+                        paintBlockFace(flyG, fcx - sz / 2, fcy - sz / 2, sz, Math.max(0, radius * Math.min(sX, sY)), skin, v, a255);
+                    }
+                    if (!imgSkin) {
+                        const em = blockIcon(skin, v);
+                        if (em && fs > 0 && alpha > 0.35) {
+                            const l = this.icon(iconN++);
+                            l.node.active = true;
+                            applyIconLabelScaled(l, em, Math.max(1, fs * Math.min(sX, sY)));
+                            l.node.setPosition(fcx, fcy, 0);
+                        }
                     }
                 }
             }
             for (let i = iconN; i < this._icons.length; i++) this._icons[i].node.active = false;
+            if (imgSkin) this.hideFlySprites(this._flyN);
 
             if (t < 1) {
                 raf3(tick);
             } else {
                 flyG.clear();
                 for (let i = 0; i < this._icons.length; i++) this._icons[i].node.active = false;
+                this.hideFlySprites();
                 resolve();
             }
         };

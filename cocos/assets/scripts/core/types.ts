@@ -65,6 +65,12 @@ export interface Skin {
     clearFlash?: string;
     /** 方块 emoji 图标（带 icon 皮肤；用于同 icon 消行 bonus 判定与后续 icon 渲染） */
     blockIcons?: string[];
+    /**
+     * 方块整面贴图（按色板序号一一对应；与 web `blockIconAssets` 同源）。
+     * 命中时方块以「整张 PNG 铺满格面」渲染，跳过 Graphics 绘面 + emoji（如：水墨雅集）。
+     * 路径为 resources 下的可加载路径（不含扩展名），如 `assets/skins/inkGarden/block-0`。
+     */
+    blockIconAssets?: string[];
     uiDark?: boolean;
     /** UI 强调色（hex），用于 HUD 数值、技能按钮激活态、功能按钮描边等 —— 与 web `--accent-color` 同源。 */
     uiAccent?: string;
