@@ -23,6 +23,7 @@ blockblast.db-wal
 
 # Capacitor mobile shell generated artifacts
 mobile/android/.gradle/
+mobile/android/.idea/
 mobile/android/**/build/
 mobile/android/app/src/main/assets/public/
 mobile/ios/DerivedData/
