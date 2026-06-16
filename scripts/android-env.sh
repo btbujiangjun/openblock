@@ -10,7 +10,11 @@
 #   bash scripts/android-env.sh --find-studio        # Android Studio .app 路径
 #   bash scripts/android-env.sh --install-studio     # brew 安装 Android Studio
 #
-set -euo pipefail
+# 仅在直接执行时启用 -e；被 source 时不要改动调用方的 shell 选项
+# （build-android.sh 等故意使用 `set -uo pipefail`，不希望被强制开启 -e）。
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    set -euo pipefail
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -225,24 +229,28 @@ android_install_studio() {
     brew install --cask android-studio
 }
 
-case "${1:-}" in
-    --check)            android_check ;;
-    --print-exports)    android_print_exports ;;
-    --java-home)
-        role="${2:-cocos}"
-        android_resolve_java_home "$role"
-        ;;
-    --find-studio)      android_find_studio_app ;;
-    --open)
-        project="${2:-$ROOT/mobile/android}"
-        android_open_studio "$project"
-        ;;
-    --install-studio)   android_install_studio ;;
-    --help|-h)
-        sed -n '2,12p' "$0"
-        ;;
-    *)
-        echo "用法：bash scripts/android-env.sh --check | --print-exports | --java-home cocos|mobile | --find-studio | --open [path] | --install-studio" >&2
-        exit 1
-        ;;
-esac
+# 仅在「直接执行」本脚本时进行 CLI 分发；被其他脚本 source 时只导出函数，
+# 不解析位置参数（否则会继承调用方的参数，命中默认分支后 exit 1，连累调用方）。
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    case "${1:-}" in
+        --check)            android_check ;;
+        --print-exports)    android_print_exports ;;
+        --java-home)
+            role="${2:-cocos}"
+            android_resolve_java_home "$role"
+            ;;
+        --find-studio)      android_find_studio_app ;;
+        --open)
+            project="${2:-$ROOT/mobile/android}"
+            android_open_studio "$project"
+            ;;
+        --install-studio)   android_install_studio ;;
+        --help|-h)
+            sed -n '2,12p' "$0"
+            ;;
+        *)
+            echo "用法：bash scripts/android-env.sh --check | --print-exports | --java-home cocos|mobile | --find-studio | --open [path] | --install-studio" >&2
+            exit 1
+            ;;
+    esac
+fi
