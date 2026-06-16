@@ -1954,7 +1954,7 @@ export class Renderer {
             lineStyle = skin.uiDark ? 'rgba(255,255,255,0.46)' : 'rgba(15,23,42,0.34)';
         }
         ctx.strokeStyle = lineStyle;
-        ctx.lineWidth = 1;
+        ctx.lineWidth = skin.gridLineWidth ?? 1;
         ctx.lineCap = 'butt';
         for (let i = 1; i < this.gridSize; i++) {
             const p = i * this.cellSize + 0.5;

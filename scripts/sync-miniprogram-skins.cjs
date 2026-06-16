@@ -89,6 +89,7 @@ for (const [key, skin] of Object.entries(webSkins)) {
     gridCell: skin.gridCell,
     gridGap: skin.gridGap,
     gridLine: skin.gridLine,
+    gridLineWidth: skin.gridLineWidth,
     blockInset: skin.blockInset,
     blockRadius: skin.blockRadius,
     blockStyle: skin.blockStyle,

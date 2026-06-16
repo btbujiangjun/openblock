@@ -88,6 +88,7 @@ export const CLASSIC_PALETTE = [
  *   gridOuter: string,
  *   gridCell: string,
  *   gridLine?: string | false,
+ *   gridLineWidth?: number,
  *   gridGap: number,
  *   blockInset: number,
  *   blockRadius: number,
@@ -1128,7 +1129,9 @@ export const SKINS = {
         ],
         gridOuter: '#0E0E12',
         gridCell:  '#1A1A20',
-        gridLine:  'rgba(255,255,255,0.07)',
+        // 原 0.07 在 Web/小程序/Cocos 上几乎不可见；银白细线保持极简但可读（Cocos 配合 gridLineWidth）。
+        gridLine:  'rgba(218,218,226,0.38)',
+        gridLineWidth: 1.5,
         gridGap: 1,
         blockInset: 2,
         blockRadius: 7,

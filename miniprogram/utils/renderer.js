@@ -327,7 +327,7 @@ class GameRenderer {
       ctx.strokeStyle = (typeof skin.gridLine === 'string' && skin.gridLine)
         ? skin.gridLine
         : (lightBoard ? 'rgba(15,23,42,0.34)' : 'rgba(255,255,255,0.46)');
-      ctx.lineWidth = 1;
+      ctx.lineWidth = skin.gridLineWidth ?? 1;
       ctx.lineCap = 'butt';
       for (let i = 1; i < n; i++) {
         const p = offsetX + i * cellSize + 0.5;
