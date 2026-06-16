@@ -308,7 +308,7 @@ echo ""
 echo "✔ Cocos Android 工程构建成功。"
 echo "  Android 工程：$ANDROID_PROJ"
 
-# 关闭开机 splash（详见 patch-splash.sh）。在 Cocos 输出后、gradle 打包前修改 data/src/settings.json，
+# 品牌化开机 splash 为产品 icon（详见 patch-splash.sh）。在 Cocos 输出后、gradle 打包前修改 data/src/settings.json，
 # gradle 会把它作为 asset 拷进 APK。失败不致命，仅 warning。
 if [[ -x "$SCRIPT_DIR/patch-splash.sh" ]]; then
     "$SCRIPT_DIR/patch-splash.sh" "$COCOS_DIR/build/android/data" || true

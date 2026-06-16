@@ -118,7 +118,7 @@ if [[ -x "$SCRIPT_DIR/patch-native-engine.sh" ]]; then
     }
 fi
 
-# 关闭开机 splash（详见 patch-splash.sh）。在 Cocos 输出后修改 data/src/settings.json，
+# 品牌化开机 splash 为产品 icon（详见 patch-splash.sh）。在 Cocos 输出后修改 data/src/settings.json，
 # Xcode 工程会把它作为 bundle resource 拷进 ipa。失败不致命，仅 warning。
 if [[ -x "$SCRIPT_DIR/patch-splash.sh" ]]; then
     "$SCRIPT_DIR/patch-splash.sh" "$COCOS_DIR/build/ios/data" || true
