@@ -1068,6 +1068,134 @@ module.exports = {
         "solution": 0.13,
         "killer": 0.13,
         "fragmentation": 0.12
+      },
+      "vectorComment": "v-research §2.10 难度相对论：把 computeSpawnStepDifficulty.terms（scd/board/flexibility/solution/killer/fragmentation 六项 0~1 分量）确定性投影为 6 维『考点向量』difficultyVec(b⃗)={b_spatial,b_combo,b_order,b_recovery,b_tempo,b_clearEff}，供等体感选块对齐 b* 使用。每个 b 维 = clamp01(Σ coef·term)（每维系数和≈1）。combo/tempo/clearEff 暂为现有 terms 的粗代理，待更丰富信号补强；标量 stepDifficulty 与 5 档桶口径完全不变。enabled=false 或缺省时 computeSpawnStepDifficulty 仍返回 difficultyVec（纯加字段，不影响既有消费方）。",
+      "vectorWeights": {
+        "spatial": {
+          "scd": 0.6,
+          "fragmentation": 0.4
+        },
+        "combo": {
+          "killer": 0.5,
+          "scd": 0.3,
+          "board": 0.2
+        },
+        "order": {
+          "solution": 0.6,
+          "flexibility": 0.4
+        },
+        "recovery": {
+          "board": 0.7,
+          "killer": 0.3
+        },
+        "tempo": {
+          "scd": 0.4,
+          "board": 0.3,
+          "flexibility": 0.3
+        },
+        "clearEff": {
+          "solution": 0.5,
+          "flexibility": 0.3,
+          "fragmentation": 0.2
+        }
+      }
+    },
+    "difficultyRelativity": {
+      "comment": "v-research §4.17/§2.10 难度相对论（体感难度不变量 × 客观难度个性化）。前提：S 形 stress 曲线仍是调控主线，它给出『目标体感难度』d*=stress；本块在『体感→客观题目』之间插一层按玩家能力 θ⃗ 的个性化标定：反解客观目标 b*=clamp(θ⃗ ⊕ d* + Δ⃗课程 + 噪声)，内容侧（generateDockShapes 阶段1/3）让候选客观难度 difficultyVec(b⃗) 对齐 b*。同一 d* 对资深落到客观更难、对新手更易的题目，体感一致但题目结构千人千面。enabled=false 时全链路恒等（行为=现状）；低置信 θ⃗（confidence<minConfidence）退回恒等标定。实现见 web/src/playerLatentAbility.js + adaptiveSpawn.resolveAdaptiveStrategy（反解 b*）+ blockSpawn.generateDockShapes（等体感对齐）。详见 docs/player/BEST_SCORE_CHASE_STRATEGY.md §4.17 与 docs/algorithms/ALGORITHMS_SPAWN.md §2.10。护栏顺序：硬约束>救济链>PEOG/warmup>等体感对齐项（对齐项绝不制造死局/绕过救济/抬高 d*）。",
+      "enabled": true,
+      "rolloutPercent": 100,
+      "minConfidence": 0.45,
+      "personalizationStrength": 0.3,
+      "deltaCurriculumK": 0.15,
+      "noiseAmp": 0.05,
+      "lowConfFallback": true,
+      "candidateK": 4,
+      "dims": [
+        "spatial",
+        "combo",
+        "order",
+        "recovery",
+        "tempo",
+        "clearEff"
+      ],
+      "dimWeights": {
+        "spatial": 1,
+        "combo": 1,
+        "order": 1,
+        "recovery": 1,
+        "tempo": 1,
+        "clearEff": 1
+      },
+      "weaknessBoost": 1.5,
+      "shapePrior": {
+        "comment": "阶段5『构造算子 target-aware』：把客观目标 b* 与玩家能力 θ⃗ 的逐维缺口 gap=b*−θ⃗ 经 dimAffinity 映射成 7 类形状权重的乘性偏置，提升候选池里贴近 b* 的三块密度（与 best-of-K 选块互补；选块仍是硬约束后的事，本偏置只改池分布不绕约束）。enabled=false → 不偏置。lambda 实际强度=relativityLambda×strength；cap 限幅；distressed/救济帧禁用（顺玩家优先）。dimAffinity[dim][cat]∈[-1,1]：正=该类形状抬高此考点客观难度。",
+        "enabled": true,
+        "strength": 0.6,
+        "cap": 0.3,
+        "dimAffinity": {
+          "spatial": {
+            "lines": -0.2,
+            "rects": -0.1,
+            "squares": -0.3,
+            "tshapes": 0.3,
+            "zshapes": 0.5,
+            "lshapes": 0.4,
+            "jshapes": 0.4
+          },
+          "combo": {
+            "lines": 0.3,
+            "rects": 0.4,
+            "squares": 0.4,
+            "tshapes": 0,
+            "zshapes": -0.2,
+            "lshapes": -0.1,
+            "jshapes": -0.1
+          },
+          "order": {
+            "lines": -0.2,
+            "rects": -0.1,
+            "squares": -0.3,
+            "tshapes": 0.4,
+            "zshapes": 0.5,
+            "lshapes": 0.3,
+            "jshapes": 0.3
+          },
+          "recovery": {
+            "lines": 0.4,
+            "rects": 0.3,
+            "squares": 0.5,
+            "tshapes": -0.1,
+            "zshapes": -0.3,
+            "lshapes": -0.2,
+            "jshapes": -0.2
+          },
+          "tempo": {
+            "lines": -0.1,
+            "rects": 0,
+            "squares": -0.1,
+            "tshapes": 0.3,
+            "zshapes": 0.4,
+            "lshapes": 0.3,
+            "jshapes": 0.3
+          },
+          "clearEff": {
+            "lines": 0.5,
+            "rects": 0.4,
+            "squares": 0.3,
+            "tshapes": -0.1,
+            "zshapes": -0.2,
+            "lshapes": -0.1,
+            "jshapes": -0.1
+          }
+        }
+      },
+      "latentAbility": {
+        "comment": "θ⃗ 贝叶斯标定器超参（playerLatentAbility.js）。priorMu/priorSigma 为各维先验；beta 为每次『答题』更新步长（TrueSkill 风格的简化高斯更新）；sigmaFloor 防过度收敛；confTitleN0 控制置信度饱和速度（样本量 n → 1-e^{-n/N0}）。θ⃗ 只吃行为质量与盘面应对，不吃绝对分数。",
+        "priorMu": 0.5,
+        "priorSigma": 0.25,
+        "beta": 0.12,
+        "sigmaFloor": 0.06,
+        "confN0": 12
       }
     },
     "spatialPlanning": {

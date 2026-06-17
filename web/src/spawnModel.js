@@ -30,9 +30,15 @@ export const SPAWN_MODEL_CONTEXT_DIM = 24;
  * v1.67：63 → 66，尾部追加 3 维空间规划盘面条件（regionEntropy/largestRegionRatio/smallRegionCellRatio，
  *   与 RL state 同源，SSOT=spatialPlanning.js）。这些是放置前的盘面属性（非输出泄漏），让生成式出块
  *   能显式条件于"开放空间是否整片/被切多碎"。
+ * §4.17/§2.10：66 → 72，尾部追加 6 维玩家潜在能力 θ⃗（spatial/combo/order/recovery/tempo/clearEff，
+ *   来自 playerLatentAbility 跨局后验 μ）。让生成式出块显式条件于"该玩家的能力坐标"——
+ *   配合 b*（客观目标）训练标签，模型可学到"同一体感下按能力给不同客观难度"的等体感映射。
+ *   缺省 / 低置信 θ⃗ → 中性 0.5（行为退化为现状）。
  * 必须与 rl_pytorch/spawn_model/dataset.py `BEHAVIOR_CONTEXT_DIM` 保持一致，
- * 否则 model-v3 推理时前端拼接维度与后端 `board_proj.in_features`（64+66=130）不符。 */
-export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 66;
+ * 否则 model-v3 推理时前端拼接维度与后端 `board_proj.in_features`（64+72=136）不符。 */
+export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 72;
+/* §4.17：θ⃗ 6 维顺序（必须与 spawnStepDifficulty.DIFFICULTY_VECTOR_DIMS / dataset.py _LATENT_THETA_KEYS 一致）。 */
+export const SPAWN_MODEL_LATENT_THETA_KEYS = ['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff'];
 // 客观几何归一化分母（须与 rl_pytorch/spawn_model/dataset.py 与 game_rules.json actionNorm 一致）。
 const _GEO_REGIONS_MAX = 16;
 const _GEO_CONCAVE_MAX = 32;
@@ -262,6 +268,30 @@ function _spatialPlanningTail(grid, a) {
     ];
 }
 
+/* §4.17/§2.10：θ⃗ 6 维尾段（train/serve 同源）。
+ *
+ * 关键：必须使用「置信门控后」的标定向量（profile.getLatentCalibration() 低置信返回 null），
+ * 而非 snapshot 的原始 μ——因为落库的 ps.adaptive.relativity.latentCalibration 同样是门控值
+ * （低置信 → null → 离线 0.5）。若运行时用未门控 μ、离线用门控值，会造成低置信期的训练/推理
+ * 特征错位。故顺序：getLatentCalibration()（运行时门控）→ adaptiveInsight.relativity.latentCalibration
+ * （回放/离线同源）→ 中性 0.5。 */
+function _latentThetaTail(profile, a) {
+    let mu = null;
+    try {
+        const cal = profile && typeof profile.getLatentCalibration === 'function'
+            ? profile.getLatentCalibration() : null;
+        if (cal && typeof cal === 'object') mu = cal;
+    } catch { mu = null; }
+    if (!mu) {
+        const cal = a && a.relativity && a.relativity.latentCalibration;
+        if (cal && typeof cal === 'object') mu = cal;
+    }
+    return SPAWN_MODEL_LATENT_THETA_KEYS.map((k) => {
+        const v = mu ? Number(mu[k]) : NaN;
+        return Number.isFinite(v) ? _clamp01(v) : 0.5;
+    });
+}
+
 function _buildBehaviorContext(grid, profile, adaptiveInsight, topology, ability) {
     const base = _buildContext24(grid, profile, adaptiveInsight);
     const metrics = profile.metrics || {};
@@ -320,6 +350,8 @@ function _buildBehaviorContext(grid, profile, adaptiveInsight, topology, ability
         _scaleUnit(topo.concaveCorners ?? a.spawnGeo?.concaveCorners, _GEO_CONCAVE_MAX),
         // [63-65] 空间规划盘面条件（v1.67）：区域熵 / 最大开放区占比 / 小死腔占比，与 RL state 同源（spatialPlanning）。
         ..._spatialPlanningTail(grid, a),
+        // [66-71] §4.17/§2.10 玩家潜在能力 θ⃗（spatial/combo/order/recovery/tempo/clearEff）；缺省/低置信 → 0.5 中性。
+        ..._latentThetaTail(profile, a),
     ].slice(0, SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM);
 }
 

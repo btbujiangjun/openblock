@@ -43,7 +43,7 @@ export const MOVE_SEQUENCE_SCHEMA = 2;
  *      (d) spawn 帧 dock 内逐块 `feat`（形状级特征）+ 帧级 `spawnMeta`（拒绝采样 attempt / rejects）。
  *      全部为新增字段，旧 pv<3 读端按 null / 缺省自然兼容，无需回填。
  */
-export const PLAYER_STATE_SNAPSHOT_VERSION = 4;
+export const PLAYER_STATE_SNAPSHOT_VERSION = 5;
 /**
  * 至少多少次成功落子才写入 SQLite。
  * 注意：内部 frames 仍含 init / spawn / place，用于确定性回放；
@@ -489,6 +489,39 @@ export function buildPlayerStateSnapshot(profile, ctx) {
             spawnTargets: a.spawnTargets && typeof a.spawnTargets === 'object'
                 ? { ...a.spawnTargets } : null
         };
+        /* §4.17/§2.10（pv=5）：难度相对论一帧快照落库——体感目标 d*、客观目标 b*、θ⃗ 标定、
+         * 等体感选块对齐度 + 派生标量（个性化强度 λ / 对齐度 / θ⃗ 置信 / ‖b*−neutral‖）。
+         * 旧 pv<5 无此字段，回放/sparkline 读端按 null 自动跳过；enabled=false/bypass 时多为恒等值。 */
+        if (a.relativity && typeof a.relativity === 'object') {
+            const r = a.relativity;
+            const bStar = r.objectiveTarget && typeof r.objectiveTarget === 'object' ? r.objectiveTarget : null;
+            const chosenVec = r.chosen && r.chosen.chosenVec && typeof r.chosen.chosenVec === 'object' ? r.chosen.chosenVec : null;
+            const _meanAbsDelta = (a2, b2) => {
+                if (!a2 || !b2) return null;
+                const keys = ['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff'];
+                let s = 0; let n = 0;
+                for (const k of keys) {
+                    const x = Number(a2[k]); const y = Number(b2[k]);
+                    if (Number.isFinite(x) && Number.isFinite(y)) { s += Math.abs(x - y); n++; }
+                }
+                return n ? s / n : null;
+            };
+            slim.adaptive.relativity = {
+                enabled: r.enabled === true,
+                bypass: r.bypass ?? null,
+                lambda: Number.isFinite(Number(r.lambda)) ? Number(r.lambda) : 0,
+                dStar: Number.isFinite(Number(r.dStar)) ? Number(r.dStar) : null,
+                objectiveTarget: bStar ? { ...bStar } : null,
+                latentCalibration: r.latentCalibration ? { ...r.latentCalibration } : null,
+                thetaConfidence: r.latent && Number.isFinite(Number(r.latent.confidence)) ? Number(r.latent.confidence) : null,
+                thetaN: r.latent && Number.isFinite(Number(r.latent.n)) ? Number(r.latent.n) : null,
+                chosenAlign: r.chosen && Number.isFinite(Number(r.chosen.chosenAlign)) ? Number(r.chosen.chosenAlign) : null,
+                chosenVec: chosenVec ? { ...chosenVec } : null,
+                candidatesConsidered: r.chosen && Number.isFinite(Number(r.chosen.candidatesConsidered)) ? Number(r.chosen.candidatesConsidered) : null,
+                /* 选中候选客观难度与目标 b* 的平均偏差（越小越贴近等体感目标）。 */
+                targetGap: _meanAbsDelta(chosenVec, bStar)
+            };
+        }
     }
     /* v1.63（pv=3）：逐 spawn 策略来源（provenance）—— 把"由谁、用什么参数产出这一手三块"
      * 显式落库，是做反事实 / 分组对比（规则 vs 模型、不同 θ bundle、灰度臂）的前提。
@@ -1261,6 +1294,46 @@ export const REPLAY_METRICS = [
         fmt: 'pct',
         tooltip:
             '小死腔占比（0~100%）：处于"≤4 格小型空腔"的空格 / 总空格数。这些碎块只能塞单格/小块，是难以利用的死空间。\n📈 看图：升高=盘面被切出大量难用小腔（即使填充率不高也很危险）；与「空洞」口径不同——空洞看绝对个数，本指标看"碎块占整体空间的比例"。SSOT=spatialPlanning.js。'
+    },
+    /* ── §4.17/§2.10 难度相对论分量（pv=5）─────────────────────────────────────────
+     * 把「体感不变 × 客观个性化」标定链的核心标量曲线化，与回放/透视仪共用同组 sparkline。
+     * 默认关 / bypass / 低置信 θ⃗ 时多为恒等值（λ≈0、对齐度≈1、目标偏差≈0），曲线平直即"未个性化"。
+     */
+    {
+        key: 'relativityLambda',
+        label: '相对论λ',
+        group: 'relativity',
+        extract: ps => ps.adaptive?.relativity?.lambda,
+        fmt: 'f2',
+        tooltip:
+            '难度相对论个性化强度 λ（0~1）：体感目标 d*=stress 反解客观目标 b* 时，在「均匀客观（λ=0，≡现状）」与「按 θ⃗ 相对偏移（λ=1）」之间的插值权重。\n📈 看图：恒 0 = 未个性化（默认关 / bypass / 低置信 θ⃗）；> 0 = 同一体感对不同能力玩家给出不同客观难度的题目。S 曲线主线（stress）不受 λ 影响。'
+    },
+    {
+        key: 'relativityAlign',
+        label: '等体感对齐',
+        group: 'relativity',
+        extract: ps => ps.adaptive?.relativity?.chosenAlign,
+        fmt: 'f2',
+        tooltip:
+            '等体感选块对齐度（0~1）：本轮入选三连的客观难度向量 b⃗ 对目标 b* 的贴近度 exp(−w·‖b⃗−b*‖)。越接近 1 表示选出的题目越精确命中"该玩家该体感下应得的客观难度"。\n📈 看图：恒 1 = 未激活对齐（λ=0/bypass）；< 1 且回升 = best-of-K 在硬约束允许范围内尽量贴近 b*。硬约束/救济始终优先于对齐项。'
+    },
+    {
+        key: 'relativityTargetGap',
+        label: '客观偏差',
+        group: 'relativity',
+        extract: ps => ps.adaptive?.relativity?.targetGap,
+        fmt: 'f3',
+        tooltip:
+            '客观难度偏差 ‖b⃗(选中) − b*‖ 平均（6 维考点）：入选三连实际客观难度与个性化目标 b* 的逐维平均差。越小越好。\n📈 看图：与「等体感对齐」反向；持续偏高=候选池受硬约束/盘面限制，难以凑出贴近 b* 的题目（可作为出块供给瓶颈的诊断信号）。'
+    },
+    {
+        key: 'thetaConfidence',
+        label: 'θ⃗置信',
+        group: 'relativity',
+        extract: ps => ps.adaptive?.relativity?.thetaConfidence,
+        fmt: 'pct',
+        tooltip:
+            'θ⃗ 潜在能力标定置信度（0~100%）：玩家 6 维能力后验的样本充分度 1−e^(−n/N0)。低于 minConfidence（默认 45%）时难度相对论退回恒等标定（行为=现状）。\n📈 看图：随对局累积单调上升；跨过阈值后等体感个性化才会真正生效。θ⃗ 只吃行为质量不吃绝对分数，故"耐心刷分新手"与"天才"会分化。'
     }
 ];
 

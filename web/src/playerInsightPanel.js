@@ -21,7 +21,7 @@ import {
 import { openInsightMetricModal } from './insightMetricModal.js';
 /* v1.58 §rewire：SSOT 接入。所有"实时盘面占用率"读取改走 selectors，
  * 避免多处 cache 不同步导致的 v1.57.5 §A 类双显 bug 再次出现。 */
-import { selectLiveBoardFill } from './derivation/selectors.js';
+import { selectLiveBoardFill, relativityViewFromInsight } from './derivation/selectors.js';
 import { getSpawnPolicyMode, SPAWN_MODE_MODEL_V3 } from './spawnModel.js';
 import { renderStressMeter, summarizeContributors } from './stressMeter.js';
 import { UI_ICONS } from './uiIcons.js';
@@ -257,6 +257,12 @@ const METRIC_LAYOUT_GROUPS = [
         title: '⚙️ 系统·压力分量',
         color: '#ec407a',
         desc: 'stress 的细分构成（难度/心流/反应/松紧/救济/会话/挑战），求和约等于 stress。'
+    },
+    {
+        group: 'relativity',
+        title: '🎯 难度相对论',
+        color: '#818cf8',
+        desc: '§4.17/§2.10 体感不变×客观个性化：个性化强度 λ、等体感对齐度、客观难度偏差、θ⃗ 置信。默认关/低置信 θ⃗ 时为恒等值。'
     }
 ];
 
@@ -1293,6 +1299,36 @@ function _buildWhyLines(insight, profile) {
     if (insight.abilityVector) {
         for (const line of insight.abilityVector.explain || []) {
             lines.push(`能力模型：${line}。`);
+        }
+    }
+    /* §4.17/§2.10 难度相对论：体感不变 × 客观个性化。在面板用玩家可读文字解释 θ⃗ 标定与
+     * 客观目标 b*——同一体感 d* 因能力 θ⃗ 不同被翻译成不同客观难度的题目。 */
+    {
+        const rel = relativityViewFromInsight(insight);
+        if (rel && rel.enabled) {
+            if (rel.active) {
+                const conf = rel.thetaConfidence != null ? _pct(rel.thetaConfidence) : '—';
+                const align = rel.chosenAlign != null ? rel.chosenAlign.toFixed(2) : '—';
+                const lam = (rel.lambda ?? 0).toFixed(2);
+                lines.push(
+                    `难度相对论已生效（θ⃗ 置信 ${conf}，强度 λ=${lam}）：同一体感 d* 按你的 6 维能力 θ⃗ 标定为个性化客观目标 b*，本轮等体感对齐度 ${align}（越接近 1 越贴合）。`
+                );
+                const theta = rel.latentCalibration;
+                if (theta && typeof theta === 'object') {
+                    const dimLabel = { spatial: '空间', combo: '连消', order: '顺序', recovery: '回收', tempo: '节奏', clearEff: '清效' };
+                    const parts = ['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff']
+                        .filter((k) => Number.isFinite(Number(theta[k])))
+                        .map((k) => `${dimLabel[k]} ${_pct(theta[k])}`);
+                    if (parts.length) lines.push(`潜在能力 θ⃗：${parts.join(' · ')}（跨局后验，越高表示该考点越擅长 → 同体感下给更难的客观题）。`);
+                }
+            } else {
+                const why = {
+                    disabled: '功能未开启', rollout: '不在灰度名单', low_conf: 'θ⃗ 置信不足（样本累积中）',
+                    warmup: '热身期', recovery: '救济窗口', near_miss: '近失保护', bottleneck: '瓶颈纾解',
+                    post_pb_release: '破纪录释放窗口', error: '本帧安全退化', no_calibration: '尚无 θ⃗ 标定',
+                }[rel.bypass] || rel.bypass || '恒等标定';
+                lines.push(`难度相对论本帧未个性化（${why}）：客观难度按体感目标恒等给出（行为=现状）。`);
+            }
         }
     }
     /* v1.21：F(t) / flowState / feedbackBias 与 pill / sparkline 同源（live 优先） */

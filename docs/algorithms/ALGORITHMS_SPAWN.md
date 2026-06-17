@@ -1495,11 +1495,31 @@ dock 颜色改为轻偏置随机：盘面存在近满且已同 icon/同色的行
 
 除了启发式规则，还提供基于 Transformer 的生成式模型架构（§9.1 - §9.9）。详见 本手册 §13。
 
-#### 2.10 难度相对论：等体感选块接入点（θ⃗ × b⃗ × b*）（P-research，🔬 研究规划，未落地）
+#### 2.10 难度相对论：等体感选块接入点（θ⃗ × b⃗ × b*）（P-research，✅ 已落地·默认关）
 
-> **本节是算法侧实现清单**，对应策划契约 [`BEST_SCORE_CHASE_STRATEGY.md §4.17`](../player/BEST_SCORE_CHASE_STRATEGY.md)（难度相对论：体感难度不变量 × 客观难度个性化）。**只做规划，不在本次提交改代码**。
+> **本节是算法侧实现清单**，对应策划契约 [`BEST_SCORE_CHASE_STRATEGY.md §4.17`](../player/BEST_SCORE_CHASE_STRATEGY.md)（难度相对论：体感难度不变量 × 客观难度个性化）。
 >
 > **不可动摇前提**：**S 形 stress 曲线仍是调控主线**，§2.3 五阶段流水线结构不变。本方案只在「体感目标 → 客观题目」之间插一层按玩家能力的标定，**不改 stress 计算链、不改硬约束、不改纪录线**。
+
+> **🟢 落地状态（v-research P0~P4 + 激活链已实现，`adaptiveSpawn.difficultyRelativity.enabled` 默认 `false` ⇒ 行为=现状）**
+>
+> | 模块 | 文件 | 职责 |
+> |---|---|---|
+> | θ⃗ 贝叶斯标定器 | `web/src/playerLatentAbility.js` | 6 维潜在能力后验（μ/σ）+ 置信度 + 序列化；只吃行为质量不吃分数 |
+> | b⃗ 投影 | `web/src/spawnStepDifficulty.js`（`projectDifficultyVector` / `difficultyVec`）| 把 6 项 terms 确定性投影成 6 维考点向量；标量分与 5 档桶口径不变 |
+> | b* 反解 + 对齐乘子 | `web/src/difficultyRelativity.js`（`solveObjectiveTarget` / `alignmentMultiplier`）| λ=0 恒等于 stress；12 路 bypass；弱项加权对齐 |
+> | 影子反解 | `web/src/adaptiveSpawn.js`（`resolveAdaptiveStrategy`）| finalStress 确定后追加 `_objectiveTarget`/`_relativityBypass`/`relativityDStar`，不回写 stress |
+> | 等体感选块 | `web/src/bot/blockSpawn.js`（`generateDockShapes`）| 硬过滤通过后 best-of-K 缓冲，按 `alignmentMultiplier(difficultyVec, b*)` 选最贴近者，`diagnostics.relativity` 落字段 |
+> | 激活链 | `web/src/playerProfile.js` + `web/src/game.js` | θ⃗ 跨局持久化（`recordSessionEnd` 更新 / `toJSON·fromJSON`）+ spawnContext 注入 `latentCalibration` |
+> | 配置 | `shared/game_rules.json`（`adaptiveSpawn.difficultyRelativity` + `spawnStepDifficulty.vectorWeights`）| `enabled/rolloutPercent/personalizationStrength/deltaCurriculumK/noiseAmp/minConfidence/candidateK/dimWeights/weaknessBoost/latentAbility` |
+>
+> **验证清单（已通过）**：
+> - 单元：`tests/playerLatentAbility.test.js`(8)、`tests/difficultyRelativity.test.js`(10)、`tests/spawnStepDifficulty.test.js`(18，含 difficultyVec)、`tests/difficultyRelativityShadow.test.js`(4)、`tests/difficultyRelativitySpawn.test.js`(4)、`tests/playerProfileLatent.test.js`(4)。
+> - 退化保证：λ=0 → b* 各维=stress；`enabled=false`/低置信 θ⃗/救济·濒死·瓶颈·破纪录释放·warmup → bypass，`b*=null`，`generateDockShapes` 无 `diagnostics.relativity`，finalStress 开/关逐位一致。
+> - 全量回归：`npx vitest run` 182 文件 / 3158 通过；`tests/test_spawn_step_difficulty.py`·`test_spawn_construction.py`(35) 通过（标量跨语言不变）。
+> - 跨端同源：`npm run sync:core` + `npm run verify:cocos-core` 通过（新模块已加入 `scripts/sync-core.sh` 与 `scripts/sync-cocos-engine.mjs` 名单）。
+>
+> **未落地（增强/观测，后续切片）**：阶段5 构造算子 target-aware + `applySpawnPrior` 结构偏置；阶段6a 玩家面板 θ⃗ 展示；6c 决策数据流派生；6d 出块信号透视仪；6e RL state / `bot/features.js` / 训练样本落 b⃗。
 
 **一句话接入**：S 曲线产出目标体感 `d* = stress`（不变）→ 按能力 θ⃗ 反解客观目标 `b* = θ⃗ ⊕ d* (+Δ⃗ 课程, +噪声)` → **阶段 1/3 候选评分新增对齐项 `−w·‖difficultyVec(候选) − b*‖`**（弱项维加大 w）→ 阶段 4 硬约束照旧兜底。同一 `d*` 对资深落到客观更难、对新手落到客观更易的题目（详见 §4.17 公式 `d_perceived≈b⊖θ`）。
 

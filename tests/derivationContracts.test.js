@@ -689,20 +689,21 @@ describe('v1.58 §4 presentationReducer: 端到端流水线', () => {
         expect(model.intent.overrides.size).toBe(0);
     });
 
-    it('CHIP_DEFS 数量 (v1.60+: 14 项 = 12 旧 + 2 追加 pbChase / delightStarved)', () => {
+    it('CHIP_DEFS 数量 (v1.60+: 15 项 = 12 旧 + pbChase / delightStarved + §4.17 relativity)', () => {
         /* CHIP 来源（与 web/src/derivation/presentationReducer.js → CHIP_DEFS 同源）：
          *   - forceRelief 决策类（1）：forceRelief
          *   - forceRelief 上游触发器（2）：lateCollapse / frustCritical
          *   - 信号诊断 chip · v1.58.3（4）：endSessionStress / lifecycleLateAccel / playerDistressFloor / delightModeRelief
          *   - pos / neutral 历史（5）：onboarding / milestone / afkEngage / winback / personalization
          *   - v1.60+ 追加（2）：pbChase（PB 追击压力可视化）、delightStarved（连续 N 轮无 multiClear/pcClear/monoFlush）
-         * 合计 14。任何新增/删除 chip 必须同步本测试 + DFV chip 渲染。 */
-        expect(CHIP_DEFS.length).toBe(14);
+         *   - §4.17/§2.10 追加（1）：relativity（难度相对论：体感不变×客观个性化激活态）
+         * 合计 15。任何新增/删除 chip 必须同步本测试 + DFV chip 渲染。 */
+        expect(CHIP_DEFS.length).toBe(15);
         const ids = CHIP_DEFS.map((c) => c.id);
         for (const id of ['forceRelief', 'lateCollapse', 'frustCritical', 'onboarding',
             'milestone', 'afkEngage', 'winback', 'personalization',
             'endSessionStress', 'lifecycleLateAccel', 'playerDistressFloor', 'delightModeRelief',
-            'pbChase', 'delightStarved']) {
+            'pbChase', 'delightStarved', 'relativity']) {
             expect(ids).toContain(id);
         }
     });

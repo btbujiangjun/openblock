@@ -36,6 +36,13 @@ export const DEFAULT_THRESHOLDS = {
     coverageHintsDowngrade: true, // v1.62.9：单 metric coverage 失败 → warn（数据问题），保留 1 条 error 由 INSUFFICIENT_DATA 兜底
 };
 
+/* §4.17/§2.10：「按条件产出」的 metric 组——这些指标只在难度相对论"激活态"
+ * （高 θ⃗ 置信的成熟玩家 + 无 bypass）才有非恒等采样；新手/短局/合成健康局里它们
+ * 缺省或恒等（λ≈0、对齐≈1、偏差≈0、置信未达标）是设计预期而非缺陷，故 0% 覆盖率
+ * 不应触发 COVERAGE_TOO_LOW/LOW 扣分（否则健康局会被误判扣穿）。其余维度（OUT_OF_RANGE
+ * / 噪声 / 契约）仍照常审计。 */
+export const COVERAGE_EXEMPT_GROUPS = new Set(['relativity']);
+
 /**
  * @param {object} audit  profileAudit() 输出
  * @param {{ thresholds?: typeof DEFAULT_THRESHOLDS }} [opts]
@@ -84,8 +91,10 @@ export function buildHints(audit, opts = {}) {
 
     /* ===== A. 单指标质量 ===== */
     for (const [key, m] of Object.entries(audit.metrics || {})) {
+        /* §4.17/§2.10：难度相对论组指标按条件产出，0% 覆盖率属设计预期 → 跳过覆盖率扣分。 */
+        const coverageExempt = COVERAGE_EXEMPT_GROUPS.has(m.group);
         // 覆盖率
-        if (m.coverage != null && !skipPerMetricCoverage && coverageHintsEmitted < T.coverageHintCap) {
+        if (m.coverage != null && !coverageExempt && !skipPerMetricCoverage && coverageHintsEmitted < T.coverageHintCap) {
             /* v1.62.9：coverageHintsDowngrade=true 时把单 metric COVERAGE_TOO_LOW 降到 warn。
              * 理由：单个 metric coverage 低通常是"该 metric 累积窗口未满"或"该 PS 字段冷启动"，
              *      属于数据问题而非业务逻辑 bug；error 应当留给 OUT_OF_RANGE / CONTRACT_VIOLATION。

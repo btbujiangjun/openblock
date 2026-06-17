@@ -55,8 +55,21 @@ export const DEFAULT_STEP_DIFFICULTY_CONFIG = Object.freeze({
         solution: 0.13,
         killer: 0.13,
         fragmentation: 0.12
+    },
+    /* §2.10 难度相对论：terms → 6 维考点向量 difficultyVec(b⃗) 的确定性投影矩阵。
+     * 每个 b 维 = clamp01(Σ coef·term)（每维系数和≈1）。combo/tempo/clearEff 暂为现有 terms 的粗代理。 */
+    vectorWeights: {
+        spatial: { scd: 0.6, fragmentation: 0.4 },
+        combo: { killer: 0.5, scd: 0.3, board: 0.2 },
+        order: { solution: 0.6, flexibility: 0.4 },
+        recovery: { board: 0.7, killer: 0.3 },
+        tempo: { scd: 0.4, board: 0.3, flexibility: 0.3 },
+        clearEff: { solution: 0.5, flexibility: 0.3, fragmentation: 0.2 }
     }
 });
+
+/** 考点向量维度顺序（SSOT，跨端/跨语言一致）。 */
+export const DIFFICULTY_VECTOR_DIMS = ['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff'];
 
 const clamp01 = (x) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
 
@@ -65,8 +78,37 @@ function mergeConfig(cfg) {
     return {
         ...DEFAULT_STEP_DIFFICULTY_CONFIG,
         ...cfg,
-        weights: { ...DEFAULT_STEP_DIFFICULTY_CONFIG.weights, ...(cfg.weights || {}) }
+        weights: { ...DEFAULT_STEP_DIFFICULTY_CONFIG.weights, ...(cfg.weights || {}) },
+        vectorWeights: { ...DEFAULT_STEP_DIFFICULTY_CONFIG.vectorWeights, ...(cfg.vectorWeights || {}) }
     };
+}
+
+/**
+ * §2.10：把 6 项 terms（scd/board/flexibility/solution/killer/fragmentation，均 0~1）
+ * 确定性投影为 6 维考点向量 difficultyVec(b⃗)。纯函数、无副作用、跨端一致。
+ * @param {Record<string,number>} terms
+ * @param {object} [cfg]
+ * @returns {Record<string,number>} { spatial, combo, order, recovery, tempo, clearEff } ∈ [0,1]
+ */
+export function projectDifficultyVector(terms, cfg) {
+    const c = mergeConfig(cfg);
+    const vw = c.vectorWeights || {};
+    const t = terms || {};
+    const out = {};
+    for (let i = 0; i < DIFFICULTY_VECTOR_DIMS.length; i++) {
+        const dim = DIFFICULTY_VECTOR_DIMS[i];
+        const coef = vw[dim] || {};
+        let sum = 0;
+        let wsum = 0;
+        for (const term in coef) {
+            const w = Number(coef[term]) || 0;
+            const v = clamp01(Number(t[term]) || 0);
+            sum += w * v;
+            wsum += w;
+        }
+        out[dim] = clamp01(wsum > 0 ? sum / wsum : 0);
+    }
+    return out;
 }
 
 /** @param {number[][]} data 形状矩阵（1=占用） @returns {number} 占用格数 */
@@ -333,10 +375,20 @@ export function computeSpawnStepDifficulty(input = {}, cfg) {
         + (fragmentationTerm != null ? wFragActive * fragmentationTerm : 0)
     ) / wSum) : 0;
 
+    const terms = {
+        scd: scdNorm,
+        board: boardTerm,
+        flexibility: flexTerm,
+        solution: solutionTerm,
+        killer: killerTerm,
+        fragmentation: fragmentationTerm != null ? fragmentationTerm : 0
+    };
+
     return {
         version: SPAWN_STEP_DIFFICULTY_VERSION,
         stepDifficulty,
         bucket: difficultyBucket(stepDifficulty),
+        difficultyVec: projectDifficultyVector(terms, c),
         scdScore: scd,
         scdLevel: scdLevel(scd, c),
         comboTotalCells: cls.comboTotalCells,
@@ -347,13 +399,6 @@ export function computeSpawnStepDifficulty(input = {}, cfg) {
         boardDifficulty: Number.isFinite(boardDifficulty) ? boardDifficulty : null,
         solutionCount,
         fragmentation: fragmentationTerm,
-        terms: {
-            scd: scdNorm,
-            board: boardTerm,
-            flexibility: flexTerm,
-            solution: solutionTerm,
-            killer: killerTerm,
-            fragmentation: fragmentationTerm != null ? fragmentationTerm : 0
-        }
+        terms
     };
 }

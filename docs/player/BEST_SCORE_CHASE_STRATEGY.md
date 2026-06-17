@@ -788,9 +788,9 @@ PEOG bypass 12 路任一触发（详见 §4.16）时本节 floor 自动恢复完
 
 **单测**：`tests/peog.test.js` 45 条覆盖 12 路 bypass + 升级单向性 + yield 估算（5 种算子）+ cap min/floor max + warm target 映射 + guaranteedDelights override + 跨端镜像同源（mini）；`tests/warmRun.test.js` 30 条无回归；`tests/adaptiveSpawn.test.js` 90 条无回归。
 
-### 4.17 难度相对论：体感难度不变量 × 客观难度个性化（S 曲线主线下的 θ⃗ × b⃗ × EDPCG）（P-research，🔬 研究规划，未落地）
+### 4.17 难度相对论：体感难度不变量 × 客观难度个性化（S 曲线主线下的 θ⃗ × b⃗ × EDPCG）（P-research，✅ 已落地·默认关）
 
-> **状态**：研究规划，**本节只做规划，不在本次提交修改代码**。这是一个**架构级演进**而非单点修补，落地需分阶段灰度（见末尾路线）。本节是**策划契约**；**算法侧实现清单（接入点 × 文件 × 函数 × MVP 切片）见 [`ALGORITHMS_SPAWN.md §2.10`](../algorithms/ALGORITHMS_SPAWN.md)**。另在 [`ALGORITHMS_PLAYER_MODEL.md §16.2`](../algorithms/ALGORITHMS_PLAYER_MODEL.md) 与 [`DOMAIN_KNOWLEDGE.md §13`](../domain/DOMAIN_KNOWLEDGE.md) 留有交叉引用。
+> **状态**：核心闭环（θ⃗ 标定器 → b⃗ 投影 → b* 反解 → 等体感选块 → 跨局持久化激活链）**已实现并通过单元 + 全量回归 + 跨端同源校验**，由 `adaptiveSpawn.difficultyRelativity.enabled`（默认 `false`）+ `rolloutPercent` 灰度控制；默认关时全链路恒等（行为=现状）。本节是**策划契约**；**算法侧实现清单 + 落地状态表 + 验证清单见 [`ALGORITHMS_SPAWN.md §2.10`](../algorithms/ALGORITHMS_SPAWN.md)**。另在 [`ALGORITHMS_PLAYER_MODEL.md §16.2`](../algorithms/ALGORITHMS_PLAYER_MODEL.md) 与 [`DOMAIN_KNOWLEDGE.md §13`](../domain/DOMAIN_KNOWLEDGE.md) 留有交叉引用。增强/观测切片（构造算子 target-aware、面板 θ⃗ 展示、透视仪、RL state 落 b⃗）仍待后续。
 >
 > **核心设定（不可动摇的前提）**：**难度 + S 形 stress 曲线仍是游戏调控主线**。本方案不替换、不旁路 S 曲线；它精确化 S 曲线控制的语义为「**目标体感难度**」，并在「体感 → 客观题目」之间插入一层**按玩家能力个性化的标定**——因为「难」是相对能力的主观量。
 

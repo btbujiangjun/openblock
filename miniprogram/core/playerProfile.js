@@ -33,6 +33,16 @@
 
 const { GAME_RULES } = require('./gameRules');
 let _softDeps_platformProfile = {}; try { _softDeps_platformProfile = require('./config/platformProfile'); } catch (_e) { /* miniprogram 不分发 config/ 子目录，软依赖回退空骨架 */ } const { isAndroidLike } = _softDeps_platformProfile;
+/* §4.17/§2.10 难度相对论：θ⃗ 潜在能力标定器（跨局贝叶斯后验 + 持久化）。 */
+const {
+    createLatentState,
+    updateLatentState,
+    mapAbilityToObservation,
+    getCalibrationVector,
+    snapshotLatent,
+    serializeLatent,
+    deserializeLatent
+} = require('./playerLatentAbility');
 
 const STORAGE_KEY = 'openblock_player_profile';
 const SKILL_DECAY_HOURS = 24;
@@ -535,6 +545,61 @@ class PlayerProfile {
             this._modeCount.endless = (this._modeCount.endless ?? 0) + 1;
         }
         this._lastSessionEndTs = summary.ts;
+
+        /* §4.17/§2.10 θ⃗ 标定器更新：优先用调用方传入的 AbilityVector，否则用会话级粗代理。
+         * θ⃗ 只吃行为质量/盘面应对（不吃绝对分数），随会话累积置信度。fail-open。 */
+        try {
+            const av = gameStats.abilityVector || {
+                skillScore: this._smoothSkill,
+                controlScore: _clamp01(1 - (summary.misses / Math.max(1, summary.placements))),
+                clearEfficiency: _clamp01(summary.multiClearRate ?? summary.clearRate),
+                boardPlanning: _clamp01(this._smoothSkill * 0.6 + (summary.clearRate || 0) * 0.4),
+                riskLevel: _clamp01(summary.misses / Math.max(1, summary.placements))
+            };
+            this.updateLatentAbilityFromVector(av);
+        } catch { /* fail-open */ }
+    }
+
+    /* ================================================================== */
+    /*  §4.17/§2.10 难度相对论：θ⃗ 潜在能力标定器                            */
+    /* ================================================================== */
+
+    /** @private */
+    _difficultyRelativityCfg() {
+        return GAME_RULES.adaptiveSpawn?.difficultyRelativity || null;
+    }
+
+    /**
+     * 用一次 AbilityVector 观测更新 θ⃗ 后验（贝叶斯 1-D Kalman）。
+     * @param {object} abilityVector buildPlayerAbilityVector 输出（或粗代理）
+     * @returns {object} 更新后的 θ⃗ state
+     */
+    updateLatentAbilityFromVector(abilityVector) {
+        const cfg = this._difficultyRelativityCfg();
+        try {
+            const obs = mapAbilityToObservation(abilityVector);
+            this._latentAbility = updateLatentState(this._latentAbility || createLatentState(cfg), obs, cfg);
+        } catch { /* fail-open，保持旧 state */ }
+        return this._latentAbility;
+    }
+
+    /**
+     * 返回 θ⃗ 标定向量 { dim: μ }；置信度不足时返回 null（上游退回恒等标定，行为=现状）。
+     * 供 game.js 注入 spawnContext.latentCalibration。
+     * @returns {Record<string,number>|null}
+     */
+    getLatentCalibration() {
+        if (!this._latentAbility) return null;
+        try {
+            return getCalibrationVector(this._latentAbility, this._difficultyRelativityCfg());
+        } catch { return null; }
+    }
+
+    /** θ⃗ 完整快照（面板 / 回放 / 诊断）：{ n, confidence, mu, sigma }。 */
+    getLatentAbilitySnapshot() {
+        try {
+            return snapshotLatent(this._latentAbility || createLatentState(this._difficultyRelativityCfg()), this._difficultyRelativityCfg());
+        } catch { return null; }
     }
 
     /**
@@ -1313,6 +1378,8 @@ class PlayerProfile {
             modeCount: this._modeCount,
             lastSessionEndTs: this._lastSessionEndTs,
             installTs: this._installTs,
+            /* §4.17/§2.10 θ⃗ 潜在能力后验（跨局保留，难度相对论标定用）。 */
+            latentAbility: this._latentAbility ? serializeLatent(this._latentAbility) : null,
             savedAt: Date.now()
         };
     }
@@ -1375,6 +1442,10 @@ class PlayerProfile {
             p._installTs = p._sessionHistory[0].ts;
         } else if (Number.isFinite(Number(data?.savedAt)) && Number(data.savedAt) > 0) {
             p._installTs = Number(data.savedAt);
+        }
+        /* §4.17/§2.10 θ⃗ 后验回填（缺省 = 未标定，getLatentCalibration→null 恒等退化）。 */
+        if (data?.latentAbility && typeof data.latentAbility === 'object') {
+            try { p._latentAbility = deserializeLatent(data.latentAbility, p._difficultyRelativityCfg()); } catch { /* ignore */ }
         }
         return p;
     }

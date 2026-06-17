@@ -60,6 +60,8 @@ import {
     selectLiveGeometry,
     selectProfileForPresentation,
     selectReducerInputs,
+    selectRelativity,
+    relativityViewFromInsight,
 } from './selectors.js';
 import { resolveIntent, isSignalOverridden, formatIntentTrace } from './intentResolver.js';
 import { selectNarrative, selectEmoji } from './displayContracts.js';
@@ -191,6 +193,19 @@ export const CHIP_DEFS = Object.freeze([
           return `delightStarved=true（连续 ${n} 轮无 multiClear/pcClear/monoFlush）`;
       },
       overrideSignal: null },
+
+    /* §4.17/§2.10 难度相对论：体感 d* 不变、按 θ⃗ 反解个性化客观难度 b* 并等体感选块。
+     * active = 已启用 + 无 bypass + λ>0（θ⃗ 置信达标且未被救济/warmup 等绕过）。 */
+    { id: 'relativity', label: '难度相对论', kind: 'neutral',
+      on: (c) => !!(c.relativity && c.relativity.active),
+      reason: (c) => {
+          const r = c.relativity || {};
+          const lam = Number(r.lambda || 0).toFixed(2);
+          const conf = r.thetaConfidence != null ? (r.thetaConfidence * 100).toFixed(0) + '%' : '—';
+          const al = r.chosenAlign != null ? Number(r.chosenAlign).toFixed(2) : '—';
+          return `难度相对论激活（λ=${lam}，θ⃗置信=${conf}，等体感对齐=${al}）：同一体感 d* 按 θ⃗ 反解个性化客观难度 b*`;
+      },
+      overrideSignal: null },
 ]);
 
 const CHIP_OVERRIDE_TITLE = '信号已激活，但本帧被更高优先级意图覆盖';
@@ -288,6 +303,8 @@ export function reducePresentation(game) {
         emojiTrace: emojiResult.trace,
         chips,
         conflicts,
+        /* §4.17/§2.10：难度相对论展示视图（UI 唯一消费源，DFV/stressMeter/面板只读这里）。 */
+        relativity: ctx.relativity ?? null,
         /* 兼容旧调用方：原始 insight / profile 直通 */
         rawInsight: insight,
         rawProfile: profile,
@@ -448,6 +465,7 @@ export function buildChipCtxFromInsight(insight, profile) {
         scoreMilestoneHit: !!insight.scoreMilestoneHit,
         personalizationApplied: !!insight.personalizationApplied,
         onboarding: !!profile?.isInOnboarding,
+        relativity: relativityViewFromInsight(insight),
     };
 }
 
@@ -466,6 +484,7 @@ function emptyModel() {
         emojiTrace: [],
         chips: CHIP_DEFS.map((d) => ({ id: d.id, label: d.label, kind: d.kind, on: false, overridden: false, reason: null, title: null })),
         conflicts: [],
+        relativity: null,
         rawInsight: null,
         rawProfile: null,
         rawCtx: null,
@@ -484,6 +503,8 @@ export {
     selectInsightWithLiveGeometry,
     selectReducerInputs,
     selectProfileForPresentation,
+    selectRelativity,
+    relativityViewFromInsight,
     resolveIntent,
     formatIntentTrace,
     isSignalOverridden,

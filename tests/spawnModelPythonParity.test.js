@@ -18,6 +18,7 @@ import {
     SPAWN_INTENT_VOCAB,
     SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM,
     SPAWN_MODEL_CONTEXT_DIM,
+    SPAWN_MODEL_LATENT_THETA_KEYS,
     SPAWN_PB_THETA_RANGES,
 } from '../web/src/spawnModel.js';
 
@@ -71,10 +72,16 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
         });
     });
 
-    it('behaviorContext 维度与 dataset.py BEHAVIOR_CONTEXT_DIM 一致（66）', () => {
+    it('behaviorContext 维度与 dataset.py BEHAVIOR_CONTEXT_DIM 一致（72）', () => {
         const pyDim = pyInt('BEHAVIOR_CONTEXT_DIM');
-        expect(pyDim).toBe(66);
+        expect(pyDim).toBe(72);
         expect(SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM).toBe(pyDim);
+    });
+
+    it('θ⃗ 6 维顺序与 dataset.py _LATENT_THETA_KEYS 逐项一致', () => {
+        const pyKeys = pyStrList('_LATENT_THETA_KEYS');
+        expect(pyKeys).toEqual(['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff']);
+        expect(SPAWN_MODEL_LATENT_THETA_KEYS).toEqual(pyKeys);
     });
 
     it('PB θ 归一化区间与 dataset.py _PB_THETA_RANGES 逐项一致', () => {
@@ -106,7 +113,7 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
         expect(SHAPE_VOCAB).toEqual(pyShapes);
     });
 
-    it('实际构造的 behaviorContext 长度恰为 66，sprint one-hot 落在 idx 54，θ 落在 [57..60]，空间规划 [63..65]', () => {
+    it('实际构造的 behaviorContext 长度恰为 72，sprint one-hot 落在 idx 54，θ 落在 [57..60]，空间规划 [63..65]，θ⃗ 落在 [66..71]', () => {
         const grid = new Grid(8);
         const ctx = buildSpawnModelContext(grid, { metrics: {}, skillLevel: 0.5 }, {
             stress: 0.5,
@@ -120,7 +127,7 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
                 },
             },
         });
-        expect(ctx.behaviorContext).toHaveLength(66);
+        expect(ctx.behaviorContext).toHaveLength(72);
         // [48..54] 为 7 维 intent one-hot；sprint=idx6 → 绝对位置 48+6=54。
         const oneHot = ctx.behaviorContext.slice(48, 55);
         expect(oneHot.reduce((a, b) => a + b, 0)).toBe(1);
@@ -130,6 +137,21 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
         expect(ctx.behaviorContext.slice(57, 61)).toEqual([1, 1, 1, 1]);
         // [63..65] 空间规划：空盘 → [regionEntropy=0, largestRegionRatio=1, smallRegionCellRatio=0]。
         expect(ctx.behaviorContext.slice(63, 66)).toEqual([0, 1, 0]);
+        // [66..71] θ⃗：无 latentCalibration → 中性 0.5 × 6。
+        expect(ctx.behaviorContext.slice(66, 72)).toEqual([0.5, 0.5, 0.5, 0.5, 0.5, 0.5]);
+    });
+
+    it('提供 latentCalibration（θ⃗ μ）时 [66..71] 反映能力坐标', () => {
+        const grid = new Grid(8);
+        const ctx = buildSpawnModelContext(grid, { metrics: {}, skillLevel: 0.5 }, {
+            stress: 0.5, fillRatio: 0.1, spawnHints: {},
+            relativity: {
+                latentCalibration: {
+                    spatial: 0.8, combo: 0.2, order: 0.9, recovery: 0.1, tempo: 0.6, clearEff: 0.4,
+                },
+            },
+        });
+        expect(ctx.behaviorContext.slice(66, 72)).toEqual([0.8, 0.2, 0.9, 0.1, 0.6, 0.4]);
     });
 
     it('缺省 θ（无 pbCurveParams）→ θ 尾段为默认域归一化、非 0', () => {

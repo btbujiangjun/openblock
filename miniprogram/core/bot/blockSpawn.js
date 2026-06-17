@@ -37,6 +37,7 @@ const { getAllShapes, getShapeCategory, pickShapeByCategoryWeights, isSpecialSha
 const { GAME_RULES } = require('../gameRules');
 const { analyzeBoardTopology, detectNearClears } = require('../boardTopology');
 const { computeSpawnStepDifficulty } = require('../spawnStepDifficulty');
+const { alignmentMultiplier } = require('../difficultyRelativity');
 const { spatialPlanningFeatures, computeSpatialPlanning } = require('../spatialPlanning');
 const { findCompleterShapes, findSetupShapes, isClearTargetValid, findMultiClearCompleter, findLargeBlockCompleter } = require('./constructiveSpawn');
 const { applyPeogYieldCap } = require('../spawn/peog');
@@ -3060,6 +3061,37 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         return ids[0] + ',' + ids[1] + ',' + ids[2];
     };
 
+    /* ---------- §4.17/§2.10 难度相对论：等体感选块（best-of-K 对齐 b*） ----------
+     * 不可动摇前提：S 形 stress 曲线仍是调控主线；硬约束/救济/PEOG 全部先行（上方 continue 链）。
+     * 仅当 relativity 开启 + 反解出 b*（_objectiveTarget）+ 未 bypass 时，在「已通过全部硬过滤」
+     * 的合格候选里，按候选客观难度 difficultyVec(b⃗) 对 b* 的对齐度收集 best-of-K，再走原定稿流程。
+     * grid 只读 → fill/topo/occupied/scored 全程不变，故跨 attempt 缓冲合格候选是安全的。 */
+    const _relCfg = GAME_RULES?.adaptiveSpawn?.difficultyRelativity || null;
+    const _bStar = strategyConfig._objectiveTarget || null;
+    const _relBypass = strategyConfig._relativityBypass;
+    const _relCalib = strategyConfig._latentCalibration || null;
+    const _relLambda = Number(strategyConfig._relativityLambda) || 0;
+    const _alignActive = !!(_relCfg && _relCfg.enabled === true && _bStar && _relBypass == null);
+    const _alignK = Math.max(1, Math.min(8, Number(_relCfg && _relCfg.candidateK) || 4));
+    const _alignBuf = [];
+    const _alignBoardDifficulty = Math.max(0, Math.min(1, fill + Math.max(0, Math.min(1, (topo.holes ?? 0) / 8)) * 0.8));
+    const _alignSpatialFeatures = _alignActive ? spatialPlanningFeatures(grid) : null;
+    const _candidateVec = (tri, sol) => {
+        try {
+            const sd = computeSpawnStepDifficulty({
+                shapes: tri,
+                occupiedCount: occupied,
+                boardDifficulty: _alignBoardDifficulty,
+                solutionMetrics: sol,
+                spatialFeatures: _alignSpatialFeatures,
+                countLegal: (data) => countLegalPlacements(grid, data),
+                categoryOf: (shape) => getShapeCategory(shape?.id)
+            }, stepDiffCfg);
+            return sd && sd.difficultyVec ? sd.difficultyVec : null;
+        } catch { return null; }
+    };
+    const _pickBestAligned = (buf) => buf.reduce((a, b) => (b.align > a.align ? b : a), buf[0]);
+
     for (let attempt = 0; attempt < MAX_SPAWN_ATTEMPTS; attempt++) {
         const blocks = [];
         const usedIds = {};
@@ -3742,6 +3774,25 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             }
         }
 
+        /* §4.17/§2.10 等体感对齐：本候选已通过全部硬过滤（解空间/顺序刚性/机动性等）。
+         * 收集合格候选的 difficultyVec(b⃗) 与对 b* 的对齐度；凑满 K 个（或末轮）再挑最贴近的定稿。
+         * 任何环节出错或 buf 为空 → 退回当前候选，行为=现状。 */
+        if (_alignActive) {
+            const _vec = _candidateVec(triplet, solutionMetrics);
+            const _al = _vec ? alignmentMultiplier(_vec, _bStar, _relCfg, _relCalib) : 0;
+            _alignBuf.push({ tri: triplet.slice(0, 3), meta: chosenMeta.slice(0, 3), sol: solutionMetrics, vec: _vec, align: _al });
+            if (_alignBuf.length < _alignK && attempt < MAX_SPAWN_ATTEMPTS - 1) continue;
+            const _best = _pickBestAligned(_alignBuf);
+            for (let _i = 0; _i < 3; _i++) { triplet[_i] = _best.tri[_i]; chosenMeta[_i] = _best.meta[_i]; }
+            solutionMetrics = _best.sol;
+            diagnostics.relativity = {
+                applied: true, bypass: null, lambda: _relLambda,
+                bStar: _bStar, chosenVec: _best.vec, chosenAlign: _best.align,
+                candidatesConsidered: _alignBuf.length,
+                dStar: strategyConfig._stressBreakdown?.relativityDStar ?? null
+            };
+        }
+
         /* v1.32+v1.60.0/v1.60.1：校验通过后，根据盘面几何注入特殊形状（已含 post-validate） */
         let specialInjected = false;
         {
@@ -3909,6 +3960,32 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         }
 
         return triplet;
+    }
+
+    /* §4.17/§2.10 等体感对齐兜底：循环结束（末轮被硬过滤）但缓冲已有合格候选时，
+     * 取最贴近 b* 者，洗牌后直接定稿（跳过 special/dup 注入这类可选风味），保证缓冲必被消费。 */
+    if (_alignActive && _alignBuf.length > 0) {
+        const _best = _pickBestAligned(_alignBuf);
+        const _tri = _best.tri.slice(0, 3);
+        const _meta = _best.meta.slice(0, 3);
+        fisherYatesInPlace(_tri, ctx?.rng, (i, j) => {
+            const t = _meta[i]; _meta[i] = _meta[j]; _meta[j] = t;
+        });
+        diagnostics.attempt = MAX_SPAWN_ATTEMPTS;
+        diagnostics.relativity = {
+            applied: true, bypass: null, lambda: _relLambda, drained: true,
+            bStar: _bStar, chosenVec: _best.vec, chosenAlign: _best.align,
+            candidatesConsidered: _alignBuf.length,
+            dStar: strategyConfig._stressBreakdown?.relativityDStar ?? null
+        };
+        diagnostics.chosen = _meta.map(m => ({
+            id: m.shape.id, category: getShapeCategory(m.shape.id),
+            reason: m.reason, topDriver: m.topDriver || { key: 'balanced', label: '综合均衡' },
+            pcPotential: m.pcPotential ?? 0, multiClear: m.multiClear ?? 0, gapFills: m.gapFills ?? 0,
+            exactFit: m.exactFit ?? 0, monoFlush: m.monoFlush ?? 0, placements: m.placements ?? 0,
+        }));
+        _lastDiagnostics = diagnostics;
+        return _tri;
     }
 
     /* 兜底 */

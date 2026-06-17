@@ -60,6 +60,8 @@ FILES=(
   "adaptiveSpawn.js"
   "playerProfile.js"
   "spawnStepDifficulty.js"
+  "difficultyRelativity.js"
+  "playerLatentAbility.js"
   "bot/constructiveSpawn.js"
   "bot/blockSpawn.js"
   "spawn/commitSpawnContext.js"

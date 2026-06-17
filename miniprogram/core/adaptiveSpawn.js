@@ -46,7 +46,7 @@ const {
 const { buildPlayerAbilityVector } = require('./playerAbilityModel');
 const { analyzeBoardTopology } = require('./boardTopology');
 const { getAllShapes } = require('./shapes');
-const { analyzePerfectClearSetup } = require('./bot/blockSpawn');
+const { analyzePerfectClearSetup, computeCandidatePlacementMetric } = require('./bot/blockSpawn');
 let _softDeps_playerLifecycleDashboard = {}; try { _softDeps_playerLifecycleDashboard = require('./retention/playerLifecycleDashboard'); } catch (_e) { /* miniprogram 不分发 retention/ 子目录，软依赖回退空骨架 */ } const { getLifecycleMaturitySnapshot } = _softDeps_playerLifecycleDashboard;
 let _softDeps_lifecycleSignals = {}; try { _softDeps_lifecycleSignals = require('./lifecycle/lifecycleSignals'); } catch (_e) { /* miniprogram 不分发 lifecycle/ 子目录，软依赖回退空骨架 */ } const { getCachedLifecycleSnapshot } = _softDeps_lifecycleSignals;
 /* v1.48：winback 保护包接入；通过 lifecycleOrchestrator 包装层避免直接依赖
@@ -61,6 +61,8 @@ let _softDeps_math = {}; try { _softDeps_math = require('./lib/math'); } catch (
  * 该模块内的 normalizeStress 与本文件同源（B-Clean v1.55.17），由 tests/warmRun.test.js 锁定。 */
 let _softDeps_warmRun = {}; try { _softDeps_warmRun = require('./spawn/warmRun'); } catch (_e) { /* miniprogram 不分发 spawn/ 子目录，软依赖回退空骨架 */ } const { applyWarmRun } = _softDeps_warmRun;
 let _softDeps_peog = {}; try { _softDeps_peog = require('./spawn/peog'); } catch (_e) { /* miniprogram 不分发 spawn/ 子目录，软依赖回退空骨架 */ } const { applyPeogSpawnHintsCap } = _softDeps_peog;
+/* §4.17/§2.10 难度相对论：体感→客观目标 b* 反解（影子，不改 stress 主线）。 */
+const { solveObjectiveTarget } = require('./difficultyRelativity');
 
 /* ------------------------------------------------------------------ */
 /*  v1.17：harvest / payoff 触发的最低占用率门槛
@@ -251,6 +253,14 @@ function _mergeLiveGeometrySignals(ctx) {
     if (Number.isFinite(topo?.nearFullLines)) {
         next = { ...next, nearFullLines: topo.nearFullLines };
     }
+    /* 回灌 holes / close1 / close2：复用上面这份 topo（零额外算力）。
+     * 历史缺陷修复 —— spawnContext 从未注入这三个几何字段，导致下游
+     * buildPlayerAbilityVector 的 boardPlanning(holePenalty / nearClear) 与
+     * riskLevel(holes 项) 恒读到 0，holeReliefAdjust / deriveBoardDifficulty /
+     * deriveFriendlyBoardRelief(`holes>0` 守卫) 也随之失真。 */
+    if (Number.isFinite(topo?.holes)) next = { ...next, holes: topo.holes };
+    if (Number.isFinite(topo?.close1)) next = { ...next, close1: topo.close1 };
+    if (Number.isFinite(topo?.close2)) next = { ...next, close2: topo.close2 };
     const dockPool = Array.isArray(ctx?._dockShapePool)
         ? ctx._dockShapePool
             .filter((s) => Array.isArray(s?.data))
@@ -260,6 +270,17 @@ function _mergeLiveGeometrySignals(ctx) {
     const liveMcc = _countMultiClearCandidatesFromShapePool(grid, shapePool);
     if (Number.isFinite(liveMcc)) {
         next = { ...next, multiClearCandidates: liveMcc };
+    }
+    /* 回灌 mobility(Σ各未放置块合法落点) 与 firstMoveFreedom(瓶颈块最小落点)：
+     * 复用 computeCandidatePlacementMetric（与 game.js _spawnGeoForSnapshot / blockSpawn 同口径 SSOT）。
+     * 修复历史死输入 —— 二者 spawnContext 从未注入：mobility 让 boardPlanning 走 fallback 0.55 常量，
+     * firstMoveFreedom 让 riskLevel 的 lockRisk 项恒不参与。仅在真实 dock 池可用时计算。 */
+    if (dockPool.length > 0) {
+        const placement = computeCandidatePlacementMetric(grid, dockPool.map((s) => ({ shape: s.data })));
+        if (placement) {
+            if (Number.isFinite(placement.solutionCount)) next = { ...next, mobility: placement.solutionCount };
+            if (Number.isFinite(placement.firstMoveFreedom)) next = { ...next, firstMoveFreedom: placement.firstMoveFreedom };
+        }
     }
     /* v1.57.4：pcSetup 也实时重算。它进入两个口径：
      *   (a) deriveSpawnIntent 的 harvestable 判定（与 nfl 并列）
@@ -488,6 +509,33 @@ function deriveBoardRisk(fill, holePressure, abilityRisk) {
 function deriveBoardDifficulty(fill, holePressure, cfg = {}) {
     const holeFillEquivalent = Math.max(0, Number(cfg.holeFillEquivalent ?? 0.8) || 0);
     return clamp01((fill ?? 0) + holePressure * holeFillEquivalent);
+}
+
+/**
+ * Bottleneck 信号 SSOT。
+ *
+ * 判定条件：dock 瓶颈块自由度谷值（ctx.bottleneckTrough）≤ 阈值、本周期有采样
+ * （ctx.bottleneckSamples > 0）、且非新手保护期（onboarding 自身已显著钳制 stress）。
+ *
+ * 该信号原仅在 resolveAdaptiveStrategy 内部就地计算（驱动 bottleneckRelief），导致
+ * game.js 调 evaluatePeogActive / difficultyRelativity 时读到的 ctx.hasBottleneckSignal
+ * 恒为 undefined（死输入）。提取为导出纯函数后，由 resolveAdaptiveStrategy 与 game.js
+ * 共用同一口径，避免漂移。阈值取自 GAME_RULES.adaptiveSpawn.topologyDifficulty（与
+ * resolveAdaptiveStrategy 内 topoCfg 同源）。
+ *
+ * @param {object} ctx      spawnContext（读 bottleneckTrough / bottleneckSamples）
+ * @param {object} profile  playerProfile（读 isInOnboarding）
+ * @returns {boolean}
+ */
+function deriveBottleneckSignal(ctx, profile) {
+    const troughRaw = Number(ctx?.bottleneckTrough);
+    const samples = Math.max(0, Number(ctx?.bottleneckSamples) || 0);
+    const cfgThreshold = GAME_RULES.adaptiveSpawn?.topologyDifficulty?.bottleneckTroughThreshold;
+    const threshold = Number.isFinite(cfgThreshold) ? cfgThreshold : 2;
+    return Number.isFinite(troughRaw)
+        && samples > 0
+        && troughRaw <= threshold
+        && profile?.isInOnboarding !== true;
 }
 
 /**
@@ -1191,6 +1239,63 @@ function applySpawnPrior(shapeWeights, spawnPrior, opts = {}) {
     return { shapeWeights: out, mode, lambda };
 }
 
+/** 难度相对论 6 维考点顺序（与 difficultyVec / θ⃗ 一致）。 */
+const _RELATIVITY_DIM_KEYS = ['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff'];
+
+/**
+ * §4.17/§2.10 阶段5「构造算子 target-aware」：把客观目标 b* 与玩家能力 θ⃗ 的逐维缺口
+ * gap = b*[dim] − θ⃗[dim]，经 dimAffinity[dim][cat] 映射为 7 类形状权重的乘性偏置，
+ * 提升候选池里"贴近 b* 的三块"的密度（与 blockSpawn best-of-K 选块互补）。
+ *
+ * 设计护栏：
+ *   - 纯函数，不就地改入参；偏置后各键 ≥ 0，可解性仍交下游硬约束兜底；
+ *   - 仅改池分布、不绕过任何约束、不抬高 d*（体感主线不变）；
+ *   - lambda<=0 / 无 b* / 配置关 → 原样返回（恒等）；
+ *   - 缺 θ⃗ 时退化为以 0.5 为基线（gap=b*−0.5），仍是"朝客观目标推"的温和偏置。
+ *
+ * 公式：weight_k *= clamp(1 + λ · Σ_dim affinity[dim][k]·gap[dim], 1−cap, 1+cap)
+ *
+ * @param {Record<string,number>} shapeWeights 已经过 applySpawnPrior 的权重
+ * @param {object|null} bStar 客观目标向量（6 维，[0,1]）
+ * @param {object|null} calibration θ⃗ 标定向量（6 维 μ）；缺省以 0.5 为基线
+ * @param {object} shapePriorCfg difficultyRelativity.shapePrior 配置块
+ * @param {number} lambda 实际个性化强度（relativityLambda）
+ * @returns {{ shapeWeights: Record<string,number>, applied: boolean, lambda: number }}
+ */
+function applyRelativityShapePrior(shapeWeights, bStar, calibration, shapePriorCfg, lambda) {
+    const out = { ...shapeWeights };
+    const cfg = shapePriorCfg || {};
+    const lam = clamp01(Number(lambda) || 0) * clamp01(Number(cfg.strength) ?? 0.6);
+    if (cfg.enabled === false || !bStar || lam <= 0) {
+        return { shapeWeights: out, applied: false, lambda: 0 };
+    }
+    const affinity = cfg.dimAffinity || {};
+    const cap = Number.isFinite(cfg.cap) ? Math.max(0, Math.min(1, cfg.cap)) : 0.30;
+    const cal = calibration && typeof calibration === 'object' ? calibration : null;
+    /* 预算逐维缺口 gap=b*−θ⃗（θ⃗ 缺省 0.5）。 */
+    const gap = {};
+    for (const dim of _RELATIVITY_DIM_KEYS) {
+        const b = Number(bStar[dim]);
+        if (!Number.isFinite(b)) { gap[dim] = 0; continue; }
+        const t = cal && Number.isFinite(Number(cal[dim])) ? Number(cal[dim]) : 0.5;
+        gap[dim] = b - t;
+    }
+    let applied = false;
+    for (const k of _SPAWN_PRIOR_KEYS) {
+        if (!Number.isFinite(out[k])) continue;
+        let acc = 0;
+        for (const dim of _RELATIVITY_DIM_KEYS) {
+            const a = affinity[dim] ? Number(affinity[dim][k]) : 0;
+            if (Number.isFinite(a) && a !== 0) acc += a * gap[dim];
+        }
+        if (acc === 0) continue;
+        const m = Math.max(1 - cap, Math.min(1 + cap, 1 + lam * acc));
+        out[k] = Math.max(0, out[k] * m);
+        applied = true;
+    }
+    return { shapeWeights: out, applied, lambda: lam };
+}
+
 function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boardFill, spawnContext) {
     const cfg = GAME_RULES.adaptiveSpawn;
     if (!cfg?.enabled || !cfg.profiles?.length || !profile) {
@@ -1218,6 +1323,13 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     const ability = buildPlayerAbilityVector(profile, {
         boardFill: _boardFill ?? 0,
         spawnContext: ctx,
+        /* grid 透传：启用 boardPlanning 的 spatialPlanning 项（playerAbilityModel 以 ctx.grid 为门控）。
+         * 历史上出块路径只传 spawnContext，未传 grid，导致 spatialPlanning(0.18 权重) 恒不参与。 */
+        grid: ctx._gridRef ?? null,
+        /* firstMoveFreedom / placementSolutionScore 透传：playerAbilityModel 的 lockRisk 读 options 级字段，
+         * 由 _mergeLiveGeometrySignals 实时回灌到 ctx 后在此转交（修复 lockRisk 恒不参与）。 */
+        firstMoveFreedom: ctx.firstMoveFreedom,
+        placementSolutionScore: ctx.placementSolutionScore,
         topology: {
             holes,
             fillRatio: _boardFill ?? 0,
@@ -1528,12 +1640,10 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         ? topoCfg.bottleneckTroughThreshold : 2;
     const bottleneckReliefMax = Number.isFinite(topoCfg.bottleneckReliefMax)
         ? topoCfg.bottleneckReliefMax : -0.12;
-    const hasBottleneckSignal = Number.isFinite(bottleneckTroughRaw)
-        && bottleneckSamples > 0
-        && bottleneckTroughRaw <= bottleneckThreshold
-        /* 新手保护期：onboarding 自身已用 firstSessionStressOverride 显著钳制 stress，
-         * 再叠加 bottleneckRelief 既无意义（被覆写吃掉）又会让 breakdown 误显示「双重救济」。 */
-        && profile.isInOnboarding !== true;
+    /* SSOT：与 game.js（PEOG / relativity bottleneck bypass 透传）共用 deriveBottleneckSignal，
+     * 避免「onboarding 保护期 + 阈值」口径漂移。新手保护期已用 firstSessionStressOverride
+     * 显著钳制 stress，再叠加 bottleneckRelief 既无意义（被覆写吃掉）又会让 breakdown 误显示「双重救济」。 */
+    const hasBottleneckSignal = deriveBottleneckSignal(ctx, profile);
     if (hasBottleneckSignal) {
         const sev = Math.max(0, (bottleneckThreshold - bottleneckTroughRaw))
             / Math.max(1, bottleneckThreshold);
@@ -2022,6 +2132,47 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     stressBreakdown.postPbReleaseActive = ctx.postPbReleaseActive === true;
     stressBreakdown.postPbReleaseStressAdjust = postPbReleaseStressAdjust;
     stressBreakdown.finalStress = stress;
+
+    /* ---------- §4.17/§2.10 难度相对论：反解客观目标 b*（影子，本帧不消费） ----------
+     * 不可动摇前提：S 形 stress 曲线仍是调控主线，d* = normalizeStress(finalStress)。
+     * 这里只在 stress 确定后追加一层"体感→客观题目"的标定：把同一 d* 按玩家能力 θ⃗ 反解为
+     * 6 维客观目标 b*，落到 stressBreakdown 供看板/回放/阶段4 等体感选块消费。
+     * enabled=false / 低置信 θ⃗ / 救济·濒死·瓶颈·破纪录释放·warmup → bypass，b* 不产出。 */
+    let objectiveTarget = null;
+    let relativityBypass = 'disabled';
+    let relativityLambda = 0;
+    try {
+        const drCfg = GAME_RULES.adaptiveSpawn?.difficultyRelativity;
+        const dStar = normalizeStress(stress);
+        const dr = solveObjectiveTarget(dStar, drCfg, {
+            calibration: ctx.latentCalibration || null,
+            userId: ctx.userId ?? profile?.userId ?? null,
+            /* 救济 / near-miss bypass 的真实来源是 profile（PlayerProfile getter）；
+             * ctx.* 仅作显式覆盖兜底。历史上 game.js 从未把这两个标志注入 spawnContext，
+             * 导致难度相对论的「救济期 / 濒死释放」bypass 恒不触发——此处补回 profile 源。 */
+            needsRecovery: ctx.needsRecovery === true || profile?.needsRecovery === true,
+            hadRecentNearMiss: ctx.hadRecentNearMiss === true || profile?.hadRecentNearMiss === true,
+            hasBottleneckSignal: !!(ctx.peogState && ctx.peogState.active) || ctx.hasBottleneckSignal === true,
+            postPbReleaseActive: ctx.postPbReleaseActive === true,
+            sessionArc
+        });
+        objectiveTarget = dr.bStar;
+        relativityBypass = dr.bypass;
+        /* 暴露『有效』个性化强度：bypass / disabled / 低置信 θ⃗ 时 λ=0，与信号字典 dr_lambda、
+         * REPLAY_METRICS.relativityLambda sparkline、DFV chip「难度相对论」语义一致（λ≈0 = 未个性化）。
+         * solveObjectiveTarget 返回的 dr.lambda 是配置原值 personalizationStrength（未按 bypass 归零，
+         * 供需要原值的内部计算）；此处对外口径统一为 bypass→0。下游 shapePrior 另由 relativityBypass==null
+         * 门控，非依赖本值归零。 */
+        relativityLambda = dr.bypass ? 0 : dr.lambda;
+    } catch (_e) {
+        objectiveTarget = null;
+        relativityBypass = 'error';
+    }
+    stressBreakdown.relativityDStar = normalizeStress(stress);
+    stressBreakdown.relativityBypass = relativityBypass;
+    stressBreakdown.relativityLambda = relativityLambda;
+    stressBreakdown.objectiveTarget = objectiveTarget;
+    stressBreakdown.latentCalibration = ctx.latentCalibration || null;
 
     /* ---------- v1.32：顺序刚性（orderRigor / orderMaxValidPerms） ----------
      *
@@ -3106,6 +3257,29 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         }
     }
 
+    /* §4.17/§2.10 阶段5：target-aware 形状先验——relativity 激活（无 bypass + λ>0 + 有 b*）时，
+     * 按 gap=b*−θ⃗ 把候选池朝客观目标推（与 best-of-K 选块互补）。困境/救济帧禁用（顺玩家优先），
+     * 不绕过任何下游硬约束 / 不抬高 d*。默认 difficultyRelativity.enabled=false → 恒等。 */
+    let _relativityShapePriorApplied = null;
+    {
+        const drCfg = cfg.difficultyRelativity;
+        const _distressedRel = spawnIntent === 'relief'
+            || ctx.forceReliefIntent === true
+            || profile.needsRecovery === true;
+        if (drCfg && drCfg.enabled === true && relativityBypass == null
+            && objectiveTarget && relativityLambda > 0 && !_distressedRel
+            && drCfg.shapePrior && drCfg.shapePrior.enabled !== false) {
+            const rr = applyRelativityShapePrior(
+                finalShapeWeights, objectiveTarget, ctx.latentCalibration || null,
+                drCfg.shapePrior, relativityLambda,
+            );
+            if (rr.applied) {
+                finalShapeWeights = rr.shapeWeights;
+                _relativityShapePriorApplied = { lambda: Math.round(rr.lambda * 1000) / 1000 };
+            }
+        }
+    }
+
     /* v1.70 warm_run：在所有 hints 计算完成后，调用 applyWarmRun 钳制器（modulator）
      * 重写 shapeWeights / spawnHints / stress。warmRunState 由调用方维护，未激活时透传。 */
     const _preWarmReturn = {
@@ -3255,6 +3429,12 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         _boardRisk: boardRisk,
         _boardDifficulty: boardDifficulty,
         _stressBreakdown: stressBreakdown,
+        /* §4.17/§2.10 难度相对论影子字段：b*（客观目标）/ bypass / λ / θ⃗ 标定向量。
+         * 阶段4 generateDockShapes 等体感对齐消费 _objectiveTarget；当前为诊断透出。 */
+        _objectiveTarget: objectiveTarget,
+        _relativityBypass: relativityBypass,
+        _relativityLambda: relativityLambda,
+        _latentCalibration: ctx.latentCalibration || null,
         _spawnTargets: spawnTargets,
         _pbCurve: pbCurve,
         _pbRatio: pbCurve.pbRatio,
@@ -3263,6 +3443,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         _pbRelease: pbCurve.pbRelease,
         _pbPhase: pbCurve.pbPhase,
         _spawnPriorApplied,
+        _relativityShapePriorApplied,
         _spawnIntent: spawnIntent,
         /* v1.57.4：决策侧不变量快照——供 game.js _refreshIntentSnapshot() 在玩家每次
          * 放置后用同一套规则、配合实时几何（snapshotInsightGeometry）重判 spawnIntent。
@@ -3336,4 +3517,4 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     return _withWarm;
 }
 
-module.exports = { applySpawnPrior, DEFAULT_SPAWN_PARAMS_PB_CURVE, denormalizeStress, derivePbCurve, deriveSpawnIntent, MIN_BEST_FOR_MILESTONE_TOAST, normalizeStress, resetAdaptiveMilestone, resolveAdaptiveStrategy, snapshotInsightGeometry, SPAWN_PARAM_KEYS, STRESS_NORM_OFFSET, STRESS_NORM_SCALE };
+module.exports = { applyRelativityShapePrior, applySpawnPrior, DEFAULT_SPAWN_PARAMS_PB_CURVE, denormalizeStress, deriveBottleneckSignal, derivePbCurve, deriveSpawnIntent, MIN_BEST_FOR_MILESTONE_TOAST, normalizeStress, resetAdaptiveMilestone, resolveAdaptiveStrategy, snapshotInsightGeometry, SPAWN_PARAM_KEYS, STRESS_NORM_OFFSET, STRESS_NORM_SCALE };

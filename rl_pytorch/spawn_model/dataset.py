@@ -97,7 +97,13 @@ CONTEXT_DIM = 24
 #          与 RL state 同源（boardTopology），让生成式出块显式感知盘面碎片化 / 凹角陷阱。θ 切片 [57:61] 不变。
 # v1.67：63 → 66，尾部追加 3 维空间规划盘面条件（regionEntropy/largestRegionRatio/smallRegionCellRatio，
 #          与 RL state 同源 spatial_planning.py），spawnGeo 缺省 → 0。
-BEHAVIOR_CONTEXT_DIM = 66
+# §4.17/§2.10：66 → 72，尾部追加 6 维玩家潜在能力 θ⃗（spatial/combo/order/recovery/tempo/clearEff，
+#          来自 playerLatentAbility 跨局后验 μ，落库于 ps.adaptive.relativity.latentCalibration）。
+#          配合 b*（客观难度目标）标签，模型学"同一体感按能力给不同客观难度"的等体感映射；
+#          缺省 / 低置信 θ⃗ → 中性 0.5（行为退化为现状）。θ/几何/空间规划切片不变。
+BEHAVIOR_CONTEXT_DIM = 72
+# §4.17：θ⃗ 6 维顺序（必须与 web/src/spawnModel.js SPAWN_MODEL_LATENT_THETA_KEYS / spawnStepDifficulty.DIFFICULTY_VECTOR_DIMS 一致）。
+_LATENT_THETA_KEYS = ['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff']
 # 客观几何归一化分母（必须与 shared/game_rules.json actionNorm.maxEmptyRegions/maxConcaveCorners 一致）。
 _GEO_REGIONS_MAX = 16
 _GEO_CONCAVE_MAX = 32
@@ -226,6 +232,22 @@ def _norm_pb_theta(params):
     return out
 
 
+def _latent_theta_tail(relativity):
+    """§4.17/§2.10：把 6 维玩家潜在能力 θ⃗（μ）取出归一化（缺省 / 低置信 → 中性 0.5）。
+
+    来源 ps.adaptive.relativity.latentCalibration（θ⃗ 后验 μ）。中性 0.5 保证未标定玩家的
+    条件向量等价于"能力居中"，与默认关 / 低置信退化语义一致（与 web/src/spawnModel.js
+    _latentThetaTail 逐位一致）。
+    """
+    r = relativity if isinstance(relativity, dict) else {}
+    cal = r.get('latentCalibration')
+    mu = cal if isinstance(cal, dict) else {}
+    out = []
+    for k in _LATENT_THETA_KEYS:
+        out.append(_clamp01(_safe(mu.get(k), 0.5)))
+    return out
+
+
 def theta_regime_id(params):
     """由 4 维 PB θ 派生稳定整型 regime id（供分层重训 / 漂移分组）。
 
@@ -317,6 +339,9 @@ def _parse_behavior_context(ps):
         _clamp01(_safe(geo.get('regionEntropy'), 0)),
         _clamp01(_safe(geo.get('largestRegionRatio'), 0)),
         _clamp01(_safe(geo.get('smallRegionCellRatio'), 0)),
+        # [66-71] §4.17/§2.10 玩家潜在能力 θ⃗（spatial/combo/order/recovery/tempo/clearEff）。
+        #   来自 ps.adaptive.relativity.latentCalibration（θ⃗ μ）；缺省 / 低置信 → 中性 0.5。
+        *_latent_theta_tail(adaptive.get('relativity')),
     ]
     return np.asarray(values[:BEHAVIOR_CONTEXT_DIM], dtype=np.float32)
 

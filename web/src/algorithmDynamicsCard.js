@@ -37,6 +37,7 @@ import {
     deriveChipsFromCtx,
     buildChipCtxFromInsight,
     deriveConflicts,
+    relativityViewFromInsight,
 } from './derivation/presentationReducer.js';
 import { resolveIntent } from './derivation/intentResolver.js';
 import { summarizeContributors } from './stressMeter.js';
@@ -131,6 +132,88 @@ export function renderPbAndPersonalizationCard(insight, profile) {
             ${pbRows}
             <div class="adc-budget-head adc-budget-head--sub" title="${_attr('个性化偏好：根据玩家历史行为微调预算，只影响倾向，不绕过公平/可解性约束。')}">偏好 <span>预算微调</span></div>
             ${prefRows}
+        </div>
+    `;
+}
+
+/* §4.17/§2.10 难度相对论 6 维考点（与 spawnStepDifficulty.DIFFICULTY_VECTOR_DIMS 同序） */
+const RELATIVITY_DIMS = [
+    ['spatial', '空间', '盘面空间与碎片化压力'],
+    ['combo', '连消', '多消/连击构筑难度'],
+    ['order', '顺序', '落子顺序刚性（解法唯一性）'],
+    ['recovery', '回收', '从拥挤盘面恢复的难度'],
+    ['tempo', '节奏', '决策节奏/时间压力'],
+    ['clearEff', '清效', '清行效率门槛'],
+];
+const _RELATIVITY_BYPASS_TEXT = {
+    disabled: '功能未开启',
+    rollout: '不在灰度名单',
+    low_conf: 'θ⃗ 置信不足（样本累积中）',
+    warmup: '热身期（先稳定基线体感）',
+    recovery: '救济窗口（救济优先于个性化）',
+    near_miss: '近失保护窗口',
+    bottleneck: '瓶颈纾解期',
+    post_pb_release: '破纪录释放窗口',
+    error: '本帧计算异常（已安全退化）',
+    no_calibration: '尚无 θ⃗ 标定',
+};
+
+/**
+ * §4.17/§2.10 难度相对论卡片：把「体感目标 d* → θ⃗ 标定 → 客观目标 b* → 等体感选块」
+ * 一帧链路可视化。S 曲线主线（stress）不被改变；本卡只解释"同一体感对该玩家意味着什么客观难度"。
+ *
+ * @param {object} insight game._lastAdaptiveInsight（或回放帧重建等价对象）
+ * @returns {string} HTML
+ */
+export function renderDifficultyRelativityCard(insight) {
+    const r = relativityViewFromInsight(insight);
+    if (!r || r.enabled !== true) return '';
+    const bStar = r.objectiveTarget || null;
+    const theta = r.latentCalibration || null;
+    const chosen = r.chosenVec || null;
+    const lam = Number(r.lambda) || 0;
+    const conf = r.thetaConfidence;
+    const statusText = r.active
+        ? `激活 · λ ${_fmt(lam)}`
+        : `未个性化 · ${_RELATIVITY_BYPASS_TEXT[r.bypass] || r.bypass || '恒等标定'}`;
+    const statusColor = r.active ? '#34d399' : '#64748b';
+    const meta = [
+        `d* ${r.dStar != null ? _fmt(r.dStar) : '—'}`,
+        `θ⃗置信 ${conf != null ? (conf * 100).toFixed(0) + '%' : '—'}`,
+        `样本 ${r.thetaN ?? '—'}`,
+    ];
+    if (r.chosenAlign != null) meta.push(`对齐 ${_fmt(r.chosenAlign)}`);
+    if (r.targetGap != null) meta.push(`偏差 ${_fmt(r.targetGap, 3)}`);
+    if (r.candidatesConsidered != null) meta.push(`候选 ${r.candidatesConsidered}`);
+
+    const rows = RELATIVITY_DIMS.map(([key, label, tip]) => {
+        const th = theta && Number.isFinite(Number(theta[key])) ? Number(theta[key]) : null;
+        const bs = bStar && Number.isFinite(Number(bStar[key])) ? Number(bStar[key]) : null;
+        const ch = chosen && Number.isFinite(Number(chosen[key])) ? Number(chosen[key]) : null;
+        /* 主条 = b*（个性化客观目标）；θ⃗ 能力用刻度标记，选中 b⃗ 用第二刻度。 */
+        const bsPct = bs != null ? (Math.max(0, Math.min(1, bs)) * 100).toFixed(1) : '0';
+        const thPct = th != null ? (Math.max(0, Math.min(1, th)) * 100).toFixed(1) : null;
+        const chPct = ch != null ? (Math.max(0, Math.min(1, ch)) * 100).toFixed(1) : null;
+        const cellTip = _attr(
+            `${label}：${tip}\n`
+            + `θ⃗(能力) ${th != null ? _fmt(th) : '—'} · b*(客观目标) ${bs != null ? _fmt(bs) : '—'} · b⃗(选中) ${ch != null ? _fmt(ch) : '—'}\n`
+            + '能力越高，同一体感下系统给出的客观目标 b* 越高（等体感、不等客观难度）。'
+        );
+        const thMark = thPct != null ? `<i class="adc-rel-mark adc-rel-mark--theta" style="left:${thPct}%"></i>` : '';
+        const chMark = chPct != null ? `<i class="adc-rel-mark adc-rel-mark--chosen" style="left:${chPct}%"></i>` : '';
+        return `<div class="adc-budget-cell adc-rel-cell" title="${cellTip}">
+            <span class="adc-budget-label">${label}</span>
+            <span class="adc-budget-bar adc-rel-bar"><i style="width:${bsPct}%;background:#818cf8"></i>${thMark}${chMark}</span>
+            <b>${bs != null ? _fmt(bs) : '—'}</b>
+        </div>`;
+    }).join('');
+
+    return `
+        <div class="adc-budget adc-relativity">
+            <div class="adc-budget-head" title="${_attr('难度相对论（§4.17/§2.10）：体感难度 d*=stress 仍是 S 曲线主线；θ⃗ 把"同一体感"标定为该玩家应得的客观难度 b*，再用 best-of-K 等体感选块。能力强→同体感下客观更难，能力弱→更易，体感一致。')}">相对论 <span style="color:${statusColor}">${statusText}</span></div>
+            <div class="adc-rel-meta">${meta.join(' · ')}</div>
+            <div class="adc-rel-legend">主条 b*（客观目标） · <i class="adc-rel-mark adc-rel-mark--theta"></i>θ⃗ 能力 · <i class="adc-rel-mark adc-rel-mark--chosen"></i>选中 b⃗</div>
+            ${rows}
         </div>
     `;
 }

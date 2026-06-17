@@ -40,7 +40,7 @@ describe('buildPlayerStateSnapshot', () => {
         };
         const ps = buildPlayerStateSnapshot(profile, ctx);
         expect(ps.pv).toBe(PLAYER_STATE_SNAPSHOT_VERSION);
-        expect(ps.pv).toBe(4);
+        expect(ps.pv).toBe(5);
         expect(ps.phase).toBe('spawn');
         expect(ps.score).toBe(100);
         expect(typeof ps.skill).toBe('number');

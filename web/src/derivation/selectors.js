@@ -169,6 +169,75 @@ export function selectInsightWithLiveGeometry(game) {
 }
 
 /**
+ * 选择「难度相对论」一帧标定快照（§4.17/§2.10）。SSOT：`_lastAdaptiveInsight.relativity`
+ * （由 game.js `_captureAdaptiveInsight` 汇总 resolveAdaptiveStrategy + generateDockShapes 诊断）。
+ *
+ * 返回结构稳定（缺失字段补 null/0），下游 reducer/contracts/DFV/透视仪只读这里，
+ * 禁止再穿透到 insight.relativity / spawnDiagnostics.relativity。
+ *
+ * @param {object} game
+ * @returns {{
+ *   enabled: boolean, active: boolean, bypass: string|null, lambda: number,
+ *   dStar: number|null, objectiveTarget: object|null, latentCalibration: object|null,
+ *   thetaConfidence: number|null, thetaN: number|null, chosenAlign: number|null,
+ *   chosenVec: object|null, candidatesConsidered: number|null, targetGap: number|null
+ * }}
+ */
+export function selectRelativity(game) {
+    return relativityViewFromInsight(selectInsight(game));
+}
+
+/**
+ * 纯函数版（不依赖 game 实例）：从一份 insight（含 `relativity` 子对象）派生稳定的
+ * 难度相对论视图。供 selectRelativity / presentationReducer.buildChipCtxFromInsight /
+ * DFV 直接传 insight 的场景复用，避免口径漂移。
+ *
+ * @param {object|null} insight game._lastAdaptiveInsight（或回放帧重建的等价对象）
+ * @returns {object} 见 selectRelativity 返回结构
+ */
+export function relativityViewFromInsight(insight) {
+    const base = {
+        enabled: false, active: false, bypass: null, lambda: 0,
+        dStar: null, objectiveTarget: null, latentCalibration: null,
+        thetaConfidence: null, thetaN: null, chosenAlign: null,
+        chosenVec: null, candidatesConsidered: null, targetGap: null,
+    };
+    const r = insight?.relativity;
+    if (!r || typeof r !== 'object') return base;
+    const bStar = r.objectiveTarget && typeof r.objectiveTarget === 'object' ? r.objectiveTarget : null;
+    const chosen = r.chosen && typeof r.chosen === 'object' ? r.chosen : null;
+    const chosenVec = chosen && chosen.chosenVec && typeof chosen.chosenVec === 'object' ? chosen.chosenVec : null;
+    const meanAbsDelta = (a, b) => {
+        if (!a || !b) return null;
+        const keys = ['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff'];
+        let s = 0; let n = 0;
+        for (const k of keys) {
+            const x = Number(a[k]); const y = Number(b[k]);
+            if (Number.isFinite(x) && Number.isFinite(y)) { s += Math.abs(x - y); n++; }
+        }
+        return n ? s / n : null;
+    };
+    const lambda = Number.isFinite(Number(r.lambda)) ? Number(r.lambda) : 0;
+    const bypass = r.bypass ?? null;
+    return {
+        enabled: r.enabled === true,
+        /* active = 真正发生了个性化（已启用 + 无 bypass + λ>0）。UI 据此显示"已个性化"徽标。 */
+        active: r.enabled === true && bypass == null && lambda > 0,
+        bypass,
+        lambda,
+        dStar: Number.isFinite(Number(r.dStar)) ? Number(r.dStar) : null,
+        objectiveTarget: bStar ? { ...bStar } : null,
+        latentCalibration: r.latentCalibration ? { ...r.latentCalibration } : null,
+        thetaConfidence: r.latent && Number.isFinite(Number(r.latent.confidence)) ? Number(r.latent.confidence) : null,
+        thetaN: r.latent && Number.isFinite(Number(r.latent.n)) ? Number(r.latent.n) : null,
+        chosenAlign: chosen && Number.isFinite(Number(chosen.chosenAlign)) ? Number(chosen.chosenAlign) : null,
+        chosenVec: chosenVec ? { ...chosenVec } : null,
+        candidatesConsidered: chosen && Number.isFinite(Number(chosen.candidatesConsidered)) ? Number(chosen.candidatesConsidered) : null,
+        targetGap: meanAbsDelta(chosenVec, bStar),
+    };
+}
+
+/**
  * 选择当前 spawnIntent（v1.57.4 起在 spawnHints.spawnIntent 与顶层 spawnIntent
  * 两处冗余存在；优先取 spawnHints 的最新派生值）。
  *
@@ -237,6 +306,7 @@ export function selectReducerInputs(game) {
                 boardFill: selectLiveBoardFill(game),
             },
             intentInputs: null,
+            relativity: selectRelativity(game),
         };
     }
     /* v1.58.1：派生 harvestReady = 当前是否真的存在可兑现的消行路径。
@@ -275,5 +345,8 @@ export function selectReducerInputs(game) {
         scoreMilestoneHit: !!insight.scoreMilestoneHit,
         personalizationApplied: !!insight.personalizationApplied,
         onboarding: !!profile?.isInOnboarding,
+        /* §4.17/§2.10：难度相对论标定快照，供 reducer 派生 presentationModel.relativity，
+         * 让 DFV / 透视仪 / stressMeter 统一从 PresentationModel 读取，禁止穿透 insight。 */
+        relativity: selectRelativity(game),
     };
 }

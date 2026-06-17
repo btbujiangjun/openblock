@@ -15,7 +15,7 @@ function _v2_pbBin(pb) {
 }
 import { writeSpawnSignals, hydrateFromSpawnSignals } from './offlineStateCache.js';
 import { initScoreAnimator, animateScoreOdometer, setScoreImmediate, syncHudScoreElement } from './scoreAnimator.js';
-import { resolveAdaptiveStrategy, resetAdaptiveMilestone, deriveSpawnIntent, snapshotInsightGeometry } from './adaptiveSpawn.js';
+import { resolveAdaptiveStrategy, resetAdaptiveMilestone, deriveSpawnIntent, snapshotInsightGeometry, deriveBottleneckSignal } from './adaptiveSpawn.js';
 /* v1.57：stress 感知化层（A 棋盘氛围光 + B 呼吸节奏 + C 震动幅度 + D 音频滤波）
  * pushStressAmbience 在 _captureAdaptiveInsight 末尾被调用，把 finalStress 渗透
  * 到玩家可感知的视/听/触渠道，解决"算法精算 stress 但玩家感知不到"的断层。
@@ -616,6 +616,10 @@ export class Game {
             /* P0–P2：单步出块难度统一分（确定性，随 spawn 帧落库供离线难度桶聚合）。旧帧无此字段。 */
             stepDifficulty: diag.stepDifficulty && typeof diag.stepDifficulty === 'object'
                 ? diag.stepDifficulty : null,
+            /* §4.17/§2.10：等体感选块归因（b* / 对齐度 / 候选数 / bypass / λ），供离线
+             * aggregate-step-difficulty.mjs 按「θ⃗ 桶 × 体感档」聚合个性化命中分布。旧帧无此字段。 */
+            relativity: diag.relativity && typeof diag.relativity === 'object'
+                ? diag.relativity : null,
             /* v1.66 达成率打点：压力阶段 + 两条策略的达成标记，供 aggregate-step-difficulty.mjs
              * 按阶段聚合 lowPhaseClearDeliveredRate / highPhaseOrderAppliedRate。旧帧无此字段。 */
             pressurePhase: typeof diag.pressurePhase === 'string' ? diag.pressurePhase : 'mid',
@@ -778,7 +782,26 @@ export class Game {
              * 注意：此对象由 deriveSpawnIntent 直接消费（除 geometry 子字段外），不要在
              * game.js 内做"语义改写"，避免与 resolveAdaptiveStrategy 内的口径漂移。 */
             _intentInputs: layered._intentInputs ? { ...layered._intentInputs } : null,
-            spawnPriorApplied: layered._spawnPriorApplied ?? null
+            spawnPriorApplied: layered._spawnPriorApplied ?? null,
+            /* §4.17/§2.10 难度相对论：把「体感目标 d* → 客观目标 b* → 等体感对齐」一帧快照
+             * 汇总到 insight，供回放(ps.adaptive.relativity)/透视仪/面板统一消费。
+             *   - bypass/lambda/dStar/objectiveTarget(b*)/latentCalibration(θ⃗ μ) 来自 resolveAdaptiveStrategy；
+             *   - chosen(等体感选块对齐度/候选数/选中 b⃗) 来自 generateDockShapes 诊断；
+             *   - latent(θ⃗ μ/σ/置信) 来自 PlayerProfile 跨局后验。 */
+            relativity: (() => {
+                const sb = layered._stressBreakdown || {};
+                const diag = getLastSpawnDiagnostics();
+                return {
+                    enabled: Boolean(GAME_RULES.adaptiveSpawn?.difficultyRelativity?.enabled),
+                    bypass: layered._relativityBypass ?? sb.relativityBypass ?? null,
+                    lambda: layered._relativityLambda ?? sb.relativityLambda ?? 0,
+                    dStar: sb.relativityDStar ?? null,
+                    objectiveTarget: layered._objectiveTarget ?? sb.objectiveTarget ?? null,
+                    latentCalibration: layered._latentCalibration ?? sb.latentCalibration ?? null,
+                    latent: this.playerProfile.getLatentAbilitySnapshot?.() ?? null,
+                    chosen: (diag && diag.relativity) ? { ...diag.relativity } : null
+                };
+            })()
         };
         const m = p.metrics;
         this._lastAdaptiveInsight.profileAtSpawn = {
@@ -2074,6 +2097,9 @@ export class Game {
             const baseStrategy = getStrategy(this.strategy);
             const layeredOpen = resolveAdaptiveStrategy(this.strategy, this.playerProfile, 0, this.runStreak, 0, {
                 ...this._spawnContext,
+                /* §4.17/§2.10 难度相对论：注入 θ⃗ 标定向量（置信不足→null→恒等退化）+ userId（rollout 分桶）。 */
+                latentCalibration: this.playerProfile.getLatentCalibration?.() ?? null,
+                userId: this.db?.userId ?? null,
                 _gridRef: this.grid,
                 _dockShapePool: (this.dockBlocks || [])
                     .filter((b) => b && !b.placed && Array.isArray(b.shape))
@@ -2488,6 +2514,11 @@ export class Game {
             try {
                 const _wasActive = this._spawnContext.peogState.active === true;
                 this._spawnContext.score = this.score;
+                /* SSOT 透传：bottleneck 信号原仅在 resolveAdaptiveStrategy 内部计算，导致此处
+                 * （及 difficultyRelativity）读到的 ctx.hasBottleneckSignal 恒 undefined，使 PEOG
+                 * 第 9 路 bottleneck bypass 永不触发。此处用同一口径回灌，让玩家陷入瓶颈时
+                 * PEOG（PB 临近加压）能及时让位。 */
+                this._spawnContext.hasBottleneckSignal = deriveBottleneckSignal(this._spawnContext, this.playerProfile);
                 this._spawnContext.peogState = this._peogModule.evaluatePeogActive(
                     this._spawnContext.peogState,
                     this._spawnContext,
@@ -2529,6 +2560,9 @@ export class Game {
             this.grid.getFillRatio(), {
                 ...this._spawnContext,
                 tuningV2Context: _tuningCtx,   // ★ 关键: adaptiveSpawn 用它 resolve theta
+                /* §4.17/§2.10 难度相对论：注入 θ⃗ 标定向量（置信不足→null→恒等退化）+ userId（rollout 分桶）。 */
+                latentCalibration: this.playerProfile.getLatentCalibration?.() ?? null,
+                userId: this.db?.userId ?? null,
                 _gridRef: this.grid,
                 _dockShapePool: (this.dockBlocks || [])
                     .filter((b) => b && !b.placed && Array.isArray(b.shape))

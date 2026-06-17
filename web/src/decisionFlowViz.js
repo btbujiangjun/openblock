@@ -56,6 +56,7 @@ import {
     renderPbAndPersonalizationCard as _dfvRenderPbPersonal,
     renderStressBreakdownStack as _dfvRenderStressStack,
     renderResponseSensitivityCard as _dfvRenderSens,
+    renderDifficultyRelativityCard as _dfvRenderRelativity,
 } from './algorithmDynamicsCard.js';
 
 /**
@@ -2845,10 +2846,11 @@ class DecisionFlowViz {
         const history = Array.isArray(this._game?._insightLiveHistory)
             ? this._game._insightLiveHistory : [];
         const pbHtml = _dfvRenderPbPersonal(insight, profile);
+        const relHtml = _dfvRenderRelativity(insight);
         const budgetHtml = _dfvRenderBudget(insight);
         const stackHtml = _dfvRenderStressStack(insight);
         const sensHtml = _dfvRenderSens(history, 12);
-        this._dynamicsHost.innerHTML = `${pbHtml}${budgetHtml}${stackHtml}${sensHtml}`;
+        this._dynamicsHost.innerHTML = `${pbHtml}${relHtml}${budgetHtml}${stackHtml}${sensHtml}`;
         void profile; // 当前模块未直接用 profile（保留签名以便后续扩展）
     }
 
@@ -4801,6 +4803,23 @@ class DecisionFlowViz {
     height: 4px; background: rgba(148,163,184,0.18); border-radius: 999px; overflow: hidden;
 }
 .dfv-dynamics-host .adc-budget-bar i { display: block; height: 100%; border-radius: inherit; }
+/* §4.17/§2.10 难度相对论卡片：marks 需溢出可见才能标注 θ⃗/选中 b⃗ 刻度 */
+.dfv-dynamics-host .adc-relativity .adc-budget-head span { font-weight: 700; }
+.dfv-dynamics-host .adc-rel-meta {
+    grid-column: 1 / -1; font-size: 7.6px; color: #94a3b8; margin: 1px 0;
+}
+.dfv-dynamics-host .adc-rel-legend {
+    grid-column: 1 / -1; font-size: 7.2px; color: #64748b; margin-bottom: 2px;
+    display: flex; align-items: center; gap: 3px; flex-wrap: wrap;
+}
+.dfv-dynamics-host .adc-rel-bar { overflow: visible; position: relative; }
+.dfv-dynamics-host .adc-rel-mark {
+    position: absolute; top: 50%; width: 2px; height: 8px; border-radius: 1px;
+    transform: translate(-50%, -50%); display: inline-block;
+}
+.dfv-dynamics-host .adc-rel-legend .adc-rel-mark { position: static; transform: none; vertical-align: middle; }
+.dfv-dynamics-host .adc-rel-mark--theta { background: #fcd34d; box-shadow: 0 0 2px rgba(252,211,77,0.8); }
+.dfv-dynamics-host .adc-rel-mark--chosen { background: #f472b6; box-shadow: 0 0 2px rgba(244,114,182,0.8); }
 .dfv-dynamics-host .adc-stack,
 .dfv-dynamics-host .adc-sens { font-size: 9px; gap: 2px; }
 .dfv-dynamics-host .adc-stack--empty,

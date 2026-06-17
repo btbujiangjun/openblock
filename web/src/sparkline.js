@@ -12,7 +12,10 @@ export const METRIC_GROUP_COLORS = {
     ability: '#27ae60',
     state: '#e67e22',
     spawn: '#8e44ad',
-    stress: '#ec407a'
+    stress: '#ec407a',
+    /* §4.17/§2.10：难度相对论组（靛蓝），承载 λ / 等体感对齐 / 客观偏差 / θ⃗ 置信曲线，
+     * 与 stress(粉) 区分——前者是"个性化标定"，后者是"体感主线"。 */
+    relativity: '#818cf8'
 };
 
 /** 指标名专用高饱和配色（用于「实时状态/回放」左侧标签）。 */
@@ -48,7 +51,12 @@ const METRIC_LABEL_COLORS = {
     pacingAdjust: '#34d399',
     friendlyBoardRelief: '#60a5fa',
     sessionArcAdjust: '#e879f9',
-    challengeBoost: '#fb7185'
+    challengeBoost: '#fb7185',
+    /* §4.17/§2.10 难度相对论分量（relativity 组，靛蓝系，按语义微分色相）。 */
+    relativityLambda: '#818cf8',
+    relativityAlign: '#34d399',
+    relativityTargetGap: '#fb923c',
+    thetaConfidence: '#c4b5fd'
 };
 
 const METRIC_LABEL_FALLBACK_PALETTE = [
