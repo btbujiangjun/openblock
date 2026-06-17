@@ -5,7 +5,7 @@
     - 第 1 行：app-wordmark 字标（Open Block 文字 LOGO）
     - 第 2 行：能力（Lv.N + 称号）/ 得分 / 最佳 / 步数 / 消行 + 右上角快捷开关
 -->
-<view class="game-page" style="{{pageStyle}}" catchtouchmove="onDockTouchMove" catchtouchend="onDockTouchEnd">
+<view class="game-page {{uiThemeClass}}" style="{{pageStyle}}" catchtouchmove="onDockTouchMove" catchtouchend="onDockTouchEnd">
 
   <!-- v1.60.46：与 web index.html .header--title-only 一致——文字 LOGO 优先 -->
   <view class="header header--title-only">

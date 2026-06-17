@@ -2,7 +2,7 @@ import { _decorator, Component, Graphics, UITransform, Node, Label, Color, UIOpa
 import { Grid, Skin, getWatermark, flag, ClearedCell } from '../core';
 import { blockColor, cellEmptyColor, gridOuterColor, gridLineColor, blockMetrics, blockIcon } from './skin/palette';
 import { paintBlockFace, iconFontSize, drawShapeFaces, applyIconLabelScaled } from './skin/blockPaint';
-import { skinHasImageBlocks, getSkinBlockFrame, ensureSkinBlockFrames, paintAssetOverlay, skinHasAssetOverlay } from './skin/skinSprites';
+import { skinHasImageBlocks, getSkinBlockFrame, ensureSkinBlockFrames, skinBlockFramesReady, paintAssetOverlay, skinHasAssetOverlay } from './skin/skinSprites';
 import { Motion } from './platform/Motion';
 import { VisualFx } from './platform/VisualFx';
 
@@ -327,7 +327,9 @@ export class BoardView extends Component {
     setSkin(skin: Skin): void {
         this._skin = skin;
         // 图片皮肤（水墨雅集等）：预加载方块贴图，加载完成后若仍是当前皮肤则重绘一次。
-        if (skinHasImageBlocks(skin)) {
+        // ⚠️ 仅当贴图**尚未就绪**时才注册重绘回调（命中缓存会同步回调→再 render→无限递归，详见
+        //   DockView/GameController 同款修复）。已就绪时后续 render 直接用缓存帧即可。
+        if (skinHasImageBlocks(skin) && !skinBlockFramesReady(skin)) {
             ensureSkinBlockFrames(skin, () => {
                 if (this._skin?.id === skin.id && this._grid && this.node?.isValid) {
                     this.render(this._grid, skin);
@@ -408,6 +410,34 @@ export class BoardView extends Component {
     /** 隐藏稳态方块贴图池（动画期 hide，让 paintBlockFace 占位接管）。 */
     private hideBlockSprites(from = 0): void {
         for (let i = from; i < this._blockSprites.length; i++) this._blockSprites[i].node.active = false;
+    }
+
+    /**
+     * 结束动效期为图片皮肤补「整面 PNG」：在 paintBlockFace 底瓷砖之上叠贴图，与 render() 同款
+     * （底瓷砖 + 整面贴图）管线，让飞入 / 翻转 / 飞散动效中的方块同样显示皮肤图片
+     * （其余皮肤走 emoji 图标）。复用 _blockSprites 池，增量写属性避免每帧大量 GFX 标脏。
+     * 不旋转贴图：底瓷砖（Graphics）本就轴对齐绘制，PNG 同步保持轴对齐才不与瓷砖错位。
+     * @param spIdx 取池下标 @param cx,cy 面中心（本地坐标） @param faceSize 当前帧该格面尺寸（含缩放）
+     * @param imgInsetFrac 贴图相对面的内缩比（与 render 的 blockIconInset 同源） @param a255 透明度 0-255
+     * @returns 是否取到贴图（true 时调用方应自增 sprite 计数）
+     */
+    private paintFlyBlockImage(
+        spIdx: number, skin: Skin, colorIdx: number,
+        cx: number, cy: number, faceSize: number, imgInsetFrac: number, a255: number,
+    ): boolean {
+        const sf = getSkinBlockFrame(skin, colorIdx);
+        if (!sf) return false;
+        const imgPad = imgInsetFrac <= 0 ? 0 : Math.max(1, Math.round(faceSize * imgInsetFrac));
+        const imgSize = Math.max(1, faceSize - imgPad * 2);
+        const s = this.blockSprite(spIdx);
+        if (!s.node.active) s.node.active = true;
+        if (s.spriteFrame !== sf) s.spriteFrame = sf;
+        const ut = s.node.getComponent(UITransform) || s.node.addComponent(UITransform);
+        if (ut.contentSize.width !== imgSize || ut.contentSize.height !== imgSize) ut.setContentSize(imgSize, imgSize);
+        const pos = s.node.position;
+        if (pos.x !== cx || pos.y !== cy) s.node.setPosition(cx, cy, 0);
+        if (s.color.a !== a255) { const c = s.color.clone(); c.a = a255; s.color = c; }
+        return true;
     }
 
     /** 当前皮肤实际生效的 gap（优先 skin.gridGap，缺省 fallback 到 @property `gap`）。 */
@@ -794,7 +824,10 @@ export class BoardView extends Component {
         // 的根因之一（每帧 60Hz 重设几十个 Sprite 节点的 spriteFrame/contentSize/position）。
         // 动画收尾 render() 时再恢复 sprite + overlay。
         const imgSkin = skinHasImageBlocks(skin);
-        if (imgSkin) { this.hideBlockSprites(); this._overlayG?.clear(); }
+        // 动画期叠整面 PNG（与 render 同款）：仅清浮雕 overlay（位置态，动画中会错位），
+        // 方块贴图改由本动画逐帧驱动（paintFlyBlockImage），不再整体 hide。
+        const imgInsetFrac = (skin as unknown as { blockIconInset?: number }).blockIconInset ?? 0.18;
+        if (imgSkin) this._overlayG?.clear();
         interface FlyCell { gx: number; gy: number; colorIdx: number; jit: number; jit2: number }
         interface RowData { cells: FlyCell[]; offset: number; startTime: number; done: boolean }
 
@@ -878,6 +911,7 @@ export class BoardView extends Component {
                 flyG.clear();
 
                 let iconN = 0;
+                let spN = 0;
                 for (let ri = 0; ri < rowIdx; ri++) {
                     const row = rows[ri];
                     if (row.done) continue;
@@ -919,8 +953,10 @@ export class BoardView extends Component {
                         const faceCy = half - (c.gy + 1) * cell + cell / 2 + (sinR * ox * sx + cosR * oy * sy);
                         const sz = fsize * Math.min(sx, sy);
                         paintBlockFace(flyG, faceCx - sz / 2, faceCy - sz / 2, sz, radius, skin, c.colorIdx);
-                        // 图片皮肤动画期不画 emoji（与 web `_paintIcon` 中"已配置 PNG 时勿回退 emoji"对齐）。
-                        if (!imgSkin) {
+                        if (imgSkin) {
+                            // 图片皮肤：在底瓷砖上叠整面 PNG（与 render 一致），跟随飞行变换。
+                            if (this.paintFlyBlockImage(spN, skin, c.colorIdx, faceCx, faceCy, sz, imgInsetFrac, 255)) spN++;
+                        } else {
                             const em = blockIcon(skin, c.colorIdx);
                             if (em && fs > 0) {
                                 const l = this.icon(iconN++);
@@ -940,7 +976,9 @@ export class BoardView extends Component {
                         const scx = -half + gx * cell + cell / 2;
                         const scy = half - (gy2 + 1) * cell + cell / 2;
                         paintBlockFace(flyG, -half + gx * cell + inset, half - (gy2 + 1) * cell + inset, fsize, radius, skin, v);
-                        if (!imgSkin) {
+                        if (imgSkin) {
+                            if (this.paintFlyBlockImage(spN, skin, v, scx, scy, fsize, imgInsetFrac, 255)) spN++;
+                        } else {
                             const em = blockIcon(skin, v);
                             if (em && fs > 0) {
                                 const l = this.icon(iconN++);
@@ -952,6 +990,7 @@ export class BoardView extends Component {
                     }
                 }
                 for (let i = iconN; i < this._icons.length; i++) this._icons[i].node.active = false;
+                for (let i = spN; i < this._blockSprites.length; i++) this._blockSprites[i].node.active = false;
 
                 const allDone = rowIdx >= rows.length && doneCount >= rows.length;
                 if (!allDone) {
@@ -974,8 +1013,9 @@ export class BoardView extends Component {
         const fsize = cell - inset * 2;
         const fs = iconFontSize(fsize);
         const imgSkin = skinHasImageBlocks(skin);
-        // 翻转波期间 sprite 在缩放，浮雕保持原位会错位 → 清掉，render 收尾时重建。
-        if (imgSkin) { this.hideBlockSprites(); this._overlayG?.clear(); }
+        const imgInsetFrac = (skin as unknown as { blockIconInset?: number }).blockIconInset ?? 0.18;
+        // 翻转波期间浮雕保持原位会错位 → 清掉浮雕；方块贴图改逐帧跟随翻转缩放（paintFlyBlockImage）。
+        if (imgSkin) this._overlayG?.clear();
         const TOTAL_MS = 2000;
         const FLIP_MS = 300;
         const STAGGER = Math.min(180, (TOTAL_MS - FLIP_MS) / Math.max(n - 1, 1));
@@ -1013,6 +1053,7 @@ export class BoardView extends Component {
             flyG.clear();
 
             let iconN = 0;
+            let spN = 0;
             for (let lineIdx = 0; lineIdx < n; lineIdx++) {
                 const k = orderPos(lineIdx);
                 const t = Math.max(0, Math.min(1, (elapsed - k * STAGGER) / FLIP_MS));
@@ -1057,7 +1098,10 @@ export class BoardView extends Component {
                         iconY = half - (gy + 0.5) * cell;
                     }
                     paintBlockFace(flyG, baseX, baseY, sizeScaled, Math.max(0, radius * scale), skin, v);
-                    if (!imgSkin) {
+                    if (imgSkin) {
+                        // 翻转缩放：PNG 取与底瓷砖同心同尺寸（sizeScaled 为方），随翻转一起被压扁/复原。
+                        if (this.paintFlyBlockImage(spN, skin, v, baseX + sizeScaled / 2, baseY + sizeScaled / 2, sizeScaled, imgInsetFrac, 255)) spN++;
+                    } else {
                         const em = blockIcon(skin, v);
                         if (em && fs > 0) {
                             const l = this.icon(iconN++);
@@ -1069,6 +1113,7 @@ export class BoardView extends Component {
                 }
             }
             for (let i = iconN; i < this._icons.length; i++) this._icons[i].node.active = false;
+            for (let i = spN; i < this._blockSprites.length; i++) this._blockSprites[i].node.active = false;
 
             const allFlipped = elapsed >= (n - 1) * STAGGER + FLIP_MS;
             if (!allFlipped) {
@@ -1095,8 +1140,9 @@ export class BoardView extends Component {
         const fsize = cell - inset * 2;
         const fs = iconFontSize(fsize);
         const imgSkin = skinHasImageBlocks(skin);
-        // 飞散期间不画浮雕（避免飞行 sprite 与固定浮雕错位）；动画末尾盘面清空，浮雕也清空。
-        if (imgSkin) { this.hideBlockSprites(); this._overlayG?.clear(); }
+        const imgInsetFrac = (skin as unknown as { blockIconInset?: number }).blockIconInset ?? 0.18;
+        // 飞散期间不画浮雕（避免与飞行贴图错位）；方块贴图改逐帧跟随飞散位置+淡出（paintFlyBlockImage）。
+        if (imgSkin) this._overlayG?.clear();
         const flyG = this._blocksG!;
         const FLYOUT_MS = 1600;
         const boardPx = this.boardPx;
@@ -1123,6 +1169,7 @@ export class BoardView extends Component {
             flyG.clear();
 
             let iconN = 0;
+            let spN = 0;
             for (let gx = 0; gx < n; gx++) {
                 const colNorm = gx / N;
                 const lt = clamp01((t - colNorm * 0.22) / 0.78);
@@ -1163,7 +1210,10 @@ export class BoardView extends Component {
                     const a255 = Math.round(alpha * 255);
 
                     paintBlockFace(flyG, fcx - sz / 2, fcy - sz / 2, sz, Math.max(0, radius * Math.min(sX, sY)), skin, v, a255);
-                    if (!imgSkin) {
+                    if (imgSkin) {
+                        // 飞散：PNG 跟随飞行中心 + 缩窄尺寸 + 同步淡出 alpha。
+                        if (this.paintFlyBlockImage(spN, skin, v, fcx, fcy, sz, imgInsetFrac, a255)) spN++;
+                    } else {
                         const em = blockIcon(skin, v);
                         if (em && fs > 0 && alpha > 0.35) {
                             const l = this.icon(iconN++);
@@ -1175,12 +1225,19 @@ export class BoardView extends Component {
                 }
             }
             for (let i = iconN; i < this._icons.length; i++) this._icons[i].node.active = false;
+            for (let i = spN; i < this._blockSprites.length; i++) this._blockSprites[i].node.active = false;
 
             if (t < 1) {
                 raf3(tick);
             } else {
                 flyG.clear();
                 for (let i = 0; i < this._icons.length; i++) this._icons[i].node.active = false;
+                // 盘面清空：贴图池也复位（alpha 复位为不透明，下一局 render 直接复用不残留半透明）。
+                for (let i = 0; i < this._blockSprites.length; i++) {
+                    const s = this._blockSprites[i];
+                    s.node.active = false;
+                    if (s.color.a !== 255) { const c = s.color.clone(); c.a = 255; s.color = c; }
+                }
                 resolve();
             }
         };

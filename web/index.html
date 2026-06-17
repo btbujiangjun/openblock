@@ -302,6 +302,17 @@
         .feedback-toggle-btn:active, .in-game-menu-btn--toolbar:active {
           background: rgba(255, 255, 255, 0.14) !important;
         }
+        /* 浅色皮肤（水墨雅集等 uiDark:false）：白色半透明芯片在浅盘上几乎隐形，
+           反转为极淡墨色芯片，保留「与 HUD 浑然一体」的克制感但可见。 */
+        html[data-ui-theme="light"] .feedback-toggle-btn,
+        html[data-ui-theme="light"] .in-game-menu-btn--toolbar {
+          background: rgba(15, 23, 42, 0.05) !important;
+          color: var(--text-primary, #283330) !important;
+        }
+        html[data-ui-theme="light"] .feedback-toggle-btn:active,
+        html[data-ui-theme="light"] .in-game-menu-btn--toolbar:active {
+          background: rgba(15, 23, 42, 0.11) !important;
+        }
 
         /* 5. 移动端显眼退出按钮：右上角悬浮，比原 ☰ 更大更易触发 */
         #mobile-exit-btn {

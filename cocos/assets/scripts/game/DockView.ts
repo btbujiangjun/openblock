@@ -2,7 +2,7 @@ import { _decorator, Component, Graphics, UITransform, Node, Label, Color, Sprit
 import { DockBlock, Skin } from '../core';
 import { drawShapeFaces, ICON_FONT_FAMILY, paintBlockFace } from './skin/blockPaint';
 import { blockMetrics } from './skin/palette';
-import { skinHasImageBlocks, ensureSkinBlockFrames, getSkinBlockFrame, paintAssetOverlay } from './skin/skinSprites';
+import { skinHasImageBlocks, ensureSkinBlockFrames, skinBlockFramesReady, getSkinBlockFrame, paintAssetOverlay } from './skin/skinSprites';
 import { inheritLayer, screenToLocal } from './ui/uiKit';
 
 const { ccclass, property } = _decorator;
@@ -249,7 +249,10 @@ export class DockView extends Component {
         this._skin = skin;
         const imgSkin = skinHasImageBlocks(skin);
         // 图片皮肤：候选块贴图按需加载，加载完成后若仍是当前皮肤则重绘一次。
-        if (imgSkin) {
+        // ⚠️ 仅当贴图**尚未就绪**时才注册重绘回调。否则命中缓存会**同步**回调 → 又调 render →
+        //   再注册 → 无限递归（被 ensureSkinBlockFrames 内层 try/catch 吞掉栈溢出，但每次渲染
+        //   会把候选区重绘上千次，正是「候选区不干净」的根因）。已就绪时下面的绘制已用上缓存帧。
+        if (imgSkin && !skinBlockFramesReady(skin)) {
             ensureSkinBlockFrames(skin, () => {
                 if (this._skin?.id === skin.id && this.node?.isValid) this.render(this._blocks, skin);
             });

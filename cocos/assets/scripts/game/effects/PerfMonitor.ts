@@ -49,8 +49,14 @@ export class PerfMonitor extends Component {
     private _touches = 0;
     /** 连续无触摸的窗口数；≥ FROZEN_THRESHOLD_WINDOWS 时升级冻屏告警。 */
     private _idleTouchWindows = 0;
-    /** 连续多少个窗口（5s/窗口）「fps 正常 + 0 触摸」判定为冻屏；3 ≈ 15s 静默，对玩家无干扰但能稳定捕捉。 */
+    /** 连续多少个窗口（5s/窗口）「fps 高位 + 0 触摸」判定为冻屏；3 ≈ 15s 静默，对玩家无干扰但能稳定捕捉。 */
     private static readonly FROZEN_THRESHOLD_WINDOWS = 3;
+    /**
+     * 冻屏判定的帧率下限：必须 > FrameRate.IDLE_FPS(30) 且 ≤ ACTIVE_FPS(60)。
+     * 取 50 —— 正常自适应空闲态（30fps）落在此线下方，不会被误判为冻屏；
+     * 而软冻屏（surface 失效但 JS 仍按高位帧率空转）落在此线上方，仍能被捕捉。
+     */
+    private static readonly FROZEN_FPS_FLOOR = 50;
     /** 冻屏持续多少个窗口后强制触发自愈（relayout + safeRedraw + LOW_MEMORY trim）。
      *  6 窗口 = 30s 持续冻屏 → 比 FROZEN_THRESHOLD_WINDOWS=3（15s）更保守，避免玩家"思考时间长"的误伤
      *  （15s 已经报警但不动手，30s 仍未恢复才动手）。每次触发后冷却 12 窗口=60s 避免风暴。 */
@@ -104,8 +110,14 @@ export class PerfMonitor extends Component {
         const nodeDelta = this._baseNodes >= 0 ? nodes - this._baseNodes : 0;
         const heapStr = heapMB >= 0 ? `${heapMB}(${heapDelta >= 0 ? '+' : ''}${heapDelta})` : 'n/a';
 
-        // 冻屏检测：fps 正常但本窗口 0 触摸 → idleWindows+1；任一触摸 → 清零。
-        if (this._touches === 0 && fps >= 20) this._idleTouchWindows++;
+        // 冻屏检测：fps 仍维持在「高位帧率」但本窗口 0 触摸 → idleWindows+1；任一触摸 → 清零。
+        // ⭐ 关键：帧率下限必须高于 FrameRate.IDLE_FPS(30)。否则自适应帧率的正常空闲态
+        //   （玩家盯着盘面思考、停手 3s 后引擎主动降到 30fps）会与「软冻屏」指纹完全重合，
+        //   导致每隔 30s 空闲就误判冻屏并强制 relayout + LOW_MEMORY 裁剪 → 周期性卡顿闪烁
+        //   （真机日志实锤：idle 30fps 被判 Frozen、recover 又把紧随的交互帧率打到 23fps）。
+        //   真正的软冻屏（surface 失效但 JS 主循环在跑）会把帧率钉在最后设定的高位且收不到触摸，
+        //   故用 FROZEN_FPS_FLOOR(50) 这条「高于空闲、贴近 active」的线把两者分开。
+        if (this._touches === 0 && fps >= PerfMonitor.FROZEN_FPS_FLOOR) this._idleTouchWindows++;
         else this._idleTouchWindows = 0;
         const frozen = this._idleTouchWindows >= PerfMonitor.FROZEN_THRESHOLD_WINDOWS;
 
@@ -126,6 +138,8 @@ export class PerfMonitor extends Component {
             }
         } else if (fps < 30 || heapDelta > 64 || nodeDelta > 300) {
             console.warn(`${line} ⚠️`);
+            // 🔬 节点暴增时按 name 打印 Top 贡献者，定位「1900 节点爆炸」的源头（哪类节点失控创建）。
+            if (nodeDelta > 300) this.dumpNodeBreakdown();
         } else {
             console.log(line);
         }
@@ -142,6 +156,30 @@ export class PerfMonitor extends Component {
         const perf = (globalThis as unknown as { performance?: { memory?: { usedJSHeapSize?: number } } }).performance;
         const used = perf?.memory?.usedJSHeapSize;
         return typeof used === 'number' ? Math.round(used / (1024 * 1024)) : -1;
+    }
+
+    /** 🔬 节点名直方图诊断：节点暴增时打印 Top 贡献者（含活跃/非活跃标注），定位失控创建源。 */
+    private _lastDumpMs = 0;
+    private dumpNodeBreakdown(): void {
+        const now = Date.now();
+        if (now - this._lastDumpMs < 3000) return; // 限频，避免连消连环刷屏
+        this._lastDumpMs = now;
+        const scene = director.getScene();
+        if (!scene) return;
+        const hist = new Map<string, { total: number; inactive: number }>();
+        const walk = (n: Node): void => {
+            const name = n.name || '<noname>';
+            const rec = hist.get(name) ?? { total: 0, inactive: 0 };
+            rec.total++;
+            if (!n.active) rec.inactive++;
+            hist.set(name, rec);
+            const kids = n.children;
+            for (let i = 0; i < kids.length; i++) walk(kids[i]);
+        };
+        walk(scene as unknown as Node);
+        const top = [...hist.entries()].sort((a, b) => b[1].total - a[1].total).slice(0, 14);
+        const parts = top.map(([k, v]) => `${k}=${v.total}${v.inactive ? `(off${v.inactive})` : ''}`);
+        console.warn(`[OpenBlock][DIAG] node breakdown top14: ${parts.join(' ')}`);
     }
 
     /** 递归统计当前场景活动节点数（每窗口一次，成本可忽略）。 */

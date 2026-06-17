@@ -247,14 +247,14 @@ export class Bootstrap extends Component {
         ctrl.wire({
             model, meta, board, ambientFx, lineFx, fx, overlayFx, dock, hud, ghost,
             skillBar, metaPanel, shakeTarget: play, bgNode, playerCtx, profile, spawner,
-            onSkinAccentChange: (accent: Color, _dark: Color) => {
+            onSkinAccentChange: (accent: Color, _dark: Color, light: boolean) => {
                 for (const n of this._buttons) {
                     const pb = n.getComponent(PillButton);
-                    if (pb) pb.setSkinStroke(accent);
+                    if (pb) pb.setSkinTheme(accent, light);
                 }
                 if (this._wheelBtn) {
                     const wb = this._wheelBtn.getComponent(PillButton);
-                    if (wb) wb.setSkinStroke(accent);
+                    if (wb) wb.setSkinTheme(accent, light);
                 }
             },
         });

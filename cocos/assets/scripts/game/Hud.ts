@@ -38,9 +38,7 @@ export class Hud extends Component {
     private rowNode!: Node;
     private levelPill!: { node: Node; g: Graphics; lbl: Label };
     private scoreLbl!: Label;
-    private scoreShadow!: Label;
     private bestLbl!: Label;
-    private bestShadow!: Label;
     private timeLabel!: Label;
     private comboHeart!: { node: Node; g: Graphics; lbl: Label };
     private bestGapLbl!: Label;
@@ -111,15 +109,15 @@ export class Hud extends Component {
         this.levelPill = this.makePill(Hud.PWR_X, Hud.CONTENT_Y);
         this.applyLevelPillText();
 
-        // 得分：小灰标题 + 强调色大数字（带 1px 投影）
+        // 得分：小灰标题 + 强调色大数字（贴边描边强化，不再用偏移阴影 Label——后者在小字号下成重影）
         this.scoreCaption = this.makeLabel(this.rowNode, t('hud.caption.score'), 13, Hud.SCORE_X, Hud.CAP_Y, Hud.CAPTION);
-        this.scoreShadow = this.makeLabel(this.rowNode, '0', 30, Hud.SCORE_X + 1, Hud.CONTENT_Y - 2, new Color(0, 0, 0, 120));
         this.scoreLbl = this.makeLabel(this.rowNode, '0', 30, Hud.SCORE_X, Hud.CONTENT_Y, this.accent);
+        this.applyDigitOutline(this.scoreLbl);
 
         // 最佳：小灰标题 + 强调色大数字
         this.bestCaption = this.makeLabel(this.rowNode, t('hud.caption.best'), 13, Hud.BEST_X, Hud.CAP_Y, Hud.CAPTION);
-        this.bestShadow = this.makeLabel(this.rowNode, '0', 30, Hud.BEST_X + 1, Hud.CONTENT_Y - 2, new Color(0, 0, 0, 120));
         this.bestLbl = this.makeLabel(this.rowNode, '0', 30, Hud.BEST_X, Hud.CONTENT_Y, this.accent);
+        this.applyDigitOutline(this.bestLbl);
 
         // combo 心形（对齐 web `#combo-heart`）：得分上方粉色 pill，默认隐藏，连消 ≥2 弹出。
         this.comboHeart = this.makeHeart(Hud.SCORE_X, 36);
@@ -195,7 +193,6 @@ export class Hud extends Component {
 
     setBest(best: number): void {
         this.bestLbl.string = `${best}`;
-        this.bestShadow.string = `${best}`;
     }
 
     /** coins 不在 HUD 单行内展示（对齐 web：余额由技能可负担态体现），保留接口避免上层改动。 */
@@ -275,7 +272,6 @@ export class Hud extends Component {
 
     private setScoreText(s: string): void {
         this.scoreLbl.string = s;
-        this.scoreShadow.string = s;
     }
 
     private applyLevelPillText(): void {
@@ -342,6 +338,17 @@ export class Hud extends Component {
             w += code > 0x2000 ? size : size * 0.56;
         }
         return w;
+    }
+
+    /**
+     * 得分/最佳数字的「贴边描边」强化：用 Label 自带 outline（环绕字形、零偏移）替代旧的偏移阴影
+     * Label。旧方案是另起一个 (+1,-2) 的黑色 Label 叠在后面，小字号下两层错位 → 重影、发糊；
+     * outline 紧贴字形边缘，既加粗存在感又保持每个数字清晰锐利。
+     */
+    private applyDigitOutline(l: Label): void {
+        l.enableOutline = true;
+        l.outlineColor = new Color(20, 28, 38, 170);
+        l.outlineWidth = 2;
     }
 
     private makeLabel(parent: Node, text: string, size: number, x: number, y: number, color: Color): Label {

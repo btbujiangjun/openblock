@@ -155,6 +155,15 @@ export function paintAssetOverlay(g: Graphics, skin: Skin, x: number, y: number,
     }
 }
 
+/**
+ * 该皮肤的方块贴图是否已全部加载入缓存。
+ * 用于让调用方在「已就绪」时跳过 onReady 重绘回调注册 —— 否则若回调本身又触发一次绘制，
+ * 而 ensureSkinBlockFrames 命中缓存会**同步**回调，便形成无限递归（drawGhost↔onReady）。
+ */
+export function skinBlockFramesReady(skin: Skin): boolean {
+    return _cache.has(skin.id);
+}
+
 /** 取已缓存的某色方块贴图；未加载完成返回 null（调用方此时回退绘面占位）。 */
 export function getSkinBlockFrame(skin: Skin, colorIdx: number): SpriteFrame | null {
     const arr = _cache.get(skin.id);

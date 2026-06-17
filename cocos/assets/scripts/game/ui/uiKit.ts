@@ -306,6 +306,8 @@ export class PillButton extends Component {
     private _disabled = false;
     /** 皮肤强调描边色（不设则走 base+60 自动 lighten）。 */
     private _skinStroke: Color | null = null;
+    /** 浅色皮肤（uiDark:false）：芯片反转为「纸白底 + 墨色图标 + accent 描边」，避免深色芯片在浅盘上发黑。 */
+    private _light = false;
 
     init(text: string, size: number, onClick: () => void, style?: PillStyle): PillButton {
         this.onClick = onClick;
@@ -354,6 +356,16 @@ export class PillButton extends Component {
         this.redraw();
     }
 
+    /**
+     * 设置皮肤主题（accent + 是否浅色 UI）。浅色皮肤把芯片反转为纸白底 + 墨色图标，
+     * 解决「水墨雅集等 uiDark:false 皮肤下功能按钮黑乎乎不搭」。
+     */
+    setSkinTheme(accent: Color | null, light: boolean): void {
+        this._skinStroke = accent;
+        this._light = light;
+        this.redraw();
+    }
+
     setDisabled(disabled: boolean): void {
         if (this._disabled === disabled) return;
         this._disabled = disabled;
@@ -380,8 +392,32 @@ export class PillButton extends Component {
             return;
         }
 
-        // 底色：若有皮肤 accent，混入 ~16% 的 accent 色相（对齐 web `color-mix(accent 16%, bg)`）
         const accent = this._skinStroke;
+
+        // 浅色皮肤（uiDark:false）：纸白芯片 + accent 描边 + 墨色图标，避免深色芯片在月白盘面上发黑。
+        if (this._light) {
+            let lr = 246, lg = 249, lb = 245;
+            if (accent) {
+                const mix = 0.12;
+                lr = Math.round(lr * (1 - mix) + accent.r * mix);
+                lg = Math.round(lg * (1 - mix) + accent.g * mix);
+                lb = Math.round(lb * (1 - mix) + accent.b * mix);
+            }
+            g.fillColor = new Color(lr, lg, lb, 236);
+            g.roundRect(-w / 2, -h / 2, w, h, r);
+            g.fill();
+            g.lineWidth = 1.5;
+            g.strokeColor = accent
+                ? new Color(accent.r, accent.g, accent.b, 150)
+                : new Color(60, 88, 80, 70);
+            g.roundRect(-w / 2, -h / 2, w, h, r);
+            g.stroke();
+            // 文字按钮用墨色；emoji 图标自带色彩，label.color 不影响其显示。
+            this.lbl.color = new Color(40, 51, 48, 255);
+            return;
+        }
+
+        // 底色：若有皮肤 accent，混入 ~16% 的 accent 色相（对齐 web `color-mix(accent 16%, bg)`）
         let bgR = this.base.r, bgG = this.base.g, bgB = this.base.b, bgA = this.base.a;
         if (accent) {
             const mix = 0.16;

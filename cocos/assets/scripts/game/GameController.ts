@@ -37,7 +37,7 @@ import { Modal, TapBus, screenToLocal, inheritLayer } from './ui/uiKit';
 import { guard, reportFatal } from './ui/Fatal';
 import { blockColor, bgColor, accentColor, accentDarkColor, blockIcon, blockMetrics } from './skin/palette';
 import { drawShapeFaces, iconFontSize, ICON_FONT_FAMILY, type DrawShapeSpritePool } from './skin/blockPaint';
-import { skinHasImageBlocks, ensureSkinBlockFrames } from './skin/skinSprites';
+import { skinHasImageBlocks, ensureSkinBlockFrames, skinBlockFramesReady } from './skin/skinSprites';
 import { consumeFestivalRecommendation, consumeWeekendTrial, consumeBirthdayGift } from './skin/seasonalRecommend';
 import { Storage, STORAGE_KEYS } from './platform/Storage';
 import { AudioManager } from './audio/AudioManager';
@@ -285,6 +285,14 @@ export class GameController extends Component {
     private _dragMovedAtMs = 0;
     private _lastTouchScreenX = 0;
     private _lastTouchScreenY = 0;
+    /**
+     * 拖拽 snap「按帧节流」脏标记。
+     * iOS 的 TOUCH_MOVE 以 ~60–120Hz 派发，而每次 updateSnap 都要跑 pickSmartHoverPlacement 网格扫描
+     * + renderLandingGhost(Graphics 重绘) + updatePreviewClearHint(再一次扫描 + L7 重绘)。逐事件执行 =
+     * 每帧最多 2 次重活，是真机拖拽只有 ~40fps 的主因。改为：onTouchMove 仅置脏 + 轻量 moveGhost 跟手，
+     * 重活在 update() 内每帧最多收敛执行一次（release 落子路径仍即时同步，不受影响）。
+     */
+    private _snapDirty = false;
     /** 触摸事件重复派发去重：iOS 边缘手势 / 系统手势冲突时引擎会以 50Hz+ 重复发同一 touch-end → UI 假死。 */
     private _lastTouchEndTouchId = -2;
     private _lastTouchEndX = -1;
@@ -338,8 +346,8 @@ export class GameController extends Component {
     private _nearMissLastShownMs: number | null = null;
     /** 由 Bootstrap 注入：从结束卡「菜单」返回主菜单。 */
     onRequestMenu: (() => void) | null = null;
-    /** 由 Bootstrap 注入：皮肤 accent 变化时同步功能按钮描边色。 */
-    onSkinAccentChange: ((accent: Color, dark: Color) => void) | null = null;
+    /** 由 Bootstrap 注入：皮肤 accent 变化时同步功能按钮主题（accent + 是否浅色 UI）。 */
+    onSkinAccentChange: ((accent: Color, dark: Color, light: boolean) => void) | null = null;
     /**
      * Ghost 生命代际 token：每次新拖拽 +1。reject 抖动的延迟清理回调会拿激活时的 token 与现值对比，
      * 若不一致说明用户已开启新一次拖拽 → 跳过清理，避免清掉新 ghost 的渲染状态（"无法二次激活"根因）。
@@ -373,8 +381,8 @@ export class GameController extends Component {
         profile?: AdaptiveProfile;
         /** 出块器引用：新局开始时调 resetForNewGame() 清掉跨局态。可选（缺省时回退为 no-op，老路径仍兼容）。 */
         spawner?: { resetForNewGame: () => void; setStrategyId?: (id: string) => void };
-        /** Bootstrap 注入：皮肤 accent 变化时同步功能按钮描边色。 */
-        onSkinAccentChange?: (accent: Color, dark: Color) => void;
+        /** Bootstrap 注入：皮肤 accent 变化时同步功能按钮主题（accent + 是否浅色 UI）。 */
+        onSkinAccentChange?: (accent: Color, dark: Color, light: boolean) => void;
     }): void {
         if (parts.onSkinAccentChange) this.onSkinAccentChange = parts.onSkinAccentChange;
         Object.assign(this, parts);
@@ -870,7 +878,31 @@ export class GameController extends Component {
         AudioManager.sfxBonus();
     }
 
+    /** 诊断去重：同一错误信息只打一次，避免卡死时每帧刷屏。 */
+    private _diagLogged: Set<string> = new Set();
+
     update(dt: number): void {
+        // 🔬 诊断包裹（定位「每帧抛异常 → 引擎主循环卡死」）：捕获真实错误信息 + 当时拖拽状态，
+        //   去重打印一次；并吞掉异常，避免每帧抛出把主循环顶死成「界面卡死」。定位修复后移除。
+        try {
+            this.updateImpl(dt);
+        } catch (err) {
+            const msg = err instanceof Error ? (err.message || String(err)) : String(err);
+            if (!this._diagLogged.has(msg)) {
+                this._diagLogged.add(msg);
+                const stack = err instanceof Error ? (err.stack ?? '') : '';
+                console.error(
+                    `[OpenBlock][DIAG] update() EXCEPTION: ${msg}\n`
+                    + `state: dragIndex=${this.dragIndex} dragMoved=${this.dragMoved ? 1 : 0} snapDirty=${this._snapDirty ? 1 : 0} `
+                    + `hasShape=${this.dragShape ? 1 : 0} tapSel=${this._tapSelected ? 1 : 0} liftF=${this._liftFactor.toFixed(2)} `
+                    + `lastTouch=(${this._lastTouchScreenX | 0},${this._lastTouchScreenY | 0}) modalOpen=${(() => { try { return Modal.isOpen() ? 1 : 0; } catch { return -1; } })()}\n`
+                    + `stack: ${stack}`,
+                );
+            }
+        }
+    }
+
+    private updateImpl(dt: number): void {
         // 自适应帧率：空闲(无交互/动画)时降到 30fps 散热省电，交互/消行期由 poke() 顶到 60fps。
         FrameRate.tick();
         // 拖拽看门狗：任何被吞的 TOUCH_END / TOUCH_CANCEL 都会让 dragIndex 永久 >=0，
@@ -883,6 +915,13 @@ export class GameController extends Component {
         // lift 时间驱动：dragMoved 后 LIFT_RAMP_MS 内推进 _liftFactor 0→1，
         // 即使手指停在原地不动也持续渐进——水平 horizontal motion 与垂直 lift 解耦的关键。
         this.advanceLiftRamp();
+        // ⚡ 拖拽 snap 按帧节流：onTouchMove 把多次 move 事件折叠成一个脏标记，这里每帧最多跑一次重活
+        //    （网格 smart-snap 扫描 + 落地虚影 + 潜在消行高亮）。lift 渐进期 advanceLiftRamp 也会置脏，
+        //    使落点高亮随抬升中的 ghost 同步刷新。release 落子路径仍由 onTouchEnd 即时同步，不经此处。
+        if (this.dragIndex >= 0 && this._snapDirty) {
+            this._snapDirty = false;
+            this.updateSnapAt(this._lastTouchScreenX, this._lastTouchScreenY, false);
+        }
         if (this.model.modeDef.timeLimitSec <= 0) return;
         if (this.model.gameOver || Modal.isOpen()) return;
         if (this.timeLeft <= 0) return;
@@ -914,6 +953,8 @@ export class GameController extends Component {
         this._liftFactor = eased;
         // 用最近一次 touch 坐标重摆 ghost（手指此刻可能在动也可能不在动，都走这条路统一）。
         this.repositionGhost(this._lastTouchScreenX, this._lastTouchScreenY);
+        // lift 还在渐进 → 落点高亮需随 ghost 同步刷新（snap 依赖 _liftFactor）。置脏，由 update() 收敛执行。
+        this._snapDirty = true;
     }
 
     /**
@@ -2586,6 +2627,8 @@ export class GameController extends Component {
         this.dragShape = block.shape;
         this.dragColor = block.colorIdx;
         this.snap = null;
+        // 清掉上一次拖拽可能残留的 snap 脏标记：本次 snap 仅在首个 move 事件后才计算（与旧逐事件行为一致）。
+        this._snapDirty = false;
         // lift 时间渐进：dragMoved 翻 true 才会启动；此处只清零，避免上一次拖拽残留。
         this._liftFactor = 0;
         this._dragMovedAtMs = 0;
@@ -2670,8 +2713,11 @@ export class GameController extends Component {
         FrameRate.poke();
         this.dragLastSeenAtMs = Date.now();
         this.moveGhost(e);
-        // 起手即视为「跟手位移」：updateSnap 用真实指位 + lift 计算落点（与 web 一致）。
-        this.updateSnap(e);
+        // 起手即视为「跟手位移」：snap 用真实指位 + lift 计算落点（与 web 一致）。
+        // ⚡ 仅置脏，不在此逐事件跑重活（pickSmartHoverPlacement + renderLandingGhost + previewClearHint）——
+        //    iOS move 事件 60–120Hz，逐事件执行会把每帧拖拽预算吃满；重活收敛到 update() 每帧最多一次。
+        //    轻量的 moveGhost 仍逐事件执行，跟手块紧贴指尖不丢跟手感。
+        this._snapDirty = true;
         // 节流心跳：每 30 个 move 打一次，证明事件流仍在转。安卓侧若用户报告"拖动卡死"，
         // 这条日志的"最后一次时间"就是事件被吞断的时刻 —— 配合 dragWatchdog 的 reset 日志可精确定位。
         if (DEBUG_TOUCH) {
@@ -2858,9 +2904,15 @@ export class GameController extends Component {
         else this.scheduleOnce(exec, 0);
     }
 
+    /** updateSnap 的事件版包装：从事件取屏幕坐标后委托 updateSnapAt（release 落子路径即时同步用）。 */
     private updateSnap(e: EventTouch, release = false): void {
-        if (!this.dragShape) return;
         const loc = e.getLocation();
+        this.updateSnapAt(loc.x, loc.y, release);
+    }
+
+    private updateSnapAt(locX: number, locY: number, release = false): void {
+        if (!this.dragShape) return;
+        const loc = { x: locX, y: locY };
         // 指尖是否回到 dock 区域：true → dock 把原槽以半透明形式画回去，提示"松手放回这里取消"；
         // false → 槽位完全空（候选块全在指尖 ghost 上）。dock 内部带值不变守卫，每帧调用零开销。
         this.dock.setHoverBackOverDock(this.dock.isScreenInDockArea(loc.x, loc.y));
@@ -3036,11 +3088,17 @@ export class GameController extends Component {
         let spritePool: DrawShapeSpritePool | undefined;
         if (imgSkin) {
             // 贴图异步加载：完成后若仍在拖同一块则重绘一次让 PNG 浮现（加载前先显示底瓷砖占位）。
-            ensureSkinBlockFrames(skin, () => {
-                if (this.dragIndex >= 0 && this.dragShape && this.ghost?.isValid && skinHasImageBlocks(this.model.skin)) {
-                    try { this.drawGhost(); } catch { /* ignore */ }
-                }
-            });
+            // ⚠️ 关键：仅当贴图**尚未就绪**时才注册重绘回调。否则 ensureSkinBlockFrames 命中缓存会
+            //   **同步**回调 onReady → 又调 drawGhost → 再注册 → 无限递归（每层 new Node('ghostIcons')，
+            //   ~1900 层栈溢出，正是真机「激活卡 + 节点爆炸 1900」的根因）。已缓存时本次 drawShapeFaces
+            //   已直接用上缓存帧，无需任何重绘回调。
+            if (!skinBlockFramesReady(skin)) {
+                ensureSkinBlockFrames(skin, () => {
+                    if (this.dragIndex >= 0 && this.dragShape && this.ghost?.isValid && skinHasImageBlocks(this.model.skin)) {
+                        try { this.drawGhost(); } catch { /* ignore */ }
+                    }
+                });
+            }
             this.ensureGhostSpriteRoot();
             spritePool = {
                 getSprite: (i) => this.ghostSprite(i),
@@ -3394,7 +3452,8 @@ export class GameController extends Component {
         const dark = accentDarkColor(skin);
         this.hud.setAccent(accent);
         this.skillBar.setSkinAccent(accent, dark);
-        this.onSkinAccentChange?.(accent, dark);
+        // uiDark:false 的浅色皮肤（水墨雅集等）→ 功能按钮改用浅色芯片，避免深芯片在浅盘上发黑。
+        this.onSkinAccentChange?.(accent, dark, skin.uiDark === false);
     }
 
     /** 循环切换下一款皮肤（保留旧入口，便于快捷切换）。 */

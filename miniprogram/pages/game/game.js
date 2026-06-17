@@ -58,6 +58,7 @@ Page({
     dockSlotSize: 80,
     dockCellSize: 18,
     pageStyle: '',
+    uiThemeClass: '',
     gridWrapperStyle: '',
     dockStyle: '',
     dragIdx: -1,
@@ -438,6 +439,8 @@ Page({
         const accent = getSkinAccent((this._skin || getActiveSkin()).id);
         return `padding-left:${pagePad}px;padding-right:${pagePad}px;--accent:${accent};`;
       })(),
+      // 浅色皮肤（水墨雅集等 uiDark:false）→ 根节点挂 ui-light class，让快捷开关芯片改用浅色（避免深芯片发黑）。
+      uiThemeClass: (this._skin || getActiveSkin()).uiDark === false ? 'ui-light' : '',
       gridWrapperStyle: `padding:${gridPadY}px 0 ${Math.max(6, gridPadY - 2)}px;`,
       dockStyle: `gap:${dockGap}px;padding:${dockPadTop}px 0 ${dockPadBottom}px;`,
       key: [
@@ -470,6 +473,7 @@ Page({
       dockSlotSize: layout.dockSlotSize,
       dockCellSize: layout.dockCellSize,
       pageStyle: layout.pageStyle,
+      uiThemeClass: layout.uiThemeClass,
       gridWrapperStyle: layout.gridWrapperStyle,
       dockStyle: layout.dockStyle,
     }, () => {
@@ -504,6 +508,7 @@ Page({
       dockSlotSize: layout.dockSlotSize,
       dockCellSize: layout.dockCellSize,
       pageStyle: layout.pageStyle,
+      uiThemeClass: layout.uiThemeClass,
       gridWrapperStyle: layout.gridWrapperStyle,
       dockStyle: layout.dockStyle,
       dock: this._controller ? this._dockViewData(this._controller.dock, -1) : this.data.dock,

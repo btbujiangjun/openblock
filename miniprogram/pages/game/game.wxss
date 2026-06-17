@@ -96,9 +96,11 @@
    * 主得分 stat-value--accent 由 score-burst 动画临时放大到 1.2-1.3，
    * 视觉强度保持不变。 */
   font-size: 32rpx;
-  font-weight: 900;
+  /* v1.x 可读性：900 字重略糊，降到 800 + tabular-nums 等宽数字，保持醒目但每位清晰。 */
+  font-weight: 800;
   color: #233044;
   font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'lnum' 1;
   letter-spacing: 0.02em;
   line-height: 1;
   text-shadow:
@@ -256,6 +258,24 @@
 .fx-toggle-icon {
   font-size: 24rpx;
   line-height: 1;
+}
+
+/* 浅色皮肤（水墨雅集等 uiDark:false）：快捷开关芯片反转为「纸白底 + accent 描边」，
+   避免深色芯片（rgba(12,16,34,.68)）在月白盘面上发黑不搭。激活态仍用 --accent 实底。 */
+.ui-light .fx-toggle {
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.6), transparent 50%),
+    rgba(255, 255, 255, 0.78);
+  border-color: rgba(15, 23, 42, 0.14);
+  box-shadow:
+    0 1rpx 0 rgba(255, 255, 255, 0.6) inset,
+    0 4rpx 10rpx rgba(15, 23, 42, 0.12);
+}
+.ui-light .fx-toggle--on {
+  background:
+    radial-gradient(circle at 34% 24%, rgba(255, 255, 255, 0.35), transparent 48%),
+    var(--accent, #5ad487);
+  border-color: var(--accent-glow, rgba(90, 212, 135, 0.42));
 }
 
 /* --- 棋盘 --- */

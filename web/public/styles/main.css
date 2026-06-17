@@ -491,6 +491,37 @@ body.block-drag-active #app {
         0 3px 10px rgba(0, 0, 0, 0.16);
 }
 
+/* ───────────────────────────────────────────────────────────────
+ * 浅色皮肤（uiDark:false：水墨雅集 / 晨曦 / 夏日 / 咖啡馆 / 冬日木屋 等）功能按钮配色
+ *
+ * 默认快捷开关/菜单按钮用深色芯片（rgba(22,26,38,.78) / rgba(84,92,112,.70)），
+ * 在月白·天青、浅沙等浅盘上「黑乎乎」与主题不搭。这里用 applySkinToDocument 写入的
+ * `root.dataset.uiTheme === 'light'` 钩子，把芯片反转为「纸白底 + accent 描边 + 墨色文字」。
+ * 激活态（aria-pressed=true / 高画质）仍走上方 accent 渐变规则（其特异性更高，浅底同样清晰）。
+ * 放在 feedback-toggle 规则之后，确保非激活态的平局由顺序天然胜出。
+ * ─────────────────────────────────────────────────────────────── */
+:root[data-ui-theme="light"] .feedback-toggle-btn,
+:root[data-ui-theme="light"] .score-theme-quick-cluster > .in-game-menu-btn--toolbar {
+    background: color-mix(in srgb, var(--accent-color, #8a8a8a) 10%, rgba(255, 255, 255, 0.86));
+    border-color: color-mix(in srgb, var(--accent-color, #8a8a8a) 28%, rgba(15, 23, 42, 0.12));
+    color: var(--text-primary, #283330);
+    box-shadow: 0 1px 5px rgba(15, 23, 42, 0.10);
+}
+:root[data-ui-theme="light"] .feedback-toggle-btn[aria-pressed="false"],
+:root[data-ui-theme="light"] #quality-toggle:not([data-quality="high"]),
+:root[data-ui-theme="light"] .feedback-toggle-btn--decision-flow:not(.is-active),
+:root[data-ui-theme="light"] .score-theme-quick-cluster > .in-game-menu-btn--toolbar {
+    background: rgba(255, 255, 255, 0.66);
+    border-color: rgba(15, 23, 42, 0.14);
+    color: var(--text-secondary, #5e6e68);
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+:root[data-ui-theme="light"] .feedback-toggle-btn:hover,
+:root[data-ui-theme="light"] .score-theme-quick-cluster > .in-game-menu-btn--toolbar:hover {
+    background: color-mix(in srgb, var(--accent-color, #8a8a8a) 16%, rgba(255, 255, 255, 0.94));
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.14);
+}
+
 /* 画质档位（由 feedbackToggles.js 写到 <html>）：
  * - high：默认完整光影 + 当前设备 DPR
  * - balanced：Canvas DPR 上限 2，这里只轻量收敛 UI 光晕
@@ -1465,21 +1496,22 @@ html[data-ui-theme="dark"] .skin-picker select optgroup option {
  */
 .stat-value {
     font-size: 28px;
-    font-weight: 900;
-    font-family: 'Bebas Neue', 'Oswald', 'Impact',
-        'Helvetica Neue Condensed Bold', 'HelveticaNeue-CondensedBold',
-        'Avenir Next Condensed Bold', 'AvenirNextCondensed-Bold',
-        'Arial Narrow Bold', 'sans-serif-condensed', system-ui, sans-serif;
+    /* v1.x 字体可读性修复：原 900 字重 + Bebas/Impact 窄体（condensed）让数字（尤其 8/0/6、
+       1/7）挤在一起难辨。改用「非窄体清晰无衬线 + 800 字重 + tabular-nums 等宽数字 + 略宽字距」，
+       仍醒目但每个数字轮廓分明。 */
+    font-weight: 800;
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', 'Helvetica Neue',
+        'Roboto', 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
     font-variant-numeric: tabular-nums;
-    letter-spacing: 0.04em;
+    font-feature-settings: 'tnum' 1, 'lnum' 1;
+    letter-spacing: 0.02em;
     line-height: 1;
     color: color-mix(in srgb, var(--accent-color, #38bdf8) 92%, #fff);
+    /* 简化为「贴边 1px 深色描边 + 极淡发光」：强化数字与背景的分离度，去掉原多层立体浮雕
+       （浮雕在小字号上会糊成重影、压低可读性）。 */
     text-shadow:
-        0 -0.5px 0 color-mix(in srgb, var(--accent-color, #38bdf8) 50%, #fff),
-        0 1px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 80%, #000),
-        0 2px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 45%, #000),
-        0 3px 6px rgba(0, 0, 0, 0.22),
-        0 0 8px color-mix(in srgb, var(--accent-color, #38bdf8) 22%, transparent);
+        0 1px 1px color-mix(in srgb, var(--accent-dark, #0ea5e9) 78%, #000),
+        0 0 6px color-mix(in srgb, var(--accent-color, #38bdf8) 20%, transparent);
     padding-bottom: 1px;
     transition: text-shadow 0.25s ease, color 0.25s ease;
 }
@@ -6880,13 +6912,10 @@ body.doc-visibility-hidden #menu * {
     /* v10.17.12: 移动端主数字 24 → 20px，浮雕收敛为 2 层 */
     .stat-value {
         font-size: 20px;
-        letter-spacing: 0.03em;
+        letter-spacing: 0.02em;
         text-shadow:
-            0 -0.5px 0 color-mix(in srgb, var(--accent-color, #38bdf8) 50%, #fff),
-            0 1px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 75%, #000),
-            0 2px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 35%, #000),
-            0 3px 5px rgba(0, 0, 0, 0.20),
-            0 0 6px color-mix(in srgb, var(--accent-color, #38bdf8) 18%, transparent);
+            0 1px 1px color-mix(in srgb, var(--accent-dark, #0ea5e9) 76%, #000),
+            0 0 5px color-mix(in srgb, var(--accent-color, #38bdf8) 18%, transparent);
         padding-bottom: 1px;
     }
     .play-stack { padding: 6px 6px 8px; gap: 6px; border-radius: 12px; }
@@ -7165,21 +7194,16 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
 .stat-box--best .stat-value {
     font-size: 20px;
     text-shadow:
-        0 -0.5px 0 color-mix(in srgb, var(--accent-color, #38bdf8) 50%, #fff),
-        0 1px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 75%, #000),
-        0 2px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 35%, #000),
-        0 3px 5px rgba(0, 0, 0, 0.20),
-        0 0 6px color-mix(in srgb, var(--accent-color, #38bdf8) 18%, transparent);
+        0 1px 1px color-mix(in srgb, var(--accent-dark, #0ea5e9) 76%, #000),
+        0 0 5px color-mix(in srgb, var(--accent-color, #38bdf8) 18%, transparent);
     padding-bottom: 1px;
 }
 @media (max-width: 400px) {
     .stat-box--best .stat-value {
         font-size: 16px;
         text-shadow:
-            0 -0.5px 0 color-mix(in srgb, var(--accent-color, #38bdf8) 50%, #fff),
-            0 1px 0 color-mix(in srgb, var(--accent-dark, #0ea5e9) 70%, #000),
-            0 2px 4px rgba(0, 0, 0, 0.18),
-            0 0 5px color-mix(in srgb, var(--accent-color, #38bdf8) 16%, transparent);
+            0 1px 1px color-mix(in srgb, var(--accent-dark, #0ea5e9) 72%, #000),
+            0 0 4px color-mix(in srgb, var(--accent-color, #38bdf8) 16%, transparent);
         padding-bottom: 1px;
     }
 }
