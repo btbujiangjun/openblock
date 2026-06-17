@@ -33,6 +33,15 @@ SURPRISE_DAMPING = 0.50            # 惊喜步的难度乘子
 SURPRISE_MIN_CLEARS = 3            # ≥ 3 行触发惊喜
 TREND_WINDOW = 5                   # 短期填充率趋势窗口
 
+# ─── v3.2 多曲线: 单步 爽感 e_step / 挫败 f_step (跨语言: samplerV2.js / policyMetricsV2.js 同步) ───
+# 设计哲学: 用与 d_step 同一组 StepInfo 原语 (clears / action_freedom / fill_rate / no_move)
+#   合成两条正交体验信号, 不引入额外采集字段, 保证 sample/真人/仿真三处口径一致。
+DELIGHT_PER_CLEAR = 0.45          # e_step = clamp01(0.45 * clears): 1消→0.45, 2消→0.90, ≥3消→1.0
+FRUSTRATION_STUCK_WEIGHT = 0.60   # 低自由度 (1-action_freedom) 的挫败权重
+FRUSTRATION_CROWD_WEIGHT = 0.40   # 高填充 (fill>0.7) 的挫败权重
+FRUSTRATION_CROWD_FILL_FLOOR = 0.70   # 拥挤挫败起算填充率
+FRUSTRATION_RELIEF_WEIGHT = 0.50  # 清行对挫败的救济权重
+
 # v3.1 (G5 物理侧 θ 接入): θ 通过 PB-aware sigmoid 影响 d_step
 #   背景: v3.0 起 d_step = state_d, 仅靠 fillRate/freedom/trend, 跟 r 无关.
 #         → 启发式物理上跑不出 S 形 d_curve, 实测 vs ideal MAE 长期 0.25 锁死.
@@ -151,11 +160,40 @@ class StepInfo:
             d_step = state_d
         return max(0.0, min(1.0, d_step))
 
+    def delight_step(self) -> float:
+        """v3.2 单步爽感 e_step ∈ [0, 1] — 由清行数驱动 (多消/清屏 = 强爽感)。
+
+        死局步无爽感; 否则 e = clamp01(DELIGHT_PER_CLEAR * clears)。
+        """
+        if self.no_move:
+            return 0.0
+        return max(0.0, min(1.0, DELIGHT_PER_CLEAR * float(self.clears)))
+
+    def frustration_step(self) -> float:
+        """v3.2 单步挫败 f_step ∈ [0, 1] — 卡顿(低自由度)+拥挤(高填充) - 清行救济。
+
+        死局步 = 最大挫败 1.0; 否则:
+          f = clamp01(STUCK·(1-freedom) + CROWD·crowd - RELIEF·min(1,clears))
+        其中 crowd = clamp01((fill - 0.70)/0.30)。
+        """
+        if self.no_move:
+            return 1.0
+        stuck = 1.0 - max(0.0, min(1.0, self.action_freedom))
+        crowd = max(0.0, min(1.0, (self.fill_rate - FRUSTRATION_CROWD_FILL_FLOOR) / 0.30))
+        relief = 1.0 if self.clears > 0 else 0.0
+        f = (FRUSTRATION_STUCK_WEIGHT * stuck
+             + FRUSTRATION_CROWD_WEIGHT * crowd
+             - FRUSTRATION_RELIEF_WEIGHT * relief)
+        return max(0.0, min(1.0, f))
+
 
 @dataclass
 class EpisodeLabels:
     """单局提取出的全部标签。"""
-    d_curve: List[float]                   # 长度 CURVE_N_BINS
+    d_curve: List[float]                   # 长度 CURVE_N_BINS — 难度 D(r)
+    # v3.2 多曲线: 与 d_curve 同 binning 的爽感 E(r) / 挫败 F(r)
+    e_curve: List[float] = field(default_factory=list)
+    f_curve: List[float] = field(default_factory=list)
     final_score: int = 0
     survived_steps: int = 0
     clear_rate: float = 0.0
@@ -207,6 +245,9 @@ def extract_d_curve(
     # 累积单步难度到对应 bin
     bin_sums = [0.0] * n_bins
     bin_counts = [0] * n_bins
+    # v3.2 多曲线: 爽感 / 挫败 与 d_curve 共用 binning + bin_counts
+    e_bin_sums = [0.0] * n_bins
+    f_bin_sums = [0.0] * n_bins
     recent_fills: List[float] = []
 
     final_score = steps_list[-1].score
@@ -229,6 +270,9 @@ def extract_d_curve(
         )
         bin_sums[bidx] += d
         bin_counts[bidx] += 1
+        # v3.2 多曲线: 同步累积爽感 / 挫败 (同 bin, 不依赖 θ/recent_fills)
+        e_bin_sums[bidx] += st.delight_step()
+        f_bin_sums[bidx] += st.frustration_step()
 
         # 更新 trend window
         recent_fills.append(st.fill_rate)
@@ -246,19 +290,32 @@ def extract_d_curve(
     #         所以填什么不影响训练, 仅用于 chart 显示连续性
     #   完全无数据时填 0.5 (中性)
     d_curve = [0.0] * n_bins
+    # v3.2 多曲线: e/f 与 d 同样的空 bin lastValue 填充 (爽感兜底 0, 挫败兜底 0)
+    e_curve = [0.0] * n_bins
+    f_curve = [0.0] * n_bins
     n_filled = 0
     last_value = 0.5   # 兜底初值, 跨度中点
+    last_e = 0.0
+    last_f = 0.0
     for i in range(n_bins):
         if bin_counts[i] >= PB_AWARE_MIN_OBS:
             obs = bin_sums[i] / bin_counts[i]
             d_curve[i] = obs   # 真实观察, 不再混合 prior
             last_value = obs
+            e_curve[i] = e_bin_sums[i] / bin_counts[i]
+            f_curve[i] = f_bin_sums[i] / bin_counts[i]
+            last_e = e_curve[i]
+            last_f = f_curve[i]
             n_filled += 1
         else:
             d_curve[i] = last_value   # fallback to previous observed bin
+            e_curve[i] = last_e
+            f_curve[i] = last_f
 
     return EpisodeLabels(
         d_curve=d_curve,
+        e_curve=e_curve,
+        f_curve=f_curve,
         final_score=final_score,
         survived_steps=survived_steps,
         clear_rate=(total_clears / survived_steps) if survived_steps > 0 else 0.0,

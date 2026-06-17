@@ -2,11 +2,11 @@
 ResNet-MLP 模型 (L4) — 用于学习 (ctx, θ) → d_curve(20) + 辅助标签(4) 的映射。
 
 架构 (~325K 参数):
-  Input (41)
+  Input (68)
     └─ ctx_embedding (32):
        Embedding(difficulty, generator, bot_policy, pb_bin, lifecycle) → concat → 28
        + log10(pb_actual) z-score projected → 4
-    └─ θ_normalized (9)  — 见 feature_io.THETA_KEYS
+    └─ θ_normalized (36)  — 见 feature_io.THETA_KEYS
 
 设计取舍演进:
   v2.0: 草案 14 维 (其中 9 维是装饰性参数, 游戏代码未读取)
@@ -14,14 +14,16 @@ ResNet-MLP 模型 (L4) — 用于学习 (ctx, θ) → d_curve(20) + 辅助标签
   v2.2: 把 adaptiveSpawn.js 里 PB 双 S 曲线 4 个硬编码常数提到 modelConfig
         (DEFAULT_SPAWN_PARAMS_PB_CURVE), 把它们加回 θ → 9 维 全部真实生效
   ↓
-  trunk_in: Linear(46→256) + LayerNorm + GELU
+  trunk_in: Linear(65→hidden) + LayerNorm + GELU
   ↓
   ResBlock × 8: 每块 Linear(256→256)×2 + LayerNorm×2 + Dropout + Residual
   ↓
   LayerNorm(256)
   ↓
   Heads:
-    head_curve:    256 → 128 → 20    (sigmoid)
+    head_curve:    256 → 128 → 20    (sigmoid, 难度 D(r))
+    head_curve_e:  256 → 128 → 20    (sigmoid, 爽感 E(r)) — v3.2 多曲线
+    head_curve_f:  256 → 128 → 20    (sigmoid, 挫败 F(r)) — v3.2 多曲线
     head_pb:       256 → 64  → 1     (sigmoid, pb_broke prob)
     head_noMove:   256 → 64  → 1     (sigmoid, 归一化 noMove_step)
     head_score:    256 → 64  → 1     (linear, log_score)
@@ -51,7 +53,8 @@ N_GENERATOR = 2
 N_BOT_POLICY = 4
 N_PB_BIN = 5
 N_LIFECYCLE = 4
-N_THETA = 27  # 5 (个性化/选拔) + 4 (PB 曲线) + 8 (augmentPool) + 5 (target 翻译) + 5 (PB 段细节); 见 feature_io.THETA_KEYS
+N_THETA = 36  # 5 (个性化/选拔) + 4 (PB 曲线) + 8 (augmentPool) + 5 (target 翻译) + 5 (PB 段细节)
+#               + 2 (F 顺序难度) + 2 (G 构造式) + 2 (H 解空间) + 3 (I 节奏/special); 见 feature_io.THETA_KEYS
 N_CURVE_BINS = 20
 
 # Embedding 维度
@@ -136,7 +139,7 @@ class SpawnParamTunerResNet(nn.Module):
         self.curve_bins = curve_bins
 
         self.ctx_emb = ContextEmbedding()
-        input_dim = EMB_TOTAL + N_THETA  # 32 + 27 = 59
+        input_dim = EMB_TOTAL + N_THETA  # 32 + 36 = 68
 
         # Trunk
         self.trunk_in = nn.Sequential(
@@ -151,6 +154,9 @@ class SpawnParamTunerResNet(nn.Module):
 
         # Heads
         self.head_curve = self._build_head(hidden_dim, 128, curve_bins)
+        # v3.2 多曲线 (multi-head): 爽感 E(r) / 挫败 F(r) 各一条 20 维曲线 head
+        self.head_curve_e = self._build_head(hidden_dim, 128, curve_bins)
+        self.head_curve_f = self._build_head(hidden_dim, 128, curve_bins)
         self.head_pb = self._build_head(hidden_dim, head_hidden, 1)
         self.head_noMove = self._build_head(hidden_dim, head_hidden, 1)
         self.head_score = self._build_head(hidden_dim, head_hidden, 1)
@@ -207,7 +213,10 @@ class SpawnParamTunerResNet(nn.Module):
             log_pb, theta_norm,
         )
         return {
-            "curve": torch.sigmoid(self.head_curve(h)),         # (B, 20)
+            "curve": torch.sigmoid(self.head_curve(h)),         # (B, 20) 难度 D
+            # v3.2 多曲线: 爽感 E / 挫败 F (sigmoid, ∈ [0,1])
+            "curve_e": torch.sigmoid(self.head_curve_e(h)),     # (B, 20)
+            "curve_f": torch.sigmoid(self.head_curve_f(h)),     # (B, 20)
             "pb_broke": torch.sigmoid(self.head_pb(h)).squeeze(-1),     # (B,)
             "noMove": torch.sigmoid(self.head_noMove(h)).squeeze(-1),   # (B,)
             "score": self.head_score(h).squeeze(-1),                    # (B,) linear (log_score)
@@ -319,7 +328,7 @@ def build_default_model() -> SpawnParamTunerResNet:
 #   Transformer 用 self-attention 让 bin i 受 bin <i 影响, 天然适合序列建模。
 #
 # 架构:
-#   ctx(32) + theta(N_THETA=27) → Linear(64) → context_vec (B, 64)
+#   ctx(32) + theta(N_THETA=36) → Linear(64) → context_vec (B, 64)
 #   ↓ broadcast 到 20 个 bin
 #   + position_embedding (20, 64) [位置编码]
 #   ↓
@@ -380,6 +389,9 @@ class SpawnParamTunerTransformer(nn.Module):
 
         # curve head (per-position)
         self.head_curve = nn.Linear(d_model, 1)
+        # v3.2 多曲线: 爽感 / 挫败 per-position head
+        self.head_curve_e = nn.Linear(d_model, 1)
+        self.head_curve_f = nn.Linear(d_model, 1)
         # 4 个全局 head (mean pooling 后)
         self.head_pb = nn.Linear(d_model, 1)
         self.head_noMove = nn.Linear(d_model, 1)
@@ -423,10 +435,15 @@ class SpawnParamTunerTransformer(nn.Module):
         )  # (B, 20, d_model)
         # curve: 每个 position 一个 sigmoid 标量
         curve = torch.sigmoid(self.head_curve(seq).squeeze(-1))     # (B, 20)
+        # v3.2 多曲线: 爽感 / 挫败 per-position
+        curve_e = torch.sigmoid(self.head_curve_e(seq).squeeze(-1))  # (B, 20)
+        curve_f = torch.sigmoid(self.head_curve_f(seq).squeeze(-1))  # (B, 20)
         # 4 个全局 head: mean pooling over positions
         pooled = seq.mean(dim=1)                                     # (B, d_model)
         return {
             "curve": curve,
+            "curve_e": curve_e,
+            "curve_f": curve_f,
             "pb_broke": torch.sigmoid(self.head_pb(pooled)).squeeze(-1),
             "noMove": torch.sigmoid(self.head_noMove(pooled)).squeeze(-1),
             "score": self.head_score(pooled).squeeze(-1),

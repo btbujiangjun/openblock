@@ -237,6 +237,25 @@ BUILD_ERROR='构建插件 android 的钩子函数 .*执行失败|找不到 Andro
 #   生成的 spawnPoliciesV2.mjs）的降级提示，仅影响压缩耗时，构建结果正常；却带 Error:/error:
 #   前缀命中 BUILD_ERROR，必须白名单，否则误报构建失败。
 BENIGN_BUILD_ERROR='buildPolyfillsCommand.*Caught exception during build core-js|This may indicates the core-js polyfill is not necessary|Error: Exit process with code:null, signal:SIGTERM in task (build-script|build-engine)|\[BABEL\] Note: The code generator has deoptimised the styling|exceeds the max of [0-9]+KB'
+# ── 自愈：恢复被降级为占位 importer:"*" 的 .meta ──────────────────────────
+# headless `cocos --build` / sync 偶发把 assets 下 .meta 的 importer 反写成 "*"
+# （表现：「Number of all scenes: 0」初始场景丢失、皮肤贴图丢失）。HEAD 里是正确 importer
+# （scene/typescript/image…），构建前把当前为 "*" 的已跟踪 .meta 从 HEAD 逐个恢复，
+# 使无头构建可自愈、可重复（未提交的合法 .meta 改动不受影响：逐文件 checkout、未跟踪项静默跳过）。
+restore_corrupted_metas() {
+    command -v git >/dev/null 2>&1 || return 0
+    ( cd "$REPO_ROOT" && git rev-parse --git-dir >/dev/null 2>&1 ) || return 0
+    local corrupted
+    corrupted="$(cd "$REPO_ROOT" && grep -rls --include='*.meta' '"importer": "\*"' cocos/assets 2>/dev/null)"
+    [[ -z "$corrupted" ]] && return 0
+    local cnt; cnt="$(printf '%s\n' "$corrupted" | sed '/^$/d' | wc -l | tr -d ' ')"
+    echo "▶ 自愈 .meta：从 git HEAD 恢复 $cnt 个被降级为 importer:\"*\" 的文件 ..."
+    ( cd "$REPO_ROOT" && printf '%s\n' "$corrupted" | sed '/^$/d' | while read -r f; do
+        git checkout HEAD -- "$f" 2>/dev/null || true
+    done )
+}
+restore_corrupted_metas
+
 LOG="$(mktemp -t cocos-build-android)"
 
 # ⚠️ ELECTRON_RUN_AS_NODE 必须 unset：某些开发环境（如 Cursor agent shell、部分 IDE

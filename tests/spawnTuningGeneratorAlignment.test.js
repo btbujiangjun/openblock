@@ -3,7 +3,8 @@
  *
  * 回归锁定：出块寻参 θ（spawn-tuning-v2）的 generator 维度必须与 getSpawnPolicyMode()
  * 严格 1:1（'rule' / 'generative'），从而让 game.js 运行时 resolveThetaV2 真正命中部署的
- * 360 条优化 θ —— 而不是历史上误用的 'triplet-p1' / 'budget-p2'（导致 100% 回落
+ * 优化 θ（v3.2 ideal: 480 条 = 3×2×4×5×4，含 rl-bot）—— 而不是历史上误用的
+ * 'triplet-p1' / 'budget-p2'（导致 100% 回落
  * DEFAULT_THETA_V2，移动端/web 上寻参从未生效）。
  *
  * 见 web/src/game.js spawnBlocks 的 _generator 推导，与 samplerV2.VALID_GENERATORS_SAMPLER
@@ -67,7 +68,7 @@ describe('spawn-tuning-v2 generator 维度对齐（移动端寻参生效）', ()
         const ctx = gameTuningCtx({ ...sc, mode: 'rule', userId: 'u-test' });
         const key = buildContextKeyV2(ctx);
         const res = resolveThetaV2(ctx);
-        // bundle 含 3 难度 × 2 generator × 3 bot × 5 pb × 4 lifecycle = 360，clear-greedy 全覆盖 → exact
+        // bundle 含 3 难度 × 2 generator × bot × 5 pb × 4 lifecycle（v3.2 ideal: 4 bot 含 rl-bot = 480），clear-greedy 全覆盖 → exact
         expect(res.source).toBe('exact');
         expect(res.contextKey).toBe(key);
         // 命中的 θ 不应等于纯默认（至少有一个维度被优化覆盖）

@@ -96,6 +96,11 @@ def ensure_schema():
         conn.execute("ALTER TABLE samples ADD COLUMN n_bins_filled INTEGER")
     if "bin_counts_json" not in _existing_cols:
         conn.execute("ALTER TABLE samples ADD COLUMN bin_counts_json TEXT")
+    # v3.2 多曲线: 补 e_curve_json / f_curve_json 列 (老 DB 无此列)
+    if "e_curve_json" not in _existing_cols:
+        conn.execute("ALTER TABLE samples ADD COLUMN e_curve_json TEXT")
+    if "f_curve_json" not in _existing_cols:
+        conn.execute("ALTER TABLE samples ADD COLUMN f_curve_json TEXT")
     # v2.10.37: 检测 samples CHECK 约束是否过时 (v2.10.34/35 加了 heuristic-rule / generative / rl-bot)
     #   SQLite 不支持 ALTER TABLE 改 CHECK, 必须重建表
     _migrate_samples_check_constraints(conn)
@@ -246,6 +251,29 @@ def register_v2_routes(app):
                 return None
         return m
 
+    def _normalize_metric_keys(m):
+        """统一 metric 键名: 给无 val_ 前缀的键补 val_ 别名。
+
+        train.py sidecar 写的是 _eval_one_epoch 的原始键 (curve_mae / ideal_mae /
+        curve_var / anchor / target_fit …, 无 val_ 前缀), 而前端 (对比表/模型卡片)
+        统一用 val_ 前缀。这里补别名让两套命名都能取到值, 老模型也无需重训。
+        """
+        if not isinstance(m, dict):
+            return m
+        out = dict(m)
+        for k, v in m.items():
+            if not k.startswith("val_"):
+                vk = f"val_{k}"
+                if vk not in out:
+                    out[vk] = v
+        return out
+
+    def _model_metrics(metrics_json_str):
+        try:
+            return _normalize_metric_keys(_sanitize_metrics(json.loads(metrics_json_str or "{}")))
+        except Exception:
+            return {}
+
     # ─── 样本集 ───────────────────────────────────────────
 
     @bp.route("/api/spawn-tuning-v2/sample-sets", methods=["GET"])
@@ -388,7 +416,10 @@ def register_v2_routes(app):
 
         fields = [
             "set_id", "difficulty", "generator", "bot_policy", "pb_bin", "lifecycle_stage",
-            "theta_json", "d_curve_json", "final_score", "survived_steps",
+            "theta_json", "d_curve_json",
+            # v3.2 多曲线: 爽感 / 挫败
+            "e_curve_json", "f_curve_json",
+            "final_score", "survived_steps",
             "clear_rate", "noMove_step", "pb_broke", "surprise_count",
             "seed", "eval_ms", "evaluated_at",
             "algo_version",   # v2.10
@@ -397,6 +428,11 @@ def register_v2_routes(app):
         ]
         placeholders = ",".join(["?"] * len(fields))
         sql = f"INSERT INTO samples ({','.join(fields)}) VALUES ({placeholders})"
+
+        def _curve_json(v):
+            if v is None:
+                return None
+            return v if isinstance(v, str) else json.dumps(v)
 
         inserted = 0
         errors = 0
@@ -412,6 +448,8 @@ def register_v2_routes(app):
                     int(s["pb_bin"]), s["lifecycle_stage"],
                     s["theta_json"] if isinstance(s["theta_json"], str) else json.dumps(s["theta_json"]),
                     s["d_curve_json"] if isinstance(s["d_curve_json"], str) else json.dumps(s["d_curve_json"]),
+                    _curve_json(s.get("e_curve_json")),
+                    _curve_json(s.get("f_curve_json")),
                     s.get("final_score"), s.get("survived_steps"),
                     s.get("clear_rate"), s.get("noMove_step", -1),
                     int(bool(s.get("pb_broke", False))), s.get("surprise_count", 0),
@@ -541,7 +579,10 @@ def register_v2_routes(app):
         # 3) 转换 + 增量插入(seed=session_id)
         fields = [
             "set_id", "difficulty", "generator", "bot_policy", "pb_bin", "lifecycle_stage",
-            "theta_json", "d_curve_json", "final_score", "survived_steps",
+            "theta_json", "d_curve_json",
+            # v3.2 多曲线
+            "e_curve_json", "f_curve_json",
+            "final_score", "survived_steps",
             "clear_rate", "noMove_step", "pb_broke", "surprise_count",
             "seed", "evaluated_at", "algo_version", "n_bins_filled", "bin_counts_json",
         ]
@@ -583,10 +624,15 @@ def register_v2_routes(app):
                 invalid += 1
                 continue
             try:
+                _e_json = s.get("e_curve_json")
+                _f_json = s.get("f_curve_json")
                 db.execute(sql_ins, (
                     set_id, s["difficulty"], s["generator"], s["bot_policy"],
                     int(s["pb_bin"]), s["lifecycle_stage"],
-                    s["theta_json"], s["d_curve_json"], s.get("final_score"),
+                    s["theta_json"], s["d_curve_json"],
+                    _e_json if isinstance(_e_json, (str, type(None))) else json.dumps(_e_json),
+                    _f_json if isinstance(_f_json, (str, type(None))) else json.dumps(_f_json),
+                    s.get("final_score"),
                     s.get("survived_steps"), s.get("clear_rate"), s.get("noMove_step", -1),
                     int(bool(s.get("pb_broke", False))), s.get("surprise_count", 0),
                     sid, now_ms, s.get("algo_version", "real-v1"),
@@ -1426,10 +1472,7 @@ def register_v2_routes(app):
         out = []
         for r in rows:
             d = row_to_dict(r)
-            try:
-                d["metrics"] = _sanitize_metrics(json.loads(d.get("metrics_json") or "{}"))
-            except Exception:
-                d["metrics"] = {}
+            d["metrics"] = _model_metrics(d.get("metrics_json"))
             out.append(d)
         return jsonify({
             "models": out,
@@ -1447,10 +1490,7 @@ def register_v2_routes(app):
         if not row:
             return jsonify({"error": "not found"}), 404
         d = row_to_dict(row)
-        try:
-            d["metrics"] = _sanitize_metrics(json.loads(d.get("metrics_json") or "{}"))
-        except Exception:
-            d["metrics"] = {}
+        d["metrics"] = _model_metrics(d.get("metrics_json"))
         return jsonify(d)
 
     @bp.route("/api/spawn-tuning-v2/models/<int:model_id>", methods=["PATCH"])
@@ -3309,10 +3349,7 @@ def register_v2_routes(app):
         if not row:
             return jsonify({"deployed": None})
         d = row_to_dict(row)
-        try:
-            d["metrics"] = _sanitize_metrics(json.loads(d.get("metrics_json") or "{}"))
-        except Exception:
-            d["metrics"] = {}
+        d["metrics"] = _model_metrics(d.get("metrics_json"))
         return jsonify({"deployed": d})
 
     # ─── 注册 ────────────────────────────────────────────

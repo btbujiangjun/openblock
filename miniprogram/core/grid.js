@@ -45,16 +45,23 @@ class Grid {
     }
 
     clone() {
-        const grid = new Grid(this.size);
-        for (let y = 0; y < this.size; y++) {
-            for (let x = 0; x < this.size; x++) {
-                grid.cells[y][x] = this.cells[y][x];
-            }
-        }
+        /* 性能：clone 是出块 DFS（tripletSequentiallySolvable / evaluateTripletSolutions /
+         * constructiveSpawn）最内层热点——单次出块在高 fill 时可达上万次。
+         *   1. 用 Object.create 跳过 constructor 里 createEmptyGrid 的 64 次无效 null 初始化；
+         *   2. 用原生 row.slice() 整行拷贝替代逐格赋值（引擎对 slice 有专门优化）；
+         *   3. cellMeta 为空时直接给空 Map，跳过整 Map 迭代（DFS 落子不写 meta，深层状态常为空）。
+         * 行为与旧实现完全等价（cells 浅拷贝、cellMeta 浅复制 plain-object 值）。 */
+        const grid = Object.create(Grid.prototype);
+        grid.size = this.size;
+        const n = this.size;
+        const src = this.cells;
+        const cells = new Array(n);
+        for (let y = 0; y < n; y++) cells[y] = src[y].slice();
+        grid.cells = cells;
         /* v1.60.1：浅复制 cellMeta — Map 元素为 immutable plain object，浅复制安全 */
-        if (this._cellMeta) {
-            for (const [key, value] of this._cellMeta) grid._cellMeta.set(key, value);
-        }
+        grid._cellMeta = (this._cellMeta && this._cellMeta.size)
+            ? new Map(this._cellMeta)
+            : new Map();
         return grid;
     }
 
@@ -490,6 +497,53 @@ class Grid {
         }
 
         return { rows: fullRows, cols: fullCols, cells };
+    }
+
+    /**
+     * 轻量版 previewClearOutcome：只返回"放置后会消除的行数 + 列数"，**不分配整盘 temp 拷贝、
+     * 不构造 cells 数组**。语义与 `previewClearOutcome(shapeData,gx,gy,*).rows.length + .cols.length`
+     * 完全一致（不可放置时返回 0）。
+     *
+     * 用途：bestMultiClearPotential / adaptiveSpawn 这类"只关心消几条"的热点扫描，在 scored
+     * 阶段对 40 形状 × 64 落点反复调用——省去每次 64 格 temp 数组分配，显著降低出块期 GC 压力。
+     * 行为完全等价：与 previewClearOutcome 同样全量扫描所有行/列（不依赖"盘面无预存满线"假设）。
+     */
+    countClearLines(shapeData, gx, gy) {
+        if (!this.canPlace(shapeData, gx, gy)) return 0;
+        const n = this.size;
+        const sh = shapeData.length;
+        const cells = this.cells;
+        let lines = 0;
+        for (let y = 0; y < n; y++) {
+            const ry = y - gy;
+            const shRow = (ry >= 0 && ry < sh) ? shapeData[ry] : null;
+            let full = true;
+            const row = cells[y];
+            for (let x = 0; x < n; x++) {
+                if (row[x] !== null) continue;
+                const rx = x - gx;
+                if (shRow && rx >= 0 && rx < shRow.length && shRow[rx]) continue;
+                full = false;
+                break;
+            }
+            if (full) lines++;
+        }
+        for (let x = 0; x < n; x++) {
+            const rx = x - gx;
+            let full = true;
+            for (let y = 0; y < n; y++) {
+                if (cells[y][x] !== null) continue;
+                const ry = y - gy;
+                if (ry >= 0 && ry < sh) {
+                    const shRow = shapeData[ry];
+                    if (rx >= 0 && rx < shRow.length && shRow[rx]) continue;
+                }
+                full = false;
+                break;
+            }
+            if (full) lines++;
+        }
+        return lines;
     }
 
     findGapPositions() {

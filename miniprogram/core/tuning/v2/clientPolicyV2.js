@@ -19,10 +19,11 @@
  * 防御性: 所有错误都 fallback default, 绝不让玩家因 server/网络故障玩到坏出块。
  */
 
-// ─────────── 默认 θ (9 维, 与 baseline 一致, 当所有 fallback 失败时用) ───────────
+// ─────────── 默认 θ (36 维, 与 baseline 一致, 当所有 fallback 失败时用) ───────────
 //
-// v2.2: 与 Python feature_io.THETA_KEYS / samplerV2 严格一致;
-//       这里只暴露 simulator/adaptiveSpawn 真正消费的 9 维 (5 个个性化 + 4 个 PB 曲线)。
+// 与 Python feature_io.THETA_KEYS / samplerV2 严格同序同范围;
+//   A 个性化(5) + B PB曲线(4) + C augmentPool(8) + D targets(5) + E PB段(5)
+//   + F 顺序难度(2) + G 构造式(2) + H 解空间(2) + I 节奏/special(3) = 36 维, 全部在引擎真实消费。
 //
 const DEFAULT_THETA_V2 = Object.freeze({
     // A. 候选选拔 / 个性化
@@ -57,6 +58,19 @@ const DEFAULT_THETA_V2 = Object.freeze({
     pbOvershootMax: 0.16,
     releaseFactor: 0.7,
     farFromPBBoost: 0.45,
+    // F. 顺序难度 (v3.2)
+    orderRigorGain: 1.0,
+    orderSolutionBudgetGain: 1.0,
+    // G. 构造式出块 (v3.2)
+    constructiveCompleterGain: 1.0,
+    crowdedMultiClearThresholdGain: 1.0,
+    // H. 解空间区间缩放 (v3.2)
+    shapeComplexityGain: 1.0,
+    solutionSpacePressureGain: 1.0,
+    // I. 节奏 / special 块 (v3.2 多曲线配套)
+    specialReliefQuotaGain: 1.0,
+    specialPressureQuotaGain: 1.0,
+    monoFlushCapGain: 1.0,
 });
 
 
@@ -92,6 +106,14 @@ const THETA_KEYS_ORDER = [
     // E
     'challengeBoostSlope', 'challengeBoostCap', 'pbOvershootMax',
     'releaseFactor', 'farFromPBBoost',
+    // F (v3.2)
+    'orderRigorGain', 'orderSolutionBudgetGain',
+    // G (v3.2)
+    'constructiveCompleterGain', 'crowdedMultiClearThresholdGain',
+    // H (v3.2)
+    'shapeComplexityGain', 'solutionSpacePressureGain',
+    // I (v3.2 节奏/special)
+    'specialReliefQuotaGain', 'specialPressureQuotaGain', 'monoFlushCapGain',
 ];
 // 反归一化范围,必须与 feature_io.THETA_RANGES 严格一致。
 const THETA_RANGES = Object.freeze({
@@ -127,6 +149,19 @@ const THETA_RANGES = Object.freeze({
     pbOvershootMax: [0.10, 0.22],
     releaseFactor: [0.5, 0.85],
     farFromPBBoost: [0.30, 0.60],
+    // F (v3.2)
+    orderRigorGain: [0.6, 1.6],
+    orderSolutionBudgetGain: [0.7, 1.5],
+    // G (v3.2)
+    constructiveCompleterGain: [0.6, 1.5],
+    crowdedMultiClearThresholdGain: [0.7, 1.4],
+    // H (v3.2)
+    shapeComplexityGain: [0.7, 1.4],
+    solutionSpacePressureGain: [0.7, 1.4],
+    // I (v3.2 节奏/special)
+    specialReliefQuotaGain: [0.6, 1.8],
+    specialPressureQuotaGain: [0.6, 1.8],
+    monoFlushCapGain: [0.5, 2.0],
 });
 
 /**

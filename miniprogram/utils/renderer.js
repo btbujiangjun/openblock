@@ -101,6 +101,30 @@ function paintAssetSoftOverlay(ctx, bx, by, size, r, bevel) {
   ctx.restore();
 }
 
+/**
+ * 方块贴图「边缘羽化」（与 web `_featherAssetEdges` 同源）：destination-out 沿四边擦出渐隐透明带，
+ * 让方块边缘半透明晕染入底色（中国风淡雅）。在 roundRect clip 内执行。
+ */
+function featherAssetEdges(ctx, bx, by, size, fade) {
+  if (!(fade > 0)) return;
+  const fw = Math.max(1, size * fade);
+  const edgeA = 0.72;
+  const prev = ctx.globalCompositeOperation;
+  ctx.globalCompositeOperation = 'destination-out';
+  const strip = (x0, y0, x1, y1, rx, ry, rw, rh) => {
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, `rgba(0,0,0,${edgeA})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(rx, ry, rw, rh);
+  };
+  strip(0, by, 0, by + fw, bx, by, size, fw);
+  strip(0, by + size, 0, by + size - fw, bx, by + size - fw, size, fw);
+  strip(bx, 0, bx + fw, 0, bx, by, fw, size);
+  strip(bx + size, 0, bx + size - fw, 0, bx + size - fw, by, fw, size);
+  ctx.globalCompositeOperation = prev;
+}
+
 /** RGB→HSL（与 web/src/renderer.js `_rgbToHsl` 同源）。 */
 function rgbToHsl(r, g, b) {
   r /= 255; g /= 255; b /= 255;
@@ -435,14 +459,21 @@ class GameRenderer {
     const r = this._cellRadius(s);
     const style = skin.blockStyle || 'cartoon';
 
+    // 图片皮肤（blockIconAssets，如水墨雅集）：PNG 是方形画卡，整面贴图盖在面上 → 边框只保留
+    // 「单层底色圆角块」这一个视觉元素：PNG 按 blockIconInset 内缩后露出一圈细色框「装裱」，
+    // 不再叠描边/高光/羽化晕框（blockEdgeFade 已置 0）。与 web paintBlockCell / cocos paintBlockFace 一致。
+    if (skin.blockIconAssets?.length) {
+      const ctx = this._ctx;
+      ctx.fillStyle = color;
+      roundRect(ctx, bx, by, s, s, r);
+      ctx.fill();
+      return;
+    }
+
     // 带 icon 皮肤的方块色降饱和（对齐 web `paintBlockCell`：深盘 ×0.55 / 浅盘 ×0.92），
     // 让中心 emoji 在哑光底色上更清晰。在此入口统一处理，盘面/候选/ghost 三处一致。
-    // 有 blockIconAssets 时保留原色，使窄边框与子图底色一致。
     if (skin.blockIcons && skin.blockIcons.length && !skin.blockIconAssets?.length) {
       color = desaturateColor(color, this._isLightBoard() ? 0.92 : 0.55);
-    }
-    if (skin.blockIconAssets?.length && skin.blockIconEnhance && style === 'flat') {
-      color = lighten(color, 0.04);
     }
 
     if (style === 'bevel3d') return this._paintBevel3d(bx, by, s, r, color);
@@ -747,6 +778,7 @@ class GameRenderer {
       ctx.drawImage(assetImg, bx + pad, by + pad, s - pad * 2, s - pad * 2);
       if (filt) ctx.filter = 'none';
       paintAssetSoftOverlay(ctx, bx, by, s, r, resolveBlockBevel(skin, this._isLightBoard()));
+      if (typeof skin.blockEdgeFade === 'number') featherAssetEdges(ctx, bx, by, s, skin.blockEdgeFade);
       ctx.restore();
       return;
     }
@@ -1369,8 +1401,11 @@ class GameRenderer {
         rad = p.size * ga.scale;
         alpha = Math.min(1, p.life * 1.05) * ga.alphaMul;
       } else {
-        rad = p.size * p.life;
-        alpha = p.life;
+        // 与 web renderer 同源：life>1（如多消 baseLife）时直接 size×life 会让粒子出生即
+        // 放大并全不透明地叠在同点 → 「糊成一团」。钳制到 ≤1：出生标准尺寸、随寿命收缩淡出。
+        const k = Math.min(1, p.life);
+        rad = p.size * k;
+        alpha = k;
       }
       ctx.globalAlpha = alpha;
       ctx.fillStyle = p.color;

@@ -71,6 +71,27 @@ export interface Skin {
      * 路径为 resources 下的可加载路径（不含扩展名），如 `assets/skins/inkGarden/block-0`。
      */
     blockIconAssets?: string[];
+    /**
+     * 图片皮肤贴图的格内留白比例（与 web `blockIconInset` 同源）。
+     * 取 0~0.5 的小数表示「贴图边距 = cell × insetFrac」（最小 1px）；
+     * 0 = 满铺；缺省走 0.18 默认（与 web 一致）。水墨雅集用 0.03 几乎满铺。
+     */
+    blockIconInset?: number;
+    /**
+     * 图片皮肤的「柔光浮雕」叠加配置（与 web `blockBevel` 同源；assetOverlay 字段控制是否启用）。
+     * 在 PNG 之上叠顶亮渐变 + 底暗渐变 + 双描边，让贴图呈现"瓷砖凸起"立体感，
+     * 而不是"贴纸平铺"的扁平观感（水墨雅集等工艺类皮肤的视觉灵魂）。
+     */
+    blockBevel?: {
+        topLift?: number;
+        botDark?: number;
+        botShadeAlpha?: number;
+        innerStroke?: string;
+        outerStroke?: string;
+        assetOverlay?: boolean;
+        overlayTop?: number;
+        overlayBottom?: number;
+    };
     uiDark?: boolean;
     /** UI 强调色（hex），用于 HUD 数值、技能按钮激活态、功能按钮描边等 —— 与 web `--accent-color` 同源。 */
     uiAccent?: string;

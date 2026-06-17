@@ -1495,6 +1495,67 @@ dock 颜色改为轻偏置随机：盘面存在近满且已同 icon/同色的行
 
 除了启发式规则，还提供基于 Transformer 的生成式模型架构（§9.1 - §9.9）。详见 本手册 §13。
 
+#### 2.10 难度相对论：等体感选块接入点（θ⃗ × b⃗ × b*）（P-research，🔬 研究规划，未落地）
+
+> **本节是算法侧实现清单**，对应策划契约 [`BEST_SCORE_CHASE_STRATEGY.md §4.17`](../player/BEST_SCORE_CHASE_STRATEGY.md)（难度相对论：体感难度不变量 × 客观难度个性化）。**只做规划，不在本次提交改代码**。
+>
+> **不可动摇前提**：**S 形 stress 曲线仍是调控主线**，§2.3 五阶段流水线结构不变。本方案只在「体感目标 → 客观题目」之间插一层按玩家能力的标定，**不改 stress 计算链、不改硬约束、不改纪录线**。
+
+**一句话接入**：S 曲线产出目标体感 `d* = stress`（不变）→ 按能力 θ⃗ 反解客观目标 `b* = θ⃗ ⊕ d* (+Δ⃗ 课程, +噪声)` → **阶段 1/3 候选评分新增对齐项 `−w·‖difficultyVec(候选) − b*‖`**（弱项维加大 w）→ 阶段 4 硬约束照旧兜底。同一 `d*` 对资深落到客观更难、对新手落到客观更易的题目（详见 §4.17 公式 `d_perceived≈b⊖θ`）。
+
+**五阶段流水线接入点标注**（在 §2.3 基础上叠加，█ = 新增/改造，其余不变）：
+
+```
+[阶段 0] 解包 hints / shapeWeights / spawnTargets / ctx
+         █ 额外解包 ctx.latentAbility(θ⃗) 与 ctx.perceivedTarget(d*=stress)
+[阶段 1] 候选池构建：28 shape 逐个评分（清屏 > 多消 > 消行）
+         █ 每个候选额外算 difficultyVec(b⃗)（来自 spawnStepDifficulty 扩展，见下）
+[阶段 2] 清屏/消行优先槽位（clearGuarantee + comboChain）           ← 不变
+[阶段 3] 加权抽样补齐：30+ hints → 乘子 → 轮盘抽样
+         █ 乘子链叠加"等体感对齐项" exp(−w·‖b⃗(候选) − b*‖)
+[阶段 4] 硬约束校验循环（机动性 · DFS 可解 · 解法数 · orderRigor）  ← 不变，且优先级高于对齐项
+[阶段 5] 打乱 → 写诊断（█ 落 θ⃗/b⃗/b*/‖b⃗−b*‖）→ 返回 3 块
+```
+
+**改造点 × 文件 × 函数**（web 为源，标 ◆ 需 `npm run sync:core` 镜像到 `cocos/.../engine/*.mjs` + `miniprogram/core/*.js` + 跨语言契约测试）：
+
+| # | 文件 / 函数 | 当前 | 改造 | 类型 |
+|---|-------------|------|------|------|
+| 1 | 新增 `web/src/playerLatentAbility.js` | — | 贝叶斯潜在能力 θ⃗=`{μ_d,σ_d}`（TrueSkill 风格），观测来自 `AbilityVector`/`playerAnalytics`，每局/里程碑段更新；导出 `getLatentAbility()` | 新增 |
+| 2 ◆ | `web/src/spawnStepDifficulty.js → computeSpawnStepDifficulty` | 输出标量 + 4 维子向量 + 5 档桶 | 增导出考点向量 `b⃗={b_spatial,b_combo,b_order,b_recovery,b_tempo,b_clearEff}`；标量保持不变（契约测试不破） | 改造（扩展，兼容） |
+| 3 ◆ | `web/src/adaptiveSpawn.js → resolveAdaptiveStrategy` | 算 `stress`（=d*）| **stress 链零改动**；末尾新增反解 `b* = clamp(θ⃗ ⊕ stress + Δ⃗ + noise)` 写入 `ctx`/输出；低置信 σ → 恒等（b*≈现状） | 改造（追加旁路） |
+| 4 ◆ | `web/src/bot/blockSpawn.js → generateDockShapes`（阶段 1/3） | 候选评分 + 乘子轮盘抽样 | 候选附 `b⃗(候选)`，乘子链叠加等体感对齐项；强度受 `personalizationStrength` 限幅 | 改造（核心，最敏感） |
+| 5 ◆ | `blockSpawn.js` 构造算子（`findMultiClearCompleter` 等） | 不感知能力 | 触发/yield 受 `b*` 弱项维约束（复用 PEOG yield cap 机制） | 改造 |
+| 6 | `adaptiveSpawn.js → applySpawnPrior` | ±5~10% 风味偏置 | 升级为"客观目标 `b*` 的考点结构偏置"输入（§4.17 支柱⑤） | 改造 |
+| 7 | `shared/game_rules.json` | — | 新增 `adaptiveSpawn.difficultyRelativity = { enabled, rolloutPercent, personalizationStrength, deltaCurriculumK, noiseAmp, dims, lowConfFallback }` | 新增配置 |
+| 8 | `stressBreakdown` + 回放帧 `frames[].ps` + `web/src/audit/profileAuditContracts.js` | 记录 stress 分量 | 落 θ⃗/b⃗/b*/Δ⃗/‖b⃗−b*‖；新增契约：`d*` 不被个性化抬高、`b*` 随 θ⃗ 单调、救济期对齐项=0 | 新增可观测 |
+
+**护栏顺序（与 §一硬约束集合、PEOG 12 路 bypass 同纪律，不可违背）**：
+
+```
+硬约束(阶段4: DFS可解/机动性)  >  救济链(recovery/nearMiss/bottleneck)  >  PEOG/warmup  >  等体感对齐项(b*)
+```
+
+任一上游触发 → 对齐项自动 bypass（个性化绝不制造死局、绝不绕过救济、绝不抬高目标体感 `d*`）。
+
+**数据契约（最小新增字段）**：
+
+```jsonc
+// ctx 注入（game.js → _spawnContext）
+{ "latentAbility": { "spatial": {mu, sigma}, "combo": {...}, ... },  // 来自 playerLatentAbility
+  "perceivedTarget": 0.58 }                                          // = stress（d*），由 resolveAdaptiveStrategy 写回
+// 候选诊断（_spawnDiagnostics / frames[].ps）
+{ "b_vec": {...}, "b_star": {...}, "alignErr": 0.12, "personalizationLambda": 0.4 }
+```
+
+**最小落地切片（MVP，严格按 §4.17 落地阶段）**：
+
+1. **切片 0（零线上风险）**：仅做改造点 1+2+8 —— 上线 θ⃗、b⃗、可观测，但 generateDockShapes **不消费**（影子）。离线用 `move_sequences` 验证 `θ⃗` 对未来 N 局表现的预测力优于 PB/skillLevel，并验证 `‖b⃗−b*‖` 与心流命中率相关。
+2. **切片 1（灰度）**：接通改造点 3+4，仅高置信 θ⃗ 玩家、`personalizationStrength` 小幅起步、`rolloutPercent` 逐步放量；看板盯"等体感约束下 `b*` 随 θ⃗ 单调上移"与"救济 bypass 占比"。
+3. **切片 2**：接改造点 5+6（构造算子 + applySpawnPrior 结构偏置），把"客观题目考点结构"按 archetype 差异化。
+
+**回归红线**：人均时长 −3% / 心流偏离方差上升 / 救济 bypass 误伤 >15% / `d*` 被对齐项隐性抬高（体感主线被污染）→ 任一触发回滚灰度阶。
+
 ---
 
 ### 三、架构图生成 Prompt

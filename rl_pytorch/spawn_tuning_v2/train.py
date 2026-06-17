@@ -77,7 +77,9 @@ def _train_one_epoch(
             "pb_distribution": 0.0, "anchor": 0.0,
             # v2.9 / v2.9.1 / v2.10.32 (P2.2) / v3.0.11 (G6) / v3.0.19
             "monotonic": 0.0, "target_fit": 0.0, "endpoint": 0.0,
-            "r_value": 0.0, "deploy": 0.0, "theta_diversity": 0.0}
+            "r_value": 0.0, "deploy": 0.0, "theta_diversity": 0.0,
+            # v3.2 多曲线
+            "curve_e": 0.0, "curve_f": 0.0, "frustration_cap": 0.0}
     n_batches = 0
     global_step = global_step_start
 
@@ -108,6 +110,10 @@ def _train_one_epoch(
             "r_value": batch.get("r_value"),
             # v3.0.19: same-ctx group id, 用于 loss_theta_diversity 防"绿点线段化"
             "ctx_id": batch.get("ctx_id"),
+            # v3.2 多曲线: 爽感 / 挫败 + mask
+            "e_curve": batch.get("e_curve"),
+            "f_curve": batch.get("f_curve"),
+            "ef_mask": batch.get("ef_mask"),
         }
 
         breakdown = compute_total_loss(
@@ -160,7 +166,11 @@ def _eval_one_epoch(
             "pb_distribution": 0.0, "anchor": 0.0,
             # v2.9 / v2.9.1 / v2.10.32 (P2.2) / v3.0.11 (G6) / v3.0.19
             "monotonic": 0.0, "target_fit": 0.0, "endpoint": 0.0,
-            "r_value": 0.0, "deploy": 0.0, "theta_diversity": 0.0}
+            "r_value": 0.0, "deploy": 0.0, "theta_diversity": 0.0,
+            # v3.2 多曲线
+            "curve_e": 0.0, "curve_f": 0.0, "frustration_cap": 0.0}
+    e_mae_sum = 0.0   # v3.2: 爽感 vs ideal E MAE
+    f_mae_sum = 0.0   # v3.2: 挫败 vs ideal F MAE
     curve_var_sum = 0.0  # v2.9.4: per-sample 预测曲线方差, 用于退化检测
     ideal_mae_sum = 0.0       # v3.0.2: 预测 vs ideal target_S_curve MAE (业务核心指标!)
     p_reach_sums = {"reach_50": 0.0, "reach_80": 0.0, "reach_95": 0.0,
@@ -170,10 +180,13 @@ def _eval_one_epoch(
     n_samples = 0
 
     # 预计算 ideal target tensor (v3.0.4: calibrated 已彻底移除)
-    from .target_curve import target_curve_vector
+    from .target_curve import target_curve_vector, target_E_vector, target_F_vector
     ideal_target = torch.tensor(
         target_curve_vector(), dtype=torch.float32, device=device,
     )
+    # v3.2 多曲线: 爽感 / 挫败 ideal target
+    ideal_e_target = torch.tensor(target_E_vector(), dtype=torch.float32, device=device)
+    ideal_f_target = torch.tensor(target_F_vector(), dtype=torch.float32, device=device)
     # v3.0.11 (G6): 预计算 deploy ctx indices (用于 _eval 阶段算 loss_deploy)
     from .optimize_theta import enumerate_all_contexts, context_to_indices
     _all_ctxs = enumerate_all_contexts()
@@ -208,6 +221,10 @@ def _eval_one_epoch(
             "r_value": batch.get("r_value"),
             # v3.0.19: same-ctx group id, eval 也算 theta_diversity 看模型是否真的用 θ
             "ctx_id": batch.get("ctx_id"),
+            # v3.2 多曲线
+            "e_curve": batch.get("e_curve"),
+            "f_curve": batch.get("f_curve"),
+            "ef_mask": batch.get("ef_mask"),
         }
         breakdown = compute_total_loss(
             preds, targets, batch["pb_bin_idx"], weights=weights,
@@ -231,6 +248,12 @@ def _eval_one_epoch(
         ideal_diff = (preds["curve"] - ideal_target.unsqueeze(0)).abs()
         ideal_mae_sum += float(ideal_diff.mean().item())
 
+        # v3.2 多曲线: 爽感 / 挫败 预测 vs ideal E/F MAE
+        if "curve_e" in preds:
+            e_mae_sum += float((preds["curve_e"] - ideal_e_target.unsqueeze(0)).abs().mean().item())
+        if "curve_f" in preds:
+            f_mae_sum += float((preds["curve_f"] - ideal_f_target.unsqueeze(0)).abs().mean().item())
+
         # v2.5: P_reach 业务指标 (累加平均)
         reach = p_reach_metrics(preds["curve"])
         for k in p_reach_sums:
@@ -240,6 +263,8 @@ def _eval_one_epoch(
     metrics["curve_mae"] = curve_mae_sum / max(1, n_samples)
     metrics["curve_var"] = curve_var_sum / max(1, n_batches)
     metrics["ideal_mae"] = ideal_mae_sum / max(1, n_batches)   # v3.0.2: model vs ideal
+    metrics["e_mae"] = e_mae_sum / max(1, n_batches)           # v3.2: 爽感 vs ideal E
+    metrics["f_mae"] = f_mae_sum / max(1, n_batches)           # v3.2: 挫败 vs ideal F
     for k, v in p_reach_sums.items():
         metrics[k] = v / max(1, n_batches)
     return metrics
@@ -392,6 +417,9 @@ def train(
             "val_curve_var": val_m.get("curve_var", 0.0),
             # v3.0.2 — ★ 预测 vs ideal target_S_curve MAE (业务核心验收, v3.0.4 起为唯一 target MAE)
             "val_ideal_mae": val_m.get("ideal_mae", 0.0),
+            # v3.2 多曲线 — 爽感 / 挫败 vs ideal E/F MAE
+            "val_e_mae": val_m.get("e_mae", 0.0),
+            "val_f_mae": val_m.get("f_mae", 0.0),
             # v3.0.11 (G6 联合寻参): trainable theta_optim 表 vs ideal 的 MSE; 0 = 完美收敛
             "val_deploy": val_m.get("deploy", 0.0),
             # v2.5: 业务级 P_reach 分布 (玩家到达 r=X 的累积概率)

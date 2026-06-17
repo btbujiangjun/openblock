@@ -102,6 +102,10 @@ class LossWeights:
     deploy: float = 1.0          # v3.0.19: 2.0 → 1.0
     # v3.0.19 新增: same-ctx batch 内 model 输出方差最低惩罚, 防"绿点线段化"
     theta_diversity: float = 1.0
+    # v3.2 多曲线 (multi-head): 爽感 / 挫败曲线 loss + 挫败硬上限 hinge
+    curve_e: float = 1.0
+    curve_f: float = 1.0
+    frustration_cap: float = 1.0
 
     def to_dict(self) -> Dict[str, float]:
         return {
@@ -111,6 +115,8 @@ class LossWeights:
             "monotonic": self.monotonic, "target_fit": self.target_fit,
             "endpoint": self.endpoint, "r_value": self.r_value, "deploy": self.deploy,
             "theta_diversity": self.theta_diversity,
+            "curve_e": self.curve_e, "curve_f": self.curve_f,
+            "frustration_cap": self.frustration_cap,
         }
 
 
@@ -501,6 +507,79 @@ def _get_ideal_target(n_bins: int, device) -> torch.Tensor:
     return _IDEAL_TARGET_CACHE[key]
 
 
+# v3.2 多曲线: 爽感 E / 挫败 F 的 ideal target 缓存
+_IDEAL_E_CACHE: Dict[str, torch.Tensor] = {}
+_IDEAL_F_CACHE: Dict[str, torch.Tensor] = {}
+FRUSTRATION_CAP = 0.30   # 与 target_curve.F_CAP 对齐 — 挫败硬上限 (业务红线)
+
+
+def _get_ideal_e_target(n_bins: int, device) -> torch.Tensor:
+    key = f"{n_bins}_{device}"
+    if key not in _IDEAL_E_CACHE:
+        from .target_curve import target_E_vector
+        _IDEAL_E_CACHE[key] = torch.tensor(target_E_vector(n_bins=n_bins), dtype=torch.float32, device=device)
+    return _IDEAL_E_CACHE[key]
+
+
+def _get_ideal_f_target(n_bins: int, device) -> torch.Tensor:
+    key = f"{n_bins}_{device}"
+    if key not in _IDEAL_F_CACHE:
+        from .target_curve import target_F_vector
+        _IDEAL_F_CACHE[key] = torch.tensor(target_F_vector(n_bins=n_bins), dtype=torch.float32, device=device)
+    return _IDEAL_F_CACHE[key]
+
+
+def _masked_shape_mse(pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """对 mask=1 的样本算逐 bin MSE 均值; mask 全 0 时返回 0 (该 batch 无标签)。"""
+    if pred.size(0) == 0 or pred.size(1) == 0:
+        return torch.tensor(0.0, device=pred.device)
+    per_sample = ((pred - target) ** 2).mean(dim=-1)   # (B,)
+    msum = mask.sum()
+    if msum < 1e-6:
+        return torch.tensor(0.0, device=pred.device)
+    return (per_sample * mask).sum() / (msum + 1e-6)
+
+
+def loss_curve_e(
+    pred_e: torch.Tensor,
+    target_e: torch.Tensor,
+    ef_mask: torch.Tensor,
+    ideal_weight: float = 0.3,
+) -> torch.Tensor:
+    """v3.2 爽感曲线 loss = 有标签样本对 sample E 的 MSE + 朝 ideal E(r) 的弱拉力。
+
+    ideal 拉力对全 batch 生效 (即便无 sample 标签也把 model 朝业务期望 E 形状收敛)。
+    """
+    if pred_e.size(0) == 0 or pred_e.size(1) == 0:
+        return torch.tensor(0.0, device=pred_e.device)
+    l_sample = _masked_shape_mse(pred_e, target_e, ef_mask)
+    ideal = _get_ideal_e_target(pred_e.size(1), pred_e.device)
+    l_ideal = ((pred_e - ideal.unsqueeze(0)) ** 2).mean()
+    return l_sample + ideal_weight * l_ideal
+
+
+def loss_curve_f(
+    pred_f: torch.Tensor,
+    target_f: torch.Tensor,
+    ef_mask: torch.Tensor,
+    ideal_weight: float = 0.3,
+) -> torch.Tensor:
+    """v3.2 挫败曲线 loss = 有标签样本对 sample F 的 MSE + 朝 ideal F(r) 的弱拉力。"""
+    if pred_f.size(0) == 0 or pred_f.size(1) == 0:
+        return torch.tensor(0.0, device=pred_f.device)
+    l_sample = _masked_shape_mse(pred_f, target_f, ef_mask)
+    ideal = _get_ideal_f_target(pred_f.size(1), pred_f.device)
+    l_ideal = ((pred_f - ideal.unsqueeze(0)) ** 2).mean()
+    return l_sample + ideal_weight * l_ideal
+
+
+def loss_frustration_cap(pred_f: torch.Tensor, cap: float = FRUSTRATION_CAP) -> torch.Tensor:
+    """v3.2 业务红线: 挫败 F(r) 不得超过硬上限 cap — ReLU hinge 惩罚 (gradient 不衰减)。"""
+    if pred_f.size(0) == 0 or pred_f.size(1) == 0:
+        return torch.tensor(0.0, device=pred_f.device)
+    return F.relu(pred_f - cap).pow(2).mean()
+
+
 def loss_endpoint(
     curve_pred: torch.Tensor,
     # v3.0.25: 参考红线后, 前 2 个 bin 的 target 均值约 0.102 (0.101/0.103)
@@ -632,6 +711,9 @@ class LossBreakdown:
     r_value: torch.Tensor         # v2.10.32 (P2.2)
     deploy: torch.Tensor          # v3.0.11 (G6 联合寻参)
     theta_diversity: torch.Tensor # v3.0.19 (same-ctx 方差最低惩罚)
+    curve_e: torch.Tensor         # v3.2 多曲线: 爽感
+    curve_f: torch.Tensor         # v3.2 多曲线: 挫败
+    frustration_cap: torch.Tensor # v3.2 多曲线: 挫败硬上限 hinge
 
     def to_dict(self, keep_grad: bool = False) -> Dict[str, float]:
         def _to(v: torch.Tensor) -> float:
@@ -652,6 +734,9 @@ class LossBreakdown:
             "r_value": _to(self.r_value),
             "deploy": _to(self.deploy),
             "theta_diversity": _to(self.theta_diversity),
+            "curve_e": _to(self.curve_e),
+            "curve_f": _to(self.curve_f),
+            "frustration_cap": _to(self.frustration_cap),
         }
 
 
@@ -792,6 +877,23 @@ def compute_total_loss(
     else:
         l_theta_div = zero
 
+    # v3.2 多曲线: 爽感 / 挫败曲线 loss + 挫败硬上限 hinge
+    if "curve_e" in predictions and "e_curve" in targets:
+        _ef_mask = targets.get("ef_mask")
+        if _ef_mask is None:
+            _ef_mask = torch.ones(predictions["curve_e"].size(0), device=device)
+        l_curve_e = loss_curve_e(predictions["curve_e"], targets["e_curve"], _ef_mask)
+    else:
+        l_curve_e = zero
+    if "curve_f" in predictions and "f_curve" in targets:
+        _ef_mask_f = targets.get("ef_mask")
+        if _ef_mask_f is None:
+            _ef_mask_f = torch.ones(predictions["curve_f"].size(0), device=device)
+        l_curve_f = loss_curve_f(predictions["curve_f"], targets["f_curve"], _ef_mask_f)
+    else:
+        l_curve_f = zero
+    l_frustration_cap = loss_frustration_cap(predictions["curve_f"]) if "curve_f" in predictions else zero
+
     total = (w.shape * l_shape
              + w.balance * l_balance
              + w.surprise * l_surprise
@@ -805,7 +907,10 @@ def compute_total_loss(
              + w.endpoint * l_endpoint
              + w.r_value * l_r_value
              + w.deploy * l_deploy
-             + w.theta_diversity * l_theta_div)
+             + w.theta_diversity * l_theta_div
+             + w.curve_e * l_curve_e
+             + w.curve_f * l_curve_f
+             + w.frustration_cap * l_frustration_cap)
 
     return LossBreakdown(
         total=total,
@@ -823,4 +928,7 @@ def compute_total_loss(
         r_value=l_r_value,
         deploy=l_deploy,
         theta_diversity=l_theta_div,
+        curve_e=l_curve_e,
+        curve_f=l_curve_f,
+        frustration_cap=l_frustration_cap,
     )

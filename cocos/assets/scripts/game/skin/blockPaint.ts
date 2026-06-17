@@ -1,6 +1,6 @@
 import { Color, Graphics, Label, Sprite, UITransform, sys } from 'cc';
 import { Skin } from '../../core';
-import { blockFaceColor, lightenInto, darkenInto, blockMetrics, blockIcon, isLightBoard } from './palette';
+import { blockColor, blockFaceColor, lightenInto, darkenInto, blockMetrics, blockIcon, isLightBoard } from './palette';
 import { skinHasImageBlocks, getSkinBlockFrame } from './skinSprites';
 
 /**
@@ -63,8 +63,11 @@ export function paintBlockFace(
     g: Graphics, x: number, y: number, size: number, radius: number,
     skin: Skin, colorIdx: number, alpha = 255,
 ): void {
-    const face = blockFaceColor(skin, colorIdx, alpha);
     const r = Math.max(0, Math.min(radius, size / 2));
+    // 图片皮肤（blockIconAssets）：整面 PNG 会盖在面上 → 仅画「单层底色 + 单条细描边」，
+    // 不叠 cartoon 的双描边/高光/暗角 —— 避免与 PNG 自带画框叠成「过于复杂的多重边框」。
+    if (skinHasImageBlocks(skin)) return paintImageBacking(g, x, y, size, r, skin, colorIdx, alpha);
+    const face = blockFaceColor(skin, colorIdx, alpha);
     const style = skin.blockStyle || 'cartoon';
 
     // 带 emoji icon 的皮肤统一走简洁渲染：纯色面 + 轻描边，让 emoji 突出。
@@ -81,6 +84,23 @@ export function paintBlockFace(
     if (style === 'pixel8') return paintPixel8(g, x, y, size, face, alpha);
     if (style === 'flat') return paintFlat(g, x, y, size, r, face, alpha);
     return paintCartoon(g, x, y, size, r, face, alpha, skin);
+}
+
+/**
+ * 图片皮肤（blockIconAssets，如水墨雅集）专用底 —— 与 web `paintBlockCell` / 小程序 `_paintCell`
+ * 的图片皮肤分支严格一致：PNG 是方形画卡，整面贴图盖在面上，边框只保留「单层底色圆角块」这一个
+ * 视觉元素：PNG 按 blockIconInset 内缩后露出一圈细色框「装裱」（一帧干净的小品扇页）。
+ * 刻意不画 cartoon 的双描边/高光/暗角，也不再叠额外描边 —— 那会与 PNG 画卡叠成「过于复杂的多重边框」。
+ * 底色同时作为 PNG 未加载时的占位。
+ */
+function paintImageBacking(
+    g: Graphics, x: number, y: number, size: number, r: number,
+    skin: Skin, colorIdx: number, alpha: number,
+): void {
+    const rr = Math.max(0, Math.min(r, size / 2));
+    g.fillColor = blockColor(skin, colorIdx, alpha);
+    g.roundRect(x, y, size, size, rr);
+    g.fill();
 }
 
 /**
@@ -593,9 +613,13 @@ export function drawShapeFaces(
     const { shape, colorIdx, cell, left, top, alpha = 255, skipCell } = opts;
     const { inset, radius } = blockMetrics(skin, cell);
     const fsize = cell - inset * 2;
-    // 图片皮肤：整面贴图替代绘面 + emoji（与 web blockIconAssets 一致）。
+    // 图片皮肤：与 web `paintBlockCell` 同序 —— 先画 cartoon 底瓷砖（含描边/圆角，提供方块边框），
+    // 再在面内叠整面 PNG。PNG 按 blockIconInset 收一圈（fsize - imgPad*2），让底瓷砖的描边露出，
+    // 与 web `_paintIcon` 的 `drawImage(bx+pad, …, size-pad*2)` 完全一致。
     const imgSkin = skinHasImageBlocks(skin);
-    const imgSize = Math.max(1, cell - Math.max(2, Math.round(cell * 0.06)));
+    const insetFrac = (skin as unknown as { blockIconInset?: number }).blockIconInset ?? 0.18;
+    const imgPad = insetFrac <= 0 ? 0 : Math.max(1, Math.round(fsize * insetFrac));
+    const imgSize = Math.max(1, fsize - imgPad * 2);
     let iconN = 0;
     let spriteN = 0;
     for (let y = 0; y < shape.length; y++) {
@@ -604,28 +628,28 @@ export function drawShapeFaces(
             if (skipCell?.(x, y)) continue;
             const cellX = left + x * cell;
             const cellY = top - (y + 1) * cell;
-            let drewSprite = false;
-            if (imgSkin && spritePool) {
-                const sf = getSkinBlockFrame(skin, colorIdx);
-                if (sf) {
-                    const s = spritePool.getSprite(spriteN);
-                    if (s) {
-                        s.node.active = true;
-                        if (s.spriteFrame !== sf) s.spriteFrame = sf;
-                        (s.node.getComponent(UITransform) || s.node.addComponent(UITransform)).setContentSize(imgSize, imgSize);
-                        s.node.setPosition(cellX + cell / 2, cellY + cell / 2, 0);
-                        _spriteTint.set(255, 255, 255, alpha);
-                        s.color = _spriteTint;
-                        spriteN++;
-                        drewSprite = true;
+            // 底瓷砖（含边框）始终绘制：非图片皮肤即方块本体；图片皮肤作为 PNG 底+边框，
+            // 同时也是 PNG 未加载完成时的占位。彻底消除「激活态/落点预览只有纯色或贴图缺边框」。
+            paintBlockFace(g, cellX + inset, cellY + inset, fsize, radius, skin, colorIdx, alpha);
+            if (imgSkin) {
+                if (spritePool) {
+                    const sf = getSkinBlockFrame(skin, colorIdx);
+                    if (sf) {
+                        const s = spritePool.getSprite(spriteN);
+                        if (s) {
+                            s.node.active = true;
+                            if (s.spriteFrame !== sf) s.spriteFrame = sf;
+                            (s.node.getComponent(UITransform) || s.node.addComponent(UITransform)).setContentSize(imgSize, imgSize);
+                            s.node.setPosition(cellX + cell / 2, cellY + cell / 2, 0);
+                            _spriteTint.set(255, 255, 255, alpha);
+                            s.color = _spriteTint;
+                            spriteN++;
+                        }
                     }
                 }
+                continue;
             }
-            if (!drewSprite) {
-                // 非图片皮肤，或贴图尚未加载完成 → 绘面占位（图片皮肤不画 emoji）。
-                paintBlockFace(g, cellX + inset, cellY + inset, fsize, radius, skin, colorIdx, alpha);
-            }
-            if (!imgSkin && iconPool) {
+            if (iconPool) {
                 const em = blockIcon(skin, colorIdx);
                 const fs = em ? iconFontSize(fsize) : 0;
                 if (em && fs > 0) {

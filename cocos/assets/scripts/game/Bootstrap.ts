@@ -75,6 +75,12 @@ export class Bootstrap extends Component {
     //   · iOS：CCMTLSwapchain::doInit 跑在 consumer 线程里非法访问 -[UIView layer] → 主线程检查器冻屏；
     //   · Android：沉浸式 surfaceChanged 风暴 → EGL surface 反复重配 → 渲染线程顶死 / 黑屏（稳定复现端）。
     private _resolutionLocked = false;
+    // 重入保护：iOS 原生 Cocos 在 view.emit('canvas-resize') 内部会同步派发 screen.window-resize，
+    // 而 _debouncedRelayout → relayout → applyResolutionPolicy → emit 会同步回到 onViewportChanged，
+    // 即便防抖也无法拦截同帧同步重入 → 调用栈无限增长 → "Maximum call stack size exceeded"
+    // 启动期崩溃。任何一次 relayout 进行中再来的 window-resize / canvas-resize 一律忽略，
+    // 收口靠末尾的延迟 _debouncedRelayout 兜底（防抖窗口结束后再跑一次即可）。
+    private _relayouting = false;
 
     onLoad(): void {
         // 最早注册兜底根：之后任何启动异常都画到屏幕（原生黑屏 → 可读报错）。
@@ -510,6 +516,10 @@ export class Bootstrap extends Component {
 
     /** 防抖后的视口重排：连续 resize 事件停稳后只跑一次，避免过渡期反复重建 GPU swapchain。 */
     private onViewportChanged(): void {
+        // 若正处在 relayout 同步路径内（iOS Cocos 同步把 canvas-resize 转发为 window-resize），
+        // 直接丢弃这次事件，避免同步递归把调用栈打爆。relayoutImpl 末尾会复位 _relayouting，
+        // 真有新尺寸时会再走一次正常的防抖路径。
+        if (this._relayouting) return;
         this.unschedule(this._debouncedRelayout);
         this.scheduleOnce(this._debouncedRelayout, 0.18);
     }
@@ -651,34 +661,42 @@ export class Bootstrap extends Component {
     }
 
     private relayoutImpl(): void {
-        // applyResolutionPolicy 内部带"viewport key 不变就不 setDesignResolutionSize / canvas-resize"的去重，
-        // 保证 GPU swapchain 重建只发生在窗口真变（旋转、分屏）的时刻；
-        // 而下面的"重新计算 layout + setPosition + redrawBoard"每次都跑——iOS 真机的 safe-area
-        // 可能在 t=0 时还是 0，要到 t≈0.3/0.8s 才稳定，必须跑后续两次延迟 relayout 才能拿到正确值。
-        this.applyResolutionPolicy(720, 1280);
-        this._ctrl?.cancelActiveDrag();
-        const m = this.computeLayout();
-        if (this._play) this._play.setPosition(0, m.boardCenterY, 0);
-        if (this._dock) this._dock.setPosition(0, m.dockY, 0);
-        this._dockView?.setLayout(m.dockWidth, m.dockHeight, m.dockCell);
-        if (this._hud) {
-            this._hud.setPosition(0, m.hudY, 0);
-            this._hudComp?.relayoutCols();
+        // 重入哨兵：本次 relayout 内的任何 window-resize/orientation-change 都被 onViewportChanged 丢弃。
+        // 配合 try/finally 复位，杜绝异常路径下 flag 残留导致后续 resize 永远无响应。
+        if (this._relayouting) return;
+        this._relayouting = true;
+        try {
+            // applyResolutionPolicy 内部带"viewport key 不变就不 setDesignResolutionSize / canvas-resize"的去重，
+            // 保证 GPU swapchain 重建只发生在窗口真变（旋转、分屏）的时刻；
+            // 而下面的"重新计算 layout + setPosition + redrawBoard"每次都跑——iOS 真机的 safe-area
+            // 可能在 t=0 时还是 0，要到 t≈0.3/0.8s 才稳定，必须跑后续两次延迟 relayout 才能拿到正确值。
+            this.applyResolutionPolicy(720, 1280);
+            this._ctrl?.cancelActiveDrag();
+            const m = this.computeLayout();
+            if (this._play) this._play.setPosition(0, m.boardCenterY, 0);
+            if (this._dock) this._dock.setPosition(0, m.dockY, 0);
+            this._dockView?.setLayout(m.dockWidth, m.dockHeight, m.dockCell);
+            if (this._hud) {
+                this._hud.setPosition(0, m.hudY, 0);
+                this._hudComp?.relayoutCols();
+            }
+            // 伙伴也按新可见宽决定显隐 / 偏移。
+            this._ctrl?.relayoutCompanion();
+            if (this._skillBar) this._skillBar.setPosition(0, m.skillY, 0);
+            if (this._wheelBtn) this._wheelBtn.setPosition(-(m.dockWidth / 2) - 40, m.dockY, 0);
+            for (const b of this._buttons) b.setPosition(b.position.x, m.buttonsY, 0);
+            // 盘面/特效层同步边长并重绘（保持正方形铺满）。
+            if (this._board) this._board.setBoardPx(m.boardPx);
+            if (this._ambientFx) this._ambientFx.setBoardPx(m.boardPx);
+            if (this._lineFx) this._lineFx.setBoardPx(m.boardPx);
+            if (this._fx) this._fx.setBoardPx(m.boardPx);
+            if (this._overlayFx) this._overlayFx.setBoardPx(m.boardPx);
+            if (this._seasonalBorder) this._seasonalBorder.setBoardPx(m.boardPx);
+            this._ctrl?.redrawBoard();
+            this._ctrl?.refreshDock();
+        } finally {
+            this._relayouting = false;
         }
-        // 伙伴也按新可见宽决定显隐 / 偏移。
-        this._ctrl?.relayoutCompanion();
-        if (this._skillBar) this._skillBar.setPosition(0, m.skillY, 0);
-        if (this._wheelBtn) this._wheelBtn.setPosition(-(m.dockWidth / 2) - 40, m.dockY, 0);
-        for (const b of this._buttons) b.setPosition(b.position.x, m.buttonsY, 0);
-        // 盘面/特效层同步边长并重绘（保持正方形铺满）。
-        if (this._board) this._board.setBoardPx(m.boardPx);
-        if (this._ambientFx) this._ambientFx.setBoardPx(m.boardPx);
-        if (this._lineFx) this._lineFx.setBoardPx(m.boardPx);
-        if (this._fx) this._fx.setBoardPx(m.boardPx);
-        if (this._overlayFx) this._overlayFx.setBoardPx(m.boardPx);
-        if (this._seasonalBorder) this._seasonalBorder.setBoardPx(m.boardPx);
-        this._ctrl?.redrawBoard();
-        this._ctrl?.refreshDock();
     }
 
     /**

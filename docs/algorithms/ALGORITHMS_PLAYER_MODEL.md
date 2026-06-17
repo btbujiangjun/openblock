@@ -1257,6 +1257,7 @@ $$
 2. **多分量 frustration**：从计数升级为带权重的连续值
 3. **跨设备同步**：把 `_sessionHistory` 同步到云端（隐私权衡）
 4. **ML 增强**：训练 LightGBM 预测玩家**疲劳度**（与挫败/认知负荷正交）
+5. **体感↔客观难度标定器 θ⃗（贝叶斯/TrueSkill 风格）**：**S 形 stress 曲线仍是调控主线**（控制目标体感难度 `d*=stress`）；升级在于「难」是相对能力的主观量——同一客观难度 `b` 对不同能力玩家体感不同（`d_perceived≈b⊖θ`，与现有 `F(t)=|boardPressure/skill−1|` 同构）。在 `AbilityVector` 之上加带不确定度的潜在能力后验 `θ_d ~ N(μ_d, σ_d²)`，每局/每里程碑段作一次"答题"（题目难度取本局客观 `spawnStepDifficulty`），按 logistic(θ−b) 误差更新；θ⃗ 只吃行为质量与盘面应对、**不吃绝对分数**。θ⃗ **不取代 PB 作锚点**，而是反解客观目标 `b*=θ⃗⊕stress` 驱动 EDPCG 式等体感选块（`effectivePB` 是其一维 PB 代理版前身）。完整设计与落地路线见 [`BEST_SCORE_CHASE_STRATEGY.md §4.17`](../player/BEST_SCORE_CHASE_STRATEGY.md)（P-research，研究规划）。
 
 ### 16.3 开放研究点
 

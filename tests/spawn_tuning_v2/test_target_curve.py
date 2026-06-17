@@ -20,7 +20,44 @@ from rl_pytorch.spawn_tuning_v2.target_curve import (
     CURVE_N_BINS, CURVE_R_MAX,
     SEG_GENTLE_END, SEG_MID_END, SEG_BRAKE_END,
     D_BASE, D_GENTLE_END, D_MID_END, D_BRAKE_END, D_CAP,
+    target_E_curve, target_F_curve, target_E_vector, target_F_vector,
+    E_BASE, E_PEAK, F_BASE, F_CAP,
 )
+
+
+class TestMultiCurveTargets:
+    """v3.2 多曲线: 爽感 E(r) / 挫败 F(r) 目标 (与 JS targetSCurve.js 1:1)。"""
+
+    def test_e_peaks_at_pb(self):
+        assert target_E_curve(1.0) == pytest.approx(E_PEAK, abs=1e-9)
+
+    def test_e_bounded(self):
+        for i in range(41):
+            r = i * 0.05
+            v = target_E_curve(r)
+            assert E_BASE - 1e-9 <= v <= E_PEAK + 1e-9
+
+    def test_e_vector_len(self):
+        assert len(target_E_vector()) == CURVE_N_BINS
+
+    def test_f_base_at_zero(self):
+        assert target_F_curve(0.0) == pytest.approx(F_BASE, abs=1e-9)
+
+    def test_f_monotonic_and_capped(self):
+        prev = -1.0
+        for i in range(41):
+            r = i * 0.05
+            v = target_F_curve(r)
+            assert v >= prev - 1e-9
+            assert v <= F_CAP + 1e-9
+            prev = v
+
+    def test_f_approaches_cap_high_r(self):
+        assert target_F_curve(2.0) == pytest.approx(F_CAP, abs=1e-6)
+
+    def test_f_vector_capped(self):
+        for v in target_F_vector():
+            assert v <= F_CAP + 1e-9
 
 
 class TestTargetSCurve:

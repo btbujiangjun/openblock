@@ -791,6 +791,16 @@ function _attrText(s) {
     return String(s).replace(/"/g, '&quot;');
 }
 
+/**
+ * 去掉故事线（面板方框正文）末尾的标点符号。
+ * 面板方框内的叙事是短句陈述，结尾句号/感叹号等会让排版显得拖沓，
+ * 这里仅裁剪“句末”标点（中英文句号、问号、感叹号、逗号、顿号、分号及省略号），
+ * 句中标点保持不变。
+ */
+function _stripTrailingPunct(s) {
+    return String(s).replace(/[。．.！!？?，,、；;…～~\s]+$/u, '');
+}
+
 function _fmtSigned(v) {
     if (!Number.isFinite(v)) return '—';
     const abs = Math.abs(v).toFixed(2);
@@ -819,7 +829,7 @@ export function renderStressMeter(root, insight, stressHistory = []) {
             `<div class="stress-meter__avatar"><span class="stress-meter__face">🌙</span></div>` +
             `<div class="stress-meter__body">` +
             `<div class="stress-meter__head"><span class="stress-meter__label">未启用</span></div>` +
-            `<div class="stress-meter__story">自适应出块未开启，压力信号不参与决策。</div>` +
+            `<div class="stress-meter__story">${_stripTrailingPunct('自适应出块未开启，压力信号不参与决策。')}</div>` +
             `</div></div></div>`;
         return;
     }
@@ -902,7 +912,7 @@ export function renderStressMeter(root, insight, stressHistory = []) {
                               `<div class="stress-meter__bar-delta">${stress >= insight.stressTarget ? '↑' : '↓'}${Math.abs(stress - insight.stressTarget).toFixed(2)}</div>`
                             : '') +
                     `</div>` +
-                    `<div class="stress-meter__story">${_attrText(story)}</div>` +
+                    `<div class="stress-meter__story">${_attrText(_stripTrailingPunct(story))}</div>` +
                 `</div>` +
             `</div>` +
         `</div>`;

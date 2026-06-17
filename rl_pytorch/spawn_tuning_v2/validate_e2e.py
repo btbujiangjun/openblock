@@ -151,6 +151,7 @@ def validate(db_path: str, bundle_path: str, set_id: int,
         },
         "set_id": set_id,
         "matched": matched,
+        "total_ctx": len(policies),
         "skipped_few_samples": skipped_few,
         "skipped_no_data": skipped_no_data,
         "summary": {
@@ -182,7 +183,7 @@ def main():
     print(f"\n=== E2E Validation Report ===")
     print(f"Bundle: model_id={result['bundle']['model_id']} · sha={result['bundle']['model_sha256']}")
     print(f"Sample set: #{result['set_id']}")
-    print(f"Matched ctx: {result['matched']}/360 "
+    print(f"Matched ctx: {result['matched']}/{result.get('total_ctx', 480)} "
           f"(skipped: few_samples={result['skipped_few_samples']}, no_data={result['skipped_no_data']})")
     print(f"\nOverall: avg_mae = {s['avg_mae']} · grade = {s['grade'].upper()}\n")
     print(f"Top 3 best (closest to reality):")

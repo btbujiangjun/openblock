@@ -17,6 +17,7 @@ from rl_pytorch.spawn_tuning_v2.extractor import (
     StepInfo, EpisodeLabels, extract_d_curve, aggregate_d_curves,
     FILL_RATE_WEIGHT, ACTION_FREEDOM_WEIGHT, TREND_WEIGHT,
     SURPRISE_DAMPING, SURPRISE_MIN_CLEARS,
+    DELIGHT_PER_CLEAR,
 )
 
 
@@ -26,6 +27,57 @@ def make_step(idx, score, fill, freedom, no_move=False, clears=0):
         fill_rate=fill, action_freedom=freedom,
         no_move=no_move, clears=clears,
     )
+
+
+class TestDelightFrustrationStep:
+    """v3.2 多曲线: 单步爽感 / 挫败信号。"""
+
+    def test_delight_zero_when_no_clears(self):
+        assert make_step(0, 100, 0.5, 0.5).delight_step() == 0.0
+
+    def test_delight_scales_with_clears(self):
+        assert make_step(0, 100, 0.5, 0.5, clears=1).delight_step() == pytest.approx(DELIGHT_PER_CLEAR)
+        assert make_step(0, 100, 0.5, 0.5, clears=2).delight_step() == pytest.approx(2 * DELIGHT_PER_CLEAR)
+        # ≥3 消饱和到 1.0
+        assert make_step(0, 100, 0.5, 0.5, clears=3).delight_step() == 1.0
+
+    def test_delight_zero_on_death(self):
+        assert make_step(0, 100, 0.9, 0.0, no_move=True, clears=0).delight_step() == 0.0
+
+    def test_frustration_max_on_death(self):
+        assert make_step(0, 100, 0.9, 0.0, no_move=True).frustration_step() == 1.0
+
+    def test_frustration_low_when_free_and_clearing(self):
+        # 高自由度 + 低填充 + 有清行 → 挫败接近 0
+        f = make_step(0, 100, 0.3, 1.0, clears=1).frustration_step()
+        assert f == pytest.approx(0.0, abs=1e-9)
+
+    def test_frustration_high_when_stuck_and_crowded(self):
+        # 低自由度 + 高填充 + 无清行 → 挫败高
+        f = make_step(0, 100, 1.0, 0.0, clears=0).frustration_step()
+        assert f > 0.9
+
+    def test_frustration_bounded(self):
+        for fill in (0.0, 0.5, 0.7, 0.85, 1.0):
+            for free in (0.0, 0.5, 1.0):
+                for cl in (0, 1, 3):
+                    f = make_step(0, 100, fill, free, clears=cl).frustration_step()
+                    assert 0.0 <= f <= 1.0
+
+
+class TestMultiCurveExtraction:
+    """v3.2 多曲线: extract_d_curve 同时产出 e_curve / f_curve。"""
+
+    def test_extract_produces_ef_curves(self):
+        steps = [make_step(i, (i + 1) * 30, 0.4 + i * 0.02, 0.6, clears=(2 if i % 5 == 0 else 0))
+                 for i in range(20)]
+        labels = extract_d_curve(steps, pb=600)
+        assert len(labels.e_curve) == 20
+        assert len(labels.f_curve) == 20
+        for v in labels.e_curve:
+            assert 0.0 <= v <= 1.0
+        for v in labels.f_curve:
+            assert 0.0 <= v <= 1.0
 
 
 class TestStepDifficulty:

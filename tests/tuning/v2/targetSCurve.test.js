@@ -11,6 +11,8 @@ import {
     CURVE_N_BINS, CURVE_R_MAX,
     SEG_GENTLE_END, SEG_MID_END, SEG_BRAKE_END,
     D_BASE, D_GENTLE_END, D_MID_END, D_BRAKE_END, D_CAP,
+    targetECurve, targetFCurve, targetEVector, targetFVector,
+    E_BASE, E_PEAK, F_BASE, F_CAP,
 } from '../../../web/src/tuning/v2/targetSCurve.js';
 
 describe('targetSCurve', () => {
@@ -203,5 +205,57 @@ describe('targetSCurveByArc（局间难度弧线形变）', () => {
         expect(id.dScale).toBe(1);
         expect(id.dShift).toBe(0);
         expect(id.brakeShift).toBe(0);
+    });
+});
+
+// ─────────── v3.2 多曲线: 爽感 E(r) / 挫败 F(r) (与 Python target_curve.py 1:1) ───────────
+
+describe('targetECurve (爽感)', () => {
+    it('PB 处 (r=1) 达到峰值 E_PEAK', () => {
+        expect(targetECurve(1.0)).toBeCloseTo(E_PEAK, 9);
+    });
+    it('远离 PB 趋向基线 E_BASE', () => {
+        expect(targetECurve(0)).toBeGreaterThanOrEqual(E_BASE - 1e-9);
+        expect(targetECurve(0)).toBeLessThan(E_PEAK);
+        // r 远大于 PB 时回落接近基线
+        expect(targetECurve(2.0)).toBeLessThan(targetECurve(1.0));
+    });
+    it('全程 ∈ [E_BASE, E_PEAK]', () => {
+        for (let r = 0; r <= CURVE_R_MAX; r += 0.05) {
+            const v = targetECurve(r);
+            expect(v).toBeGreaterThanOrEqual(E_BASE - 1e-9);
+            expect(v).toBeLessThanOrEqual(E_PEAK + 1e-9);
+        }
+    });
+    it('targetEVector 长度 20 且每项有界', () => {
+        const vec = targetEVector();
+        expect(vec).toHaveLength(CURVE_N_BINS);
+        for (const v of vec) {
+            expect(v).toBeGreaterThanOrEqual(E_BASE - 1e-9);
+            expect(v).toBeLessThanOrEqual(E_PEAK + 1e-9);
+        }
+    });
+});
+
+describe('targetFCurve (挫败)', () => {
+    it('r=0 等于基线 F_BASE', () => {
+        expect(targetFCurve(0)).toBeCloseTo(F_BASE, 9);
+    });
+    it('单调非降 + 永不超过硬上限 F_CAP', () => {
+        let prev = -1;
+        for (let r = 0; r <= CURVE_R_MAX; r += 0.05) {
+            const v = targetFCurve(r);
+            expect(v).toBeGreaterThanOrEqual(prev - 1e-9);
+            expect(v).toBeLessThanOrEqual(F_CAP + 1e-9);
+            prev = v;
+        }
+    });
+    it('高超 PB 段逼近 cap', () => {
+        expect(targetFCurve(2.0)).toBeCloseTo(F_CAP, 6);
+    });
+    it('targetFVector 长度 20 且每项 ≤ F_CAP', () => {
+        const vec = targetFVector();
+        expect(vec).toHaveLength(CURVE_N_BINS);
+        for (const v of vec) expect(v).toBeLessThanOrEqual(F_CAP + 1e-9);
     });
 });

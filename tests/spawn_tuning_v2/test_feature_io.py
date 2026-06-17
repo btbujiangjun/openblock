@@ -115,9 +115,10 @@ class TestNormalize:
         # 第 0 维 (personalizationStrength=0.10) 归一化: (0.10-0.05)/(0.18-0.05) ≈ 0.3846
         assert abs(normed[0] - 0.3846) < 0.001
 
-    def test_theta_keys_27_dims(self):
-        """θ 共 27 维 = 5 (A 选拔) + 4 (B PB) + 8 (C augmentPool) + 5 (D targets) + 5 (E PB 段)."""
-        assert len(THETA_KEYS) == 27
+    def test_theta_keys_36_dims(self):
+        """θ 共 36 维 = 5 (A 选拔) + 4 (B PB) + 8 (C augmentPool) + 5 (D targets)
+        + 5 (E PB 段) + 2 (F 顺序难度) + 2 (G 构造式) + 2 (H 解空间) + 3 (I 节奏/special)."""
+        assert len(THETA_KEYS) == 36
         # B PB 曲线
         for k in ("pbTensionCenter", "pbTensionWidth", "pbBrakeCenter", "pbBrakeWidth"):
             assert k in THETA_KEYS
@@ -133,6 +134,12 @@ class TestNormalize:
         # E PB 段
         for k in ("challengeBoostSlope", "challengeBoostCap", "pbOvershootMax",
                   "releaseFactor", "farFromPBBoost"):
+            assert k in THETA_KEYS
+        # F 顺序难度 / G 构造式 / H 解空间 / I 节奏special (v3.2)
+        for k in ("orderRigorGain", "orderSolutionBudgetGain",
+                  "constructiveCompleterGain", "crowdedMultiClearThresholdGain",
+                  "shapeComplexityGain", "solutionSpacePressureGain",
+                  "specialReliefQuotaGain", "specialPressureQuotaGain", "monoFlushCapGain"):
             assert k in THETA_KEYS
 
 

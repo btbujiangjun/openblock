@@ -457,7 +457,7 @@
 
         <!-- v2.10.14: 把 lookahead 复选框跟其他参数挤一行, 节省一行高度 -->
         <div class="form-row">
-          <label class="medium" title="每个场景 (5 维 ctx 组合) LHS 抽样多少组 θ — θ 是出块算法参数 (e.g. PB 张力中心 / 拐点宽度 等 ~9 维) 在搜索空间内均匀采样">
+          <label class="medium" title="每个场景 (5 维 ctx 组合) LHS 抽样多少组 θ — θ 是出块算法参数 (e.g. PB 张力中心 / 拐点宽度 / 节奏special 配额 等 36 维, v3.2) 在搜索空间内均匀采样">
             每场景采样 θ 数
             <input id="cfg-thetas" type="number" min="2" max="100" value="5">
           </label>
@@ -469,8 +469,12 @@
             单局步数上限
             <input id="cfg-max-steps" type="number" min="30" max="1000" value="500">
           </label>
+          <label class="medium" title="v3.2 高 r 定向采样: 0=关闭(各 ctx 等量); >0 时高 pb_bin 档(bot 难触达 r≈1, 高 r bin 稀疏)按 rank 放大重复局数. 例如 1.0 → 25000 档 seed 翻倍, 补齐'接近/突破 PB'段观测.">
+            高 r 加权 (boost)
+            <input id="cfg-highr-boost" type="number" min="0" max="3" step="0.5" value="0">
+          </label>
           <label>样本集名<input id="cfg-set-name" type="text" placeholder="auto"></label>
-          <label title="θ 来源 — 决定本次采集每个 ctx 用哪些 θ 跑启发式. 27 维 θ (A:5 个性化 + B:4 PB + C:8 augmentPool + D:5 targets + E:5 PB 段) 通过 simulator.modelConfig 注入 adaptiveSpawn / blockSpawn 真实生效, 跟 game.js 部署链路完全等价.&#10;&#10;• LHS 全空间探索: 27 维 θ 空间均匀拉丁超立方抽样 — 首次训练. 不读 deployed bundle, 跟当前部署模型完全独立.&#10;• 默认 θ (0.5): 27 维全取中点 (= 历史硬编码默认值), 跑 baseline 样本集 — 用于 Tab④ 「⚡ θ 撬动」MAE 对照.&#10;• 围绕 deployed θ* 抖动: 从 /policies.json 读当前部署 bundle 每 ctx 的 best θ*, 各维 ±10% range 抖动 — 闭环迭代精化.&#10;• 70% 抖动 + 30% LHS: 探索/利用混合, 防止陷入局部解.&#10;&#10;闭环操作:&#10;  i=0 (冷启动): LHS → 训 model_0 → auto-deploy&#10;  i=1 baseline 对照: 默认 θ → 采样 (此 set 在 Tab④ baseline dropdown 选用)&#10;  i≥1 精化: 围绕 deployed θ* 抖动 → 训 model_i → auto-deploy&#10;  直到 val_ideal_mae 不再下降"><span>θ 来源 <span style="color:#60a5fa; font-size:9px; cursor:help;">[?]</span></span>
+          <label title="θ 来源 — 决定本次采集每个 ctx 用哪些 θ 跑启发式. 36 维 θ (A:5 个性化 + B:4 PB + C:8 augmentPool + D:5 targets + E:5 PB 段 + F:2 顺序难度 + G:2 构造式 + H:2 解空间 + I:3 节奏special, v3.2) 通过 simulator.modelConfig 注入 adaptiveSpawn / blockSpawn 真实生效, 跟 game.js 部署链路完全等价. (I 组直接挂钩 E 爽感 / F 挫败多曲线)&#10;&#10;• LHS 全空间探索: 36 维 θ 空间均匀拉丁超立方抽样 — 首次训练. 不读 deployed bundle, 跟当前部署模型完全独立.&#10;• 默认 θ (0.5): 36 维全取中点 (= 历史硬编码默认值), 跑 baseline 样本集 — 用于 Tab④ 「⚡ θ 撬动」MAE 对照.&#10;• 围绕 deployed θ* 抖动: 从 /policies.json 读当前部署 bundle 每 ctx 的 best θ*, 各维 ±10% range 抖动 — 闭环迭代精化.&#10;• 70% 抖动 + 30% LHS: 探索/利用混合, 防止陷入局部解.&#10;&#10;闭环操作:&#10;  i=0 (冷启动): LHS → 训 model_0 → auto-deploy&#10;  i=1 baseline 对照: 默认 θ → 采样 (此 set 在 Tab④ baseline dropdown 选用)&#10;  i≥1 精化: 围绕 deployed θ* 抖动 → 训 model_i → auto-deploy&#10;  直到 val_ideal_mae 不再下降"><span>θ 来源 <span style="color:#60a5fa; font-size:9px; cursor:help;">[?]</span></span>
             <select id="cfg-theta-source">
               <option value="lhs" selected>LHS · 全空间探索 (首训, 独立于部署模型)</option>
               <option value="default">默认 θ · 全维中点 (baseline 对照)</option>
@@ -682,7 +686,7 @@
               <option value="168">最近 7d</option>
             </select>
           </label>
-          <label>Context 筛选 (可选)<input id="field-ctx" type="text" placeholder="例: hard:budget-p2:random:25000:plateau"></label>
+          <label>Context 筛选 (可选)<input id="field-ctx" type="text" placeholder="例: hard:generative:random:25000:plateau"></label>
           <label class="narrow" title="按某维度拆解, 看不同场景下指标差异 (G19)">分组维度
             <select id="field-groupby">
               <option value="">— 不分组 —</option>

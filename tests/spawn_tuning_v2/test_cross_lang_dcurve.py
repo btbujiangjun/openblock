@@ -26,6 +26,9 @@ from rl_pytorch.spawn_tuning_v2.extractor import (
     PB_AWARE_STATE_WEIGHT, PB_AWARE_PRIOR_STRENGTH, PB_AWARE_MIN_OBS,
     SURPRISE_DAMPING, SURPRISE_MIN_CLEARS, TREND_WINDOW,
     FILL_RATE_WEIGHT, ACTION_FREEDOM_WEIGHT, TREND_WEIGHT,
+    # v3.2 多曲线: 爽感 / 挫败 单步常量
+    DELIGHT_PER_CLEAR, FRUSTRATION_STUCK_WEIGHT, FRUSTRATION_CROWD_WEIGHT,
+    FRUSTRATION_CROWD_FILL_FLOOR, FRUSTRATION_RELIEF_WEIGHT,
 )
 
 
@@ -104,6 +107,35 @@ class TestConstantsAcrossLanguages:
             assert abs(cs["SURPRISE_DAMPING"] - SURPRISE_DAMPING) < 1e-9
             assert int(cs["SURPRISE_MIN_CLEARS"]) == SURPRISE_MIN_CLEARS
             assert int(cs["TREND_WINDOW"]) == TREND_WINDOW
+
+
+class TestMultiCurveConstantsAcrossLanguages:
+    """v3.2 多曲线: 爽感 / 挫败单步常量三处镜像 (extractor.py / samplerV2.js / policyMetricsV2.js) 一致."""
+
+    @pytest.fixture(scope="class")
+    def ef_consts(self):
+        consts = {}
+        for js_path in [SAMPLER_JS, METRICS_JS]:
+            if not js_path.exists():
+                pytest.skip(f"{js_path.name} 不存在, 跳过同源校验")
+            src = js_path.read_text(encoding="utf-8")
+            consts[js_path.name] = {
+                name: _extract_js_const(src, name)
+                for name in [
+                    "DELIGHT_PER_CLEAR", "FRUSTRATION_STUCK_WEIGHT",
+                    "FRUSTRATION_CROWD_WEIGHT", "FRUSTRATION_CROWD_FILL_FLOOR",
+                    "FRUSTRATION_RELIEF_WEIGHT",
+                ]
+            }
+        return consts
+
+    def test_delight_frustration_constants_match(self, ef_consts):
+        for fname, cs in ef_consts.items():
+            assert abs(cs["DELIGHT_PER_CLEAR"] - DELIGHT_PER_CLEAR) < 1e-9, fname
+            assert abs(cs["FRUSTRATION_STUCK_WEIGHT"] - FRUSTRATION_STUCK_WEIGHT) < 1e-9, fname
+            assert abs(cs["FRUSTRATION_CROWD_WEIGHT"] - FRUSTRATION_CROWD_WEIGHT) < 1e-9, fname
+            assert abs(cs["FRUSTRATION_CROWD_FILL_FLOOR"] - FRUSTRATION_CROWD_FILL_FLOOR) < 1e-9, fname
+            assert abs(cs["FRUSTRATION_RELIEF_WEIGHT"] - FRUSTRATION_RELIEF_WEIGHT) < 1e-9, fname
 
 
 # ─────────── 数学公式正确性 (Python 端) ───────────

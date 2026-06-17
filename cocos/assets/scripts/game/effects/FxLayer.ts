@@ -1461,8 +1461,11 @@ export class FxLayer extends Component {
             p.vy -= 1260 * (p.gravityMul ?? 1) * dt;
             p.life -= (p.decay ?? 0.03) * frames;
             if (p.life <= 0) continue;
-            const alpha = Math.min(1, p.life);
-            const rad = Math.max(0.5, p.size * p.life);
+            // baseLife（1.18~1.65）>1：alpha 已钳制，半径也必须钳制——否则粒子出生瞬间被放大到
+            // 118%~165% 且全不透明地叠在同一发射点，头几帧「糊成一团」（与 web/小程序同源修复）。
+            const k = Math.min(1, p.life);
+            const alpha = k;
+            const rad = Math.max(0.5, p.size * k);
             col.r = p.color.r; col.g = p.color.g; col.b = p.color.b; col.a = Math.round(255 * alpha);
             g.fillColor = col;
             g.circle(p.x, p.y, rad);

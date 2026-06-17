@@ -36,7 +36,7 @@ import { playSkinTransition } from './effects/SkinTransition';
 import { Modal, TapBus, screenToLocal, inheritLayer } from './ui/uiKit';
 import { guard, reportFatal } from './ui/Fatal';
 import { blockColor, bgColor, accentColor, accentDarkColor, blockIcon, blockMetrics } from './skin/palette';
-import { drawShapeFaces, iconFontSize, ICON_FONT_FAMILY } from './skin/blockPaint';
+import { drawShapeFaces, iconFontSize, ICON_FONT_FAMILY, type DrawShapeSpritePool } from './skin/blockPaint';
 import { skinHasImageBlocks, ensureSkinBlockFrames } from './skin/skinSprites';
 import { consumeFestivalRecommendation, consumeWeekendTrial, consumeBirthdayGift } from './skin/seasonalRecommend';
 import { Storage, STORAGE_KEYS } from './platform/Storage';
@@ -2806,8 +2806,7 @@ export class GameController extends Component {
             console.log(`[OpenBlock] touch-end PREVIEW-CLEAR PLACE idx=${idx} at grid=(${previewClearSnap.gx},${previewClearSnap.gy})`);
             this.cancelDrag();
             this.model.placeAt(idx, previewClearSnap.gx, previewClearSnap.gy);
-            this.board.render(this.model.grid, this.model.skin);
-            this.dock.render(this.model.dock, this.model.skin);
+            this.scheduleRenderNextFrame();
             return;
         }
         // 释放时只做小半径容错；明显不可放则回候选区。
@@ -2833,8 +2832,30 @@ export class GameController extends Component {
             AudioManager.sfxInvalid();
             Haptics.light();
         }
-        this.board.render(this.model.grid, this.model.skin);
-        this.dock.render(this.model.dock, this.model.skin);
+        this.scheduleRenderNextFrame();
+    }
+
+    /**
+     * 把 board + dock 的全量重画推到下一帧（requestAnimationFrame），让 touch-end 事件
+     * 的同步路径先返回。对图片皮肤（水墨雅集等）效果尤为显著：
+     *   - 同步路径：touch-end → placeAt → render 64 格 sprite × 4 属性写回 = ~256 GFX 操作；
+     *     iPhone 11 同步执行需 30-80ms 一帧，玩家感受为「释放卡顿」。
+     *   - 异步路径：touch-end 立即返回 → 浏览器/Cocos 在下一帧 raf 时执行 render，
+     *     与 placeSound / haptic / 消行高亮等并行调度，CPU 峰值被摊平到下一帧。
+     * 用 `_renderScheduled` 去重避免单帧多次落子（异常路径）重复 render。
+     */
+    private _renderScheduled = false;
+    private scheduleRenderNextFrame(): void {
+        if (this._renderScheduled) return;
+        this._renderScheduled = true;
+        const exec = () => {
+            this._renderScheduled = false;
+            if (!this.node?.isValid) return;
+            try { this.board.render(this.model.grid, this.model.skin); } catch (err) { console.warn('[OpenBlock] scheduleRender board', err); }
+            try { this.dock.render(this.model.dock, this.model.skin); } catch (err) { console.warn('[OpenBlock] scheduleRender dock', err); }
+        };
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(exec);
+        else this.scheduleOnce(exec, 0);
     }
 
     private updateSnap(e: EventTouch, release = false): void {
@@ -3007,21 +3028,28 @@ export class GameController extends Component {
         // 把 icon 根置于 Graphics 之上，确保图标绘制在立体面之上（与 dock `_iconRoot` 行为一致）。
         this._ghostIconRoot.setSiblingIndex(9999);
 
-        // 图片皮肤（水墨雅集等）：ghost 也用整面贴图，跳过 emoji；否则走绘面 + 缩放 emoji。
+        // 拖拽 ghost 与 web `paintBlockCell` 对齐：图片皮肤画「含描边的底瓷砖 + 整面 PNG」，
+        // 与 BoardView 已落块/候选块完全同款。drawGhost 仅在「激活」时调用一次（之后拖动只对
+        // 整个 ghost 节点 setPosition，子 sprite 随之平移），不存在 v1.71 担心的「每帧 60Hz 重建
+        // sprite」开销 —— 故可安全恢复贴图保真，让激活态显示水墨图片而非纯色块。
         const imgSkin = skinHasImageBlocks(skin);
-        let spritePool: { getSprite: (i: number) => Sprite; hideRemaining: (n: number) => void } | undefined;
+        let spritePool: DrawShapeSpritePool | undefined;
         if (imgSkin) {
-            ensureSkinBlockFrames(skin, () => { if (this.dragShape) { try { this.drawGhost(); } catch { /* ignore */ } } });
+            // 贴图异步加载：完成后若仍在拖同一块则重绘一次让 PNG 浮现（加载前先显示底瓷砖占位）。
+            ensureSkinBlockFrames(skin, () => {
+                if (this.dragIndex >= 0 && this.dragShape && this.ghost?.isValid && skinHasImageBlocks(this.model.skin)) {
+                    try { this.drawGhost(); } catch { /* ignore */ }
+                }
+            });
             this.ensureGhostSpriteRoot();
             spritePool = {
-                getSprite: (i: number) => this.ghostSprite(i),
-                hideRemaining: (n: number) => this.hideGhostSprites(n),
+                getSprite: (i) => this.ghostSprite(i),
+                hideRemaining: (from) => this.hideGhostSprites(from),
             };
         } else {
             this.hideGhostSprites();
         }
 
-        // 方块面用盘面 cell 绘制；emoji 不走 drawShapeFaces 的 fontSize 路径，改由下方手动缩放。
         drawShapeFaces(g, skin, {
             shape: this.dragShape,
             colorIdx: this.dragColor,
@@ -3032,20 +3060,22 @@ export class GameController extends Component {
         if (!imgSkin) this.drawGhostIconsScaled(cell, sw, sh);
     }
 
+    /** 懒建 ghost 贴图层（图片皮肤激活态的 PNG 精灵根，置于 Graphics 之上、icon root 之下）。 */
     private ensureGhostSpriteRoot(): void {
-        if (this._ghostSpriteRoot?.isValid) return;
+        if (this._ghostSpriteRoot?.isValid && this._ghostSpriteRoot.parent === this.ghost) return;
+        const n = new Node('ghostSprites');
+        n.parent = this.ghost;
+        inheritLayer(n, this.ghost);
+        n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        n.setSiblingIndex(5000);
+        this._ghostSpriteRoot = n;
         this._ghostSprites = [];
-        this._ghostSpriteRoot = new Node('ghostSprites');
-        this._ghostSpriteRoot.parent = this.ghost;
-        inheritLayer(this._ghostSpriteRoot, this.ghost);
-        this._ghostSpriteRoot.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
-        // 置于 Graphics 之上（图片皮肤不画 icon，无需考虑 icon 层）。
-        this._ghostSpriteRoot.setSiblingIndex(9000);
     }
 
+    /** 复用 ghost 贴图精灵（缺失则建，sizeMode=CUSTOM 让 contentSize 生效）。 */
     private ghostSprite(i: number): Sprite {
         let s = this._ghostSprites[i];
-        if (!s) {
+        if (!s?.node?.isValid) {
             const n = new Node('gblk');
             n.parent = this._ghostSpriteRoot!;
             inheritLayer(n, this._ghostSpriteRoot!);
@@ -3057,6 +3087,7 @@ export class GameController extends Component {
         return s;
     }
 
+    /** 隐藏从 from 起的 ghost 贴图精灵（图片皮肤激活态用；落子/取消/切肤时回收，避免残留）。 */
     private hideGhostSprites(from = 0): void {
         for (let i = from; i < this._ghostSprites.length; i++) {
             const s = this._ghostSprites[i];

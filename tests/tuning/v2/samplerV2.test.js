@@ -11,8 +11,72 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
     runOneSampleV2, collectSamplesV2, _internal,
 } from '../../../web/src/tuning/v2/samplerV2.js';
+import { getLifecycleMaturitySnapshot } from '../../../web/src/retention/playerLifecycleDashboard.js';
 
-const { stepDifficulty, extractDCurveFromSteps, createRng } = _internal;
+const { stepDifficulty, extractDCurveFromSteps, createRng, highRSeedCount, applyLifecycleStageToProfile } = _internal;
+
+
+// ─────────── v3.2 lifecycle-in-sim: lifecycle_stage 真实驱动模拟 ───────────
+
+describe('applyLifecycleStageToProfile (lifecycle-in-sim)', () => {
+    // adaptiveSpawn 读 profile?._daysSinceInstall ?? ... → getLifecycleMaturitySnapshot 派生 stage。
+    //   这里复刻同一读取路径, 验证 4 个训练态 stage 映射到正确的 S0..S4 cap 档。
+    const stageOf = (profile) => getLifecycleMaturitySnapshot({
+        daysSinceInstall: profile._daysSinceInstall,
+        totalSessions: profile._totalSessions,
+        daysSinceLastActive: profile._daysSinceLastActive,
+    }).stageCode;
+
+    it('写入三大裸字段 (adaptiveSpawn 优先读取的私有字段)', () => {
+        const p = {};
+        applyLifecycleStageToProfile(p, 'growth');
+        expect(p._daysSinceInstall).toBe(20);
+        expect(p._totalSessions).toBe(120);
+        expect(p._daysSinceLastActive).toBe(0);
+    });
+
+    it('4 个训练态 stage → 不同 adaptiveSpawn lifecycle 档 (S0/S2/S3/S4)', () => {
+        const mk = (stage) => applyLifecycleStageToProfile({}, stage);
+        expect(stageOf(mk('onboarding'))).toBe('S0');   // 新入场强保护
+        expect(stageOf(mk('growth'))).toBe('S2');       // 成长期 PB 主战场
+        expect(stageOf(mk('mature'))).toBe('S3');       // 稳定期高 cap
+        expect(stageOf(mk('plateau'))).toBe('S4');      // 回流/winback
+        // 4 档互不相同 → lifecycle 维度真正可分 (此前是死标签, 全部同质)
+        const codes = ['onboarding', 'growth', 'mature', 'plateau'].map((s) => stageOf(mk(s)));
+        expect(new Set(codes).size).toBe(4);
+    });
+
+    it('未知 / 缺失 stage → 安全回退 onboarding', () => {
+        expect(stageOf(applyLifecycleStageToProfile({}, 'bogus'))).toBe('S0');
+        expect(stageOf(applyLifecycleStageToProfile({}, undefined))).toBe('S0');
+    });
+
+    it('null profile → 不抛异常', () => {
+        expect(() => applyLifecycleStageToProfile(null, 'growth')).not.toThrow();
+    });
+});
+
+
+// ─────────── v3.2 高 r 定向采样: pb_bin seed 加权 ───────────
+
+describe('highRSeedCount (高 r 定向)', () => {
+    it('highRBoost=0 → 恒等 (向后兼容)', () => {
+        for (const pb of [500, 1500, 4000, 10000, 25000]) {
+            expect(highRSeedCount(2, pb, 0)).toBe(2);
+        }
+    });
+    it('boost>0 → 高 pb 档分配更多 seed, 低 pb 不变', () => {
+        expect(highRSeedCount(2, 500, 1.0)).toBe(2);   // rank=0
+        expect(highRSeedCount(2, 25000, 1.0)).toBe(4); // rank=1 → 2×(1+1)=4
+        // 单调非降
+        const seeds = [500, 1500, 4000, 10000, 25000].map((pb) => highRSeedCount(2, pb, 1.0));
+        for (let i = 1; i < seeds.length; i++) expect(seeds[i]).toBeGreaterThanOrEqual(seeds[i - 1]);
+    });
+    it('未知 pb / 非法输入 → 安全回退到 base', () => {
+        expect(highRSeedCount(3, 99999, 1.0)).toBe(3);
+        expect(highRSeedCount(0, 25000, 1.0)).toBe(2); // base clamp 到 ≥1 → 1×2
+    });
+});
 
 
 // ─────────── 单步难度公式 ───────────
@@ -495,14 +559,14 @@ describe('collectSamplesV2', () => {
 });
 
 
-// ─────────── 27 维 θ 端到端: 新引入参数确实撬动 d_curve ───────────
+// ─────────── 36 维 θ 端到端: 新引入参数确实撬动 d_curve ───────────
 
-describe('27-dim θ end-to-end: 新 18 维 (C/D/E) 真实作用于 simulator', () => {
+describe('36-dim θ end-to-end: 新 27 维 (C/D/E/F/G/H/I) 真实作用于 simulator', () => {
     const baseContext = {
         difficulty: 'normal', generator: 'rule', bot_policy: 'clear-greedy',
         pb_bin: 1500, lifecycle_stage: 'growth',
     };
-    // 全 27 维都给值, 默认值 (= 历史硬编码)
+    // 全 36 维都给值, 默认值 (= 历史硬编码)
     const defaultsAll = {
         // A
         personalizationStrength: 0.10, temperature: 0.05,
@@ -520,6 +584,14 @@ describe('27-dim θ end-to-end: 新 18 维 (C/D/E) 真实作用于 simulator', (
         // E
         challengeBoostSlope: 0.75, challengeBoostCap: 0.18, pbOvershootMax: 0.16,
         releaseFactor: 0.7, farFromPBBoost: 0.45,
+        // F 顺序难度 (v3.2)
+        orderRigorGain: 1.0, orderSolutionBudgetGain: 1.0,
+        // G 构造式 (v3.2)
+        constructiveCompleterGain: 1.0, crowdedMultiClearThresholdGain: 1.0,
+        // H 解空间 (v3.2)
+        shapeComplexityGain: 1.0, solutionSpacePressureGain: 1.0,
+        // I 节奏/special (v3.2)
+        specialReliefQuotaGain: 1.0, specialPressureQuotaGain: 1.0, monoFlushCapGain: 1.0,
     };
 
     /** 同 seed 同 ctx 跑两份样本, 验证 θ 差异确实让 d_curve 不同. */
@@ -529,6 +601,8 @@ describe('27-dim θ end-to-end: 新 18 维 (C/D/E) 真实作用于 simulator', (
         return {
             curveA: JSON.parse(sA.d_curve_json),
             curveB: JSON.parse(sB.d_curve_json),
+            eA: JSON.parse(sA.e_curve_json), eB: JSON.parse(sB.e_curve_json),
+            fA: JSON.parse(sA.f_curve_json), fB: JSON.parse(sB.f_curve_json),
             scoreA: sA.final_score,
             scoreB: sB.final_score,
         };
@@ -570,7 +644,47 @@ describe('27-dim θ end-to-end: 新 18 维 (C/D/E) 真实作用于 simulator', (
         expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
     }, 20000);
 
-    it('全 27 维"两极端"对比 (lo=全部 min / hi=全部 max) → d_curve 差异显著', async () => {
+    it('F 组 (顺序难度): orderRigorGain 0.6 vs 1.6 → d_curve 不同', async () => {
+        const lo = { ...defaultsAll, orderRigorGain: 0.6 };
+        const hi = { ...defaultsAll, orderRigorGain: 1.6 };
+        const { curveA, curveB } = await runPair(lo, hi, 24680);
+        expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
+    }, 20000);
+
+    it('G 组 (构造式): constructiveCompleterGain 0.6 vs 1.5 → d_curve 不同', async () => {
+        const lo = { ...defaultsAll, constructiveCompleterGain: 0.6 };
+        const hi = { ...defaultsAll, constructiveCompleterGain: 1.5 };
+        const { curveA, curveB } = await runPair(lo, hi, 13579);
+        expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
+    }, 20000);
+
+    it('H 组 (解空间): solutionSpacePressureGain 0.7 vs 1.4 → d_curve 不同', async () => {
+        const lo = { ...defaultsAll, solutionSpacePressureGain: 0.7 };
+        const hi = { ...defaultsAll, solutionSpacePressureGain: 1.4 };
+        const { curveA, curveB } = await runPair(lo, hi, 11223);
+        expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
+    }, 20000);
+
+    it('I 组 (节奏/special): specialReliefQuotaGain 0.6 vs 1.8 → d/e/f 至少一条不同', async () => {
+        const lo = { ...defaultsAll, specialReliefQuotaGain: 0.6 };
+        const hi = { ...defaultsAll, specialReliefQuotaGain: 1.8 };
+        const { curveA, curveB, eA, eB, fA, fB } = await runPair(lo, hi, 33445, 60);
+        const delta = l1(curveA, curveB) + l1(eA, eB) + l1(fA, fB);
+        expect(delta).toBeGreaterThan(0.001);
+    }, 20000);
+
+    // v3.2 多曲线: e_curve / f_curve 形态合理 + 取值有界
+    it('多曲线: runOneSampleV2 输出 e_curve / f_curve 各 20 维且 ∈ [0,1]', async () => {
+        const s = await runOneSampleV2({ context: baseContext, theta: defaultsAll, seed: 4242, maxSteps: 60 });
+        const e = JSON.parse(s.e_curve_json);
+        const f = JSON.parse(s.f_curve_json);
+        expect(e).toHaveLength(20);
+        expect(f).toHaveLength(20);
+        for (const v of e) expect(v).toBeGreaterThanOrEqual(0), expect(v).toBeLessThanOrEqual(1);
+        for (const v of f) expect(v).toBeGreaterThanOrEqual(0), expect(v).toBeLessThanOrEqual(1);
+    }, 20000);
+
+    it('全 36 维"两极端"对比 (lo=全部 min / hi=全部 max) → d_curve 差异显著', async () => {
         // 取 THETA_RANGES 的 (lo, hi) 两端
         const { DEFAULT_THETA_V2 } = await import('../../../web/src/tuning/v2/clientPolicyV2.js');
         // lo: 每个 θ 取 (默认值 × 0.6); hi: × 1.4. 大于 0 的近似两极, 负值的反向.
@@ -588,8 +702,8 @@ describe('27-dim θ end-to-end: 新 18 维 (C/D/E) 真实作用于 simulator', (
         expect(l1(curveA, curveB)).toBeGreaterThan(0.015);
     }, 30000);
 
-    it('samplerV2 透传全部 27 维 θ 到 simulator.modelConfig (回归: v3.0.26 之前只传 9 维)', async () => {
-        // 验证 sampler 把所有 27 维 θ 都注入 modelConfig — 通过 single-step "改一个 D 组 θ → 输出变化"
+    it('samplerV2 透传全部 36 维 θ 到 simulator.modelConfig (回归: v3.0.26 之前只传 9 维)', async () => {
+        // 验证 sampler 把所有 36 维 θ 都注入 modelConfig — 通过 single-step "改一个 D 组 θ → 输出变化"
         // 旧 bug: samplerV2 只透传 9 维, 改 D 组 θ 时 simulator 看不到 → curve 完全相同.
         const lo = { ...defaultsAll, complexityRiskRelief: -0.7, solutionFromStress: 0.5 };
         const hi = { ...defaultsAll, complexityRiskRelief: -0.2, solutionFromStress: 1.0 };
@@ -597,4 +711,29 @@ describe('27-dim θ end-to-end: 新 18 维 (C/D/E) 真实作用于 simulator', (
         // 如果 sampler 没透传, curveA === curveB (l1=0). 透传后必须 > 0.
         expect(l1(curveA, curveB)).toBeGreaterThan(0.001);
     }, 20000);
+
+    // v3.2 严格 no-peek: θ 对象里的"非 θ 字段"绝不进 modelConfig (出块管线唯一的 θ 入口)。
+    //   出块路径含全局 Math.random, 无法用行为等价断言; 改测纯函数白名单 (结构性守卫)。
+    it('no-peek: buildSpawnModelConfig 只放行 36 维白名单 θ, 丢弃所有非 θ 字段', () => {
+        const { buildSpawnModelConfig } = _internal;
+        const poisoned = {
+            ...defaultsAll,
+            // 历史上被混进 θ 的 bot 控制项 + 任意伪装 spawn 字段
+            use_mcts_bot: true, use_lookahead2_bot: true, use_lookahead_bot: true,
+            mcts_rollouts: 999, rl_temperature: 5.0,
+            __peek_canary: 123456, secretFutureBlock: 'I',
+        };
+        const mc = buildSpawnModelConfig(poisoned);
+        // 36 维 θ 全部保留
+        for (const k of Object.keys(defaultsAll)) {
+            expect(mc[k]).toBe(k === 'surpriseCooldown' ? Math.round(defaultsAll[k]) : defaultsAll[k]);
+        }
+        // 任何非白名单字段一律不存在
+        for (const k of ['use_mcts_bot', 'use_lookahead2_bot', 'use_lookahead_bot',
+            'mcts_rollouts', 'rl_temperature', '__peek_canary', 'secretFutureBlock']) {
+            expect(k in mc).toBe(false);
+        }
+        // modelConfig 维度恰好 = 白名单大小
+        expect(Object.keys(mc)).toHaveLength(Object.keys(defaultsAll).length);
+    });
 });

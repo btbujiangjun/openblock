@@ -30,15 +30,56 @@ from rl_pytorch.spawn_tuning_v2.losses import LossWeights
 # ─────────── Context 枚举 ───────────
 
 class TestContextEnum:
-    def test_total_count_is_360(self):
+    def test_total_count_is_480(self):
+        # v3.2: bot 含 rl-bot → 4 bot, 共 480 ctx
         ctxs = enumerate_all_contexts()
-        assert len(ctxs) == 3 * 2 * 3 * 5 * 4
-        assert len(ctxs) == 360
+        assert len(ctxs) == 3 * 2 * 4 * 5 * 4
+        assert len(ctxs) == 480
 
     def test_keys_unique(self):
         ctxs = enumerate_all_contexts()
         keys = [c["context_key"] for c in ctxs]
-        assert len(set(keys)) == 360
+        assert len(set(keys)) == 480
+
+    def test_rl_bot_in_enumeration(self):
+        # v3.2: rl-bot 正式纳入部署枚举 (严格 no-peek 采样)
+        ctxs = enumerate_all_contexts()
+        bots = {c["bot_policy"] for c in ctxs}
+        assert "rl-bot" in bots
+
+
+# ─────────── θ 敏感性审计 (P2) ───────────
+
+class TestThetaSensitivity:
+    def test_sensitivity_one_context_shape(self):
+        from rl_pytorch.spawn_tuning_v2.sensitivity import theta_sensitivity_one_context
+        model = build_default_model()
+        ctx = enumerate_all_contexts()[0]
+        rows = theta_sensitivity_one_context(model, ctx, delta=0.1)
+        assert len(rows) == N_THETA
+        # 每行三条曲线敏感度齐全且非负
+        for r in rows:
+            assert {"theta_key", "sens_d", "sens_e", "sens_f"} <= set(r)
+            assert r["sens_d"] >= 0 and r["sens_e"] >= 0 and r["sens_f"] >= 0
+        # 按 D 敏感度降序
+        sd = [r["sens_d"] for r in rows]
+        assert sd == sorted(sd, reverse=True)
+
+    def test_sensitivity_multi_context_covers_all_theta(self):
+        from rl_pytorch.spawn_tuning_v2.sensitivity import theta_sensitivity
+        from rl_pytorch.spawn_tuning_v2.feature_io import THETA_KEYS
+        model = build_default_model()
+        rows = theta_sensitivity(model, contexts=enumerate_all_contexts()[:4], delta=0.1)
+        keys = {r["theta_key"] for r in rows}
+        assert keys == set(THETA_KEYS)
+
+    def test_sensitivity_detects_nonzero_influence(self):
+        # 随机初始化模型对 θ 应有非零边际响应 (至少一维 D 敏感度 > 0)
+        from rl_pytorch.spawn_tuning_v2.sensitivity import theta_sensitivity_one_context
+        model = build_default_model()
+        ctx = enumerate_all_contexts()[10]
+        rows = theta_sensitivity_one_context(model, ctx, delta=0.1)
+        assert max(r["sens_d"] for r in rows) > 0.0
 
     def test_first_context_format(self):
         ctxs = enumerate_all_contexts()

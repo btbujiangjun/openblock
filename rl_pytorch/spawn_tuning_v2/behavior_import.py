@@ -329,6 +329,9 @@ def session_to_v2_sample(frames: List[dict], meta: Optional[dict] = None) -> Opt
         ),
         "theta_json": json.dumps(theta),
         "d_curve_json": json.dumps([round(v, 6) for v in labels.d_curve]),
+        # v3.2 多曲线: 真人轨迹同样产出爽感 / 挫败 (extract_d_curve 已计算)
+        "e_curve_json": json.dumps([round(v, 6) for v in labels.e_curve]),
+        "f_curve_json": json.dumps([round(v, 6) for v in labels.f_curve]),
         "final_score": labels.final_score,
         "survived_steps": labels.survived_steps,
         "clear_rate": labels.clear_rate,

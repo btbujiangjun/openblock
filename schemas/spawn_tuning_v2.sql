@@ -64,7 +64,11 @@ CREATE TABLE IF NOT EXISTS samples (
     theta_json      TEXT NOT NULL,
 
     -- ── 标签 ──
-    d_curve_json    TEXT NOT NULL,        -- length 20 float array, JSON
+    d_curve_json    TEXT NOT NULL,        -- length 20 float array, JSON — 难度 D(r)
+    -- v3.2 多曲线 (multi-head): 与 d_curve 同 binning 的爽感 E(r) / 挫败 F(r)
+    --   老样本无此列时按 NULL 处理, feature_io 退化为零向量 (训练时该样本 e/f loss 被 mask)
+    e_curve_json    TEXT,                  -- length 20 float array, JSON — 爽感 E(r)
+    f_curve_json    TEXT,                  -- length 20 float array, JSON — 挫败 F(r)
     final_score     INTEGER,
     survived_steps  INTEGER,
     clear_rate      REAL,
@@ -181,6 +185,6 @@ CREATE TABLE IF NOT EXISTS spawn_tuning_v2_meta (
     value TEXT
 );
 INSERT OR REPLACE INTO spawn_tuning_v2_meta (key, value)
-    VALUES ('schema_version', 'v2.0.0'),
+    VALUES ('schema_version', 'v3.2.0'),
            ('schema_created_at', strftime('%s', 'now')),
-           ('description', 'Spawn Tuning v2 schema — d_curve labels + ResNet-MLP');
+           ('description', 'Spawn Tuning v3.2 schema — multi-head d/e/f curves + 36-dim θ');

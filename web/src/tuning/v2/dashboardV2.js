@@ -862,8 +862,10 @@ async function startCollect() {
     // v3.0.6 (G2): θ 来源支持 LHS / bundle-perturb / bundle-mix (闭环迭代)
     const thetasOrFactory = await _buildThetasFactory(nThetas);
     try {
+        const highRBoost = Math.max(0, Number($('cfg-highr-boost')?.value) || 0);
         const result = await collectSamplesV2({
             setId, contexts, thetas: thetasOrFactory, nThetas, seedsPerTheta: nSeeds, maxSteps,
+            highRBoost,
             apiBaseUrl: API_BASE, batchSize: 10,
             onProgress: (p) => {
                 if (_samplerCancel.cancelled) return;
@@ -1205,10 +1207,8 @@ async function showCompareModal() {
             return;
         }
         const opts = models.map((m) => {
-            const mae = m.metrics_json ? (() => {
-                try { return JSON.parse(m.metrics_json).val_curve_mae; } catch { return null; }
-            })() : null;
-            return { id: m.model_id, label: `#${m.model_id} ${m.name} (${m.model_type}) ${mae != null ? `· mae=${mae.toFixed(4)}` : ''}` };
+            const mae = m.metrics?.val_curve_mae;
+            return { id: m.model_id, label: `#${m.model_id} ${m.name} (${m.model_type}) ${mae != null ? `· mae=${Number(mae).toFixed(4)}` : ''}` };
         });
         const checkboxes = opts.map((o) =>
             `<label style="display:block; padding:3px 6px; font-size:11.5px; cursor:pointer; line-height:1.5;">
@@ -1235,8 +1235,8 @@ async function showCompareModal() {
               </label>
               <label style="display:flex; flex-direction:column; gap:2px;">生成器
                 <select id="cmp-generator" style="height:24px; font-size:11px;">
-                  <option value="triplet-p1" selected>triplet-p1</option>
-                  <option value="budget-p2">budget-p2</option>
+                  <option value="rule" selected>rule</option>
+                  <option value="generative">generative</option>
                 </select>
               </label>
               <label style="display:flex; flex-direction:column; gap:2px;">Bot
@@ -1293,7 +1293,7 @@ async function runCompare() {
     // v2.10.19 G16: 用户可选 ctx (5 维), 默认 default ctx
     const ctx = {
         difficulty: $('cmp-difficulty')?.value || 'normal',
-        generator: $('cmp-generator')?.value || 'triplet-p1',
+        generator: $('cmp-generator')?.value || 'rule',
         bot_policy: $('cmp-bot')?.value || 'clear-greedy',
         pb_bin: Number($('cmp-pb')?.value) || 4000,
         lifecycle_stage: $('cmp-lifecycle')?.value || 'mature',
@@ -1305,15 +1305,12 @@ async function runCompare() {
                 apiGet(`/api/spawn-tuning-v2/models/${mid}`),
                 apiSend('POST', `/api/spawn-tuning-v2/models/${mid}/predict-curve`, { contexts: [ctx] }),
             ]);
-            const mae = modelInfo.metrics_json ? (() => {
-                try { return JSON.parse(modelInfo.metrics_json); } catch { return {}; }
-            })() : {};
             curves.push({
                 model_id: mid,
                 name: modelInfo.name || `#${mid}`,
                 model_type: modelInfo.model_type,
                 curve: predRes.curves[0],
-                metrics: mae,
+                metrics: modelInfo.metrics || {},
             });
         } catch (e) {
             curves.push({ model_id: mid, error: e.message });
@@ -1322,6 +1319,11 @@ async function runCompare() {
 
     // 表格 + 叠加曲线
     const validCurves = curves.filter((c) => c.curve);
+    if (validCurves.length === 0) {
+        const errs = curves.map((c) => `#${c.model_id}: ${escapeHtml(c.error || '无曲线返回')}`).join('<br>');
+        result.innerHTML = `<p style="color:var(--bad)">所有模型推断失败：</p><div style="font-size:11px; color:var(--muted); font-family:ui-monospace;">${errs}</div>`;
+        return;
+    }
     const colors = ['#34d399', '#60a5fa', '#fbbf24', '#f472b6', '#a78bfa', '#fb923c', '#22d3ee'];
     const legend = validCurves.map((c, i) =>
         `<span style="color:${colors[i % colors.length]}; margin-right:12px;">● ${c.name}</span>`,

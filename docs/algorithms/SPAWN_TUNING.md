@@ -7,13 +7,13 @@
 ## 一、算法原理
 
 > **定位**：`L2 · SpawnParamTuner`（出块参数·寻优器）
-> **职责**：给 `L1 · SpawnPolicyRules` 拟合 9 维 θ；**不替换**出块决策本身，**不直接产 3 块**
+> **职责**：给 `L1 · SpawnPolicyRules` 拟合 36 维 θ（v3.2）；**不替换**出块决策本身，**不直接产 3 块**
 > **不是**：`SpawnPolicyNet`（详见 [`SPAWN_BLOCK_MODELING.md`](./SPAWN_BLOCK_MODELING.md) §3）的前身、后续或替代品；二者层级正交、独立演进
 > **总览**：双层架构与角色定义见 [`SPAWN_OVERVIEW.md`](./SPAWN_OVERVIEW.md)
 
 ### 1.1 业务目标与核心命题
 
-通过大规模数据采样 + 深度学习模型拟合，自动找到让玩家"接近 PB 但难以超越、偶有惊喜"的算法参数 θ。
+通过大规模数据采样 + 深度学习模型拟合，自动找到让玩家"接近 PB 但难以超越、偶有惊喜、全程有适度爽感、挫败有上限"的算法参数 θ。
 
 | 命题 | 量化 |
 |---|---|
@@ -23,6 +23,24 @@
 | **偶尔惊喜** | `~7%` 步触发 d_step < 0.30 |
 
 其中 `r = score / PB`，`D` 是单步难度 ∈ [0, 1]。
+
+#### v3.2 多曲线（multi-head）：D / E / F 三条正交体验曲线
+
+业务命题拆成三条同 binning（20-bin，r=score/PB 轴）的正交体验曲线，模型为每条配一个 head：
+
+| 曲线 | 含义 | ideal 形态 | 业务红线 |
+|---|---|---|---|
+| **D(r) 难度** | 主轴：接近 PB 难超越 | 见下方 S 曲线 | — |
+| **E(r) 爽感** | 全程适度爽感，PB 处峰值 | 基线 0.20 + PB 处高斯凸起到 0.40 | — |
+| **F(r) 挫败** | 挫败始终低且有硬上限 | 低基线 0.08 + 缓升，clip 到 cap | `F(r) ≤ F_CAP = 0.30` |
+
+E/F 单步信号（与 D 同源、跨 JS/Python 1:1）：
+```
+e_step = clamp01(0.45 · clears)                                  # 多消/清屏 = 强爽感；死局步=0
+f_step = clamp01(0.60·(1−freedom) + 0.40·crowd − 0.50·relief)   # 卡顿+拥挤−清行救济；死局步=1
+  crowd = clamp01((fill − 0.70) / 0.30),  relief = (clears>0 ? 1 : 0)
+```
+对应源：`extractor.py` / `samplerV2.js` / `policyMetricsV2.js`（三处镜像），ideal 定义在 `target_curve.py` / `targetSCurve.js`。
 
 #### S 形难度曲线 — `target_S_curve(r)`
 
@@ -68,16 +86,20 @@ d_step(t) = 0.30 · fillRate + 0.50 · (1 − action_freedom) + 0.20 · trend_no
 
 | 项 | 角色 | 默认阈值 |
 |---|---|---|
-| **提升量 `Δ = E_meas − E_pred`** | **唯一判定** | ≥ 0.0 |
+| **提升量 `Δ = E_meas − E_pred`**（D 主轴） | **唯一判定** | ≥ 0.0 |
 | 覆盖率 | 告警 | ≥ 0.50 |
 | 高分段覆盖 | 告警 | ≥ 0.30 |
+| E/F vs ideal（实测 & 预估 MAE） | 诊断（不判定 D） | — |
+| 挫败越上限 `pred_frustration_over_cap` | 告警 | = 0（`F ≤ F_CAP`） |
 
 #### Model 学什么
 
 ```
-Input (41 维): ctx_emb (32 维) + θ_norm (9 维)
+Input (68 维): ctx_emb (32 维) + θ_norm (36 维)
   → ResNet-MLP trunk (8 残差块, hidden 128, GELU, dropout 0.10)
-  → 6 Heads: head_curve (20D sigmoid) + 5 辅助 head
+  → Heads: head_curve (20D sigmoid, D 难度)
+           + head_curve_e (20D, E 爽感) + head_curve_f (20D, F 挫败)   ← v3.2 多曲线
+           + 5 辅助 head (pb_broke / noMove / score / survival / r_value)
 ```
 
 Loss 角色分工：
@@ -93,26 +115,27 @@ Loss 角色分工：
 
 **θ 优化（Surrogate Optimization）**：
 ```
-for ctx in 360 stable contexts:
-    best_θ = argmin_θ ‖ model(ctx, θ) − ideal_target ‖
-    → PAVA 单调投影 → bundle JSON: 360 行 { context_key: θ* }
+for ctx in 480 stable contexts:   # v3.2: 含 rl-bot
+    best_θ = argmin_θ [ ‖D(ctx,θ)−ideal_D‖ + w_E‖E−ideal_E‖ + w_F‖F−ideal_F‖ + hinge(F>F_CAP) ]
+    → PAVA 单调投影 → bundle JSON: 480 行 { context_key: θ*, predicted_curve(_e/_f) }
 ```
 
 #### 完整闭环
 
 ```
-业务命题 → target_S_curve(r) → 进入 Sampler / Loss / Bundle 验收
+业务命题 → target_S_curve(r) + target_E/F(r) → 进入 Sampler / Loss / Bundle 验收
      ↓                                                     ↑
 Sample 表 ← 训练 ResNet-MLP → Model weights → 推断 + θ 优化器
+(d/e/f_curve)                                              |
      ↓                                                     |
-d_curve 分析 ← 预测 d_curve → 360 ctx × best θ → Bundle JSON
+曲线分析 ← 预测 d/e/f_curve → 480 ctx × best θ → Bundle JSON
                                                          ↓
                                               客户端运行时 → field_metrics
 ```
 
 ### 1.4 特征工程
 
-总输入维度 **41 = 32 ctx_emb + 9 θ**。
+总输入维度 **68 = 32 ctx_emb + 36 θ**（v3.2）。
 
 #### Context（5 维离散 + 1 维数值）
 
@@ -124,9 +147,17 @@ d_curve 分析 ← 预测 d_curve → 360 ctx × best θ → Bundle JSON
 | `pb_bin` | 500 / 1500 / 4000 / 10000 / 25000 | 5 | 8 |
 | `lifecycle_stage` | onboarding / growth / mature / plateau | 4 | 8 |
 
+> **lifecycle 因果化（v3.2）**：此前 `lifecycle_stage` 只被原样写进样本（"死标签"），对模拟轨迹零影响，导致 4 个 lifecycle 档拿到的曲线几乎同质。现在 `samplerV2.applyLifecycleStageToProfile` 把 4 个训练态 stage 映射到 `PlayerProfile` 的三大裸字段（`_daysSinceInstall/_totalSessions/_daysSinceLastActive`）：onboarding→S0、growth→S2、mature→S3、plateau→S4（回流）。`adaptiveSpawn` 据此派生 S0..S4 stage + M-band，查 `lifecycleStressCapMap`（S0/S4 强保护低 cap、S2/S3 高 cap），不同 lifecycle 拿到不同 stress cap/adjust → 出块决策分化 → d/e/f 曲线随 lifecycle 真实分层。lifecycle 是"开局前已知的玩家画像"（非局内 outcome），作为 context 注入无泄漏。
+>
+> **为什么不加 pressurePhase/spawnIntent 作为输入**：这两个是局内涌现量（episode outcome），若作为 model 输入会造成 outcome leakage——训练时 model 可"偷看"它们去拟合 f_curve，部署时该特征不可知只能取中性值，反而劣化预测。其经验语义已被 Phase 2 的 E/F 多曲线以 20-bin 形式覆盖（比标量摘要更细），故 context-dims 维持取消。
+
+> **rl-bot 严格 no-peek（v3.2）**：rl-bot 决策仅看「棋盘 + 当前可见 dock(3 块) + strategy/arc/intent」（`buildDecisionBatch(sim)`），**绝不读 spawn θ、不读未来块**。采样器把 bot 控制项（温度/lookahead/MCTS）放进与 θ 物理隔离的 `botConfig`；`buildSpawnModelConfig` 用 36 维白名单过滤 θ，任何非 θ 字段不进出块管线。因此 rl-bot 已正式纳入部署枚举（`3×2×4×5×4 = 480` ctx）。
+
 加上 `log_pb` 投影 → EMB_TOTAL = 32。
 
-#### 全 27 维 θ 一览
+#### 全 36 维 θ 一览（v3.2）
+
+> A-E（27 维）为历史核心旋钮；F-I（9 维）为 v3.2 结合最新出块算法新增：F/G/H 是难度旋钮，I 是多曲线（爽感/挫败）配套节奏旋钮。**所有 θ 必须在 `simulator/adaptiveSpawn/blockSpawn` 至少一处真实消费**。单一真源：`feature_io.THETA_KEYS`（Python）⇄ `clientPolicyV2.DEFAULT_THETA_V2 / THETA_RANGES`（JS）。
 
 **组 A：候选选拔 / 个性化（5 维）** — `spawnExperiments.js`
 
@@ -180,11 +211,40 @@ d_curve 分析 ← 预测 d_curve → 360 ctx × best θ → Bundle JSON
 | `releaseFactor` | (0.5, 0.85) | 0.7 |
 | `farFromPBBoost` | (0.30, 0.60) | 0.45 |
 
+**组 F：顺序难度（2 维，v3.2）** — `adaptiveSpawn.js` orderRigor 块
+
+| 字段 | (min, max) | 默认 |
+|---|---|---|
+| `orderRigorGain` | (0.6, 1.6) | 1.0 |
+| `orderSolutionBudgetGain` | (0.7, 1.5) | 1.0 |
+
+**组 G：构造式出块（2 维，v3.2）** — `blockSpawn.js`
+
+| 字段 | (min, max) | 默认 |
+|---|---|---|
+| `constructiveCompleterGain` | (0.6, 1.5) | 1.0 |
+| `crowdedMultiClearThresholdGain` | (0.7, 1.4) | 1.0 |
+
+**组 H：解空间区间缩放（2 维，v3.2）** — `adaptiveSpawn.deriveSpawnTargets`
+
+| 字段 | (min, max) | 默认 |
+|---|---|---|
+| `shapeComplexityGain` | (0.7, 1.4) | 1.0 |
+| `solutionSpacePressureGain` | (0.7, 1.4) | 1.0 |
+
+**组 I：节奏 / special 块（3 维，v3.2 多曲线配套）** — `blockSpawn.js`，直接挂钩 E(爽感)/F(挫败)
+
+| 字段 | (min, max) | 默认 | 作用 |
+|---|---|---|---|
+| `specialReliefQuotaGain` | (0.6, 1.8) | 1.0 | >1 救济 special 更多 → 抬 E 压 F |
+| `specialPressureQuotaGain` | (0.6, 1.8) | 1.0 | >1 压力 special 更多 → 抬 F |
+| `monoFlushCapGain` | (0.5, 2.0) | 1.0 | >1 同花顺彩蛋上限更高 → 抬 E |
+
 ### 1.5 模型架构
 
-**ResNet-MLP（主模型）**：`SpawnParamTunerResNet`，~325K 参数。Trunk: Linear(41→128) → LayerNorm → GELU → ResBlock × 8 → LayerNorm → 6 Heads。
+**ResNet-MLP（主模型）**：`SpawnParamTunerResNet`。Trunk: Linear(68→128) → LayerNorm → GELU → ResBlock × 8 → LayerNorm → Heads（D/E/F 三条 20D 曲线 head + 5 辅助 head）。
 
-**Transformer（备用模型）**：`SpawnParamTunerTransformer`，~200K 参数。Condition 广播到 20 bin + pos_embedding → TransformerEncoder × 4。
+**Transformer（备用模型）**：`SpawnParamTunerTransformer`。Condition 广播到 20 bin + pos_embedding → TransformerEncoder × 4 → per-position 的 D/E/F head + 全局辅助 head。
 
 ### 1.6 损失函数
 
@@ -197,6 +257,9 @@ d_curve 分析 ← 预测 d_curve → 360 ctx × best θ → Bundle JSON
 | `L_anchor` | 15.0 | 22 r 点 hinge |
 | `L_shape` | 0.2 | model → sample |
 | `L_monotonic` | 2.5 | curve 非降 |
+| `L_curve_e` | — | E → sample E + 朝 ideal E 弱拉力（老样本经 `ef_mask` 不计） |
+| `L_curve_f` | — | F → sample F + 朝 ideal F 弱拉力 |
+| `L_frustration_cap` | — | ★ 业务红线：`F(r) > F_CAP` 的 ReLU hinge 惩罚 |
 | 其他 8 项 | 0.15~0.5 | 业务正则 / 辅助 head |
 
 ### 1.7 训练管线
@@ -211,7 +274,7 @@ d_curve 分析 ← 预测 d_curve → 360 ctx × best θ → Bundle JSON
 
 **推断 API**：`POST /api/spawn-tuning-v2/models/<id>/predict-curve`。
 
-**Bundle 生成**：`optimize_theta.py::build_bundle()` 枚举 360 个稳定 ctx → PAVA 单调投影 → JSON。
+**Bundle 生成**：`optimize_theta.py::build_bundle()` 枚举 480 个稳定 ctx（v3.2 含 rl-bot）→ PAVA 单调投影 → JSON（每条含 `theta*` + `predicted_curve` / `predicted_curve_e` / `predicted_curve_f`）。
 
 **客户端消费**：`resolveThetaV2(ctx)` 查 hashmap，找不到返回 fallback。
 
@@ -228,6 +291,8 @@ d_curve 分析 ← 预测 d_curve → 360 ctx × best θ → Bundle JSON
 ### 1.10 数据库 Schema
 
 4 张主表：`sample_sets`（样本集元数据）、`samples`（单样本）、`models`（模型注册表）、`jobs`（异步训练任务）。外挂表：`field_metrics`（真实玩家上报）。
+
+> **v3.2 schema**：`samples` 增 `e_curve_json` / `f_curve_json`（可空，老样本 NULL → 训练经 `ef_mask` 不计 E/F loss）；`schema_version = v3.2.0`。后端 `ensure_schema` 用 `ALTER TABLE` 平滑迁移。
 
 ### 1.11 HTTP API 端点
 
@@ -321,6 +386,10 @@ python -m rl_pytorch.spawn_tuning_v2.repair_dcurves \
 python -m rl_pytorch.spawn_tuning_v2.optimize_theta \
     --checkpoint checkpoints/v2/mymodel.pt \
     --output checkpoints/v2/mymodel.policies.json
+
+# θ 敏感性审计 (v3.2): 量化 36 维 θ 对 D/E/F 的撬动力, 找高敏感 / 近零(可瘦身)维度
+python -m rl_pytorch.spawn_tuning_v2.sensitivity \
+    --checkpoint checkpoints/v2/mymodel.pt --top 12
 ```
 
 ### 2.8 常见问题
@@ -343,6 +412,7 @@ python -m rl_pytorch.spawn_tuning_v2.optimize_theta \
 | v2.10.6 | 端点拉宽 |
 | v2.10.7 | PAVA 单调投影 |
 | **v2.10.8** | **G1-G6+G9 工业化收尾** |
+| **v3.2** | **多曲线 multi-head（D/E/F 爽感+挫败）+ θ 扩到 36 维（F/G/H/I 组）+ rl-bot no-peek 纳入部署（480 ctx）+ 挫败硬上限 hinge** |
 
 ### 2.10 何时考虑 v3？
 

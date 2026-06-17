@@ -206,10 +206,13 @@ export class SkinPanel extends Component {
         const pick = () => {
             if (this.closed) return;
             if (this._scrollDragging) return;
-            if (this.currentId !== skin.id && this.onPick) {
-                this.onPick(skin.id);
-            }
+            // 先关面板再触发 onPick：close() 140ms 淡出与 applySkin 的 600ms 转场并行，
+            // 玩家看到的"点击到换肤"间隔从 ~740ms 降到 ~600ms（视觉上立刻有面板淡出反馈，
+            // 避免"点了没反应"——尤其首次切 inkGarden 还要加载 8 张 PNG）。
+            const targetId = skin.id;
+            const cb = (this.currentId !== targetId) ? this.onPick : null;
             this.close();
+            if (cb) cb(targetId);
         };
         this._unregs.push(TapBus.add(n, pick));
         this._unregs.push(bindEngineClick(n, pick));
@@ -282,10 +285,10 @@ export class SkinPanel extends Component {
             const bottom = rect.cy - rect.h / 2;
             if (local.x >= left && local.x <= left + rect.w &&
                 local.y >= bottom && local.y <= bottom + rect.h) {
-                if (this.currentId !== rect.id && this.onPick) {
-                    this.onPick(rect.id);
-                }
+                // 同上：close 与 onPick 并行执行，缩短"点击到换肤"的视觉间隔。
+                const cb = (this.currentId !== rect.id) ? this.onPick : null;
                 this.close();
+                if (cb) cb(rect.id);
                 return;
             }
         }

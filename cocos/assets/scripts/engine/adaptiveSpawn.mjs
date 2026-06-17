@@ -206,12 +206,19 @@ function applySignal(signalCfg, name, value) {
 
 function _bestMultiClearPotential(grid, shapeData) {
     if (!grid || !shapeData) return 0;
+    /* 性能：只需消行条数 → 优先走轻量 countClearLines（无整盘 temp 分配）；旧 grid 兜底 previewClearOutcome。 */
+    const fast = typeof grid.countClearLines === 'function';
     let best = 0;
     for (let y = 0; y < grid.size; y++) {
         for (let x = 0; x < grid.size; x++) {
-            const outcome = grid.previewClearOutcome?.(shapeData, x, y, 0);
-            if (!outcome) continue;
-            best = Math.max(best, (outcome.rows?.length ?? 0) + (outcome.cols?.length ?? 0));
+            let lines;
+            if (fast) {
+                lines = grid.countClearLines(shapeData, x, y);
+            } else {
+                const outcome = grid.previewClearOutcome?.(shapeData, x, y, 0);
+                lines = outcome ? (outcome.rows?.length ?? 0) + (outcome.cols?.length ?? 0) : 0;
+            }
+            if (lines > best) best = lines;
             if (best >= 2) return best;
         }
     }
@@ -645,9 +652,13 @@ function deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight, cfg 
     const kComplexity   = Number.isFinite(mc.complexityFromStress) ? mc.complexityFromStress : 0.75;
     const kRiskRelief   = Number.isFinite(mc.complexityRiskRelief) ? mc.complexityRiskRelief : -0.45;
     const kSolution     = Number.isFinite(mc.solutionFromStress)   ? mc.solutionFromStress   : 0.7;
+    // θ-H: 解空间区间缩放 (2 维) — 让 surrogate 寻参直接调"该 ctx 解空间要多窄、形状要多复杂"。
+    //   gain=1 完全等价历史行为；>1 加压（更复杂/解空间更窄）；<1 放松。
+    const kShapeComplexityGain   = Number.isFinite(mc.shapeComplexityGain)      ? mc.shapeComplexityGain      : 1.0;
+    const kSolutionPressureGain  = Number.isFinite(mc.solutionSpacePressureGain) ? mc.solutionSpacePressureGain : 1.0;
 
-    const shapeComplexity = clamp01(stress01 * kComplexity + boredHighSkill * 0.25 + riskRelief * kRiskRelief);
-    const solutionSpacePressure = clamp01(stress01 * kSolution + shapeComplexity * 0.25 - boardRisk * 0.55 - recoveryNeed * 0.35);
+    const shapeComplexity = clamp01((stress01 * kComplexity + boredHighSkill * 0.25 + riskRelief * kRiskRelief) * kShapeComplexityGain);
+    const solutionSpacePressure = clamp01((stress01 * kSolution + shapeComplexity * 0.25 - boardRisk * 0.55 - recoveryNeed * 0.35) * kSolutionPressureGain);
     const clearOpportunity = clamp01(recoveryNeed * 0.55 + payoffOpportunity * 0.45 + (profile.pacingPhase === 'release' ? 0.12 : 0) - stress01 * 0.18);
     const spatialPressure = clamp01(stress01 * 0.65 + (boardDifficulty ?? fill ?? 0) * 0.25 - boardRisk * 0.5 - recoveryNeed * 0.3);
     const payoffIntensity = clamp01((delight.multiClearBoost ?? 0) * 0.45 + payoffOpportunity * 0.4 + Math.max(0, profile.momentum ?? 0) * 0.15);
@@ -2148,11 +2159,14 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
                 && overshootBoostHighStress > 0) {
                 pbOvershootOrderBoostApplied = overshootBoostHighStress;
             }
+            /* θ-F: orderRigorGain (modelConfig 优先, 否则 1.0) — 让寻参直接调"顺序刚性"这把
+             * 当前最强但此前未被寻参覆盖的难度刻度。gain=1 等价历史；>1 顺序更刚（perms 更少）。 */
+            const _orderRigorGain = Number.isFinite(ctx.modelConfig?.orderRigorGain) ? ctx.modelConfig.orderRigorGain : 1.0;
             orderRigor = Math.max(0, Math.min(1,
-                stressTerm + skillTerm + modeBoost + motivationBoost
+                (stressTerm + skillTerm + modeBoost + motivationBoost
                 + pbExtremeOrderBoost + pbOvershootOrderBoostApplied
                 /* v1.66：高压阶段统一加权，提高顺序方块达成率（与上方 highPhase 同源 stress+fill 门控） */
-                + _pfHighOrderBoost
+                + _pfHighOrderBoost) * _orderRigorGain
             ));
             orderMaxValidPerms = Math.max(
                 tight,
@@ -3168,8 +3182,11 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
             /* v1.66：压力阶段（low/mid/high）—— blockSpawn 据此做形状池预加权 + 截断兜底；
              * orderSolutionBudget 仅高压透传，修复高 fill 下三连解评估被截断导致顺序过滤静默跳过。 */
             pressurePhase,
+            /* θ-F: orderSolutionBudgetGain — 缩放高压透传的解评估预算，配合 orderRigorGain
+             * 一起决定"顺序过滤在高 fill 下要算多深"。gain=1 等价历史。 */
             orderSolutionBudget: highPhase && Number.isFinite(_pf.highOrderSolutionBudget)
-                ? Math.max(1, Math.floor(_pf.highOrderSolutionBudget)) : null,
+                ? Math.max(1, Math.floor(_pf.highOrderSolutionBudget
+                    * (Number.isFinite(ctx.modelConfig?.orderSolutionBudgetGain) ? ctx.modelConfig.orderSolutionBudgetGain : 1.0))) : null,
             phaseLargeCells: Number.isFinite(_pf.highPoolLargeCells) ? _pf.highPoolLargeCells : 6,
             phaseHighPoolBoost: highPhase && Number.isFinite(_pf.highPoolBoost) ? Math.max(0, _pf.highPoolBoost) : 0,
             phaseLowPoolClearBoost: lowPhase && Number.isFinite(_pf.lowPoolClearBoost) ? Math.max(0, _pf.lowPoolClearBoost) : 0,

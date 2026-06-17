@@ -170,6 +170,64 @@ def target_S_curve_by_arc(r: float, arc) -> float:
     return max(0.0, min(D_CAP, out))
 
 
+# ═════════════════════════════════════════════════════════════════════
+# v3.2 多曲线 (multi-head): 难度 D(r) 之外的爽感 E(r) 与挫败 F(r)。
+#
+# 业务命题拆成三条正交体验曲线 (都是 r = score/PB 上的 20-bin 目标):
+#   D(r) 难度  —— "接近 PB 难超越" (上面的 S 曲线, 主轴)
+#   E(r) 爽感  —— "全程有适度爽感, 接近/突破 PB 时达到峰值" (PB 处高斯凸起)
+#   F(r) 挫败  —— "挫败始终低且有硬上限" (低基线 + 缓升 + cap)
+#
+# 与 web/src/tuning/v2/targetSCurve.js 的 target_e/f 1:1 对齐;
+# 任何修改必须同步两端 + 跨语言测试 test_cross_lang_dcurve.py。
+# ═════════════════════════════════════════════════════════════════════
+
+# E 爽感: 基线 + PB 处高斯凸起
+E_BASE = 0.20            # 全程基线爽感率
+E_PEAK = 0.40            # 接近/突破 PB 的峰值爽感率
+E_BUMP_CENTER = 1.00     # 峰值位置 (r=1 = 玩家分数 = PB)
+E_BUMP_WIDTH = 0.40      # 高斯宽度
+
+# F 挫败: 低基线 + 缓升 + 硬上限
+F_BASE = 0.08            # r=0 的最低挫败
+F_RISE = 0.22            # 缓升幅度 (F_BASE + F_RISE = 0.30 = cap)
+F_CAP = 0.30             # 挫败硬上限 (业务红线: "挫败有上限")
+F_RISE_START = 0.80      # 缓升起点 (接近 PB 才开始累积挫败)
+F_RISE_END = 1.60        # 缓升终点 (高超 PB 段挫败到顶)
+
+
+def _smoothstep01(t: float) -> float:
+    """clamp 到 [0,1] 后的 smoothstep 3t²-2t³。"""
+    t = max(0.0, min(1.0, t))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def target_E_curve(r: float) -> float:
+    """爽感目标 E(r) ∈ [E_BASE, E_PEAK]: 基线 + PB 处高斯凸起。"""
+    r = max(0.0, min(CURVE_R_MAX, float(r)))
+    bump = math.exp(-((r - E_BUMP_CENTER) / E_BUMP_WIDTH) ** 2)
+    return E_BASE + (E_PEAK - E_BASE) * bump
+
+
+def target_F_curve(r: float) -> float:
+    """挫败目标 F(r) ∈ [F_BASE, F_CAP]: 低基线 + 缓升, 硬 clip 到 cap。"""
+    r = max(0.0, min(CURVE_R_MAX, float(r)))
+    t = (r - F_RISE_START) / max(1e-9, F_RISE_END - F_RISE_START)
+    return min(F_CAP, F_BASE + F_RISE * _smoothstep01(t))
+
+
+def target_E_vector(n_bins: int = CURVE_N_BINS, r_max: float = CURVE_R_MAX) -> List[float]:
+    """E(r) 离散化为 20 维目标向量 (bin 中点取值)。"""
+    width = r_max / n_bins
+    return [target_E_curve((i + 0.5) * width) for i in range(n_bins)]
+
+
+def target_F_vector(n_bins: int = CURVE_N_BINS, r_max: float = CURVE_R_MAX) -> List[float]:
+    """F(r) 离散化为 20 维目标向量 (bin 中点取值)。"""
+    width = r_max / n_bins
+    return [target_F_curve((i + 0.5) * width) for i in range(n_bins)]
+
+
 def target_curve_vector(n_bins: int = CURVE_N_BINS, r_max: float = CURVE_R_MAX) -> List[float]:
     """返回 d_curve 离散化后的 20 维目标向量。
 

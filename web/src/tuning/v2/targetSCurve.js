@@ -167,6 +167,58 @@ export function targetSCurveByArc(r, arc) {
 }
 
 
+// ═════════════════════════════════════════════════════════════════════
+// v3.2 多曲线 (multi-head): 难度 D 之外的爽感 E(r) 与挫败 F(r)。
+// 与 Python rl_pytorch/spawn_tuning_v2/target_curve.py 的 target_E/F 1:1 对齐。
+// ═════════════════════════════════════════════════════════════════════
+
+export const E_BASE = 0.20;
+export const E_PEAK = 0.40;
+export const E_BUMP_CENTER = 1.00;
+export const E_BUMP_WIDTH = 0.40;
+
+export const F_BASE = 0.08;
+export const F_RISE = 0.22;
+export const F_CAP = 0.30;
+export const F_RISE_START = 0.80;
+export const F_RISE_END = 1.60;
+
+function _smoothstep01(t) {
+    t = Math.max(0, Math.min(1, t));
+    return t * t * (3 - 2 * t);
+}
+
+/** 爽感目标 E(r) ∈ [E_BASE, E_PEAK]: 基线 + PB 处高斯凸起。 */
+export function targetECurve(r) {
+    r = Math.max(0, Math.min(CURVE_R_MAX, Number(r) || 0));
+    const bump = Math.exp(-(((r - E_BUMP_CENTER) / E_BUMP_WIDTH) ** 2));
+    return E_BASE + (E_PEAK - E_BASE) * bump;
+}
+
+/** 挫败目标 F(r) ∈ [F_BASE, F_CAP]: 低基线 + 缓升, 硬 clip 到 cap。 */
+export function targetFCurve(r) {
+    r = Math.max(0, Math.min(CURVE_R_MAX, Number(r) || 0));
+    const t = (r - F_RISE_START) / Math.max(1e-9, F_RISE_END - F_RISE_START);
+    return Math.min(F_CAP, F_BASE + F_RISE * _smoothstep01(t));
+}
+
+/** E(r) 离散化为目标向量 (bin 中点取值)。 */
+export function targetEVector(nBins = CURVE_N_BINS, rMax = CURVE_R_MAX) {
+    const width = rMax / nBins;
+    const out = new Array(nBins);
+    for (let i = 0; i < nBins; i++) out[i] = targetECurve((i + 0.5) * width);
+    return out;
+}
+
+/** F(r) 离散化为目标向量 (bin 中点取值)。 */
+export function targetFVector(nBins = CURVE_N_BINS, rMax = CURVE_R_MAX) {
+    const width = rMax / nBins;
+    const out = new Array(nBins);
+    for (let i = 0; i < nBins; i++) out[i] = targetFCurve((i + 0.5) * width);
+    return out;
+}
+
+
 /**
  * 返回 d_curve 离散化后的目标向量。
  * @param {number} [nBins=20]

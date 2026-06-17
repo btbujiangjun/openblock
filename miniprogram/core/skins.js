@@ -1244,14 +1244,14 @@ const SKINS = {
     "id": "inkGarden",
     "name": "🖌️ 水墨雅集",
     "blockColors": [
-      "#9DAECE",
-      "#B5A7CB",
-      "#AAB091",
-      "#C2AA88",
-      "#9EB0B2",
-      "#C5A5AB",
-      "#9FAFBA",
-      "#BAAC8B"
+      "#7E9AAE",
+      "#9C8FB0",
+      "#8BA67D",
+      "#C9A765",
+      "#9FB4AE",
+      "#BC8B90",
+      "#7F9DAE",
+      "#B49A70"
     ],
     "blockIcons": [
       "💮",
@@ -1273,35 +1273,36 @@ const SKINS = {
       "/assets/skins/inkGarden/block-6.png",
       "/assets/skins/inkGarden/block-7.png"
     ],
-    "gridOuter": "#E8E0D4",
-    "gridCell": "#F5EFE6",
-    "gridGap": 1,
-    "gridLine": "rgba(110, 98, 86, 0.06)",
-    "blockInset": 2,
-    "blockRadius": 0,
+    "gridOuter": "#E7EDEA",
+    "gridCell": "#F0F4F2",
+    "gridGap": 0,
+    "gridLine": "rgba(60, 88, 80, 0.06)",
+    "blockInset": 3,
+    "blockRadius": 5,
     "blockStyle": "cartoon",
-    "blockIconInset": 0.03,
+    "blockIconInset": 0.025,
     "blockIconEnhance": {
-      "brightness": 1.1,
-      "contrast": 1.06,
-      "saturate": 1.18
+      "brightness": 1,
+      "contrast": 1.03,
+      "saturate": 0.88
     },
+    "blockEdgeFade": 0,
     "blockBevel": {
-      "topLift": 0.07,
-      "botDark": 0.038,
-      "botShadeAlpha": 0.045,
-      "innerStroke": "rgba(255,255,255,0.42)",
-      "outerStroke": "rgba(82,68,52,0.26)",
-      "assetOverlay": true,
-      "overlayTop": 0.08,
-      "overlayBottom": 0.04
+      "topLift": 0.04,
+      "botDark": 0.03,
+      "botShadeAlpha": 0.035,
+      "innerStroke": "rgba(255,253,247,0.40)",
+      "outerStroke": "rgba(120,100,72,0.12)",
+      "assetOverlay": false,
+      "overlayTop": 0,
+      "overlayBottom": 0
     },
     "boardTexture": {
       "type": "xuanPaper",
-      "opacity": 0.34,
-      "intensity": 0.55
+      "opacity": 0.07,
+      "intensity": 0.16
     },
-    "clearFlash": "rgba(180, 200, 185, 0.55)"
+    "clearFlash": "rgba(150, 180, 165, 0.45)"
   },
   "fiesta": {
     "id": "fiesta",
@@ -1544,7 +1545,7 @@ const BOARD_WATERMARKS = {
   mineralCave: { icons: ['💍', '🔦'], opacity: 0.052, hdIcons: ['◾', '◽', '▪️', '▫️', '⬛'] },
   alchemyLab: { icons: ['⚗️', '🧪'], opacity: 0.052, hdIcons: ['☣️', '☢️', '♨️', '⚕️', '☤'] },
   botanicalStudy: { icons: ['🥀', '🫛'], opacity: 0.10, hdIcons: ['🫐', '🥦', '🍅', '🍆', '🥒'] },
-  inkGarden: { icons: ['🪭', '📜'], opacity: 0.11, scale: 0.26, hdIcons: ['⛰️', '🎑', '🍶', '🌫️', '🏞️'] },
+  inkGarden: { icons: ['🪭', '📜', '🪷', '🍃', '🎑'], opacity: 0.05, scale: 0.22, hdIcons: ['🌫️', '⛰️', '🌬️', '💨', '🌪'] },
   spaceDock: { icons: ['🛰️', '🧑‍🚀'], opacity: 0.045, hdIcons: ['✦', '✧', '✹', '✺', '✷'] },
   dungeonLoot: { icons: ['🪤', '🕳️'], opacity: 0.05, hdIcons: ['⛓', '⌬', '⟡', '⟢', '✶'] },
   origamiPaper: { icons: ['✉️', '📄'], opacity: 0.11, hdIcons: ['▱', '△', '◇', '□', '▽'] },

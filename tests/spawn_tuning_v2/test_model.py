@@ -102,8 +102,9 @@ class TestForward:
         """
         batch = _make_batch(batch_size=4)
         out = model(**batch)
-        # v2.10.32 (P2.2): 加 r_value head
-        loss = (out["curve"].mean() + out["pb_broke"].mean() + out["noMove"].mean()
+        # v2.10.32 (P2.2): 加 r_value head; v3.2: 加 curve_e / curve_f 多曲线 head
+        loss = (out["curve"].mean() + out["curve_e"].mean() + out["curve_f"].mean()
+                + out["pb_broke"].mean() + out["noMove"].mean()
                 + out["score"].mean() + out["survival"].mean()
                 + out["r_value"].mean())
         loss.backward()
@@ -297,7 +298,8 @@ class TestTransformer:
         m.train()
         batch = _make_batch(batch_size=4)
         out = m(**batch)
-        loss = (out["curve"].sum() + out["pb_broke"].sum() + out["noMove"].sum()
+        loss = (out["curve"].sum() + out["curve_e"].sum() + out["curve_f"].sum()
+                + out["pb_broke"].sum() + out["noMove"].sum()
                 + out["score"].sum() + out["survival"].sum()
                 + out["r_value"].sum())
         loss.backward()

@@ -48,7 +48,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .target_curve import target_curve_vector
+from .target_curve import target_curve_vector, target_E_vector, target_F_vector, F_CAP
 
 N_BINS = 20
 
@@ -79,39 +79,52 @@ def _measured_curves(db_path):
     """
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        """
-        SELECT difficulty, generator, bot_policy, pb_bin, lifecycle_stage,
-               d_curve_json, bin_counts_json
-        FROM samples
-        """
-    ).fetchall()
+    # v3.2 多曲线: 列可能不存在 (老库 / 最小测试表) — 探测后再决定是否取 e/f
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(samples)").fetchall()}
+    has_ef = "e_curve_json" in cols and "f_curve_json" in cols
+    sel = "difficulty, generator, bot_policy, pb_bin, lifecycle_stage, d_curve_json, bin_counts_json"
+    if has_ef:
+        sel += ", e_curve_json, f_curve_json"
+    rows = conn.execute(f"SELECT {sel} FROM samples").fetchall()
     conn.close()
 
     num = defaultdict(lambda: np.zeros(N_BINS))
     den = defaultdict(lambda: np.zeros(N_BINS))
+    e_num = defaultdict(lambda: np.zeros(N_BINS))
+    f_num = defaultdict(lambda: np.zeros(N_BINS))
+
+    def _parse(raw):
+        try:
+            arr = np.asarray(json.loads(raw), dtype=float)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        return arr if arr.shape[0] == N_BINS else None
+
     for r in rows:
         key = f"{r['difficulty']}:{r['generator']}:{r['bot_policy']}:{r['pb_bin']}:{r['lifecycle_stage']}"
-        try:
-            dc = np.asarray(json.loads(r["d_curve_json"]), dtype=float)
-        except (json.JSONDecodeError, TypeError):
+        dc = _parse(r["d_curve_json"])
+        if dc is None:
             continue
-        if dc.shape[0] != N_BINS:
-            continue
-        try:
-            bc = np.asarray(json.loads(r["bin_counts_json"]), dtype=float)
-            if bc.shape[0] != N_BINS:
-                bc = np.zeros(N_BINS)
-        except (json.JSONDecodeError, TypeError):
+        bc = _parse(r["bin_counts_json"])
+        if bc is None:
             bc = np.zeros(N_BINS)
         num[key] += dc * bc
         den[key] += bc
+        if has_ef:
+            ec = _parse(r["e_curve_json"])
+            fc = _parse(r["f_curve_json"])
+            if ec is not None:
+                e_num[key] += ec * bc
+            if fc is not None:
+                f_num[key] += fc * bc
 
     out = {}
     for key in den:
         d = den[key]
         meas = np.where(d > 0, num[key] / np.maximum(d, 1e-9), np.nan)
-        out[key] = (meas, d)
+        meas_e = np.where(d > 0, e_num[key] / np.maximum(d, 1e-9), np.nan) if has_ef else np.full(N_BINS, np.nan)
+        meas_f = np.where(d > 0, f_num[key] / np.maximum(d, 1e-9), np.nan) if has_ef else np.full(N_BINS, np.nan)
+        out[key] = (meas, d, meas_e, meas_f)
     return out
 
 
@@ -121,12 +134,15 @@ def evaluate_policies(db_path, policies, min_bin_samples=5, high_bin=10):
     policies: list[dict]，每项需有 context_key 与 predicted_curve。
     """
     target = np.asarray(target_curve_vector(), dtype=float)
+    ideal_e = np.asarray(target_E_vector(), dtype=float)
+    ideal_f = np.asarray(target_F_vector(), dtype=float)
     measured = _measured_curves(db_path)
     by_key = {p["context_key"]: p for p in policies}
 
+    _empty = (np.full(N_BINS, np.nan), np.zeros(N_BINS), np.full(N_BINS, np.nan), np.full(N_BINS, np.nan))
     per_ctx = []
     for key, pol in by_key.items():
-        meas, nobs = measured.get(key, (np.full(N_BINS, np.nan), np.zeros(N_BINS)))
+        meas, nobs, meas_e, meas_f = measured.get(key, _empty)
         observed = nobs >= min_bin_samples
         n_obs = int(observed.sum())
         coverage = n_obs / N_BINS
@@ -155,6 +171,23 @@ def evaluate_policies(db_path, policies, min_bin_samples=5, high_bin=10):
                        if (measured_mae == measured_mae and pred_mae_obs == pred_mae_obs)
                        else float("nan"))
 
+        # v3.2 多曲线诊断 (不参与 D 主轴判定): 爽感/挫败 实测 & 预估 vs ideal, 挫败上限
+        pred_e = np.asarray(pol.get("predicted_curve_e", [np.nan] * N_BINS), dtype=float)
+        pred_f = np.asarray(pol.get("predicted_curve_f", [np.nan] * N_BINS), dtype=float)
+        e_meas_mae = (float(np.mean(np.abs(meas_e[observed] - ideal_e[observed])))
+                      if n_obs and np.isfinite(meas_e[observed]).all() else float("nan"))
+        f_meas_mae = (float(np.mean(np.abs(meas_f[observed] - ideal_f[observed])))
+                      if n_obs and np.isfinite(meas_f[observed]).all() else float("nan"))
+        e_pred_mae = (float(np.mean(np.abs(pred_e[observed] - ideal_e[observed])))
+                      if n_obs and np.isfinite(pred_e).all() else float("nan"))
+        f_pred_mae = (float(np.mean(np.abs(pred_f[observed] - ideal_f[observed])))
+                      if n_obs and np.isfinite(pred_f).all() else float("nan"))
+        # 挫败硬上限越界量 (实测 & 预估; 仅观测 bin)
+        meas_frustration_over = (float(np.max(np.clip(meas_f[observed] - F_CAP, 0, None)))
+                                 if n_obs and np.isfinite(meas_f[observed]).all() else float("nan"))
+        pred_frustration_over = (float(np.max(np.clip(pred_f[observed] - F_CAP, 0, None)))
+                                 if n_obs and np.isfinite(pred_f).all() else float("nan"))
+
         per_ctx.append({
             "key": key,
             "n_samples": int(nobs.sum()),
@@ -165,6 +198,13 @@ def evaluate_policies(db_path, policies, min_bin_samples=5, high_bin=10):
             "pred_mae_all": pred_mae_all,
             "calib_residual": calib_residual,
             "improvement": improvement,
+            # v3.2 多曲线诊断
+            "e_measured_mae": e_meas_mae,
+            "f_measured_mae": f_meas_mae,
+            "e_pred_mae": e_pred_mae,
+            "f_pred_mae": f_pred_mae,
+            "meas_frustration_over_cap": meas_frustration_over,
+            "pred_frustration_over_cap": pred_frustration_over,
         })
     return per_ctx
 
@@ -202,6 +242,13 @@ def aggregate_metrics(per_ctx):
         "pred_mae_all": _agg(per_ctx, "pred_mae_all"),
         "calib_residual": _agg(per_ctx, "calib_residual", weighted=True),
         "improvement": improvement,
+        # v3.2 多曲线诊断 (非阻断)
+        "e_measured_mae": _agg(per_ctx, "e_measured_mae", weighted=True),
+        "f_measured_mae": _agg(per_ctx, "f_measured_mae", weighted=True),
+        "e_pred_mae": _agg(per_ctx, "e_pred_mae", weighted=True),
+        "f_pred_mae": _agg(per_ctx, "f_pred_mae", weighted=True),
+        "meas_frustration_over_cap": _agg(per_ctx, "meas_frustration_over_cap"),
+        "pred_frustration_over_cap": _agg(per_ctx, "pred_frustration_over_cap"),
     }
 
 
@@ -226,6 +273,10 @@ def coverage_caveats(metrics, thresholds=None):
     if high_cov == high_cov and high_cov < t["min_high_coverage"]:
         out.append(f"高分段覆盖 {high_cov:.1%} < {t['min_high_coverage']:.0%}："
                    "接近 PB 的高 r 段尚无实测，未参与验证")
+    # v3.2 多曲线: 挫败硬上限越界告警 (非阻断, 仅提示业务红线被触碰)
+    over = metrics.get("pred_frustration_over_cap")
+    if over is not None and over == over and over > 1e-6:
+        out.append(f"预估挫败 F 越过硬上限 {F_CAP:.2f} (越界 {over:.3f})：寻参 θ* 在部分 ctx 让挫败破红线")
     return out
 
 
@@ -323,6 +374,9 @@ def main():
     print(f"  高分段覆盖(bin≥{args.high_bin}, 接近PB)         = {m['high_coverage']:.1%}   (告警阈值 ≥ {args.min_high_coverage:.0%})")
     print(f"  预测-实测偏离 R (改动幅度)             = {_f4(m['calib_residual'])}")
     print(f"  预估 vs 目标 MAE (全 bin, 含外推)       = {_f4(m['pred_mae_all'])}")
+    print(f"  ── v3.2 多曲线诊断 (爽感 E / 挫败 F, 非阻断) ──")
+    print(f"  爽感 E: 实测|E−idealE|={_f4(m.get('e_measured_mae'))}  预估|E−idealE|={_f4(m.get('e_pred_mae'))}")
+    print(f"  挫败 F: 实测|F−idealF|={_f4(m.get('f_measured_mae'))}  预估|F−idealF|={_f4(m.get('f_pred_mae'))}  预估越上限={_f4(m.get('pred_frustration_over_cap'))}")
     for c in caveats:
         print(f"  ⚠ 覆盖告警：{c}")
 

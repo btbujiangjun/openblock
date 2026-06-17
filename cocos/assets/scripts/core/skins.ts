@@ -563,30 +563,50 @@ export const SKINS: Record<string, Skin> = {
         uiDark: false,
     },
 
-    /** 水墨雅集：四君子与文房 —— 宣纸底色、淡彩水墨（cocos 无 PNG 方块/宣纸纹理，回退 cartoon 面 + emoji） */
+    /** 水墨雅集：四君子与文房 —— 宣纸底色、淡彩水墨（满铺 PNG + 柔光浮雕叠加，与 web 严格一致） */
+    /* 水墨雅集 v1.73「乌丝栏」深色重制：玄色绢本 + 朱印泛光。
+     * 深底高明度浅绛配色（饱和 +8 / 明度 +5），关闭 overlay 浮雕（576 GFX 调用/满盘 → 0），
+     * 圆角 6 + 装裱留白 3px，方块外观参考 mineralCave/aurora。 */
     inkGarden: {
         id: 'inkGarden',
         name: '🖌️ 水墨雅集',
         blockIcons: ['💮', '🪻', '🎍', '💐', '🫧', '🪨', '🌰', '🖋️'],
-        // 与 web `blockIconAssets` 严格一致：8 张水墨 PNG 满铺格面（命中后跳过绘面 + emoji）。
-        // 路径为 resources 下可加载路径（不含扩展名），运行期按需加载为 SpriteFrame 缓存。
         blockIconAssets: [
             'assets/skins/inkGarden/block-0', 'assets/skins/inkGarden/block-1',
             'assets/skins/inkGarden/block-2', 'assets/skins/inkGarden/block-3',
             'assets/skins/inkGarden/block-4', 'assets/skins/inkGarden/block-5',
             'assets/skins/inkGarden/block-6', 'assets/skins/inkGarden/block-7',
         ],
-        blockColors: ['#9DAECE', '#B5A7CB', '#AAB091', '#C2AA88', '#9EB0B2', '#C5A5AB', '#9FAFBA', '#BAAC8B'],
-        gridOuter: '#E8E0D4',
-        gridCell: '#F5EFE6',
-        gridLine: 'rgba(110,98,86,0.06)',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 0,
+        blockIconInset: 0.025,  // 装裱色框收窄到发丝级（渲染端 1px 下限兜底），与 web/小程序一致
+        blockBevel: {
+            topLift: 0.04,
+            botDark: 0.03,
+            botShadeAlpha: 0.035,
+            innerStroke: 'rgba(255,253,247,0.40)',  // 宣纸高光（减弱，去浮凸）
+            outerStroke: 'rgba(120,100,72,0.12)',   // 淡墨褐描边（更轻，清新）
+            assetOverlay: false,
+            overlayTop: 0,
+            overlayBottom: 0,
+        },
+        // 浅底低饱和占位色（多被不透明 PNG 覆盖，仅加载瞬态/空态可见）
+        blockColors: [
+            '#7E9AAE', '#9C8FB0', '#8BA67D', '#C9A765',
+            '#9FB4AE', '#BC8B90', '#7F9DAE', '#B49A70',
+        ],
+        // 「月白·天青」清新淡雅：冷调青瓷纸底，与方块自带冷青/淡蓝底色相和谐（青底配朱印=经典中式）。
+        // 盘面一整片平面（gridGap=0 取消每格凹陷边），仅留极淡青墨发丝栏线
+        gridOuter: '#E7EDEA',
+        gridCell: '#F0F4F2',
+        gridLine: 'rgba(60,88,80,0.06)',
+        gridGap: 0,           // 关键：取消格间嵌边，消除"凹陷瓷砖"立体感
+        blockInset: 3,        // 方块自身留白
+        blockRadius: 5,       // 温润圆角
         blockStyle: 'cartoon',
-        clearFlash: 'rgba(180,200,185,0.55)',
-        cssBg: '#E8E0D4',
-        uiDark: false,
+        clearFlash: 'rgba(150,180,165,0.45)',
+        cssBg: '#E7EDEA',     // 月白天青底（清新通透）
+        uiDark: false,        // 浅色 UI（与月白盘面一致）
+        uiAccent: '#B5453A',     // 朱砂（印章红）
+        uiAccentDark: '#46685E', // 黛青/竹青
     },
 
     /** 宝石矿洞：岩层、晶簇、矿灯与低饱和矿物光 */
@@ -800,6 +820,13 @@ export interface BoardWatermark {
     opacity: number;
     /** 字号缩放（相对默认）。缺省按默认。 */
     scale?: number;
+    /**
+     * 高密度意象池（对齐 web `boardWatermark.hdIcons`）。
+     * 配置时：每次 setSkin 从池中随机抽 5 个用于 5 锚点，让同一皮肤多局视觉有变化。
+     * 用法：意象较多的皮肤（水墨/丛林/星空）填 hdIcons，icons 仅作兜底；
+     *      普通皮肤只填 icons 即可。
+     */
+    hdIcons?: string[];
 }
 
 /** 各皮肤盘面水印（icons/opacity/scale 与 web `skins.js` boardWatermark 基础值对齐）。 */
@@ -836,7 +863,15 @@ const WATERMARKS: Record<string, BoardWatermark> = {
     circuitBoard: { icons: ['🧲', '📶'], opacity: 0.048 },
     spaceDock: { icons: ['🛰️', '🧑‍🚀'], opacity: 0.045 },
     botanicalStudy: { icons: ['🥀', '🫛'], opacity: 0.10 },
-    inkGarden: { icons: ['🪭', '📜'], opacity: 0.11, scale: 0.26 },
+    // 水墨雅集：与 web/miniprogram 严格对齐（约束：icons/hdIcons 各 5 个、互不重叠、全局唯一）。
+    // 基础（扇/卷/荷/竹/月）+ HD（雾/舟/景/山/风）共同构成「水墨山水 + 园林雅集」主题。
+    inkGarden: {
+        icons: ['🪭', '📜', '🪷', '🍃', '🎑'],
+        // 宣纸留白：水印极克制（~0.045），山水气象单色意象。
+        opacity: 0.045,
+        scale: 0.22,
+        hdIcons: ['🌫️', '⛰️', '🌬️', '💨', '🌪'],
+    },
     mineralCave: { icons: ['💍', '🔦'], opacity: 0.052 },
     winterCabin: { icons: ['🪵', '🧤'], opacity: 0.08 },
     rainyWindow: { icons: ['🌧️', '☔'], opacity: 0.05 },

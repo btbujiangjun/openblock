@@ -28,13 +28,18 @@ BOT_INDEX = {"random": 0, "clear-greedy": 1, "survival": 2, "rl-bot": 3}
 PB_BIN_INDEX = {500: 0, 1500: 1, 4000: 2, 10000: 3, 25000: 4}
 LIFECYCLE_INDEX = {"onboarding": 0, "growth": 1, "mature": 2, "plateau": 3}
 
-# θ 参数顺序 (9 维, 与 model.py 的 N_THETA 一致)
+# θ 参数顺序 (36 维, 与 model.py 的 N_THETA 一致)
 #
+# v3.2: 结合最新出块算法新增 9 维:
+#       F 顺序难度 2 + G 构造式 2 + H 解空间 2 (难度旋钮),
+#       I 节奏/special 3 (爽感 E / 挫败 F 多曲线配套旋钮)。
+#       覆盖 v1.32 orderRigor / C1-C3 构造 / deriveSpawnTargets 解空间 / special 节奏
+#       这些此前未被寻参覆盖的强体验旋钮。
 # v2.2: 把 adaptiveSpawn.js 里 PB 双 S 曲线的 4 个硬编码常数提到 modelConfig
 #       (DEFAULT_SPAWN_PARAMS_PB_CURVE in adaptiveSpawn.js), 现在它们也是真实生效的 θ。
 # v2.1: 原 14 维收缩到 5 维 (剔除 9 个装饰性参数)。
 #
-# 所有 θ 必须满足: simulator/adaptiveSpawn/spawnExperiments 中至少有 1 处真实消费。
+# 所有 θ 必须满足: simulator/adaptiveSpawn/blockSpawn 中至少有 1 处真实消费。
 #
 THETA_KEYS = [
     # ─ A. 候选选拔 / 个性化 (5)
@@ -69,6 +74,23 @@ THETA_KEYS = [
     "pbOvershootMax",               # 超 PB 后对数加压幅度
     "releaseFactor",                # 破 PB 释放窗口 stress 衰减
     "farFromPBBoost",               # D0 远征段送爽强度
+    # ─ F. 顺序难度 (2, adaptiveSpawn.js orderRigor 块) — v3.2 新增
+    #   把 v1.32 顺序刚性 (orderRigor / orderMaxValidPerms / orderSolutionBudget) 这把
+    #   "最强但此前未被寻参覆盖的难度刻度"提为可寻优 θ。
+    "orderRigorGain",               # 缩放最终 orderRigor (>1 顺序更刚, perms 更少)
+    "orderSolutionBudgetGain",      # 缩放高压透传的解评估预算 (配合 orderRigorGain)
+    # ─ G. 构造式出块 (2, blockSpawn.js) — v3.2 新增
+    #   把 C1/C3 构造补全与拥挤多消的强度提为可寻优 θ。
+    "constructiveCompleterGain",    # 缩放构造式补全块注入概率 (>1 送爽更强)
+    "crowdedMultiClearThresholdGain", # 缩放拥挤多消触发阈值 (>1 更克制)
+    # ─ H. 解空间区间缩放 (2, adaptiveSpawn.js deriveSpawnTargets) — v3.2 新增
+    "shapeComplexityGain",          # 缩放 shapeComplexity (>1 形状更复杂)
+    "solutionSpacePressureGain",    # 缩放 solutionSpacePressure (>1 解空间更窄)
+    # ─ I. 节奏 / special 块 (3, blockSpawn.js) — v3.2 多曲线配套
+    #   直接挂钩爽感 E(r) / 挫败 F(r): special 救济/压力配额 + 同花顺彩蛋概率。
+    "specialReliefQuotaGain",       # 缩放 relief special 注入配额 (>1 送爽更多 → 抬 E 压 F)
+    "specialPressureQuotaGain",     # 缩放 pressure special 注入配额 (>1 压力更多 → 抬 F)
+    "monoFlushCapGain",             # 缩放同花顺彩蛋触发概率上限 (>1 视觉爽感更多 → 抬 E)
 ]
 
 # 各参数的 (min, max) — min-max 归一化用
@@ -106,11 +128,24 @@ THETA_RANGES = {
     "pbOvershootMax":          (0.10, 0.22),    # default 0.16
     "releaseFactor":           (0.5, 0.85),     # default 0.7
     "farFromPBBoost":          (0.30, 0.60),    # default 0.45
+    # F (v3.2)
+    "orderRigorGain":              (0.6, 1.6),  # default 1.0
+    "orderSolutionBudgetGain":     (0.7, 1.5),  # default 1.0
+    # G (v3.2)
+    "constructiveCompleterGain":   (0.6, 1.5),  # default 1.0
+    "crowdedMultiClearThresholdGain": (0.7, 1.4),  # default 1.0
+    # H (v3.2)
+    "shapeComplexityGain":         (0.7, 1.4),  # default 1.0
+    "solutionSpacePressureGain":   (0.7, 1.4),  # default 1.0
+    # I (v3.2 节奏/special)
+    "specialReliefQuotaGain":      (0.6, 1.8),  # default 1.0
+    "specialPressureQuotaGain":    (0.6, 1.8),  # default 1.0
+    "monoFlushCapGain":            (0.5, 2.0),  # default 1.0
 }
 
 
 def normalize_theta(theta_dict: Dict[str, float]) -> np.ndarray:
-    """θ dict → (14,) numpy [0, 1]"""
+    """θ dict → (N_THETA,) numpy [0, 1]"""
     out = np.zeros(len(THETA_KEYS), dtype=np.float32)
     for i, k in enumerate(THETA_KEYS):
         v = float(theta_dict.get(k, sum(THETA_RANGES[k]) / 2))  # 缺失填中点
@@ -121,7 +156,7 @@ def normalize_theta(theta_dict: Dict[str, float]) -> np.ndarray:
 
 
 def denormalize_theta(theta_norm: np.ndarray) -> Dict[str, float]:
-    """(14,) numpy [0, 1] → θ dict"""
+    """(N_THETA,) numpy [0, 1] → θ dict"""
     out: Dict[str, float] = {}
     for i, k in enumerate(THETA_KEYS):
         lo, hi = THETA_RANGES[k]
@@ -159,6 +194,10 @@ class SamplesDataset:
         bin_counts: np.ndarray | None = None,
         # v2.10.32 (P2.2): score/pb 比值 — multi-task 模型用作辅助 label
         r_value: np.ndarray | None = None,
+        # v3.2 多曲线: 爽感 E(r) / 挫败 F(r), 与 ef_mask (老样本无 e/f → mask=0 不计 loss)
+        e_curve: np.ndarray | None = None,
+        f_curve: np.ndarray | None = None,
+        ef_mask: np.ndarray | None = None,
     ):
         self.difficulty_idx = difficulty_idx
         self.generator_idx = generator_idx
@@ -176,6 +215,10 @@ class SamplesDataset:
         n = difficulty_idx.shape[0]
         self.bin_counts = bin_counts if bin_counts is not None else np.zeros((n, 20), dtype=np.float32)
         self.r_value = r_value if r_value is not None else np.zeros(n, dtype=np.float32)
+        # v3.2 多曲线: 默认零向量 + mask=0 (即老样本不参与 e/f loss)
+        self.e_curve = e_curve if e_curve is not None else np.zeros((n, 20), dtype=np.float32)
+        self.f_curve = f_curve if f_curve is not None else np.zeros((n, 20), dtype=np.float32)
+        self.ef_mask = ef_mask if ef_mask is not None else np.zeros(n, dtype=np.float32)
 
     def __len__(self) -> int:
         return self.difficulty_idx.shape[0]
@@ -206,6 +249,7 @@ class SamplesDataset:
             f"""
             SELECT difficulty, generator, bot_policy, pb_bin, lifecycle_stage,
                    theta_json, d_curve_json,
+                   e_curve_json, f_curve_json,
                    final_score, survived_steps, clear_rate, noMove_step, pb_broke,
                    bin_counts_json, n_bins_filled
             FROM samples
@@ -225,7 +269,7 @@ class SamplesDataset:
         pb_b = np.zeros(n, dtype=np.int64)
         life = np.zeros(n, dtype=np.int64)
         log_pb = np.zeros(n, dtype=np.float32)
-        theta = np.zeros((n, len(THETA_KEYS)), dtype=np.float32)  # (n, N_THETA=5)
+        theta = np.zeros((n, len(THETA_KEYS)), dtype=np.float32)  # (n, N_THETA)
         d_curve = np.zeros((n, 20), dtype=np.float32)
         pb_broke = np.zeros(n, dtype=np.float32)
         noMove_norm = np.zeros(n, dtype=np.float32)
@@ -233,6 +277,20 @@ class SamplesDataset:
         survival = np.zeros(n, dtype=np.float32)
         bin_counts = np.zeros((n, 20), dtype=np.float32)   # v2.10.32 (P0.2)
         r_value = np.zeros(n, dtype=np.float32)            # v2.10.32 (P2.2): score/pb
+        e_curve = np.zeros((n, 20), dtype=np.float32)      # v3.2 多曲线: 爽感
+        f_curve = np.zeros((n, 20), dtype=np.float32)      # v3.2 多曲线: 挫败
+        ef_mask = np.zeros(n, dtype=np.float32)            # v3.2: 1=有 e/f 标签
+
+        def _parse_curve20(raw):
+            try:
+                arr = json.loads(raw)
+            except (ValueError, TypeError):
+                return None
+            if not isinstance(arr, list) or len(arr) == 0:
+                return None
+            if len(arr) != 20:
+                arr = (list(arr) + [arr[-1]] * 20)[:20]
+            return np.array(arr, dtype=np.float32)
 
         for i, r in enumerate(rows):
             diff[i] = DIFFICULTY_INDEX[r["difficulty"]]
@@ -270,6 +328,19 @@ class SamplesDataset:
             pb_val = float(r["pb_bin"]) if r["pb_bin"] else 1.0
             fs = float(r["final_score"] or 0.0)
             r_value[i] = min(2.0, fs / pb_val) if pb_val > 0 else 0.0
+            # v3.2 多曲线: e_curve / f_curve (老样本列为 NULL → mask=0)
+            try:
+                e_raw = r["e_curve_json"]
+                f_raw = r["f_curve_json"]
+            except (KeyError, IndexError):
+                e_raw = f_raw = None
+            if e_raw and f_raw:
+                e_arr = _parse_curve20(e_raw)
+                f_arr = _parse_curve20(f_raw)
+                if e_arr is not None and f_arr is not None:
+                    e_curve[i] = e_arr
+                    f_curve[i] = f_arr
+                    ef_mask[i] = 1.0
 
         # log_pb z-score (用样本内统计)
         if log_pb.std() > 1e-9:
@@ -290,6 +361,9 @@ class SamplesDataset:
             survival=survival,
             bin_counts=bin_counts,
             r_value=r_value,
+            e_curve=e_curve,
+            f_curve=f_curve,
+            ef_mask=ef_mask,
         )
 
     def train_val_split(
@@ -320,6 +394,9 @@ class SamplesDataset:
             survival=self.survival[idx],
             bin_counts=self.bin_counts[idx],
             r_value=self.r_value[idx],
+            e_curve=self.e_curve[idx],
+            f_curve=self.f_curve[idx],
+            ef_mask=self.ef_mask[idx],
         )
 
     def _compute_ctx_id(self, idx: np.ndarray) -> np.ndarray:
@@ -381,6 +458,9 @@ class SamplesDataset:
                     "bin_counts": self.bin_counts[idx],
                     "r_value": self.r_value[idx],
                     "ctx_id": self._compute_ctx_id(idx),
+                    "e_curve": self.e_curve[idx],
+                    "f_curve": self.f_curve[idx],
+                    "ef_mask": self.ef_mask[idx],
                 }
             return
 
@@ -406,6 +486,9 @@ class SamplesDataset:
                 "bin_counts": self.bin_counts[idx],
                 "r_value": self.r_value[idx],
                 "ctx_id": self._compute_ctx_id(idx),
+                "e_curve": self.e_curve[idx],
+                "f_curve": self.f_curve[idx],
+                "ef_mask": self.ef_mask[idx],
             }
 
 

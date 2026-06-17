@@ -311,6 +311,31 @@ function _paintAssetSoftOverlay(ctx, bx, by, size, r, bevel) {
     ctx.restore();
 }
 
+/**
+ * 方块贴图「边缘羽化」（中国风晕染/淡雅）：用 destination-out 沿四边擦出由边缘向内渐隐的透明带，
+ * 让方块边缘半透明地融入底色，而非硬切的圆角方块。fade=边缘羽化宽度占格宽的比例（适度取 0.10~0.18）。
+ * 在 roundRect clip 内执行，圆角处自然叠加更透（自然晕开）。
+ */
+function _featherAssetEdges(ctx, bx, by, size, fade) {
+    if (!(fade > 0)) return;
+    const fw = Math.max(1, size * fade);
+    const edgeA = 0.72;  // 边缘擦除强度（适度：边缘约保留 28%，不全透）
+    const prev = ctx.globalCompositeOperation;
+    ctx.globalCompositeOperation = 'destination-out';
+    const strip = (x0, y0, x1, y1, rx, ry, rw, rh) => {
+        const g = ctx.createLinearGradient(x0, y0, x1, y1);
+        g.addColorStop(0, `rgba(0,0,0,${edgeA})`);
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(rx, ry, rw, rh);
+    };
+    strip(0, by, 0, by + fw, bx, by, size, fw);                       // 上
+    strip(0, by + size, 0, by + size - fw, bx, by + size - fw, size, fw); // 下
+    strip(bx, 0, bx + fw, 0, bx, by, fw, size);                       // 左
+    strip(bx + size, 0, bx + size - fw, 0, bx + size - fw, by, fw, size); // 右
+    ctx.globalCompositeOperation = prev;
+}
+
 function _paintIcon(ctx, bx, by, size, r, color, skin) {
     if (!skin.blockIcons || size < 14) return;
     const colorIdx = skin.blockColors ? skin.blockColors.indexOf(color) : -1;
@@ -335,6 +360,7 @@ function _paintIcon(ctx, bx, by, size, r, color, skin) {
         ctx.drawImage(assetImg, bx + pad, by + pad, size - pad * 2, size - pad * 2);
         if (filt) ctx.filter = 'none';
         _paintAssetSoftOverlay(ctx, bx, by, size, r, _resolveBlockBevel(skin, isLightBoardSkin(skin)));
+        if (typeof skin.blockEdgeFade === 'number') _featherAssetEdges(ctx, bx, by, size, skin.blockEdgeFade);
         ctx.restore();
         return;
     }
@@ -402,6 +428,22 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
     const size = Math.max(1, cellS - inset * 2);
     const bx = cellPx + inset;
     const by = cellPy + inset;
+
+    // 图片皮肤（blockIconAssets，如水墨雅集）：PNG 是方形画卡，整面贴图盖在面上 → 边框只保留
+    // 「单层底色圆角块」这一个视觉元素：PNG 按 blockIconInset 内缩后，露出一圈细色框「装裱」，
+    // 不再叠描边/高光/羽化晕框 —— 一帧干净的小品扇页，避免「过于复杂的多重边框」。
+    // 与 cocos paintBlockFace / 小程序 _paintCell 的图片皮肤分支严格一致（各端同款简化边框）。
+    if (Array.isArray(skin.blockIconAssets) && skin.blockIconAssets.length) {
+        ctx.fillStyle = color;
+        if (r > 0) {
+            roundRectPath(ctx, bx, by, size, size, r);
+            ctx.fill();
+        } else {
+            ctx.fillRect(bx, by, size, size);
+        }
+        _paintIcon(ctx, bx, by, size, r, color, skin);
+        return;
+    }
 
     // v10.10：带 icon 皮肤的方块色降饱和 —— 默认 S×0.55；浅色盘面 → S×0.92（v10.19–v10.20）
     // blockColors 原始饱和度多在 70-85%，与中心 emoji 的彩色发生「色冲突」，
@@ -2276,9 +2318,13 @@ export class Renderer {
                 const sp = (3.5 + Math.random() * 11) * speed;
                 /* 先向上「跳」再受重力下落，横向散开 */
                 const jump = 7 + Math.random() * 9;
+                /* 出生点在格内抖动（±0.18 格）：避免同格全部颗粒从同一像素喷出，
+                 * 与小程序 addClearBurst 的格内随机出生点对齐，进一步消除「同点堆叠成团」。 */
+                const jx = (Math.random() - 0.5) * this.cellSize * 0.36;
+                const jy = (Math.random() - 0.5) * this.cellSize * 0.36;
                 this.particles.push({
-                    x: cx,
-                    y: cy,
+                    x: cx + jx,
+                    y: cy + jy,
                     vx: Math.cos(ang) * sp * 1.55 + (Math.random() - 0.5) * 5,
                     vy: Math.sin(ang) * sp * 0.95 - jump,
                     color,
@@ -2536,8 +2582,12 @@ export class Renderer {
                 rad = p.size * ga.scale;
                 alpha = Math.min(1, p.life * 1.05) * ga.alphaMul;
             } else {
-                rad = p.size * p.life;
-                alpha = p.life;
+                // baseLife 取值（1.18~1.65）大于 1：若直接 size×life，粒子出生瞬间会被放大到
+                // 118%~165% 且 alpha 截断为全不透明，叠在同一格心 → 头几帧「糊成一团」。
+                // 钳制到 ≤1：出生即标准尺寸、随寿命收缩淡出，与 bonus 粒子的 grow 包络观感一致。
+                const k = Math.min(1, p.life);
+                rad = p.size * k;
+                alpha = k;
             }
             ec.globalAlpha = alpha;
             ec.fillStyle = p.color;

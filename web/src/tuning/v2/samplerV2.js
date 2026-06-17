@@ -34,6 +34,50 @@ import { predictShapesV3 } from '../../spawnModel.js';
 // v2.10.36: rl-bot — 调 PyTorch RL 服务选 action (HTTP, 失败 fallback clear-greedy)
 import { buildDecisionBatch } from '../../bot/features.js';
 import { selectActionRemote } from '../../bot/pytorchBackend.js';
+// v3.2 严格 no-peek: θ 白名单 (与 Python feature_io.THETA_KEYS 同源), modelConfig 只收这些 key。
+//   用 DEFAULT_THETA_V2 的 key 集 (= 36 维 θ 全集) 做白名单单一真源。
+import { DEFAULT_THETA_V2 } from './clientPolicyV2.js';
+
+const THETA_KEY_SET = new Set(Object.keys(DEFAULT_THETA_V2));
+
+// v3.2: RL bot 默认采样温度 (与 spawn θ 无关; 仅控制 action 采样的探索强度)。
+const RL_BOT_DEFAULT_TEMPERATURE = 0.8;
+
+// v3.2 高 r 定向采样: pb_bin 从低到高 (与 feature_io.PB_BIN_INDEX 同序)。
+//   高 pb 档 bot 难触达 r=score/pb≈1, 高 r bin 样本稀疏; 给高 pb ctx 多跑几个 seed
+//   以补齐"接近/突破 PB"段的观测, 这正是业务命题最关心的难度段。
+const PB_BIN_ORDER = [500, 1500, 4000, 10000, 25000];
+
+/**
+ * 按 pb_bin 给"高 r 稀疏"的 ctx 分配更多 seed。
+ *   highRBoost=0 → 恒等 (= baseSeeds, 完全向后兼容);
+ *   highRBoost=b → seeds = round(baseSeeds × (1 + b × rank)), rank ∈ [0,1] 随 pb 升高。
+ * 纯函数, 便于单测。
+ */
+function highRSeedCount(baseSeeds, pbBin, highRBoost = 0) {
+    const base = Math.max(1, Math.round(Number(baseSeeds) || 1));
+    const boost = Math.max(0, Number(highRBoost) || 0);
+    if (boost === 0) return base;
+    const i = PB_BIN_ORDER.indexOf(Number(pbBin));
+    const rank = i < 0 ? 0 : i / (PB_BIN_ORDER.length - 1);
+    return Math.max(base, Math.round(base * (1 + boost * rank)));
+}
+
+/**
+ * v3.2 严格 no-peek 白名单: θ → simulator.modelConfig。
+ *   只放行 THETA_KEYS_ORDER 中的真实 spawn θ; 任何非白名单字段 (历史 bot flag /
+ *   伪装的"未来块"等) 一律丢弃, 从源头杜绝非 θ 信息泄漏进出块管线。
+ *   纯函数, 便于单测 (samplerV2.test.js no-peek 守卫)。
+ */
+function buildSpawnModelConfig(theta) {
+    const modelConfig = {};
+    for (const [k, v] of Object.entries(theta || {})) {
+        if (!THETA_KEY_SET.has(k)) continue;
+        const n = Number(v);
+        if (Number.isFinite(n)) modelConfig[k] = (k === 'surpriseCooldown') ? Math.round(n) : n;
+    }
+    return modelConfig;
+}
 
 // v3.0.8: generator 与 game.js getSpawnPolicyMode() 严格 1:1 (无 alias / 无历史枚举)
 //   'rule'       — 启发式: sampler 内部 simulator.spawnGenerator='budget-p2' (game.js rule 模式 default)
@@ -43,6 +87,48 @@ import { selectActionRemote } from '../../bot/pytorchBackend.js';
 //                  与 game.js _spawnBlocksWithModel 同一接口.
 export const VALID_GENERATORS_SAMPLER = ['rule', 'generative'];
 
+// ─────────── v3.2 lifecycle-in-sim: 让 context.lifecycle_stage 真正驱动模拟 ───────────
+//
+// 背景: 此前 lifecycle_stage 只被原样写进样本 (一个"死标签"), 对模拟轨迹零影响 →
+//   model 无从学到 lifecycle-conditioned θ, 部署表里 4 个 lifecycle 档拿到的曲线几乎同质。
+//
+// 修复: 把 4 个训练态 lifecycle stage 映射到 PlayerProfile 的"三大裸字段"
+//   (_daysSinceInstall / _totalSessions / _daysSinceLastActive)。adaptiveSpawn 的
+//   computeStress 读这三字段 → getLifecycleMaturitySnapshot 派生 S0..S4 stage + M-band
+//   → 查 lifecycleStressCapMap (S0/S4 强保护低 cap、S2/S3 高 cap) → 不同 lifecycle 拿到
+//   不同 stress cap/adjust → 出块决策分化 → d/e/f 曲线随 lifecycle 真实分层。
+//
+// 非循环性: lifecycle 是"开局前已知的玩家画像", 不是局内 outcome, 作为 context 注入无泄漏。
+//   (对比: pressurePhase/spawnIntent 是局内涌现量, 作为 model 输入会造成 outcome leakage,
+//    故 context-dims 维持取消; 其经验语义已被 Phase 2 的 E/F 多曲线以 20-bin 形式覆盖。)
+//
+// 映射依据见 retention/playerLifecycleDashboard.js 的 LIFECYCLE_THRESHOLDS 与
+//   lifecycle/lifecycleStressCapMap.js 的 S0..S4 cap 表。
+const LIFECYCLE_SIM_PROFILE = Object.freeze({
+    onboarding: { daysSinceInstall: 1, totalSessions: 3, daysSinceLastActive: 0 },     // → S0 新入场 (强保护)
+    growth: { daysSinceInstall: 20, totalSessions: 120, daysSinceLastActive: 0 },      // → S2 成长 (PB 主战场)
+    mature: { daysSinceInstall: 60, totalSessions: 350, daysSinceLastActive: 0 },      // → S3 稳定 (高 cap)
+    plateau: { daysSinceInstall: 120, totalSessions: 600, daysSinceLastActive: 10 },   // → S4 回流/veteran
+});
+
+/**
+ * v3.2: 把 context.lifecycle_stage 注入 simulator 的 PlayerProfile, 使其真实驱动出块。
+ *   直接写"三大裸字段" (adaptiveSpawn 优先读 profile?._daysSinceInstall ?? ...), 不触碰
+ *   _installTs 等派生源, 保证 snapshot stage 完全由本映射决定。未知 stage → 回退 onboarding。
+ *   纯函数 (原地 mutate + return), 便于单测。
+ * @param {object} profile  OpenBlockSimulator.playerProfile
+ * @param {string} lifecycleStage  'onboarding' | 'growth' | 'mature' | 'plateau'
+ * @returns {object} 同一 profile (便于链式)
+ */
+export function applyLifecycleStageToProfile(profile, lifecycleStage) {
+    if (!profile) return profile;
+    const cfg = LIFECYCLE_SIM_PROFILE[lifecycleStage] || LIFECYCLE_SIM_PROFILE.onboarding;
+    profile._daysSinceInstall = cfg.daysSinceInstall;
+    profile._totalSessions = cfg.totalSessions;
+    profile._daysSinceLastActive = cfg.daysSinceLastActive;
+    return profile;
+}
+
 // ─────────── 单步难度信号常量 (与 Python extractor.py 一致) ───────────
 
 const FILL_RATE_WEIGHT = 0.30;
@@ -51,6 +137,31 @@ const TREND_WEIGHT = 0.20;
 const SURPRISE_DAMPING = 0.50;
 const SURPRISE_MIN_CLEARS = 3;
 const TREND_WINDOW = 5;
+
+// ─── v3.2 多曲线: 单步爽感 e_step / 挫败 f_step (与 Python extractor.py 严格一致) ───
+const DELIGHT_PER_CLEAR = 0.45;
+const FRUSTRATION_STUCK_WEIGHT = 0.60;
+const FRUSTRATION_CROWD_WEIGHT = 0.40;
+const FRUSTRATION_CROWD_FILL_FLOOR = 0.70;
+const FRUSTRATION_RELIEF_WEIGHT = 0.50;
+
+/** 单步爽感 ∈ [0,1] — clears 驱动 (跨语言: extractor.delight_step)。 */
+function _stepDelight(step) {
+    if (step.noMove) return 0.0;
+    return Math.max(0, Math.min(1, DELIGHT_PER_CLEAR * (step.clears || 0)));
+}
+
+/** 单步挫败 ∈ [0,1] — 卡顿+拥挤-清行救济 (跨语言: extractor.frustration_step)。 */
+function _stepFrustration(step) {
+    if (step.noMove) return 1.0;
+    const stuck = 1.0 - Math.max(0, Math.min(1, step.actionFreedom));
+    const crowd = Math.max(0, Math.min(1, (step.fillRate - FRUSTRATION_CROWD_FILL_FLOOR) / 0.30));
+    const relief = (step.clears || 0) > 0 ? 1.0 : 0.0;
+    const f = FRUSTRATION_STUCK_WEIGHT * stuck
+        + FRUSTRATION_CROWD_WEIGHT * crowd
+        - FRUSTRATION_RELIEF_WEIGHT * relief;
+    return Math.max(0, Math.min(1, f));
+}
 
 // 用于估算 action_freedom 上限的 grid 总位置数 (8×8 板)
 const GRID_TOTAL_CELLS = 64;
@@ -145,6 +256,9 @@ function _extractDCurveFromSteps(
         ? theta.pbTensionWidth : PB_AWARE_TENSION_WIDTH_DEFAULT;
     const binSums = new Array(nBins).fill(0);
     const binCounts = new Array(nBins).fill(0);
+    // v3.2 多曲线: 爽感 / 挫败 共用 binning + binCounts
+    const eBinSums = new Array(nBins).fill(0);
+    const fBinSums = new Array(nBins).fill(0);
     const recentFills = [];
     let totalClears = 0, noMoveStep = -1, surpriseCount = 0, finalScore = 0;
 
@@ -155,6 +269,9 @@ function _extractDCurveFromSteps(
         const d = _stepDifficulty(st, recentFills, r, thetaCenter, thetaWidth);
         binSums[bidx] += d;
         binCounts[bidx] += 1;
+        // v3.2 多曲线: 同步累积爽感 / 挫败
+        eBinSums[bidx] += _stepDelight(st);
+        fBinSums[bidx] += _stepFrustration(st);
         recentFills.push(st.fillRate);
         if (recentFills.length > TREND_WINDOW) recentFills.shift();
         totalClears += st.clears || 0;
@@ -167,20 +284,31 @@ function _extractDCurveFromSteps(
     //   注意: bin_counts[i] = 0 时, 训练 L_shape confidence-weighted 会 mask 该 bin
     //         所以填什么不影响训练, 仅用于 chart 显示连续性
     const dCurve = new Array(nBins).fill(0);
+    const eCurve = new Array(nBins).fill(0);
+    const fCurve = new Array(nBins).fill(0);
     let nFilled = 0;
     let lastValue = 0.5;   // 兜底初值
+    let lastE = 0.0, lastF = 0.0;
     for (let i = 0; i < nBins; i++) {
         if (binCounts[i] >= PB_AWARE_MIN_OBS) {
             dCurve[i] = binSums[i] / binCounts[i];
             lastValue = dCurve[i];
+            eCurve[i] = eBinSums[i] / binCounts[i];
+            fCurve[i] = fBinSums[i] / binCounts[i];
+            lastE = eCurve[i];
+            lastF = fCurve[i];
             nFilled++;
         } else {
             dCurve[i] = lastValue;
+            eCurve[i] = lastE;
+            fCurve[i] = lastF;
         }
     }
 
     return {
         d_curve: dCurve,
+        e_curve: eCurve,
+        f_curve: fCurve,
         final_score: finalScore,
         survived_steps: steps.length,
         clear_rate: steps.length > 0 ? totalClears / steps.length : 0,
@@ -427,7 +555,10 @@ function _createRng(seed) {
  *           其他模式仍同步执行 (Promise.resolve 包装), 性能跟原同步版一致.
  */
 export async function runOneSampleV2(args) {
-    const { context, theta, seed, maxSteps = 500 } = args;
+    // v3.2 严格 no-peek: bot 行为只由 botConfig + 当前局面决定, 与 spawn θ 完全解耦。
+    //   botConfig 是与 θ 物理隔离的独立对象 (采集脚本/面板显式传入), bot 决策代码
+    //   绝不读取 args.theta 任何字段, 从结构上杜绝 "RL/启发式 bot 偷看出块策略参数"。
+    const { context, theta, seed, maxSteps = 500, botConfig = {} } = args;
     if (!context || typeof context !== 'object') {
         throw new Error('context required');
     }
@@ -470,12 +601,9 @@ export async function runOneSampleV2(args) {
     const simSpawnGenerator = 'baseline';
     // 把 θ 全部 27 维透传给 simulator → simulator 注入 ctx.modelConfig → 各 derive*/augmentPool 消费.
     // 跟 game.js 通过 resolveThetaV2 → derivePbCurve / generateDockShapes 完全等价.
-    const modelConfig = {};
-    for (const [k, v] of Object.entries(theta || {})) {
-        if (k === 'use_mcts_bot' || k === 'use_lookahead2_bot') continue;   // 非 θ, sampler 内部用
-        const n = Number(v);
-        if (Number.isFinite(n)) modelConfig[k] = (k === 'surpriseCooldown') ? Math.round(n) : n;
-    }
+    // v3.2: modelConfig 只接收真实 spawn θ (THETA_KEYS_ORDER 白名单), 任何非 θ 字段一律
+    //   不进 modelConfig — bot 控制项现在走独立 botConfig, 不会再混进 θ 对象。
+    const modelConfig = buildSpawnModelConfig(theta);
     let sim;
     try {
         sim = new OpenBlockSimulator(context.difficulty, {
@@ -487,6 +615,9 @@ export async function runOneSampleV2(args) {
     } catch (e) {
         throw new Error(`OpenBlockSimulator init failed: ${e?.message || e}`);
     }
+    // v3.2 lifecycle-in-sim: 注入 lifecycle_stage → profile, 让 adaptiveSpawn 的 lifecycle
+    //   stress cap 真实生效 (此前 lifecycle 是死标签, 对轨迹零影响)。
+    applyLifecycleStageToProfile(sim.playerProfile, context.lifecycle_stage);
     const rng = _createRng(seed);
     const steps = [];
     // v2.10.35: generative 模式 — 跟踪 sim.placements, dock 重新生成时 await V3 替换
@@ -495,7 +626,7 @@ export async function runOneSampleV2(args) {
 
     // v3.0.5: MCTS / lookahead2 单 step 极贵 (MCTS ≈ 9000 sim.step / action),
     //         必须每 step 都 yield, 否则单 sample 长达分钟级 → "页面无响应"
-    const useHeavyBot = !!(theta?.use_mcts_bot || theta?.use_lookahead2_bot);
+    const useHeavyBot = !!(botConfig.useMcts || botConfig.useLookahead2);
     const STEP_YIELD_EVERY = useHeavyBot ? 1 : 100;
     for (let stepIdx = 0; stepIdx < maxSteps; stepIdx++) {
         if (stepIdx > 0 && stepIdx % STEP_YIELD_EVERY === 0) {
@@ -545,7 +676,7 @@ export async function runOneSampleV2(args) {
             try {
                 const { legal, stateFeat, phiList } = buildDecisionBatch(sim);
                 if (legal.length > 0) {
-                    const temperature = Number(theta?.rl_temperature) || 0.8;
+                    const temperature = Number(botConfig.rlTemperature) || RL_BOT_DEFAULT_TEMPERATURE;
                     const idx = await selectActionRemote(phiList, stateFeat, temperature);
                     if (Number.isInteger(idx) && idx >= 0 && idx < legal.length) {
                         action = legal[idx];
@@ -562,11 +693,11 @@ export async function runOneSampleV2(args) {
             }
         } else {
             action = await _selectAction(sim, context.bot_policy, rng, {
-                lookahead: !!theta?.use_lookahead_bot,
-                lookahead2: !!theta?.use_lookahead2_bot,
-                mcts: !!theta?.use_mcts_bot,
-                mctsRollouts: theta?.mcts_rollouts || 30,
-                mctsRolloutSteps: theta?.mcts_rollout_steps || 30,
+                lookahead: !!botConfig.useLookahead,
+                lookahead2: !!botConfig.useLookahead2,
+                mcts: !!botConfig.useMcts,
+                mctsRollouts: botConfig.mctsRollouts || 30,
+                mctsRolloutSteps: botConfig.mctsRolloutSteps || 30,
             });
         }
         if (!action) {
@@ -612,6 +743,9 @@ export async function runOneSampleV2(args) {
         theta_json: JSON.stringify(theta),
         // labels
         d_curve_json: JSON.stringify(labels.d_curve),
+        // v3.2 多曲线: 爽感 / 挫败 (server 端写入 e_curve_json / f_curve_json 列)
+        e_curve_json: JSON.stringify(labels.e_curve),
+        f_curve_json: JSON.stringify(labels.f_curve),
         final_score: labels.final_score,
         survived_steps: labels.survived_steps,
         clear_rate: labels.clear_rate,
@@ -653,6 +787,10 @@ export async function collectSamplesV2(args) {
         apiBaseUrl = '', batchSize = 20, onProgress,
         // v3.0.6 (G2): nThetas 当 thetas 是 function 时由调用方指定每 ctx 抽几个 θ
         nThetas,
+        // v3.2 严格 no-peek: bot 控制项独立于 θ, 统一从这里透传给 runOneSampleV2。
+        botConfig = {},
+        // v3.2 高 r 定向采样: >0 时高 pb_bin ctx 按 rank 放大 seed 数 (补齐高 r 稀疏段)。
+        highRBoost = 0,
     } = args;
     if (!setId) throw new Error('setId required');
     if (!Array.isArray(contexts) || contexts.length === 0) throw new Error('contexts required');
@@ -669,7 +807,9 @@ export async function collectSamplesV2(args) {
 
     const baseUrl = (apiBaseUrl || '').replace(/\/+$/, '');
     const thetasPerCtx = isThetasFn ? nThetas : thetas.length;
-    const total = contexts.length * thetasPerCtx * seedsPerTheta;
+    // v3.2 高 r 定向: 每 ctx 的 seed 数可随 pb_bin 放大, total 按各 ctx 求和。
+    const seedsForCtx = (ctx) => highRSeedCount(seedsPerTheta, ctx?.pb_bin, highRBoost);
+    const total = contexts.reduce((acc, ctx) => acc + thetasPerCtx * seedsForCtx(ctx), 0);
     let generated = 0;   // 本地生成成功 (待 flush)
     let written = 0;     // 已写入 DB
     let failed = 0;
@@ -755,22 +895,24 @@ export async function collectSamplesV2(args) {
     };
 
     for (const ctx of contexts) {
+        // v3.2 高 r 定向: 本 ctx 实际 seed 数 (高 pb 档放大, 默认 = seedsPerTheta)
+        const ctxSeeds = seedsForCtx(ctx);
         // v3.0.6 (G2): per-ctx 生成 thetas, 用于 bundle / bundle-perturb 等闭环策略
         const ctxThetas = isThetasFn ? thetas(ctx) : thetas;
         if (!Array.isArray(ctxThetas) || ctxThetas.length === 0) {
-            failed += thetasPerCtx * seedsPerTheta;
+            failed += thetasPerCtx * ctxSeeds;
             firstError = firstError || `thetas factory returned empty for ctx ${ctx.context_key || JSON.stringify(ctx)}`;
             continue;
         }
         for (const theta of ctxThetas) {
-            for (let s = 0; s < seedsPerTheta; s++) {
+            for (let s = 0; s < ctxSeeds; s++) {
                 const seed = (Date.now() & 0xFFFF_FFFF) ^ (generated * 7919);
                 inFlightIdx = generated + failed + 1;
                 inFlightStartedAt = performance.now();
                 _maybeReportProgress(true);   // 单 sample 开始即报心跳
                 try {
                     const t0 = performance.now();
-                    const sample = await runOneSampleV2({ context: ctx, theta, seed, maxSteps });
+                    const sample = await runOneSampleV2({ context: ctx, theta, seed, maxSteps, botConfig });
                     sample.eval_ms = Math.round(performance.now() - t0);
                     batch.push(sample);
                     generated++;
@@ -803,6 +945,11 @@ export async function collectSamplesV2(args) {
 // 测试导出 (内部函数)
 export const _internal = {
     stepDifficulty: _stepDifficulty,
+    stepDelight: _stepDelight,
+    stepFrustration: _stepFrustration,
     extractDCurveFromSteps: _extractDCurveFromSteps,
     createRng: _createRng,
+    buildSpawnModelConfig,
+    highRSeedCount,
+    applyLifecycleStageToProfile,
 };

@@ -82,6 +82,7 @@ export const CLASSIC_PALETTE = [
  *   blockIconAssets?: string[],
  *   blockIconInset?: number,
  *   blockIconEnhance?: { brightness?: number, contrast?: number, saturate?: number },
+ *   blockEdgeFade?: number,   // 方块贴图边缘羽化比例（0~0.3），边缘半透明晕染入底色（中国风淡雅）
  *   blockBevel?: { topLift?: number, botDark?: number, botShadeAlpha?: number, innerStroke?: string, outerStroke?: string, assetOverlay?: boolean, overlayTop?: number, overlayBottom?: number },
  *   boardTexture?: { type?: 'xuanPaper', opacity?: number, intensity?: number, seed?: number },
  *   boardWatermark?: BoardWatermark,
@@ -1493,53 +1494,78 @@ export const SKINS = {
     },
 
     /** 水墨雅集：四君子与文房 —— 宣纸底色、淡彩水墨与方块插画 */
+    /**
+     * 水墨雅集（v1.73「乌丝栏」深色重制）：玄色绢本 + 朱印泛光，雅致而非苍白。
+     *
+     * v1.72（浅宣纸底）反馈：浅色背景与彩色 PNG 子图低对比"糊成一团"、视觉不友好。
+     * v1.73 改用"乌丝栏"古纸黑底（古时确有"乌丝栏"墨纸做帖本），让水墨国画作为光源
+     * 浮现在玄色绢面上 —— 与 mineralCave / titanium 一致的深色雅趣，但保留宋瓷暖调。
+     *
+     * 方块外观参考 mineralCave / aurora：
+     *   - blockRadius 6（圆角，原 0 直角太"硬"，方块拼接像砖墙）
+     *   - blockInset 3（PNG 周围多一圈"装裱留白"，模拟册页装裱的天头地脚）
+     *   - blockStyle 'cartoon' + 暖白内描边 → 每块方块像一帧"小品扇页"
+     *
+     * 色板（深底高明度策略）：8 色统一明度 L*≈70（深底下需提亮 5~10 才"亮得起来"），
+     * 沿"青-绿-黄-赭-粉"浅绛轴线，但饱和度抬到 32~40%（深底吸光，需要更高纯度才"显色"）。
+     */
     inkGarden: {
         id: 'inkGarden',
         name: '🖌️ 水墨雅集',
         boardWatermark: {
-            icons: ['🪭', '📜'],
-            opacity: 0.11,
-            scale: 0.26,
-            hdIcons: ['⛰️', '🎑', '🍶', '🌫️', '🏞️'],
+            icons: ['🪭', '📜', '🪷', '🍃', '🎑'],
+            // 水墨主题讲究留白：水印极克制，盘面以方块为主、意象为辅。
+            opacity: 0.045,
+            scale: 0.22,
+            // 山水气象系单色意象（雾/山/风/气/旋），低饱和"烟岚气象"与宣纸调性一致。
+            hdIcons: ['🌫️', '⛰️', '🌬️', '💨', '🌪'],
         },
-        boardTexture: { type: 'xuanPaper', opacity: 0.34, intensity: 0.55 },
+        boardTexture: { type: 'xuanPaper', opacity: 0.07, intensity: 0.16 },  // 宣纸纤维纹理：极淡纸感，清新不抢
         blockIcons: ['💮', '🪻', '🎍', '💐', '🫧', '🪨', '🌰', '🖋️'],
         blockIconAssets: ['/assets/skins/inkGarden/block-0.png', '/assets/skins/inkGarden/block-1.png', '/assets/skins/inkGarden/block-2.png', '/assets/skins/inkGarden/block-3.png', '/assets/skins/inkGarden/block-4.png', '/assets/skins/inkGarden/block-5.png', '/assets/skins/inkGarden/block-6.png', '/assets/skins/inkGarden/block-7.png'],
-        blockIconInset: 0.03,
-        blockIconEnhance: { brightness: 1.10, contrast: 1.06, saturate: 1.18 },
+        // 装裱色框宽度（PNG 内缩比例）：收窄到 0.025，仅留一条发丝级细色框（渲染端有 1px 下限兜底）。
+        blockIconInset: 0.025,
+        // 边缘羽化关闭（=0）：原 0.14 会把 PNG 四边 14% 擦成半透明、露出底色，形成「过宽的彩色柔光晕框」，
+        // 观感偏复杂且与 cocos（Sprite 无羽化）不一致；改为不羽化 → 卡片边缘干净利落，仅靠 blockIconInset
+        // 留一圈细色框「装裱」，与 cocos 端一致。
+        blockEdgeFade: 0,
+        // 浅底无需提亮；微降饱和让彩墨更淡雅、更贴近水墨气质（不改图片本身）。
+        blockIconEnhance: { brightness: 1.0, contrast: 1.03, saturate: 0.88 },
         blockBevel: {
-            topLift: 0.07,
-            botDark: 0.038,
-            botShadeAlpha: 0.045,
-            innerStroke: 'rgba(255,255,255,0.42)',
-            outerStroke: 'rgba(82,68,52,0.26)',
-            assetOverlay: true,
-            overlayTop: 0.08,
-            overlayBottom: 0.04,
+            topLift: 0.04,
+            botDark: 0.03,
+            botShadeAlpha: 0.035,
+            innerStroke: 'rgba(255,253,247,0.40)',  // 宣纸高光（减弱，去浮凸）
+            outerStroke: 'rgba(120,100,72,0.12)',   // 淡墨褐描边（更轻，清新）
+            assetOverlay: false,
+            overlayTop: 0,
+            overlayBottom: 0,
         },
-        // 与子图边缘同色相、提亮至对比度上限，满铺 PNG 时作加载占位
-        blockColors: ['#9DAECE', '#B5A7CB', '#AAB091', '#C2AA88', '#9EB0B2', '#C5A5AB', '#9FAFBA', '#BAAC8B'],
-        gridOuter: '#E8E0D4',
-        gridCell: '#F5EFE6',
-        gridLine: 'rgba(110, 98, 86, 0.06)',
-        gridGap: 1,
-        blockInset: 2,
-        blockRadius: 0,
+        // 浅底低饱和占位色（多被不透明 PNG 覆盖，仅加载瞬态/空态可见）：石青/紫藤/汁绿/藤黄/月白/胭脂/花青/赭石
+        blockColors: ['#7E9AAE', '#9C8FB0', '#8BA67D', '#C9A765', '#9FB4AE', '#BC8B90', '#7F9DAE', '#B49A70'],
+        // 「月白·天青」清新淡雅：冷调青瓷纸底，与方块自带的冷青/淡蓝底色相和谐（青底配朱印=经典中式）。
+        // 盘面一整片平面（gridGap=0 取消每格凹陷边），仅留极淡发丝栏线，无立体浮凸。
+        gridOuter: '#E7EDEA',     // 月白微青（与盘面同调，无装裱外框）
+        gridCell: '#F0F4F2',      // 更亮内格（仅亮一丝，近乎平面）
+        gridLine: 'rgba(60, 88, 80, 0.06)',  // 极淡青墨发丝栏线
+        gridGap: 0,           // 关键：取消格间嵌边，消除"凹陷瓷砖"立体感
+        blockInset: 3,        // 方块自身留白（块间透气，清爽）
+        blockRadius: 5,       // 温润圆角
         blockStyle: 'cartoon',
-        clearFlash: 'rgba(180, 200, 185, 0.55)',
-        cssBg: '#E8E0D4',
-        uiDark: false,
+        clearFlash: 'rgba(150, 180, 165, 0.45)',  // 青瓷淡绿光晕（浅底降亮度避免刺眼）
+        cssBg: '#E7EDEA',     // 月白天青底（清新通透）
+        uiDark: false,        // 浅色 UI（与宣纸盘面一致）
         cssVars: {
-            '--text-primary':     '#2A2420',
-            '--text-secondary':   '#5C544C',
-            '--accent-color':     '#8E4A4A',
-            '--accent-dark':      '#4A5858',
-            '--shadow':           'rgba(42, 36, 32, 0.12)',
-            '--h1-color':         '#5A4848',
-            '--stat-surface':     'rgba(250, 246, 238, 0.94)',
-            '--stat-label-color': '#6E645C',
-            '--select-bg':        '#F3EBE0',
-            '--select-border':    'rgba(90, 80, 72, 0.22)'
+            '--text-primary':     '#283330',         // 墨青主文字
+            '--text-secondary':   '#5E6E68',
+            '--accent-color':     '#B5453A',         // 朱砂（印章红，青底配朱印=最中式的点睛）
+            '--accent-dark':      '#46685E',         // 黛青/竹青
+            '--shadow':           'rgba(48, 72, 64, 0.12)',
+            '--h1-color':         '#8A3A2E',         // 深朱（标题）
+            '--stat-surface':     'rgba(240, 246, 243, 0.94)',
+            '--stat-label-color': '#6B7A74',
+            '--select-bg':        '#EBF1EE',
+            '--select-border':    'rgba(60, 88, 80, 0.20)'
         }
     },
 

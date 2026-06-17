@@ -800,14 +800,20 @@ function countOccupiedCells(grid) {
 function bestMultiClearPotential(grid, shapeData) {
     const n = grid.size;
     let best = 0;
+    const fast = typeof grid.countClearLines === 'function';
     for (let y = 0; y < n; y++) {
         for (let x = 0; x < n; x++) {
             if (!grid.canPlace(shapeData, x, y)) continue;
-            const preview = grid.previewClearOutcome(shapeData, x, y, 0);
-            if (preview) {
-                const lines = preview.rows.length + preview.cols.length;
-                if (lines > best) best = lines;
+            /* 性能：只需消行条数 → 走轻量 countClearLines（无整盘 temp 分配）；
+             * 退化兜底仍走 previewClearOutcome，结果完全等价。 */
+            let lines;
+            if (fast) {
+                lines = grid.countClearLines(shapeData, x, y);
+            } else {
+                const preview = grid.previewClearOutcome(shapeData, x, y, 0);
+                lines = preview ? preview.rows.length + preview.cols.length : 0;
             }
+            if (lines > best) best = lines;
         }
     }
     return best;
@@ -1595,8 +1601,15 @@ function _tryInjectSpecial(triplet, chosenMeta, hints, ctx, grid, fill, topo, pc
     /* v1.60.6：解析覆写（默认 SPECIAL_RELIEF/PRESSURE_SHAPES + SPECIAL_SHAPE_WEIGHTS） */
     const pools = _resolveSpecialPools(ctx);
     const totalClears = ctx.totalClears ?? 0;
-    const reliefSubLimit = Math.max(Math.floor(totalClears * pools.reliefLimitFactor), 2);
-    const pressureSubLimit = Math.max(Math.floor(totalClears * pools.pressureLimitFactor), 2);
+    /* θ-I (v3.2 节奏/special 组)：缩放 relief / pressure special 块的注入配额。
+     *   specialReliefQuotaGain  >1 → 更多救济 special（送爽，抬 E 压 F）；<1 更克制。
+     *   specialPressureQuotaGain >1 → 更多压力 special（抬 F）；<1 更克制。
+     *   gain=1 完全等价历史行为。与 E(爽感)/F(挫败) 体验曲线直接挂钩，供寻参联合塑形。 */
+    const _mcSpecial = ctx.modelConfig || {};
+    const _reliefQuotaGain = Number.isFinite(_mcSpecial.specialReliefQuotaGain) ? _mcSpecial.specialReliefQuotaGain : 1.0;
+    const _pressureQuotaGain = Number.isFinite(_mcSpecial.specialPressureQuotaGain) ? _mcSpecial.specialPressureQuotaGain : 1.0;
+    const reliefSubLimit = Math.max(Math.floor(totalClears * pools.reliefLimitFactor * _reliefQuotaGain), 2);
+    const pressureSubLimit = Math.max(Math.floor(totalClears * pools.pressureLimitFactor * _pressureQuotaGain), 2);
 
     const subUsed = isRelief
         ? (ctx.specialReliefUsed ?? 0)
@@ -2408,8 +2421,12 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
      * v1.60.34：用户反馈"同花概率降低 2/3"，所有参数除以 3——cap 0.30→0.10，斜率 0.05→0.017。 */
     const monoFlushNearLines = monoFlushLines.filter(l => l.empty <= 2).length;
     const monoFlushBuildupLines = monoFlushLines.filter(l => l.empty >= 3 && l.empty <= 5).length;
-    /* v1.60.45：cap 改为按平台分发的 MONO_FLUSH_PROB_CAP（iOS 0.10 / Android 0.15）。 */
-    const adaptiveMonoFlushProbability = Math.min(MONO_FLUSH_PROB_CAP, Math.max(
+    /* v1.60.45：cap 改为按平台分发的 MONO_FLUSH_PROB_CAP（iOS 0.10 / Android 0.15）。
+     * θ-I (v3.2)：monoFlushCapGain 缩放同花顺彩蛋触发概率上限 (>1 更多视觉爽感 → 抬 E)。
+     *   gain=1 等价历史; clamp 到 [0, 0.5] 防失控。 */
+    const _monoCapGain = Number.isFinite(_mc.monoFlushCapGain) ? _mc.monoFlushCapGain : 1.0;
+    const _monoCap = Math.max(0, Math.min(0.5, MONO_FLUSH_PROB_CAP * _monoCapGain));
+    const adaptiveMonoFlushProbability = Math.min(_monoCap, Math.max(
         MONO_FLUSH_PICK_PROBABILITY,
         MONO_FLUSH_PICK_PROBABILITY + monoFlushNearLines * 0.017 + monoFlushBuildupLines * 0.007
     ));
@@ -2730,8 +2747,11 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
          * 让"很久没爽感 + 已经很挤"的玩家更容易被命中拥挤多消。原 0.55 静态阈值在
          * fill≈0.7 但 contiguousRegions/voids 适中的"整齐高填"盘面常错过触发。
          * starvedBoost：delightStarved=true → -0.10；delightBoost ≥ 0.6 → -0.05（累加）。 */
-        const _crowdMinBase = Number.isFinite(_consCfg.crowdedMultiClearMinCrowding)
-            ? _consCfg.crowdedMultiClearMinCrowding : 0.55;
+        /* θ-G: crowdedMultiClearThresholdGain (modelConfig 优先) — 缩放拥挤多消触发阈值。
+         * gain=1 等价历史；>1 抬高阈值（更难触发主动多消，整体更克制）；<1 更易送多消。 */
+        const _crowdThreshGain = Number.isFinite(_mc.crowdedMultiClearThresholdGain) ? _mc.crowdedMultiClearThresholdGain : 1.0;
+        const _crowdMinBase = (Number.isFinite(_consCfg.crowdedMultiClearMinCrowding)
+            ? _consCfg.crowdedMultiClearMinCrowding : 0.55) * _crowdThreshGain;
         /* v1.70.2 starvedFlag：blockSpawn 内 profile 是 layered._xxx 重建的本地对象（无方法），
          * 必须从 adaptiveSpawn 透出的 strategyConfig._delightStarved 读取（adaptiveSpawn 已在
          * spawn 入口 profile.isDelightStarved() 求值并写入）。兼容性：缺字段或非 spawn 入口
@@ -2880,11 +2900,15 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             /* v1.70.2 高压补全也用 C1 兜底，但用更低概率 pCompleterHigh（默认 0.15）。
              * scored 池里找不到补全 id 时，从全词表 allShapes 再扫一次并把命中形状注入 scored。
              * v1.70.3：base 概率 + retryBoost 续约加成（已 clamp 到 0.95）。 */
-            const _pCompBase = pressurePhase === 'low'
+            const _pCompRaw = pressurePhase === 'low'
                 ? (Number.isFinite(_consCfg.pCompleterLow) ? _consCfg.pCompleterLow : 0.7)
                 : pressurePhase === 'mid'
                     ? (Number.isFinite(_consCfg.pCompleterMid) ? _consCfg.pCompleterMid : 0.35)
                     : (Number.isFinite(_consCfg.pCompleterHigh) ? _consCfg.pCompleterHigh : 0.15);
+            /* θ-G: constructiveCompleterGain (modelConfig 优先) — 缩放构造式补全块注入概率。
+             * gain=1 等价历史；>1 更多补全（送爽/救济更强）；<1 更克制。clamp 到 [0,0.95]。 */
+            const _compGain = Number.isFinite(_mc.constructiveCompleterGain) ? _mc.constructiveCompleterGain : 1.0;
+            const _pCompBase = Math.max(0, Math.min(0.95, _pCompRaw * _compGain));
             const _pComp = Math.min(0.95, _pCompBase + _retryBoost);
 
             /* 全词表回退：当 scored 池 catalog 找不到补全块且本相位允许，扫全词表。
@@ -3023,6 +3047,18 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
      * **v1.60.31 修复**：avail 在所有分支前统一硬过滤——若 chosenMeta 已含 monoFlush，
      * 剔除所有 monoFlush 候选。所有分支共享同一 avail，无论走哪条路径都不会再选第 2 个。 */
     const MAX_MONO_FLUSH_PER_DOCK = 1;
+
+    /* 性能：同一次出块内 grid 只读不变，故 triplet 可解性 / 解空间评估对相同三连（与 budget/leafCap
+     * 相同）是纯函数。高 fill 时可放形状少 → 三连空间小 → 22 轮拒绝采样里同一三连被反复重算。
+     * 用按"形状 id 多集 + 参数"的 per-call memo 缓存这两处最重的 DFS，结果完全等价。
+     * key 用排序后的 id（两函数内部都枚举 6 种排列，与顺序无关 → 多集即可定相同 datas）。 */
+    const _solvMemo = new Map();
+    const _solnMemo = new Map();
+    const _tripletSig = (tri) => {
+        const ids = [tri[0].id, tri[1].id, tri[2].id];
+        ids.sort();
+        return ids[0] + ',' + ids[1] + ',' + ids[2];
+    };
 
     for (let attempt = 0; attempt < MAX_SPAWN_ATTEMPTS; attempt++) {
         const blocks = [];
@@ -3439,10 +3475,17 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         if (fill >= FILL_SURVIVABILITY_ON) {
             const datas = triplet.map((s) => s.data);
             const strictSearch = inDangerZone && attempt < Math.floor(MAX_SPAWN_ATTEMPTS * 0.7);
-            if (!tripletSequentiallySolvable(grid, datas, {
-                searchBudget: strictSearch ? SURVIVE_SEARCH_BUDGET * 2 : SURVIVE_SEARCH_BUDGET,
-                exhaustAsPass: !strictSearch
-            })) {
+            const _searchBudget = strictSearch ? SURVIVE_SEARCH_BUDGET * 2 : SURVIVE_SEARCH_BUDGET;
+            const _solvKey = _tripletSig(triplet) + '#' + _searchBudget + '#' + (!strictSearch ? 1 : 0);
+            let _solvable = _solvMemo.get(_solvKey);
+            if (_solvable === undefined) {
+                _solvable = tripletSequentiallySolvable(grid, datas, {
+                    searchBudget: _searchBudget,
+                    exhaustAsPass: !strictSearch
+                });
+                _solvMemo.set(_solvKey, _solvable);
+            }
+            if (!_solvable) {
                 continue;
             }
         }
@@ -3454,12 +3497,18 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         let solutionMetrics = null;
         if (solutionCfg.enabled && fill >= solutionCfg.activationFill) {
             const datas = triplet.map((s) => s.data);
-            solutionMetrics = evaluateTripletSolutions(grid, datas, {
-                leafCap: solutionCfg.leafCap,
-                /* v1.66：高压阶段透传更大 budget（orderSolutionBudget），降低高 fill 下三连解
-                 * 评估被预算截断（truncated）的概率——截断会让下方 orderRigor 顺序过滤静默跳过。 */
-                budget: orderSolutionBudget != null ? Math.max(solutionCfg.budget ?? 0, orderSolutionBudget) : solutionCfg.budget
-            });
+            const _solnBudget = orderSolutionBudget != null ? Math.max(solutionCfg.budget ?? 0, orderSolutionBudget) : solutionCfg.budget;
+            const _solnKey = _tripletSig(triplet) + '#' + solutionCfg.leafCap + '#' + _solnBudget;
+            solutionMetrics = _solnMemo.get(_solnKey);
+            if (solutionMetrics === undefined) {
+                solutionMetrics = evaluateTripletSolutions(grid, datas, {
+                    leafCap: solutionCfg.leafCap,
+                    /* v1.66：高压阶段透传更大 budget（orderSolutionBudget），降低高 fill 下三连解
+                     * 评估被预算截断（truncated）的概率——截断会让下方 orderRigor 顺序过滤静默跳过。 */
+                    budget: _solnBudget
+                });
+                _solnMemo.set(_solnKey, solutionMetrics);
+            }
 
             const earlyAttempt = attempt < Math.floor(MAX_SPAWN_ATTEMPTS * SOLUTION_FILTER_ATTEMPT_RATIO);
             if (earlyAttempt && targetSolutionRange && !solutionMetrics.truncated) {

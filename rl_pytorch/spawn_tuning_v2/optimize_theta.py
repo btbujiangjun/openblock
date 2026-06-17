@@ -6,7 +6,7 @@
 
 输入:
   - 训好的 SpawnParamTunerResNet checkpoint
-  - context 枚举 (360 个) + 权重 (LossWeights)
+  - context 枚举 (480 个, v3.2 含 rl-bot) + 权重 (LossWeights)
   - 每 context 起点数 (n_starts), 每起点步数 (steps)
 
 输出 policies.json:
@@ -14,7 +14,7 @@
     "format": "openblock-spawn-tuning-v2-policies",
     "model_id": 42,
     "model_sha256": "...",
-    "context_count": 360,
+    "context_count": 480,
     "policies": [
       {
         "context_key": "easy:budget-p2:random:1500:growth",
@@ -54,13 +54,16 @@ from .feature_io import (
     DIFFICULTY_INDEX, GENERATOR_INDEX, BOT_INDEX, PB_BIN_INDEX, LIFECYCLE_INDEX,
     THETA_KEYS, denormalize_theta,
 )
-from .target_curve import target_curve_vector
-from .losses import LossWeights, loss_shape, loss_breaking, loss_surprise
+from .target_curve import target_curve_vector, target_E_vector, target_F_vector
+from .losses import (
+    LossWeights, loss_shape, loss_breaking, loss_surprise,
+    loss_curve_e, loss_curve_f, loss_frustration_cap,
+)
 
 
 # ─────────── Context 枚举 ───────────
 # v3.0.8: GENERATOR 与 game.js getSpawnPolicyMode() 严格 1:1 — 仅 rule / generative (2 个).
-#   360 ctx = 3 difficulty × 2 generator × 3 bot × 5 pb × 4 lifecycle.
+#   v3.2: 480 ctx = 3 difficulty × 2 generator × 4 bot (含 rl-bot) × 5 pb × 4 lifecycle.
 DIFFICULTY_VALUES = list(DIFFICULTY_INDEX.keys())
 GENERATOR_VALUES = list(GENERATOR_INDEX.keys())
 BOT_VALUES = list(BOT_INDEX.keys())
@@ -69,11 +72,14 @@ LIFECYCLE_VALUES = list(LIFECYCLE_INDEX.keys())
 
 # v3.0.8: 部署/枚举 = 全部 GENERATOR_VALUES (rule / generative, 已与游戏页面 1:1)
 DEPLOYABLE_GENERATORS = list(GENERATOR_INDEX.keys())   # ['rule', 'generative']
-DEPLOYABLE_BOTS = ["random", "clear-greedy", "survival"]   # rl-bot 后续启用后可加
+# v3.2: rl-bot 正式纳入部署枚举。rl-bot 采样严格 no-peek (samplerV2.js: 决策仅看
+#   棋盘 + 可见 dock + strategy/arc/intent, 绝不读 spawn θ / 未来块), 故其 (ctx, θ) → 曲线
+#   映射与其它 bot 同构, 可安全寻参。需训练集含 rl-bot 样本 (否则模型靠 embedding 外插)。
+DEPLOYABLE_BOTS = ["random", "clear-greedy", "survival", "rl-bot"]
 
 
 def enumerate_all_contexts() -> List[Dict]:
-    """枚举全部 3×2×3×5×4 = 360 个可部署 context (v2.10.34: 排除占位类别)。"""
+    """枚举全部 3×2×4×5×4 = 480 个可部署 context (v3.2: bot 含 rl-bot)。"""
     out = []
     for d, g, b, p, l in itertools.product(
         DIFFICULTY_VALUES, DEPLOYABLE_GENERATORS, DEPLOYABLE_BOTS, PB_BIN_VALUES, LIFECYCLE_VALUES,
@@ -116,8 +122,13 @@ def optimize_one_context(
 ) -> Dict:
     """对单个 context 跑 n_starts 个起点 × steps 步, 选 best。
 
-    优化目标 = L_shape (对该 ctx 的预测 curve 与目标 curve 的 MSE)
+    v3.2 多曲线目标 = L_shape (难度 D 贴 ideal S)
               + δ · L_breaking + γ · L_surprise (单 sample 上有意义)
+              + curve_e · (-E 朝 ideal E, 即多爽感)
+              + curve_f · (F 朝 ideal F) + frustration_cap · (F 不超 cap)
+
+    best 仍以难度 shape_loss 为主排序 (难度是主轴), E/F 作为联合塑形项参与梯度,
+    保证寻出的 θ* 在贴合难度曲线的同时, 爽感不塌、挫败不破上限。
 
     L_balance 在单 sample 上没意义 (只能在 batch 计算) — 这里跳过。
     L_smooth 也跳过 (∂y/∂θ 对单点没意义)。
@@ -135,10 +146,17 @@ def optimize_one_context(
     log_pb_t = torch.tensor([indices["log_pb"]], device=device, dtype=torch.float32)
 
     target_b = target_curve.unsqueeze(0).to(device)  # (1, n_bins)
+    # v3.2 多曲线: ideal E/F 目标 (单 sample 的 mask=1, 让 loss_curve_e/f 的 sample 项生效)
+    n_bins = target_curve.size(0)
+    ideal_e_b = torch.tensor(target_E_vector(n_bins=n_bins), dtype=torch.float32, device=device).unsqueeze(0)
+    ideal_f_b = torch.tensor(target_F_vector(n_bins=n_bins), dtype=torch.float32, device=device).unsqueeze(0)
+    ef_mask_one = torch.ones(1, device=device)
 
     best_loss = float("inf")
     best_theta = None
     best_pred = None
+    best_pred_e = None
+    best_pred_f = None
     best_other = None
 
     model.eval()
@@ -160,6 +178,12 @@ def optimize_one_context(
             loss = w.shape * loss_shape(curve_pred, target_b)
             loss = loss + w.breaking * loss_breaking(curve_pred)
             loss = loss + w.surprise * loss_surprise(curve_pred)
+            # v3.2 多曲线: 爽感朝 ideal E (多爽感), 挫败朝 ideal F + 不破 cap
+            if "curve_e" in preds:
+                loss = loss + w.curve_e * loss_curve_e(preds["curve_e"], ideal_e_b, ef_mask_one)
+            if "curve_f" in preds:
+                loss = loss + w.curve_f * loss_curve_f(preds["curve_f"], ideal_f_b, ef_mask_one)
+                loss = loss + w.frustration_cap * loss_frustration_cap(preds["curve_f"])
 
             loss.backward()
             optimizer.step()
@@ -180,6 +204,8 @@ def optimize_one_context(
             best_loss = final_loss
             best_theta = theta.detach().cpu().numpy()[0]
             best_pred = preds["curve"].detach().cpu().numpy()[0]
+            best_pred_e = preds["curve_e"].detach().cpu().numpy()[0] if "curve_e" in preds else None
+            best_pred_f = preds["curve_f"].detach().cpu().numpy()[0] if "curve_f" in preds else None
             best_other = {
                 "pb_broke": float(preds["pb_broke"].item()),
                 "noMove": float(preds["noMove"].item()),
@@ -191,7 +217,7 @@ def optimize_one_context(
     target_np = target_curve.cpu().numpy()
     curve_mae = float(np.mean(np.abs(best_pred - target_np)))
 
-    return {
+    out = {
         "theta_norm": best_theta.tolist(),
         "theta": denormalize_theta(best_theta),
         "predicted_curve": best_pred.tolist(),
@@ -199,6 +225,15 @@ def optimize_one_context(
         "predicted_curve_mae_to_target": curve_mae,
         "expected": best_other,
     }
+    # v3.2 多曲线: 输出爽感 / 挫败预测曲线 + 朝 ideal 的 MAE (供面板 / fact_eval)
+    if best_pred_e is not None:
+        out["predicted_curve_e"] = best_pred_e.tolist()
+        out["predicted_curve_e_mae_to_ideal"] = float(np.mean(np.abs(best_pred_e - ideal_e_b.cpu().numpy()[0])))
+    if best_pred_f is not None:
+        out["predicted_curve_f"] = best_pred_f.tolist()
+        out["predicted_curve_f_mae_to_ideal"] = float(np.mean(np.abs(best_pred_f - ideal_f_b.cpu().numpy()[0])))
+        out["predicted_frustration_max"] = float(np.max(best_pred_f))
+    return out
 
 
 # ─────────── 全 contexts 优化 ───────────
@@ -245,7 +280,7 @@ def optimize_all_contexts(
     # 目标曲线
     target = torch.tensor(target_curve_vector(), dtype=torch.float32)
 
-    # contexts (默认 360)
+    # contexts (默认 480, v3.2 含 rl-bot)
     ctxs = contexts if contexts is not None else enumerate_all_contexts()
     print(f"[optimize_theta_v2] 对 {len(ctxs)} 个 contexts 跑梯度上升 (n_starts={n_starts}, steps={steps})…")
 

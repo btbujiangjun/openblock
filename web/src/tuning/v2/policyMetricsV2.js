@@ -30,6 +30,29 @@ const TREND_WEIGHT = 0.20;
 const SURPRISE_DAMPING = 0.50;
 const SURPRISE_MIN_CLEARS = 3;
 const TREND_WINDOW = 5;
+
+// ─── v3.2 多曲线: 单步爽感 / 挫败 (与 Python extractor.py 严格一致) ───
+const DELIGHT_PER_CLEAR = 0.45;
+const FRUSTRATION_STUCK_WEIGHT = 0.60;
+const FRUSTRATION_CROWD_WEIGHT = 0.40;
+const FRUSTRATION_CROWD_FILL_FLOOR = 0.70;
+const FRUSTRATION_RELIEF_WEIGHT = 0.50;
+
+function _stepDelight(step) {
+    if (step.noMove) return 0.0;
+    return Math.max(0, Math.min(1, DELIGHT_PER_CLEAR * (step.clears || 0)));
+}
+
+function _stepFrustration(step) {
+    if (step.noMove) return 1.0;
+    const stuck = 1.0 - Math.max(0, Math.min(1, step.actionFreedom));
+    const crowd = Math.max(0, Math.min(1, (step.fillRate - FRUSTRATION_CROWD_FILL_FLOOR) / 0.30));
+    const relief = (step.clears || 0) > 0 ? 1.0 : 0.0;
+    const f = FRUSTRATION_STUCK_WEIGHT * stuck
+        + FRUSTRATION_CROWD_WEIGHT * crowd
+        - FRUSTRATION_RELIEF_WEIGHT * relief;
+    return Math.max(0, Math.min(1, f));
+}
 // PB-aware d_step legacy 常量 (跨语言镜像, 不参与 v3.x 计算)
 /* eslint-disable no-unused-vars -- legacy 跨语言镜像常量，保留原名与 extractor.py 对齐 */
 const PB_AWARE_D_BASE = 0.10;
@@ -113,6 +136,9 @@ function _extractDCurve(
 
     const binSums = new Array(nBins).fill(0);
     const binCounts = new Array(nBins).fill(0);
+    // v3.2 多曲线: 爽感 / 挫败 共用 binning + binCounts
+    const eBinSums = new Array(nBins).fill(0);
+    const fBinSums = new Array(nBins).fill(0);
     const recentFills = [];
 
     let totalClears = 0;
@@ -127,6 +153,9 @@ function _extractDCurve(
         const d = _stepDifficulty(st, recentFills, r, thetaCenter, thetaWidth);
         binSums[bidx] += d;
         binCounts[bidx] += 1;
+        // v3.2 多曲线: 同步累积爽感 / 挫败
+        eBinSums[bidx] += _stepDelight(st);
+        fBinSums[bidx] += _stepFrustration(st);
 
         recentFills.push(st.fillRate);
         if (recentFills.length > TREND_WINDOW) recentFills.shift();
@@ -139,18 +168,29 @@ function _extractDCurve(
 
     // v3.0: 空 bin 用 lastValue 填充 (跨语言: samplerV2.js / extractor.py 同步)
     const dCurve = new Array(nBins).fill(0);
+    const eCurve = new Array(nBins).fill(0);
+    const fCurve = new Array(nBins).fill(0);
     let lastValue = 0.5;
+    let lastE = 0.0, lastF = 0.0;
     for (let i = 0; i < nBins; i++) {
         if (binCounts[i] >= PB_AWARE_MIN_OBS) {
             dCurve[i] = binSums[i] / binCounts[i];
             lastValue = dCurve[i];
+            eCurve[i] = eBinSums[i] / binCounts[i];
+            fCurve[i] = fBinSums[i] / binCounts[i];
+            lastE = eCurve[i];
+            lastF = fCurve[i];
         } else {
             dCurve[i] = lastValue;
+            eCurve[i] = lastE;
+            fCurve[i] = lastF;
         }
     }
 
     return {
         d_curve: dCurve,
+        e_curve: eCurve,
+        f_curve: fCurve,
         final_score: finalScore,
         survived_steps: steps.length,
         clear_rate: steps.length > 0 ? totalClears / steps.length : 0,

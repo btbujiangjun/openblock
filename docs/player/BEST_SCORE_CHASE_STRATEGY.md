@@ -788,6 +788,91 @@ PEOG bypass 12 路任一触发（详见 §4.16）时本节 floor 自动恢复完
 
 **单测**：`tests/peog.test.js` 45 条覆盖 12 路 bypass + 升级单向性 + yield 估算（5 种算子）+ cap min/floor max + warm target 映射 + guaranteedDelights override + 跨端镜像同源（mini）；`tests/warmRun.test.js` 30 条无回归；`tests/adaptiveSpawn.test.js` 90 条无回归。
 
+### 4.17 难度相对论：体感难度不变量 × 客观难度个性化（S 曲线主线下的 θ⃗ × b⃗ × EDPCG）（P-research，🔬 研究规划，未落地）
+
+> **状态**：研究规划，**本节只做规划，不在本次提交修改代码**。这是一个**架构级演进**而非单点修补，落地需分阶段灰度（见末尾路线）。本节是**策划契约**；**算法侧实现清单（接入点 × 文件 × 函数 × MVP 切片）见 [`ALGORITHMS_SPAWN.md §2.10`](../algorithms/ALGORITHMS_SPAWN.md)**。另在 [`ALGORITHMS_PLAYER_MODEL.md §16.2`](../algorithms/ALGORITHMS_PLAYER_MODEL.md) 与 [`DOMAIN_KNOWLEDGE.md §13`](../domain/DOMAIN_KNOWLEDGE.md) 留有交叉引用。
+>
+> **核心设定（不可动摇的前提）**：**难度 + S 形 stress 曲线仍是游戏调控主线**。本方案不替换、不旁路 S 曲线；它精确化 S 曲线控制的语义为「**目标体感难度**」，并在「体感 → 客观题目」之间插入一层**按玩家能力个性化的标定**——因为「难」是相对能力的主观量。
+
+**问题（缺陷的精确定位）**：当前难度引擎是**维度坍缩 + 锚点单一**的——
+
+```
+r = score / deriveEffectivePb(bestScore)                 # 难度坐标（单标量）
+stress = interpolate(milestones → spawnStress, r)         # 全局同一条 S 曲线
+shapeWeights = interpolateProfileWeights(profiles, stress) # 内容 = stress 的查表（adaptiveSpawn.js L2254）
+spawnHints   = f(stress)                                   # clearGuarantee / multiClearBonus / orderRigor ...
+```
+
+| 层面 | 现状 | 缺陷 |
+|------|------|------|
+| **锚点** | 难度沿 `score/PB` 展开，PB 是唯一长期锚 | PB 是**滞后、单标量、含运气噪声**的代理，混淆"打多远（毅力/运气）"与"有多强（技能）"。`effectivePB` 只在 x 轴重映射（新手抬底 / 高手压顶），锚点仍是 PB |
+| **难度** | 所有信号融合成**一个标量 `stress`** | S 曲线形状对**所有人完全相同**；`LIFECYCLE_STRESS_CAP_MAP` 只裁顶部、生命周期只 ±0.15 加性微调——**不改变挑战的种类** |
+| **题目** | 内容（shapeWeights / spawnHints）是 `stress` 的函数 | 同一 `stress` 下所有玩家拿到**同类盘面压力**。`shapeCompetence` / `topologyForm.weakness` 已采集，却只走离线展示或 ±5~10% 的有界"风味偏置"（`applySpawnPrior`），**不驱动题目种类** |
+
+**一句话**：系统对玩家"测量得丰富（AbilityVector 6 维 + playerAnalytics），执行时却压成 1 个标量"。新手与资深的差异仅体现在"同一轨道上爬多高 / 多快 / 封顶多少"，而**不体现在题目本身的结构 / 考点**——即"无论新手资深面对同样的难度-PB 关系、题目某种程度上一致"。
+
+**领域研究映射**：
+
+| 研究 / 框架 | 核心思想 | 启示 |
+|-------------|----------|------|
+| **EDPCG**（Yannakakis & Togelius, 2011） | 内容生成由"玩家体验计算模型"驱动，对候选内容按"它在该玩家身上引发的体验"打分再搜索 | 把 spawn 从"`stress`→查表"升级为"**对候选盘面 / 出块按 per-player 目标体验打分**"；现有 5 阶段流水线 + 30+ 乘子即天然候选评估器 |
+| **IRT / Elo / Glicko / TrueSkill 用于单人**（CAT、关卡匹配；NSF 2020、Antal 2013） | 把"能力 θ"与"题目难度 b"放同一标度，按 logistic(θ−b) 预测成败、按结果**同时更新 θ 与 b**，选题让成败概率≈目标（Desired Loss Rate） | **与 PB 解耦的关键**：把"题目 / 局"当对手，维护带不确定度的潜在能力 θ⃗。仓库旧判断"Elo 不适合单人"在 CAT / 关卡匹配语境下被推翻 |
+| **多维 DDA + ZPD**（Legends of Hoa'Manu, EPFL/UNIGE 2024） | **同时独立调多个参数**保持各自最近发展区；**概率扰动**避免可预测、促进技能迁移 | 用多维难度向量取代单 `stress`；每维各自目标 + 受控随机性 |
+| **PCG-GBA + 玩家建模**（IJSG 2025） | 难度由玩家能力而非纯技术参数决定，按技能分量对齐题目 | 题目对齐**具体能力短板**（空间 / 连消 / 高压恢复 / 顺序刚性） |
+| **课程学习**（Bengio 2009） | 由易到难、定向训练薄弱项 | 个性化"训练弱项 + 巩固强项"课程编排 |
+
+**升级核心设定：S 曲线仍是主线，"难"是相对能力的主观量**（本节相对初版方案的关键修正）：
+
+- **主线不变**：`milestones → spawnStress` 的曲线形状、由 `score/PB`（及全部生命周期 / PEOG / challengeBoost 调制）决定"玩家此刻应处于曲线哪个位置"——**这一整套全部保留**。变化只是把 S 曲线控制的语义**精确化为「目标体感难度」（perceived difficulty / 心流位置）**，而非客观题目难度。
+- **关键洞察**：**"难"是相对玩家能力的主观量**。同一客观盘面（客观难度 `b`）对低能力玩家体感"难"、对高能力玩家体感"易"。形式化（与 IRT / 心流同构，且仓库 `F(t)=|boardPressure/skill−1|` 已是雏形）：
+
+  ```
+  d_perceived ≈ b ⊖ θ          # 体感难度 = 客观难度 − 能力（按考点维度）
+  ```
+
+- **升级 = 在「主线」与「内容」之间插入"个性化体感↔客观标定"**：S 曲线给出目标体感 `d* = stress`；按玩家能力 θ⃗ **反解客观目标** `b* = θ⃗ ⊕ d*`；内容侧选块让候选客观难度 `b(candidate) ≈ b*`。
+
+  > 结果：**同一条 S 曲线、同一个 stress 目标**，对资深玩家落到**客观更难**、对新手落到**客观更易**的题目，使两者**体感难度一致（心流一致）**、但**客观题目结构千人千面**——既守住"S 曲线是主线"，又解决"题目同质"。
+
+- **θ⃗ 的角色被重定位**：θ⃗ **不取代 PB 作锚点**（PB 仍驱动 stress 主线），而是"**体感↔客观难度的个性化标定器**"。现有 `effectivePB`（按 PB 档位在 x 轴粗粒度重映射）正是这一标定的**一维、PB 代理版前身**；升级即把它**多维化（按考点维 θ_d）+ 能力化（弃用 PB 当技能代理）**。低置信 θ⃗ → 退化为恒等标定 → 完全等于当前行为。
+
+**改进方向（五支柱）**：
+
+1. **支柱① 体感标定器 θ⃗（多维能力，作映射、不作锚点）**：复用 `AbilityVector` 6 维与 `playerAnalytics` 稳健估计作为观测，其上加 TrueSkill/Glicko 风格后验 `θ_d ~ N(μ_d, σ_d²)`；每局/每里程碑段作一次"答题"，用本局客观 `spawnStepDifficulty` 作题目难度 `b`、用"该难度下预期消行/存活是否达成"作成败信号更新 μ/σ。**θ⃗ 只吃行为质量与盘面应对，不吃绝对分数**——"耐心刷高 PB 的新手"与"3 局高 PB 的天才"得到不同 θ⃗（`effectivePB` 做不到）。**θ⃗ 仅用于反解 `b*=θ⃗⊕stress`、不改 stress 主线**；σ_d 门控标定强度，低置信 → 恒等标定（即当前 `effectivePB` 行为）。
+2. **支柱② 客观题目难度向量 b⃗**：把 `spawnStepDifficulty` 的标量/4 维子向量扩展为显式考点向量 `{b_spatial, b_combo, b_order, b_recovery, b_tempo, b_clearEff}`，作为"客观难度"的量尺；它同时是 θ⃗ 贝叶斯更新的"答题难度"输入，构成 IRT 闭环。
+3. **支柱③ 等体感选块（EDPCG 候选评估）**：S 曲线产出目标体感 `d* = stress` → 反解客观目标 `b* = clamp(θ⃗ ⊕ d* + Δ⃗)` → spawn 候选打分新增对齐项 `score += −w·‖difficultyVec(候选) − b*‖`（弱项维度加大 w）。语义即"**在等体感前提下，给不同能力玩家不同客观难度 / 不同考点结构的题目**"。**沿用现有可解性/公平护栏（DFS 存活验证）**；救济 / PEOG / warmup 永远 bypass 目标项。
+4. **支柱④ 个性化课程 + ZPD + 概率扰动**：`Δ⃗` 在最弱维（对齐 `topologyForm.weakness`）给正向增量、在疲劳/高挫败维给负增量；`b*` 叠加受控噪声，防可预测 / 防策略溢出（针对 E 类瓶颈、C 类前 50 局波动）。注意 `Δ⃗` 作用在**客观目标 `b*`**、不抬高目标体感 `d*`——体感仍由 S 曲线主线锁定。
+5. **支柱⑤ 玩家原型/段位的"题目结构"差异化**：在等体感约束下，把 `b*` 的**考点形状**按 archetype 差异化（新手低 `b_order`+ 高 `b_clearEff`；资深高 `b_order`+ 高 `b_recovery`；aggressive 高 `b_combo` 窗口）；把现有 `playstyleNudge` 的 ±5~10% 升级为"客观目标向量的结构偏置"。
+
+**与现有系统衔接（增量而非推倒）**：
+
+| 现有机制 | 处置 |
+|----------|------|
+| `score/PB` 主线 + `getSpawnStressFromScore` + S 曲线 | **完全保留，仍是调控主线**：决定目标体感 `d*=stress`（曲线位置 / 形状 / 全部调制不变） |
+| 双坐标（r_difficulty / r_record，§3.2.1） | **stress 曲线本身不动**；体感↔客观标定只作用在 r_difficulty 的"客观难度落地"环节（内容侧选块）；**r_record（纪录线 / 庆祝 / PEOG / best.gap）完全不动**（保叙事零回归） |
+| `deriveEffectivePb`（§4.14） | **它就是本标定的一维、PB 代理版前身**——升级是把它多维化（按考点维 θ_d）+ 能力化（弃用 PB 当技能代理），而非废弃；θ⃗ 恒等时退化为其特例 |
+| `LIFECYCLE_STRESS_CAP_MAP` / 救济链 / PEOG / warmup | **全部保留，且优先级高于目标项**（个性化不得绕过安全/公平护栏） |
+| `playerAnalytics.spawnAdvice`（shapeCompetence / topologyForm.weakness / comfortFillBand） | **从展示 / 有界 nudge 升级为 Δ⃗/T⃗ 一等输入**（文档已标注此为"增量最高的空白区"） |
+| `spawnStepDifficulty` + `SpawnTransformerV2` | **复用为 b⃗ 与离线校准 / 难度预测器**（IRT 的题目难度一半已就绪） |
+| `move_sequences` 6000+ 局回放 | **离线校准 θ⃗/b⃗ 标度与分位锚点** |
+
+**落地路线（分阶段灰度）**：
+
+| 阶段 | 内容 | 灰度 / 风险 |
+|------|------|-------------|
+| **0 影子离线** | 用 `move_sequences` 跑 TrueSkill triplet（玩家×题目难度×结果），验证 θ⃗ 对未来 N 局表现的 Spearman 相关**优于 PB / skillLevel**；标定 b⃗ 分位锚点 | 纯离线，0 线上风险 |
+| **1 影子推断** | 线上**计算但不消费** θ⃗/b⃗/T⃗，写 `stressBreakdown` 与回放帧，看板对比 | Feature flag 关执行 |
+| **2 内容侧灰度** | 仅高置信 θ⃗ 玩家启用等体感选块对齐项（`b*=θ⃗⊕stress`），强度受 `personalizationStrength` 上限约束；救济/PEOG/warmup 全 bypass | `rolloutPercent` 逐步放量 |
+| **3 标定升级** | 把 `effectivePB` 的一维 PB 档位体感标定，升级为 θ⃗ 多维能力标定（**S 曲线 / stress 主线不变，PB 仍驱动曲线位置与纪录线**） | A/B 验证后切换，保留一键回退 |
+
+**看板指标**：θ⃗ vs PB/skillLevel 对未来表现的预测相关性（θ⃗ 应更高）；**等体感约束下客观目标 `b*` 是否随 θ⃗ 单调上移（资深更难、新手更易）**；按 θ⃗ 分层的心流命中率与客观难度匹配误差 `‖b⃗−b*‖`（应下降）；弱项维度成长斜率（定向训练是否生效）；新手早熟率 / 高手铺垫时长（应不劣于 effectivePB）；救济/PEOG bypass 占比（避免误伤）。
+
+**回归红线（任一触发即回滚灰度阶）**：人均时长下降 > 3%；心流偏离方差上升；破纪录率偏离健康区间；救济 bypass 误伤 > 15%。
+
+**风险与护栏**：① 冷启动/低置信必须降级回 `score/PB`，σ_d 门控个性化强度；② 目标项**永远在硬约束（DFS 可解）与救济链之后**，不得制造死局或绕过救济；③ 个性化**只动机会面（spawnHints/候选），绝不动纪录线**（避免叙事撒谎，沿用双坐标设计动机）；④ 所有新量（θ⃗/b⃗/T⃗/Δ⃗）落 `stressBreakdown` 与回放帧，接 profileAudit 契约做回归卡口；⑤ 受控随机性 + `personalizationStrength` 上限，防过度个性化 / 策略溢出。
+
+**研究参考**：Yannakakis & Togelius (2011) *Experience-Driven PCG*；Togelius et al. (2011) *Search-Based PCG*；Pasqualotto et al. (2024) *Multidimensional DDA / Legends of Hoa'Manu*（EPFL/UNIGE）；Antal (2013) *Elo Rating for Adaptive Assessment*；IJSG (2025) *Adaptive Puzzle-Level Generation for GBA*；Bengio et al. (2009) *Curriculum Learning*。
+
 ---
 
 ## 六、验证清单（用于评审 / QA）

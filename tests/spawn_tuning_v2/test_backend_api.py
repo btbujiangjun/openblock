@@ -779,8 +779,11 @@ class TestBundleExport:
         }))
         return p
 
-    def test_export_basic(self, client, tmp_path):
+    def test_export_basic(self, client, tmp_path, monkeypatch):
+        # bundle 写到 cwd 下的相对路径 web/public/spawn-tuning-v2/; chdir 到 tmp_path
+        # 让导出完全落在临时目录 (pytest 自动清理), 不触碰仓库里已提交的 policies.json。
         src = self._make_policies_file(tmp_path)
+        monkeypatch.chdir(tmp_path)
         r = client.post(
             "/api/spawn-tuning-v2/policies/bundle/export",
             json={"source": str(src), "rollout_pct": 50, "include_miniprogram": False},
@@ -790,12 +793,9 @@ class TestBundleExport:
         assert data["ok"] is True
         assert data["policies_count"] == 2
         assert len(data["sha256"]) == 64
-        # 文件落地
+        # 文件落地 (在 tmp_path/web/public/spawn-tuning-v2/ 下)
         assert any("web/public/spawn-tuning-v2/policies.json" in w for w in data["written"])
-        # 清理
-        from pathlib import Path
-        Path("web/public/spawn-tuning-v2/policies.json").unlink(missing_ok=True)
-        Path("web/public/spawn-tuning-v2/policies.meta.json").unlink(missing_ok=True)
+        assert (tmp_path / "web/public/spawn-tuning-v2/policies.json").exists()
 
     def test_export_invalid_format(self, client, tmp_path):
         bad = tmp_path / "bad.json"
@@ -811,11 +811,9 @@ class TestBundleExport:
         r = client.post("/api/spawn-tuning-v2/policies/bundle/export", json={})
         assert r.status_code == 400
 
-    def test_bundle_status_no_bundle(self, client):
-        # 清理可能残留的 bundle
-        from pathlib import Path
-        Path("web/public/spawn-tuning-v2/policies.json").unlink(missing_ok=True)
-        Path("web/public/spawn-tuning-v2/policies.meta.json").unlink(missing_ok=True)
+    def test_bundle_status_no_bundle(self, client, tmp_path, monkeypatch):
+        # chdir 到空的 tmp_path → bundle 相对路径必然不存在, 无需删除仓库里已提交的产物。
+        monkeypatch.chdir(tmp_path)
         r = client.get("/api/spawn-tuning-v2/policies/bundle/status")
         assert r.status_code == 200
         assert r.get_json()["exists"] is False
@@ -1012,7 +1010,7 @@ class TestBuildAndExport:
         assert r.status_code == 200, r.get_json()
         d = r.get_json()
         assert d["ok"] is True
-        assert d["policies_count"] == 360  # 3 difficulty × 2 generator × 3 bot × 5 pb × 4 lifecycle
+        assert d["policies_count"] == 480  # 3 difficulty × 2 generator × 4 bot (含 rl-bot) × 5 pb × 4 lifecycle
         assert d["rollout_pct"] == 50
         assert d["bundle_size_bytes"] > 1000
         # 三类文件都写了
@@ -1037,7 +1035,7 @@ class TestBuildAndExport:
                 "rollout_pct": 50,
                 "include_miniprogram": False,
                 "optimize_theta": True,
-                # 用最小配置保证测试不超时 (1 starts × 20 steps, 360 ctx ≈ 2-5s)
+                # 用最小配置保证测试不超时 (1 starts × 20 steps, 480 ctx ≈ 2-5s)
                 "opt_n_starts": 1,
                 "opt_steps": 20,
             },
@@ -1088,7 +1086,7 @@ class TestBuildAndExport:
             json={"model_id": mid, "rollout_pct": 100},
         )
         assert r.status_code == 200, r.get_json()
-        assert r.get_json()["policies_count"] == 360
+        assert r.get_json()["policies_count"] == 480
 
     def test_build_and_export_model_not_found(self, client, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -1366,7 +1364,7 @@ class TestBizScorecard:
         for k in ("balance", "tension", "fairness", "surprise"):
             assert k in d["dimensions"]
             assert 0 <= d["dimensions"][k]["score"] <= 100
-        assert d["n_contexts_evaluated"] == 360
+        assert d["n_contexts_evaluated"] == 480
         assert isinstance(d["hints"], list) and len(d["hints"]) > 0
 
     def test_biz_scorecard_transformer(self, client, tmp_path):
