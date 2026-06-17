@@ -2052,6 +2052,10 @@ export class Game {
                 const peogMod = await import('./spawn/peog.js');
                 this._peogModule = peogMod;
                 this._spawnContext.bestScoreAtRunStart = Number(this._bestScoreAtRunStart) || 0;
+                /* SSOT 透传：buildPeogState 的 winback_first_run bypass 读 ctx.runsAfterReturn，但该值原仅
+                 * 存在于 warmRun 评估的局部 runCtx，从未写入 _spawnContext → 恒读 0 → 该 bypass 对所有
+                 * T2_returning 局都触发（而非仅回流首局）。此处用与 warmRun 同源口径回灌（0-based 已完成局数）。 */
+                this._spawnContext.runsAfterReturn = Math.max(0, (Number(this._dailyRunState?.dailyRunIndex) || 0) - 1);
                 this._spawnContext.peogState = peogMod.buildPeogState(
                     this.playerProfile,
                     this._spawnContext,
@@ -2539,6 +2543,10 @@ export class Game {
                  * 第 9 路 bottleneck bypass 永不触发。此处用同一口径回灌，让玩家陷入瓶颈时
                  * PEOG（PB 临近加压）能及时让位。 */
                 this._spawnContext.hasBottleneckSignal = deriveBottleneckSignal(this._spawnContext, this.playerProfile);
+                /* SSOT 透传：evaluatePeogActive 的 near_miss bypass 读 ctx.hadRecentNearMiss，但 game.js
+                 * 从不写 _spawnContext.hadRecentNearMiss（profile 才是真源），导致该 bypass 永不触发。
+                 * 与 needsRecovery（peog 已直接读 profile）对齐，玩家刚经历险局时让 PEOG 让位。 */
+                this._spawnContext.hadRecentNearMiss = this.playerProfile?.hadRecentNearMiss === true;
                 this._spawnContext.peogState = this._peogModule.evaluatePeogActive(
                     this._spawnContext.peogState,
                     this._spawnContext,

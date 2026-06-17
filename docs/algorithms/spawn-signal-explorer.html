@@ -1275,7 +1275,7 @@ const SIGNALS = [
  formula:'⚠ 实际 profile getter 公式（adaptiveSpawn 读取的）：\nlastStep && !miss && !cleared && fill > 0.6\n（playerProfile:819-823）\n\nUI 端独立判断（nearMissPlaceFeedback.js）：\nGrid.getMaxLineFill()≥0.875 && (frust≥4 || anxious&&frust≥2)\n&& clearRate<0.30 && momentum≤0 && !cooldown(12步/30s)',
  range:'boolean',
  source:'playerProfile.js get hadRecentNearMiss()（nearMissPlaceFeedback.js 为 UI 独立口径）',
- consumers:['nearMissAdjust(adaptiveSpawn:996 → -0.10)','recoveryNeed复合(adaptiveSpawn:420,1527 || needsRecovery)','clearGuarantee专属抬升(adaptiveSpawn:1937,1964)','riskTolerance.nearMissBonus(playerAbilityModel:334 +0.18)','reactionAdjust让位(同向时=0)','adTrigger商业化判断(adTrigger:322)','personalization.hadNearMiss特征','strategyAdvisor 策略建议','playerInsightPanel 面板']},
+ consumers:['nearMissAdjust(adaptiveSpawn:996 → -0.10)','recoveryNeed复合(adaptiveSpawn:420,1527 || needsRecovery)','clearGuarantee专属抬升(adaptiveSpawn:1937,1964)','riskTolerance.nearMissBonus(playerAbilityModel:334 +0.18)','reactionAdjust让位(同向时=0)','PEOG near_miss bypass(evaluatePeogActive 读 ctx.hadRecentNearMiss)','adTrigger商业化判断(adTrigger:322)','personalization.hadNearMiss特征','strategyAdvisor 策略建议','playerInsightPanel 面板']},
 {id:'sessionPhase',
  name:'sessionPhase',
  layer:1,
@@ -1413,7 +1413,7 @@ const SIGNALS = [
  range:'PeogState 对象 | null',
  source:'spawn/peog.js:buildPeogState/evaluatePeogActive/consumePeogOnPlace',
  consumers:['adaptiveSpawn applyPeogSpawnHintsCap','blockSpawn applyPeogYieldCap','warmRun pickWarmTarget(opts.peogState) / buildWarmBudget(opts.peogIntensity)','game.onPlace consumePeogOnPlace 升级 mild→strong'],
- note:'✓ bottleneck bypass（peog #9）已接线：game.js 在 evaluatePeogActive 之前用 deriveBottleneckSignal(ctx, profile) 回灌 ctx.hasBottleneckSignal（与 resolveAdaptiveStrategy.bottleneckRelief 同一 SSOT 口径：trough≤2 && samples>0 && !onboarding）。玩家陷入瓶颈时 PEOG 即让位。'},
+ note:'✓ 实时 bypass 死输入已全部接线（game.js 在调 PEOG 前回灌对应 ctx）：①bottleneck — deriveBottleneckSignal(ctx, profile) 回灌 ctx.hasBottleneckSignal（与 bottleneckRelief 同 SSOT：trough≤2 && samples>0 && !onboarding）；②near_miss — 回灌 ctx.hadRecentNearMiss=profile.hadRecentNearMiss（曾恒 undefined→永不触发）；③winback_first_run — buildPeogState 前回灌 ctx.runsAfterReturn（曾仅存于 warmRun 局部 runCtx→恒读 0→对所有 T2_returning 局误触发）。recovery 由 evaluatePeogActive 直接读 profile，post_pb_release/late_phase/approach_handoff 本就实时。'},
 
 // ─ L1: 局间历史 ─────────────────────────────────────────────────────────
 {id:'bestScore',
