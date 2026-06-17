@@ -693,6 +693,26 @@ export class Game {
         }
         this._spawnContext.bottleneckSamples =
             (Number(this._spawnContext.bottleneckSamples) || 0) + 1;
+
+        /* 把「最近一帧」dock 几何真值回灌到 ctx，供下一次 spawn 的 buildPlayerAbilityVector 使用。
+         * 历史死输入根因：mobility/firstMoveFreedom 仅在 adaptiveSpawn._mergeLiveGeometrySignals 且
+         * dockPool 非空时才回灌；而玩家路径的 spawn 触发于「dock 全部放置」之时（game.js 落子回调里
+         * dockBlocks.every(b=>b.placed) → spawnBlocks），此刻 _dockShapePool 恒空 →
+         * ctx.mobility 永不写入（mobilityScore 恒走 fallback 0.55）、ctx.firstMoveFreedom 恒 undefined
+         * （lockRisk 恒不参与）。这里复用与 bottleneckTrough 同一份 snapshot，按「最近实时」口径回灌。 */
+        if (Number.isFinite(sc)) this._spawnContext.mobility = sc;
+        if (Number.isFinite(fmf)) this._spawnContext.firstMoveFreedom = fmf;
+        /* placementSolutionScore：整盘 dock「平均每块安全度」∈[0,1]，归一尺度复用
+         * risk.firstMoveFreedomSafe（默认 8）。与瓶颈块 firstMoveFreedom（取最小块）区分：
+         * 前者取均值，刻画整副 dock 的可落子充裕度，作为 playerAbilityModel.lockRisk 主分支输入
+         * （缺它才退回 firstMoveFreedom）。 */
+        const _unplaced = (this.dockBlocks || [])
+            .filter((b) => b && !b.placed && Array.isArray(b.shape)).length;
+        if (Number.isFinite(sc) && _unplaced > 0) {
+            const _safe = Number(GAME_RULES.playerAbilityModel?.risk?.firstMoveFreedomSafe) || 8;
+            this._spawnContext.placementSolutionScore =
+                Math.max(0, Math.min(1, (sc / _unplaced) / _safe));
+        }
     }
 
     /** 在 _commitSpawn 末尾重置：新 dock 周期开始计数 */

@@ -37,6 +37,13 @@ export class PlayerContext {
     private bottleneckSolutionTrough = Infinity;
     /** 采样次数；0 表示本周期尚无瓶颈样本。 */
     private bottleneckSamples = 0;
+    /** 「最近一帧」dock 几何真值（与 web `_spawnContext.mobility/firstMoveFreedom/placementSolutionScore`
+     *  对齐）：喂给 adaptiveSpawn.buildPlayerAbilityVector 的 boardPlanning(mobilityScore) 与
+     *  riskLevel(lockRisk)。历史死输入根因同 web —— 仅 trough(min) 入快照、当帧真值从未透传，
+     *  导致 mobilityScore 恒走 fallback、lockRisk 恒不参与。null 表示本周期尚无样本。 */
+    private lastMobility: number | null = null;
+    private lastFirstMoveFreedom: number | null = null;
+    private lastPlacementSolutionScore: number | null = null;
     /** 暖局剩余轮数（开局前 N 轮减压 clearBoost；与 web `_spawnContext.warmupRemaining` 对齐）。 */
     private warmupRemaining = 0;
     /** 暖局 clearBoost 强度（与 web `_spawnContext.warmupClearBoost` 对齐）。 */
@@ -237,14 +244,16 @@ export class PlayerContext {
         this.bottleneckTrough = Infinity;
         this.bottleneckSolutionTrough = Infinity;
         this.bottleneckSamples = 0;
+        /* 不清 last* 真值：保留上一周期最近一帧作为新周期首 spawn 前的兜底（玩家落子后即被覆写）。 */
     }
 
     /**
-     * 记录当前 dock 周期内的瓶颈低谷。
+     * 记录当前 dock 周期内的瓶颈低谷，并回灌「最近一帧」dock 几何真值。
      * @param solutionCount 当前未放置候选块的合法落点总和
      * @param firstMoveFreedom 当前未放置候选块中最小合法落点数
+     * @param unplacedCount 当前未放置候选块数量（用于 placementSolutionScore 均值归一；缺省退回瓶颈块口径）
      */
-    updateBottleneck(solutionCount: number, firstMoveFreedom: number): void {
+    updateBottleneck(solutionCount: number, firstMoveFreedom: number, unplacedCount = 0): void {
         if (Number.isFinite(firstMoveFreedom)) {
             this.bottleneckTrough = Number.isFinite(this.bottleneckTrough)
                 ? Math.min(this.bottleneckTrough, firstMoveFreedom)
@@ -256,6 +265,16 @@ export class PlayerContext {
                 : solutionCount;
         }
         this.bottleneckSamples++;
+        /* 「最近一帧」真值（非 min 累加）：供下一次 spawn 的 buildPlayerAbilityVector。 */
+        if (Number.isFinite(solutionCount)) this.lastMobility = solutionCount;
+        if (Number.isFinite(firstMoveFreedom)) this.lastFirstMoveFreedom = firstMoveFreedom;
+        /* placementSolutionScore：整盘 dock「平均每块安全度」∈[0,1]，归一尺度复用
+         * playerAbilityModel.risk.firstMoveFreedomSafe（默认 8，与 web/game_rules 同值）。
+         * 与瓶颈块 firstMoveFreedom（取最小块）区分：前者取均值，作 lockRisk 主分支输入。 */
+        if (Number.isFinite(solutionCount) && unplacedCount > 0) {
+            const safe = 8;
+            this.lastPlacementSolutionScore = clamp01((solutionCount / unplacedCount) / safe);
+        }
     }
 
     /** 消行：记录行数、清零间隔、累计，并并入当前轮窗口。 */
@@ -311,6 +330,10 @@ export class PlayerContext {
             bottleneckTrough: this.bottleneckTrough,
             bottleneckSolutionTrough: this.bottleneckSolutionTrough,
             bottleneckSamples: this.bottleneckSamples,
+            /* 最近一帧 dock 几何真值（mobilityScore / lockRisk 输入）；null 时下游退回 fallback。 */
+            ...(this.lastMobility != null ? { mobility: this.lastMobility } : {}),
+            ...(this.lastFirstMoveFreedom != null ? { firstMoveFreedom: this.lastFirstMoveFreedom } : {}),
+            ...(this.lastPlacementSolutionScore != null ? { placementSolutionScore: this.lastPlacementSolutionScore } : {}),
             postPbReleaseActive: this.postPbReleaseActive,
             runOverRunArc: this.runOverRunArc,
             pbGrowthFast: this.pbGrowthFast,

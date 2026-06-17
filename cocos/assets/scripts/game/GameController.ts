@@ -2091,7 +2091,7 @@ export class GameController extends Component {
             sampled++;
         }
         if (sampled <= 0) return;
-        this.playerCtx.updateBottleneck(solutionCount, firstMoveFreedom);
+        this.playerCtx.updateBottleneck(solutionCount, firstMoveFreedom, sampled);
     }
 
     /** 盘面尺寸变化后由布局层调用：仅重绘盘面（位置/边长已由 Bootstrap 更新）。 */

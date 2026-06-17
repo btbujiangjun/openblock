@@ -280,6 +280,13 @@ function _mergeLiveGeometrySignals(ctx) {
         if (placement) {
             if (Number.isFinite(placement.solutionCount)) next = { ...next, mobility: placement.solutionCount };
             if (Number.isFinite(placement.firstMoveFreedom)) next = { ...next, firstMoveFreedom: placement.firstMoveFreedom };
+            /* placementSolutionScore：整盘 dock「平均每块安全度」∈[0,1]，与 game.js _updateBottleneckTrough
+             * 同口径（lockRisk 主分支输入）。本分支服务 bot/simulator（dockPool 非空）路径，玩家路径由
+             * game.js 实时回灌。归一尺度复用 playerAbilityModel.risk.firstMoveFreedomSafe（默认 8）。 */
+            if (Number.isFinite(placement.solutionCount)) {
+                const safe = Number(GAME_RULES.playerAbilityModel?.risk?.firstMoveFreedomSafe) || 8;
+                next = { ...next, placementSolutionScore: Math.max(0, Math.min(1, (placement.solutionCount / dockPool.length) / safe)) };
+            }
         }
     }
     /* v1.57.4：pcSetup 也实时重算。它进入两个口径：
