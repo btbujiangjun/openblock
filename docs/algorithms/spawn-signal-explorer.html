@@ -874,8 +874,9 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
     <div id="view-intent" class="tab-view">
       <div class="view-title">Intent 优先级矩阵</div>
       <div class="view-subtitle">
-        9 条规则按 priority 降序执行，高优先级 guard 通过则覆盖所有低优先级规则。<br>
-        <code style="font-family:var(--mono);font-size:10px;color:#7ee787">forceReliefIntent</code>（临终/高挫败）= true 时优先于 pb_chase_pressure。
+        10 条规则按 priority 降序执行（intentResolver.js INTENT_RULES），高优先级 guard 通过则覆盖所有低优先级规则。<br>
+        warm_run（priority 115）在 deriveSpawnIntent 之外由 applyWarmRun 后置覆写 spawnIntent='warm'；
+        <code style="font-family:var(--mono);font-size:10px;color:#7ee787">forceReliefIntent</code>（临终/高挫败）通过把 pbChasePressureActive 置 false 来让位 relief。
       </div>
       <div class="intent-header-row">
         <div>Priority</div><div>规则 ID</div><div>spawnIntent</div>
@@ -888,21 +889,26 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
     <div id="view-stress" class="tab-view">
       <div class="view-title">Stress 分量全表</div>
       <div class="view-subtitle">
-        24 个基础分量 Σ → rawStress，再经 10 步后置调制（含 v1.66 phaseFreq→pressurePhase）→ finalStress ∈ [−0.2, 1.0]
-        → normalizeStress((s+0.2)/1.2) → [0,1] 展示
+        28 个基础分量 Σ → rawStress（排除 boardRisk/bottleneckTrough/bottleneckSamples 派生痕迹），再经 14 步后置调制（含 v1.66 phaseFreq→pressurePhase）→ finalStress ∈ [−0.2, 1.0]
+        → normalizeStress((s+0.2)/1.2) → [0,1] 展示。非豁免分量先经 __normalizeBudget=±0.05 钳制
       </div>
       <div class="stress-flow" id="stress-flow-diagram"></div>
       <div class="stress-section-title">基础分量（直接 Σ 进 rawStress）</div>
       <table class="stress-table"><thead><tr>
         <th>#</th><th>分量名</th><th>符号</th><th>范围</th><th>触发条件</th><th>注意</th>
       </tr></thead><tbody id="stress-tbody-base"></tbody></table>
+      <div style="margin-top:10px;padding:10px 12px;border-radius:6px;border-left:3px solid #58a6ff;background:rgba(88,166,255,0.08);font-size:11px;color:#79c0ff;line-height:1.6">
+        ⚠ __normalizeBudget=0.05（applySignal）：非豁免分量先被钳到 ±0.05，故下列「名义范围」失真为有效 ±0.05 —
+        flowAdjust(S5)/reactionAdjust(S6)/pacingAdjust(S7)/comboAdjust(S10)/feedbackBias(S12)/trendAdjust(S13)/sessionArcAdjust(S14)/holeReliefAdjust(S16)/abilityRiskAdjust(S18)。
+        豁免分量（scoreStress/runStreakStress/skillAdjust/difficultyBias/各 relief 类/delightStressAdjust 等）保留原幅。
+      </div>
       <div class="stress-section-title">后置调制（rawStress → finalStress，不进 Σ）</div>
       <table class="stress-table"><thead><tr>
         <th>#</th><th>字段</th><th>作用</th><th>范围 / 口径</th>
       </tr></thead><tbody id="stress-tbody-post"></tbody></table>
       <div style="margin-top:12px;padding:10px 12px;border-radius:6px;border-left:3px solid #d29922;background:rgba(210,153,34,0.08);font-size:11px;color:#d29922;line-height:1.6">
-        ⚠ playerDistress（7项聚合）= recoveryAdj + frustRelief + nearMissAdj + holeRelief + boardRiskRelief + bottleneckRelief + endSessionDistress<br>
-        friendlyBoardRelief 和 abilityRiskAdjust 只进 stress Σ，不在 playerDistress 中——不触发 relief intent。
+        ⚠ playerDistress（10项聚合，adaptiveSpawn.js:3087–3098）= recoveryAdj + frustRelief + <b>preFrustrationRelief</b> + <b>boardFrustrationRelief</b> + <b>decisionLoadRelief</b> + nearMissAdj + holeRelief + boardRiskRelief + bottleneckRelief + endSessionDistress<br>
+        friendlyBoardRelief 和 abilityRiskAdjust 只进 stress Σ，不在 playerDistress 中——不触发 relief intent。（左侧模拟器为简化版，仅累加其中 4 项）
       </div>
     </div>
 
@@ -1069,7 +1075,7 @@ hr.detail-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0
     <div id="view-matrix" class="tab-view">
       <div class="view-title">🔥 生命周期 × 成熟度 热力矩阵</div>
       <div class="view-subtitle">
-        5×5 = 25 格 stress cap × adjust 调制表（来自 <code>lifecycleStressCapMap.js</code>）。
+        5×5 = 25 格 stress cap × adjust 调制表（来自 <code>web/src/lifecycle/lifecycleStressCapMap.js</code> 的 LIFECYCLE_STRESS_CAP_MAP，源码字段名为 adjust）。
         <b>悬停查看详情</b>，颜色按 cap 强度（蓝=低/友好 → 金=中 → 红=高/挑战）。
       </div>
       <div id="matrix-stage">
@@ -2742,29 +2748,33 @@ const SIGNALS = [
 
 // ─── Intent data ─────────────────────────────────────────────────────────────
 const INTENTS = [
+  {id:'warm_run',cn:'温暖局',priority:115,result:"'warm'",
+   guard:"warmRunActive === true\n(= warmRunState.active && intensity)",
+   desc:'温暖局(v1.70)：人群保护级体验模式。evaluateWarmTriggers(T1~T7)命中后强制 warm，走温暖管线(大块/规则块/强 clearGuarantee/爽感编排)，不被任何下游规则覆盖。注：不在 deriveSpawnIntent 内，由 applyWarmRun 后置覆写 spawnHints.spawnIntent',
+   cls:'new-badge'},
   {id:'pb_chase_pressure',cn:'PB追击加压',priority:102,result:"'pressure'",
    guard:"pbChasePressureActive === true",
    desc:'PB追击加压(v1.61)：score≥best×0.80且B类条件满足时强制pressure，阻断普通救济',
    cls:'pb-chase new-badge'},
   {id:'relief',cn:'挫败救济',priority:100,result:"'relief'",
    guard:"playerDistress<-0.10\n|| delightMode=='relief'\n|| forceReliefIntent",
-   desc:'挫败救济：玩家总痛苦度超阈值或forceReliefIntent=true(临终/高挫败)',
+   desc:'挫败救济：玩家总痛苦度超阈值或forceReliefIntent=true(临终/高挫败)。滞回(hysteresisEnabled=true)：prevIntent=relief 时阈值放宽为 -0.10+reliefMargin(0.05)=-0.05',
    cls:'relief'},
   {id:'delight_starved',cn:'爽感饥渴',priority:95,result:"'relief'",
    guard:"profile.isDelightStarved()\n  Android/Wechat: ≥5轮无爽感\n  iOS/Web: ≥7轮无爽感",
    desc:'爽感饥渴：长期无多消/清屏/同花顺，强制送爽',cls:''},
   {id:'engage',cn:'AFK召回',priority:90,result:"'engage'",
-   guard:"afkEngageActive === true",
+   guard:"afkEngageActive === true\n(= afkCount≥1 && stress<0.55 && !onboarding\n && !needsRecovery && frustrationLevel<4)",
    desc:'AFK召回：玩家停顿过久但状态尚可，投放视觉刺激块',cls:''},
   {id:'harvest',cn:'收割机会',priority:80,result:"'harvest'",
-   guard:"nearFullLines≥2\n|| (pcSetup≥1 && boardFill≥0.45)",
-   desc:'收割机会：盘面有现成消行/清屏机会，优先送配合块',cls:'harvest'},
+   guard:"nearFullLines≥2\n|| (pcSetup≥1 && boardFill≥pcSetupMinFill=0.45)",
+   desc:'收割机会：盘面有现成消行/清屏机会，优先送配合块。sticky(harvestStickyMode=true)：prevIntent=harvest 时 nearFullLines≥1 即保持；dwellFrames=3 阻止过早切出',cls:'harvest'},
   {id:'pressure',cn:'B类挑战加压',priority:70,result:"'pressure'",
    guard:"challengeBoost>0\n|| (delightMode=='challenge_payoff'\n   && stress≥0.55)",
    desc:'B类挑战：score接近PB且bypass全通过时的低优加压',cls:''},
   {id:'sprint',cn:'渐紧过渡',priority:60,result:"'sprint'",
-   guard:"stress∈[sprintMin=0.45, sprintMax=0.55)",
-   desc:'渐紧过渡：中等压力区缓步提升难度',cls:''},
+   guard:"sprintCfg.enabled !== false\n&& stress∈[sprintMin=0.45, sprintMax=0.55)",
+   desc:'渐紧过渡：中等压力区缓步提升难度。滞回：按 prevIntent 用 sprintExpand/sprintShrink(0.05)扩缩区间；dwellFrames=3',cls:''},
   {id:'flow',cn:'心流释放',priority:50,result:"'flow'",
    guard:"delightMode=='flow_payoff'\n|| rhythmPhase=='payoff'",
    desc:'心流释放：流动奖励窗口，偏向送爽感块',cls:''},
@@ -2777,8 +2787,8 @@ const INTENTS = [
 const STRESS_BASE = [
   {n:'S1','id':'scoreStress',cn:'得分驱动压力',sign:'+',range:'[0,0.78]',note:'',
    trigger:'pct=score/best; 曲线插值; pct<0.5时×0.4折扣'},
-  {n:'S2','id':'runStreakStress',cn:'连战加压',sign:'+',range:'[0,0.10]',note:'',
-   trigger:'min(runStreak,6) × spawnStressBonusPerGame'},
+  {n:'S2','id':'runStreakStress',cn:'连战加压',sign:'±',range:'[-0.10,+0.05]',note:'默认 curve=humped；含负值 breather 段',
+   trigger:'默认 humped 查表 stressBonusByStreak=[0,.03,.05,.05,.02,-.05,-.10]；curve=linear 时才是 min(runStreak,6)×0.045'},
   {n:'S3','id':'difficultyBias',cn:'难度档静态偏移',sign:'±',range:'[-0.22,+0.22]',note:'',
    trigger:"easy=-0.22  normal=0  hard=+0.22"},
   {n:'S4','id':'skillAdjust',cn:'技能调节',sign:'±',range:'[-0.15,+0.15]',note:'',
@@ -2819,8 +2829,8 @@ const STRESS_BASE = [
    trigger:'boardRisk×-0.10  boardRisk=fillRisk×0.45+holePressure×0.35+riskLevel×0.20'},
   {n:'S18','id':'abilityRiskAdjust',cn:'能力风险救济',sign:'-',range:'[-0.08,0]',note:'⚠不进playerDistress',
    trigger:'conf≥0.25&&risk≥0.62: -0.08×min(1,(risk-0.62)/0.38)'},
-  {n:'S19','id':'delightStressAdjust',cn:'爽感偏置',sign:'±',range:'[-0.08,+0.04]',note:'',
-   trigger:"delight.stressAdjust  bored+skill>0.52:+0.07  anxious/recovery:-0.08"},
+  {n:'S19','id':'delightStressAdjust',cn:'爽感偏置',sign:'±',range:'[-0.08,+0.07]',note:'NORMALIZE 豁免，保留原幅',
+   trigger:"delight.stressAdjust  bored+highSkill:+boredSkillStressBoost(0.07)  anxious/recovery:-anxiousReliefStress(0.08)×max(0.4,recoveryNeed)"},
   {n:'S20','id':'friendlyBoardRelief',cn:'友好盘面减压',sign:'-',range:'[-0.18,-0.12]或0',note:'⚠不进playerDistress！条件严苛',
    trigger:'holes===0 && nearFull≥2 && (multiClear≥2||pcSetup≥1) && rhythmPhase=payoff'},
   {n:'S21','id':'bottleneckRelief',cn:'瓶颈低谷救济',sign:'-',range:'[-0.12,0]',note:'★进playerDistress  互抑后max-0.06',
@@ -2844,25 +2854,37 @@ const STRESS_POST = [
    desc:'daysSinceLastActive≥7 → 前3局stress=min(stress,0.60)',
    range:'stress截至≤0.60'},
   {n:'P4','id':'challengeBoost',cn:'B类高分挑战加压',
-   desc:'score≥best×0.80且bypass全通过: boost=min(0.18,(score/best-0.80)×0.75)',
-   range:'[0,+0.18]'},
+   desc:'score≥best×0.80且bypass全通过: boost=min(0.18,(score/best-0.80)×0.75); 加后 stress=min(0.85,stress+boost); friendlyBoardRelief<-0.09 同帧时 ×0.42 互抑',
+   range:'[0,+0.18] 后置 cap 0.85'},
   {n:'P5','id':'pbChasePressureActive',cn:'PB追击意图切换',
    desc:'v1.61 新增：触发priority=102的pressure intent，意图切换（非stress数值）',
    range:'boolean → spawnIntent'},
   {n:'P6','id':'pbOvershootBoost',cn:'破PB持续加压',
-   desc:'score>bestScore(D4段): log10对数放大 stress=min(0.90,stress+boost)',
+   desc:'score>bestScore(D4段): log10对数放大 stress=min(capStress=0.90,stress+boost)',
    range:'[0,~0.16]'},
+  {n:'P6b','id':'(clamp硬钳)',cn:'范围硬钳',
+   desc:'occupancyDamping 前先 stress=max(-0.2,min(1,stress))  (adaptiveSpawn.js:2035–2037)',
+   range:'[-0.2,1]'},
   {n:'P7','id':'occupancyDamping',cn:'占用率衰减',
-   desc:'高填充时压制stress防死局；D4段(pbOvershootActive)豁免避免消解',
-   range:'[-0.15,0]'},
+   desc:'高填充时 stress×occScale  occScale=max(0.4,min(1,occAnchor/0.5))；D4段(pbOvershootActive)豁免避免消解',
+   range:'×[0.4,1]，最深可达 -0.6×stress'},
   {n:'P8','id':'smoothing',cn:'EMA平滑',
-   desc:'EMA平滑 α=0.35 maxStepUp=0.18 maxStepDown=0.28',
+   desc:'EMA平滑 α=0.4 maxStepUp=0.18 maxStepDown=0.28 (cfg.stressSmoothing)；救济/近失 immediateRelief 时立即生效',
    range:'平滑后stress'},
+  {n:'P8b','id':'minStressFloor',cn:'最低 stress 地板',
+   desc:'非 onboarding/recovery 时 stress=max(stress, difficultyTuning.minStress)，hard 默认 0.18  (adaptiveSpawn.js:2095–2098)',
+   range:'≥minStress(hard 0.18)'},
+  {n:'P8c','id':'flowPayoffCap',cn:'心流兑现封顶',
+   desc:'flow+payoff+holes=0+低 boardRisk 时 stress=min(stress,0.79)  (adaptiveSpawn.js:2107–2118)',
+   range:'stress≤0.79'},
+  {n:'P8d','id':'postPbReleaseStressAdjust',cn:'破PB后释放',
+   desc:'postPbReleaseActive && stress>0 时正向 stress×releaseFactor(0.7)  (adaptiveSpawn.js:2131–2138)',
+   range:'×0.7（正向）'},
   {n:'P9','id':'normalizedStress(输出)',cn:'对外归一化展示',
-   desc:'clamp01((finalStress+0.2)/1.2)  [-0.2,1]→[0,1]  DFV面板展示值',
+   desc:'clamp01((finalStress+0.2)/1.2)  [-0.2,1]→[0,1]  DFV面板展示值；不改 finalStress',
    range:'[0,1]'},
   {n:'P10','id':'phaseFreq→pressurePhase',cn:'压力阶段派生 (v1.66)',
-   desc:'deriveSpawnHints 内：stress+boardFill → low/mid/high；透传 orderSolutionBudget/phasePool*；不修改 raw stress 数值',
+   desc:'deriveSpawnHints 内：high=stress≥0.55&&fill≥0.50；low=stress≤0.40&&非onboarding/recovery；透传 orderSolutionBudget/phasePool*；不修改 raw stress 数值',
    range:"pressurePhase + spawnHints 5 字段"},
 ];
 
@@ -3236,9 +3258,9 @@ function renderIntentGrid() {
 // ─── Stress tables ─────────────────────────────────────────────────────────────
 function renderStressTables() {
   const flow = document.getElementById('stress-flow-diagram');
-  flow.textContent = `rawStress = Σ(S1~S24)  →  lifecycleCapAdjust  →  onboardingOverride  →  winbackCap
-             →  challengeBoost  →  pbOvershootBoost  →  clamp[-0.2,1]
-             →  occupancyDamping  →  smoothing(α=0.35)  →  minStressFloor  →  flowPayoffCap
+  flow.textContent = `rawStress = Σ(28 项基础分量)  →  lifecycleCap+bandAdjust  →  onboardingOverride  →  winbackCap
+             →  challengeBoost(min 0.85)  →  pbOvershootBoost(min 0.90)  →  clamp[-0.2,1]
+             →  occupancyDamping(×occScale)  →  smoothing(α=0.4)  →  minStressFloor(hard 0.18)  →  flowPayoffCap(0.79)  →  postPbRelease(×0.7)
              →  finalStress  →  normalizeStress((s+0.2)/1.2)  →  [0,1] 对外展示`;
 
   const tbody = document.getElementById('stress-tbody-base');
@@ -3578,7 +3600,7 @@ function renderSimulatorView() {
     stress = Math.max(-0.2, Math.min(1, stress));
     const norm = Math.max(0, Math.min(1, (stress + 0.2) / 1.2));
 
-    // playerDistress（7项减压聚合，scoreStress 不进）
+    // playerDistress（实码为10项聚合，此处简化版仅暴露4个滑块项；scoreStress 不进）
     const distress = (state.recoveryAdjust||0) + (state.frustrationRelief||0)
                    + (state.nearMissAdjust||0) + (state.endSessionDistress||0);
 
