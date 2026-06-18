@@ -178,6 +178,55 @@ const FILL_SURVIVABILITY_ON = _SB.fillSurvivabilityOn ?? 0.52;
 const SURVIVE_SEARCH_BUDGET = _SB.surviveSearchBudget ?? 14000;
 const CRITICAL_FILL = _SB.criticalFill ?? 0.68;
 
+/* ───── v1.71 V4：DFS budget 占用观测 ─────
+ * U2 把 canPlace 提速 ~4x 后，问题变成"我们能否安全地把 budget 提高拿更准的解"。
+ * 决策需要数据：在不改任何行为的前提下，先采集真实分布——
+ *   - dfsTotalCalls：dfsCountSolutions/dfsPlaceOrder 总入栈次数
+ *   - dfsTruncatedCount：因 budget 用尽截断的次数
+ *   - dfsBudgetUsageHist：[0-25%, 25-50%, 50-75%, 75-100%] 4 个桶
+ * 观测期数据稳定后，可基于截断率（如 < 5% 即可继续保守，> 15% 则有必要扩容）
+ * 做下一步预算调整决策。零行为变更——纯加 hook + 统计。 */
+const _dfsStats = {
+    totalCalls: 0,
+    truncatedCount: 0,
+    budgetUsageHist: [0, 0, 0, 0], // [<25%, <50%, <75%, <=100%]
+};
+function _recordDfsUsage(initialBudget, remainingBudget, truncated) {
+    _dfsStats.totalCalls++;
+    if (truncated) _dfsStats.truncatedCount++;
+    if (initialBudget > 0) {
+        const usedRatio = (initialBudget - Math.max(0, remainingBudget)) / initialBudget;
+        const bucket = Math.min(3, Math.floor(usedRatio * 4));
+        _dfsStats.budgetUsageHist[bucket]++;
+    }
+}
+
+/**
+ * PUBLIC API: 观测 DFS budget 占用统计（V4 加入），供 monPanel / 性能调优面板读取。
+ * 返回快照（不是 live 引用），调用方可安全持有。
+ * @returns {{ totalCalls: number, truncatedCount: number, truncatedRatio: number,
+ *             budgetUsageHist: number[] }}
+ */
+export function getBlockSpawnDfsStats() {
+    const tot = _dfsStats.totalCalls;
+    return {
+        totalCalls: tot,
+        truncatedCount: _dfsStats.truncatedCount,
+        truncatedRatio: tot > 0 ? _dfsStats.truncatedCount / tot : 0,
+        budgetUsageHist: _dfsStats.budgetUsageHist.slice(),
+    };
+}
+
+/** PUBLIC API: 重置 DFS 统计（测试 / 跨 session 切换）。 */
+export function resetBlockSpawnDfsStats() {
+    _dfsStats.totalCalls = 0;
+    _dfsStats.truncatedCount = 0;
+    _dfsStats.budgetUsageHist[0] = 0;
+    _dfsStats.budgetUsageHist[1] = 0;
+    _dfsStats.budgetUsageHist[2] = 0;
+    _dfsStats.budgetUsageHist[3] = 0;
+}
+
 /* ---------- 解法数量评估常量（可被 game_rules.solutionDifficulty 覆盖） ---------- */
 const SOLUTION_EVAL_FILL_MIN_DEFAULT = 0.45;
 const SOLUTION_LEAF_CAP_DEFAULT = _SB.solutionLeafCapDefault ?? 64;
@@ -335,14 +384,19 @@ function dfsPlaceOrder(grid, orderedShapes, depth, budget) {
 function tripletSequentiallySolvable(grid, threeData, opts = {}) {
     if (threeData.length !== 3) return true;
     const [a, b, c] = threeData;
-    const budget = {
-        n: opts.searchBudget ?? SURVIVE_SEARCH_BUDGET,
-        exhaustAsPass: opts.exhaustAsPass ?? true
-    };
+    const _initialBudget = opts.searchBudget ?? SURVIVE_SEARCH_BUDGET;
+    const budget = { n: _initialBudget, exhaustAsPass: opts.exhaustAsPass ?? true };
     for (const perm of permutations3(a, b, c)) {
-        if (dfsPlaceOrder(grid, perm, 0, budget)) return true;
-        if (budget.n <= 0 && budget.exhaustAsPass) return true;
+        if (dfsPlaceOrder(grid, perm, 0, budget)) {
+            _recordDfsUsage(_initialBudget, budget.n, false);
+            return true;
+        }
+        if (budget.n <= 0 && budget.exhaustAsPass) {
+            _recordDfsUsage(_initialBudget, budget.n, true);
+            return true;
+        }
     }
+    _recordDfsUsage(_initialBudget, budget.n, budget.n <= 0);
     return false;
 }
 
@@ -510,7 +564,8 @@ export function evaluateTripletSolutions(grid, threeData, opts = {}) {
     }
 
     const cap = Math.max(1, opts.leafCap ?? SOLUTION_LEAF_CAP_DEFAULT);
-    const budget = { n: Math.max(100, opts.budget ?? SOLUTION_BUDGET_DEFAULT) };
+    const _initialBudget = Math.max(100, opts.budget ?? SOLUTION_BUDGET_DEFAULT);
+    const budget = { n: _initialBudget };
     /* v1.57.2 / v1.57.3 — 9 项 base 度量在评估开始算一次，DFS 内只算 delta/绝对值，
      * 不重算 base。这是 9 维 metrics 廉价化的关键设计（base 计算 O(n²×k) 仅 1 次）。 */
     const baseHoles = countIsolatedHoles(grid);
@@ -628,6 +683,9 @@ export function evaluateTripletSolutions(grid, threeData, opts = {}) {
             solutionDiversity = std / mean;
         }
     }
+
+    /* v1.71 V4：DFS budget 占用观测（不改返回值，纯统计） */
+    _recordDfsUsage(_initialBudget, budget.n, accum.truncated);
 
     return {
         validPerms,
