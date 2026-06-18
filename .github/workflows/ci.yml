@@ -32,6 +32,9 @@ jobs:
       # 防止退步。新违例必须修复或加 // eslint-disable-next-line 显式
       # 标注（强制开发者意识到债务），不允许 warning 静默累积。
       - run: npm run lint:strict
+      # JJ5: 工作流静态检查——upload-artifact 必须显式 retention-days。
+      # 把 II4 文档规范升级为 CI 硬阻断，防新加 workflow 漏配 retention。
+      - run: npm run lint:workflows
       - name: vitest with coverage
         run: npx vitest run --coverage
         env:
