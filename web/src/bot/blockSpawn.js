@@ -50,6 +50,7 @@ import {
     countNearFullLinesCheap,
     columnHeightVariance,
     countDangerColumns,
+    computeColumnHeightSummary,
     countColorBoundaries,
 } from './spawnGeometry.js';
 /* v1.70：_tryInjectSpecial（519 行）抽到 ./specialInjection.js。循环 import 安全（运行期解引用）。 */
@@ -529,10 +530,10 @@ function dfsCountSolutions(grid, orderedShapes, depth, accum, budget) {
         /* ===== v1.57.3 ③ — 近满行/列 delta（"消行机会的供给/消耗"） ===== */
         const nearFullAfter = countNearFullLinesCheap(grid, 2);
         accum.nearFullDeltaSum += (nearFullAfter - accum.baseNearFull);
-        /* ===== v1.57.3 ⑥ — 终末平整度（列高方差，未归一化） ===== */
-        accum.flatnessSum += columnHeightVariance(grid);
-        /* ===== v1.57.3 ⑦ — 危险列数（接近爆顶预警） ===== */
-        accum.dangerColsSum += countDangerColumns(grid, accum.dangerHeight);
+        /* ===== v1.57.3 ⑥ + ⑦ — Z3：合并列扫描，一次 O(n²) 同时算 variance + danger ===== */
+        const _colSummary = computeColumnHeightSummary(grid, accum.dangerHeight);
+        accum.flatnessSum += _colSummary.variance;
+        accum.dangerColsSum += _colSummary.dangerCount;
         /* ===== v1.57.3 ⑧ — 视觉杂乱 delta（颜色边界变化） ===== */
         accum.clutterDeltaSum += (countColorBoundaries(grid) - accum.baseClutter);
         /* ===== v1.57.3 ④ — root-level survivor 标记 ===== */

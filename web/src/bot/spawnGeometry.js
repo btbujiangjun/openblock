@@ -123,42 +123,57 @@ export function countNearFullLinesCheap(grid, maxEmpty = 2) {
     return near;
 }
 
-/** v1.57.3 ⑥ — 列高度方差（"盘面平整度"）。
- *  列高 = 该列从顶部数最低的被占用行索引到 n 的距离（OpenBlock 无重力但仍可用此
- *  代理刻画"盘面凹凸"）。返回方差自身（非归一化）—— ranges 据此选档。 */
-export function columnHeightVariance(grid) {
-    if (!grid?.cells) return 0;
+/**
+ * v1.71 Z3：列高度合并扫描——一次 O(n²) 同时算出 variance + dangerCount + heights。
+ *
+ * 抽出动机：DFS evaluateTripletSolutions 每个叶子调用 columnHeightVariance +
+ * countDangerColumns 是 2 次完全独立的"列扫描" → 重复的 O(n²) 工作。
+ *
+ * 调用方收益：合并后 DFS 叶子的列度量从 2 次 O(n²) 降到 1 次。
+ * 单值访问入口保留（columnHeightVariance / countDangerColumns）以维持 API。
+ *
+ * @returns {{ heights: number[], variance: number, dangerCount: number, sum: number }}
+ */
+export function computeColumnHeightSummary(grid, dangerHeight = 6) {
+    if (!grid?.cells) return { heights: [], variance: 0, dangerCount: 0, sum: 0 };
     const n = grid.size;
-    const heights = new Array(n).fill(0);
-    for (let x = 0; x < n; x++) {
-        let h = 0;
-        for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== null) { h = n - y; break; }
-        }
-        heights[x] = h;
-    }
+    const heights = new Array(n);
     let sum = 0;
-    for (const h of heights) sum += h;
-    const mean = sum / n;
-    let v = 0;
-    for (const h of heights) v += (h - mean) * (h - mean);
-    return v / n;
-}
-
-/** v1.57.3 ⑦ — 危险列数：列高 ≥ dangerHeight 的列数（近爆顶预警，n=8 时
- *  默认 dangerHeight=6 表示该列已占 ≥ 6/8 = 75%）。玩家心智："眼看就要顶死"。 */
-export function countDangerColumns(grid, dangerHeight = 6) {
-    if (!grid?.cells) return 0;
-    const n = grid.size;
     let danger = 0;
     for (let x = 0; x < n; x++) {
         let h = 0;
+        const cells = grid.cells;
         for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== null) { h = n - y; break; }
+            if (cells[y][x] !== null) { h = n - y; break; }
         }
+        heights[x] = h;
+        sum += h;
         if (h >= dangerHeight) danger++;
     }
-    return danger;
+    const mean = sum / n;
+    let v = 0;
+    for (let i = 0; i < n; i++) {
+        const d = heights[i] - mean;
+        v += d * d;
+    }
+    return { heights, variance: v / n, dangerCount: danger, sum };
+}
+
+/** v1.57.3 ⑥ — 列高度方差（"盘面平整度"）。
+ *  列高 = 该列从顶部数最低的被占用行索引到 n 的距离（OpenBlock 无重力但仍可用此
+ *  代理刻画"盘面凹凸"）。返回方差自身（非归一化）—— ranges 据此选档。
+ *
+ *  v1.71 Z3：底层走 computeColumnHeightSummary（dangerHeight 参数不影响 variance）。 */
+export function columnHeightVariance(grid) {
+    return computeColumnHeightSummary(grid).variance;
+}
+
+/** v1.57.3 ⑦ — 危险列数：列高 ≥ dangerHeight 的列数（近爆顶预警，n=8 时
+ *  默认 dangerHeight=6 表示该列已占 ≥ 6/8 = 75%）。玩家心智："眼看就要顶死"。
+ *
+ *  v1.71 Z3：底层走 computeColumnHeightSummary（O(n²) 一次扫描出 variance + danger）。 */
+export function countDangerColumns(grid, dangerHeight = 6) {
+    return computeColumnHeightSummary(grid, dangerHeight).dangerCount;
 }
 
 /** v1.57.3 ⑧ — 视觉杂乱度：相邻两 cell 颜色不同的边数（不含 null-null 边）。
