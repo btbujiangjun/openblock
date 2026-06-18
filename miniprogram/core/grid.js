@@ -1118,6 +1118,35 @@ class Grid {
         }
         if (shapeCells.length === 0) return returnTarget ? { count: 0, targetCi: null } : 0;
 
+        /* HH2 阶段 1：预计算每行/列 emptyCount（基于 bitmap）+ shape 每行/列占用 count。
+         * placement 上 mono flush 的硬约束是"shape 放下后该 line 全填"，即
+         * (line empty cells) === (shape contributes cells to this line)。
+         * 任何不满足的 placement 直接跳过 sameAs 检查（之前是 O(n) per line × 2 lines）。
+         *
+         * 与 _buildBitmapView 不复用：bestMonoFlushPotential 需要的是
+         * `emptyCount per row/col`，不是单 mask；自有数据结构更直接。 */
+        const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
+        const rowEmptyCount = new Int32Array(n);
+        const colEmptyCount = new Int32Array(n);
+        for (let y = 0; y < n; y++) {
+            const row = this.cells[y];
+            let occ = 0;
+            for (let x = 0; x < n; x++) if (row[x] !== null) occ |= (1 << x);
+            rowEmptyCount[y] = _popcount32((~occ) & fullMask);
+        }
+        for (let x = 0; x < n; x++) {
+            let occCol = 0;
+            for (let y = 0; y < n; y++) if (this.cells[y][x] !== null) occCol |= (1 << y);
+            colEmptyCount[x] = _popcount32((~occCol) & fullMask);
+        }
+        /* shape 每行/列占用 cell 计数（含 dx/dy 偏移） */
+        const shapeRowFill = new Int32Array(sh);
+        const shapeColFill = new Int32Array(sw);
+        for (let k = 0; k < shapeCells.length; k++) {
+            shapeColFill[shapeCells[k][0]]++;
+            shapeRowFill[shapeCells[k][1]]++;
+        }
+
         /* v1.55.11 perf：受影响 row/col 用 Uint8Array 标记位（8 位足够 n=8），
          * shape 占用 cell 直接通过坐标算术判断（sx = x - ox, sy = y - oy）回查 shapeData，
          * 完全去掉每 placement 3 个 new Set() 与字符串 key 操作。 */
@@ -1141,10 +1170,13 @@ class Grid {
                 let placementTargetCi = null;
 
                 /* 行检查：非 shape 占用部分须全填 + 全同 icon。
-                 * shape 占用判断：x 落在 [ox, ox+sw) 且 shapeData[y-oy][x-ox] 为真 */
+                 * HH2 阶段 1：先用 emptyCount 硬剪枝——shape 放下后该 row 必须全填，
+                 * 即 rowEmptyCount[y] === shapeRowFill[y - oy]。
+                 * 这把"sameAs O(n) 全扫"在多数无效 placement 上变成 O(1) 比较跳过。 */
                 for (let y = 0; y < n; y++) {
                     if (!rowMask[y]) continue;
                     const sy = y - oy;
+                    if (rowEmptyCount[y] !== shapeRowFill[sy]) continue; /* HH2 剪枝 */
                     const shapeRow = shapeData[sy];
                     let allFilled = true;
                     let refCi = null;
@@ -1167,6 +1199,7 @@ class Grid {
                 for (let x = 0; x < n; x++) {
                     if (!colMask[x]) continue;
                     const sx = x - ox;
+                    if (colEmptyCount[x] !== shapeColFill[sx]) continue; /* HH2 剪枝 */
                     let allFilled = true;
                     let refCi = null;
                     let allSame = true;
