@@ -1,0 +1,68 @@
+# v1.71 BB2: dfs_budget_window 告警规则脚手架（Prometheus / Alertmanager）
+# 与 docs/engineering/OBSERVABILITY_WINDOW_SCHEMA.md SLO 表对齐。
+# 数据源 metric 命名是占位约定，按实际接入命名替换。
+
+groups:
+  - name: openblock.dfs_budget
+    interval: 30s
+    rules:
+
+      # P0: truncatedRatio P95 > 15% → 立即回滚 AA5 灰度
+      - alert: OpenBlockDfsTruncatedHighP0
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(openblock_dfs_budget_window_truncated_ratio_bucket{env="prod"}[5m])) by (le)
+          ) > 0.15
+        for: 5m
+        labels:
+          severity: P0
+          team: gameplay
+          auto_action: rollback_ab_dynamic_leaf_cap
+        annotations:
+          summary: "DFS budget P95 截断率 > 15%（{{ $value | humanizePercentage }}）"
+          description: |
+            P0：DFS budget 大面积截断，spawn 评估失真。
+            自动动作：触发 AA5 dynamic leafCap 灰度回滚（关 dynamicLeafCap 配置）。
+            排查：检查 budgetUsageHist 4 档分布，是否近 ≤100% 桶堆高。
+
+      # P1: cappedRatio P95 > 10% → 评估失真，AA5 灰度核心 KPI
+      - alert: OpenBlockDfsCappedHighP1
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(openblock_dfs_budget_window_capped_ratio_bucket{env="prod"}[5m])) by (le)
+          ) > 0.10
+        for: 10m
+        labels:
+          severity: P1
+          team: gameplay
+        annotations:
+          summary: "leafCap 命中率 P95 > 10%（{{ $value | humanizePercentage }}）"
+          description: |
+            P1：solutionCount 评估被 leafCap 截断，spawn 策略可能不准。
+            排查：
+              1. 检查 AA5 dynamic leafCap 是否已启用（应让 cappedRatio 显著下降）
+              2. 检查玩家 fill 分布是否高 fill 段异常多
+              3. 考虑上调 leafCapHighFill 到 128
+
+      # P2: 客户端上报中断（calls 突降）
+      - alert: OpenBlockDfsCallsDropP2
+        expr: |
+          (
+            sum(rate(openblock_dfs_budget_window_total_calls{env="prod"}[5m]))
+            /
+            sum(rate(openblock_dfs_budget_window_total_calls{env="prod"}[1h] offset 1h))
+          ) < 0.5
+        for: 15m
+        labels:
+          severity: P2
+          team: client
+        annotations:
+          summary: "DFS 上报量较 1h 前下降 > 50%"
+          description: |
+            P2：客户端 dfs_budget_window 上报量异常下降。
+            可能原因：
+              1. 客户端 analytics_store flush 链断（看 analytics_store_window.idbPutFail）
+              2. 客户端发版回滚，新版本未启用上报
+              3. 玩家活跃度真实下降（看 DAU 漏斗）

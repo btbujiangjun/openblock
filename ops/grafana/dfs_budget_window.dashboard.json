@@ -1,0 +1,152 @@
+{
+  "_comment": "v1.71 BB2: dfs_budget_window Grafana 仪表盘脚手架。导入步骤见同目录 README.md。数据源占位 ${DS_PROMETHEUS} / ${DS_LOKI}，依业务实际接入命名替换。事件源契约见 docs/engineering/OBSERVABILITY_WINDOW_SCHEMA.md。",
+  "title": "OpenBlock — DFS Budget Window",
+  "uid": "openblock-dfs-budget",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["openblock", "observability", "performance"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "label": "Prometheus",
+        "query": "prometheus"
+      },
+      {
+        "name": "env",
+        "type": "custom",
+        "label": "环境",
+        "query": "prod,staging,dev",
+        "current": { "selected": true, "text": "prod", "value": "prod" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "truncatedRatio (P50/P95)",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "DFS budget 截断率：P0 告警 > 15%（自动回滚 dynamic leafCap 灰度）",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(openblock_dfs_budget_window_truncated_ratio_bucket{env=\"$env\"}[5m])) by (le))",
+          "legendFormat": "P50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(openblock_dfs_budget_window_truncated_ratio_bucket{env=\"$env\"}[5m])) by (le))",
+          "legendFormat": "P95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.05 },
+              { "color": "red", "value": 0.15 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "cappedRatio (leafCap 命中率)",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "P1 告警 > 10%（评估失真，spawn 策略不准）；AA5 灰度核心 KPI",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(openblock_dfs_budget_window_capped_ratio_bucket{env=\"$env\"}[5m])) by (le))",
+          "legendFormat": "P50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(openblock_dfs_budget_window_capped_ratio_bucket{env=\"$env\"}[5m])) by (le))",
+          "legendFormat": "P95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.05 },
+              { "color": "red", "value": 0.10 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "budgetUsageHist 桶分布（4 档堆叠）",
+      "type": "barchart",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "DFS budget 使用率分布：[<25%, <50%, <75%, ≤100%]，理想 P50<25% 主导；近 ≤100% 桶堆高 → 需上调 budget",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "sum(rate(openblock_dfs_budget_window_usage_lt25{env=\"$env\"}[5m]))", "legendFormat": "<25%" },
+        { "expr": "sum(rate(openblock_dfs_budget_window_usage_lt50{env=\"$env\"}[5m]))", "legendFormat": "<50%" },
+        { "expr": "sum(rate(openblock_dfs_budget_window_usage_lt75{env=\"$env\"}[5m]))", "legendFormat": "<75%" },
+        { "expr": "sum(rate(openblock_dfs_budget_window_usage_lte100{env=\"$env\"}[5m]))", "legendFormat": "≤100%" }
+      ],
+      "options": { "stacking": { "mode": "normal" } }
+    },
+    {
+      "id": 4,
+      "title": "leafUsageHist 双峰检测（4 档）",
+      "type": "barchart",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "X4 双峰：<25% + ≥75% 同时高 → AA5 dynamic leafCap 决策依据",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "sum(rate(openblock_dfs_budget_window_leaf_lt25{env=\"$env\"}[5m]))", "legendFormat": "<25%" },
+        { "expr": "sum(rate(openblock_dfs_budget_window_leaf_lt50{env=\"$env\"}[5m]))", "legendFormat": "<50%" },
+        { "expr": "sum(rate(openblock_dfs_budget_window_leaf_lt75{env=\"$env\"}[5m]))", "legendFormat": "<75%" },
+        { "expr": "sum(rate(openblock_dfs_budget_window_leaf_lte100{env=\"$env\"}[5m]))", "legendFormat": "≥75% (含触顶)" }
+      ],
+      "options": { "stacking": { "mode": "normal" } }
+    },
+    {
+      "id": 5,
+      "title": "totalCalls / 分钟（吞吐 sanity）",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "DFS 调用总量 — 突降可能意味客户端上报中断；突增意味某玩家段 spawn 风暴",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(openblock_dfs_budget_window_total_calls{env=\"$env\"}[1m])) * 60",
+          "legendFormat": "calls/min"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "name": "AA5 灰度变更",
+        "datasource": "${DS_PROMETHEUS}",
+        "expr": "openblock_release_event{type=\"ab_change\",feature=\"dynamic_leaf_cap\"}",
+        "iconColor": "blue",
+        "tags": []
+      }
+    ]
+  }
+}
