@@ -91,10 +91,16 @@ describe('Z4 analytics_store_window schema 契约', () => {
         expect(s).toHaveProperty('lsPutFailCount');
     });
 
-    it('类型正确：所有字段均为 number', () => {
+    it('类型正确：所有 number 字段均为 number（NN-E1: idbFailReasons 是 EE4 新增 object map，需排除）', () => {
         const s = mod.getAnalyticsStoreStats();
+        const OBJECT_FIELDS = new Set(['idbFailReasons']); /* EE4：reason 拆分 map */
         for (const k of Object.keys(s)) {
-            expect(typeof s[k]).toBe('number');
+            if (OBJECT_FIELDS.has(k)) {
+                expect(typeof s[k]).toBe('object');
+                expect(s[k]).not.toBeNull();
+            } else {
+                expect(typeof s[k], `${k} should be number`).toBe('number');
+            }
         }
     });
 

@@ -97,26 +97,40 @@ describe('feedbackToggles', () => {
         expect(document.getElementById('appearance-mode-toggle').textContent).toBe('◇');
     });
 
-    it('点击界面风格按钮会三档循环并持久化', () => {
+    it('点击界面风格按钮会四档循环并持久化（NN-E1：源码升级到 4 档 basic→effects→premium→full）', () => {
         _store.set('openblock_visualfx_v1', JSON.stringify({ enabled: false }));
+        _store.set('openblock_skin_premium_v1', JSON.stringify({ enabled: false }));
         mountButtons();
         const deps = makeDeps();
         const toggles = initFeedbackToggles(deps);
         const btn = document.getElementById('appearance-mode-toggle');
 
+        /* basic: ◇ */
         expect(btn.textContent).toBe('◇');
+
+        /* basic → effects: ✦（visual on, premium off） */
+        btn.click();
+        expect(btn.textContent).toBe('✦');
+        expect(JSON.parse(_store.get('openblock_visualfx_v1')).enabled).toBe(true);
+        expect(JSON.parse(_store.get('openblock_skin_premium_v1')).enabled).toBe(false);
+
+        /* effects → premium: 💎（premium on, visual off） */
         btn.click();
         expect(btn.textContent).toBe('💎');
         expect(JSON.parse(_store.get('openblock_skin_premium_v1')).enabled).toBe(true);
         expect(JSON.parse(_store.get('openblock_visualfx_v1')).enabled).toBe(false);
 
+        /* premium → full: ✨（both on） */
         btn.click();
         expect(btn.textContent).toBe('✨');
+        expect(JSON.parse(_store.get('openblock_skin_premium_v1')).enabled).toBe(true);
         expect(JSON.parse(_store.get('openblock_visualfx_v1')).enabled).toBe(true);
 
+        /* full → basic: ◇（both off） */
         btn.click();
         expect(btn.textContent).toBe('◇');
         expect(JSON.parse(_store.get('openblock_skin_premium_v1')).enabled).toBe(false);
+        expect(JSON.parse(_store.get('openblock_visualfx_v1')).enabled).toBe(false);
         expect(JSON.parse(_store.get('openblock_visualfx_v1')).enabled).toBe(false);
         expect(toggles.getAppearanceMode()).toBe('basic');
     });
