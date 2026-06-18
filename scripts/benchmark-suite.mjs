@@ -358,14 +358,43 @@ if (OUT_PATH) {
 }
 
 /* HH5: 5 周滑动容错——读 trend history，仅当连续 N 次 regress 才 fail。
- * history 文件格式：{ entries: [{ ts, regressed: bool, snapshot: {...} }, ...] }
- * 单次 regress：标准输出 ⚠️ 但不 exit 1；连续 N 次：exit 1。 */
+ * history 文件格式（schema v2，v1.71 LL5 引入）：
+ *   { schemaVersion: 2, entries: [{ ts, regressed, snapshot }, ...] }
+ * v1（HH5 原始）：{ entries: [...] }  无 schemaVersion 字段
+ * 单次 regress：⚠️ 不 exit 1；连续 N 次：exit 1。 */
+const HISTORY_SCHEMA_VERSION = 2;
+
+/**
+ * LL5: history schema 升级。v1 无 schemaVersion → 升 v2 加字段。
+ * 升级是幂等的 + 向后只增字段，老 reader 仍可读（数组结构不变）。
+ *
+ * 未来 breaking 变更（如 entries 格式变）：
+ *   - 必须 bump schemaVersion + 加新分支
+ *   - 旧 schema 默认丢弃（return []）并打 warning
+ */
+function _migrateHistory(parsed) {
+    if (parsed == null || typeof parsed !== 'object') return [];
+    const sv = parsed.schemaVersion;
+    if (sv == null) {
+        /* v1：无 schemaVersion，但 entries 数组结构与 v2 兼容（只缺顶层 field） */
+        if (Array.isArray(parsed.entries)) {
+            console.error('[benchmark] LL5: trend history v1 → v2 migration（仅加 schemaVersion，无破坏性变更）');
+            return parsed.entries;
+        }
+        return [];
+    }
+    if (sv === 2) return Array.isArray(parsed.entries) ? parsed.entries : [];
+    /* 未来 schemaVersion > 2 时，老 reader 主动丢弃 + warn（避免静默错误读老数据） */
+    console.error(`[benchmark] LL5: trend history schemaVersion=${sv} 未来 schema，本 reader (v${HISTORY_SCHEMA_VERSION}) 不识别 → 丢弃`);
+    return [];
+}
+
 let historyEntries = [];
 if (TREND_HISTORY) {
     try {
         const raw = await readFile(resolve(process.cwd(), TREND_HISTORY), 'utf8');
         const parsed = JSON.parse(raw);
-        historyEntries = Array.isArray(parsed?.entries) ? parsed.entries : [];
+        historyEntries = _migrateHistory(parsed);
     } catch { /* 文件不存在或损坏 — 视为空 history */ }
 }
 
@@ -402,7 +431,10 @@ if (TREND_HISTORY_WRITE && TREND_HISTORY) {
     try {
         const target = resolve(process.cwd(), TREND_HISTORY);
         await mkdir(dirname(target), { recursive: true });
-        await writeFile(target, JSON.stringify({ entries: updatedHistory }, null, 2) + '\n', 'utf8');
+        await writeFile(target, JSON.stringify({
+            schemaVersion: HISTORY_SCHEMA_VERSION,
+            entries: updatedHistory,
+        }, null, 2) + '\n', 'utf8');
         console.error(`[benchmark] trend history 已写入 ${target}（${updatedHistory.length} entries）`);
     } catch (e) {
         console.error(`[benchmark] trend history 写入失败：${e.message}`);
