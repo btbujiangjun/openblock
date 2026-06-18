@@ -5,6 +5,14 @@
 module.exports = {
   "schemaVersion": 1,
   "description": "玩法与 RL 观测的单一数据源：改难度/得分/棋盘参数只改本文件；改特征维度需同步实现 observationEncoder 并重训模型。",
+  "rollout": {
+    "comment": "CC2：feature flag A/B 灰度配置（由 lib/userBucketing.resolveRolloutFeature 消费）。{ enabled, percent 0-100, salt } 三字段契约。salt 用 'feature-vN' 形式，迭代灰度方案时改 salt 重新分桶。详见 docs/engineering/DYNAMIC_LEAFCAP_AB_PLAN.md。",
+    "dynamicLeafCap": {
+      "enabled": false,
+      "percent": 0,
+      "salt": "dyn-cap-v1"
+    }
+  },
   "winScoreThreshold": 220,
   "rlCurriculum": {
     "comment": "胜利门槛课程·三模式（mode 字段控制，互斥）：linear=固定线性 ramp（v8 默认，需手工调 winThresholdEnd）；adaptive=v11 闭环（rlRewardShaping.adaptiveCurriculum 提供四档反馈，仍受 winThresholdEnd 上限制约）；quantile=v11.2 分位数自适应（不设 End，winThreshold=EMA(percentile(recent_scores, p))，模型能力变强 → 阈值自动同步上升，win_rate 数学上恒等于 1-p/100）。环境变量 RL_CURRICULUM_MODE 可覆盖；RL_CURRICULUM=0 总闸关闭。winScoreThreshold（顶层）仍是 220，作为产品端「胜利」标识与浏览器推理时的固定阈值，不与 RL 训练时的课程门槛混用。",

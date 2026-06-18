@@ -14,13 +14,52 @@ import {
     t,
 } from './i18n/i18n.js';
 import { Game } from './game.js';
-import { reconcileUserId } from './lib/userId.js';
-import { configureLoggerFromConfig, setRemoteSink } from './lib/logger.js';
+import { reconcileUserId, peekUserId } from './lib/userId.js';
+import { configureLoggerFromConfig, setRemoteSink, createLogger } from './lib/logger.js';
+import { resolveRolloutFeature, getFeatureBucket } from './lib/userBucketing.js';
 import { GAME_RULES } from './gameRules.js';
 import { getApiBaseUrl, isSqliteClientDatabase } from './config.js';
 
 /* 启动期尽早接入 logger 等级（在 game/各模块拉起前） */
 configureLoggerFromConfig(GAME_RULES);
+
+/* ── CC2: AA5 阶段 1 落地 —— dynamicLeafCap rollout 灰度 ───────────────────
+ * 在 blockSpawn 被任何模块导入前，按 game_rules.rollout.dynamicLeafCap 和当前
+ * userId 决定是否启用 dynamicLeafCap，**直接覆盖** GAME_RULES 配置对象。
+ *
+ * 这里用 peekUserId（同步读 localStorage/cookie），避免阻塞启动等待 IDB；
+ * 极早期未持久化 → 视为"无桶"，安全默认关闭（不抖动）。
+ *
+ * 上报：把 bucket / 是否启用作为 user property 推到 analytics，
+ * 服务端按桶聚合对照组 KPI（详见 docs/engineering/DYNAMIC_LEAFCAP_AB_PLAN.md）。
+ */
+{
+    const _ccLog = createLogger('rollout');
+    try {
+        const rolloutCfg = GAME_RULES?.rollout?.dynamicLeafCap;
+        const uid = peekUserId?.() || '';
+        if (uid && rolloutCfg && typeof rolloutCfg === 'object') {
+            const enabled = resolveRolloutFeature(uid, rolloutCfg);
+            const bucket = getFeatureBucket(uid, rolloutCfg.salt || '');
+            if (enabled) {
+                /* 覆盖 GAME_RULES（getSolutionDifficultyCfg 启动后才读，这里改了下次读就生效） */
+                if (!GAME_RULES.adaptiveSpawn) GAME_RULES.adaptiveSpawn = {};
+                if (!GAME_RULES.adaptiveSpawn.solutionDifficulty) GAME_RULES.adaptiveSpawn.solutionDifficulty = {};
+                GAME_RULES.adaptiveSpawn.solutionDifficulty.dynamicLeafCap = true;
+                _ccLog.info('dynamicLeafCap enabled by rollout', { bucket, percent: rolloutCfg.percent });
+            }
+            /* 不管启不启用都把桶号挂全局，方便观测层埋点上报 */
+            if (typeof globalThis !== 'undefined') {
+                globalThis.__OPENBLOCK_ROLLOUT__ = Object.assign(
+                    globalThis.__OPENBLOCK_ROLLOUT__ || {},
+                    { dynamicLeafCap: { bucket, enabled, salt: rolloutCfg.salt || '' } },
+                );
+            }
+        }
+    } catch (e) {
+        _ccLog.warn('rollout resolution failed; defaults retained', e);
+    }
+}
 
 /* T4 + U3：把 logger error 接到 analyticsTracker，通过 batch sink 平滑 burst。
  * - 动态 import 避免启动期循环依赖（analyticsTracker 自己也用 logger）
