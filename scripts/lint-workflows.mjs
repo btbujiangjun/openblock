@@ -161,6 +161,93 @@ for (const f of files) {
     if (/permissions:\s*write-all/.test(txt)) {
         warnings.push({ file: f, rule: 'avoid-write-all', msg: 'permissions: write-all 过宽，建议改 token-level 最小权限' });
     }
+
+    /* NN-B3: pull_request_target + checkout PR ref 反模式（GitHub 头号 supply chain 漏洞）
+     *
+     * pull_request_target 触发器在 base repo 上下文跑（有 secrets + write 权限），
+     * 但 actions/checkout 默认 checkout base ref。若显式 checkout PR head ref：
+     *   uses: actions/checkout@v4
+     *   with:
+     *     ref: ${{ github.event.pull_request.head.sha }}
+     * 等于在高权限上下文跑 attacker 代码 → RCE → secret exfiltration。
+     *
+     * 检测：on 含 pull_request_target → 全 workflow 不得 checkout PR head ref。
+     * 参考：https://securitylab.github.com/research/github-actions-preventing-pwn-requests/ */
+    const hasPRT = /on:\s*[\s\S]*?\bpull_request_target\b/.test(txt);
+    if (hasPRT) {
+        const dangerousCheckout = txt.match(
+            /uses:\s*actions\/checkout@[^\n]+[\s\S]*?ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.(sha|ref)\s*\}\}/,
+        );
+        if (dangerousCheckout) {
+            const idx = txt.indexOf(dangerousCheckout[0]);
+            const lineNum = txt.substring(0, idx).split('\n').length;
+            violations.push({
+                file: f,
+                line: lineNum,
+                rule: 'no-prt-checkout-head',
+                msg: 'pull_request_target + checkout PR head ref = 高权限跑 attacker 代码（典型 supply chain RCE），改用 pull_request 触发器或不 checkout head',
+            });
+        }
+        /* 额外：pull_request_target 用 secrets 要警告（不强 fail——有些场景合法） */
+        if (/secrets\.[A-Z]/.test(txt)) {
+            warnings.push({
+                file: f,
+                rule: 'prt-with-secrets',
+                msg: 'pull_request_target 触发器引用 secrets，请确认不会跑 PR fork 代码',
+            });
+        }
+    }
+
+    /* NN-B4: if: 表达式内 dangerous ref 检测
+     * `if:` 走 GitHub expression evaluator。攻击者控制字段拼入 → 可控制 step 执行：
+     *   if: ${{ contains(github.event.issue.title, 'release') }}   ← 攻击者 issue 标题
+     *   即可绕过 release-gate 自动 deploy。不能 RCE，但可绕过审批门 / skip 安全检查。
+     * 安全模式：if 仅用系统字段（github.actor / repository / event_name 等）。 */
+    const ifLines = txt.matchAll(/\bif:\s*\$\{\{[^}]+\}\}/g);
+    for (const im of ifLines) {
+        for (const dref of DANGEROUS_REFS) {
+            const re = new RegExp(dref);
+            if (re.test(im[0])) {
+                const lineNum = txt.substring(0, im.index).split('\n').length;
+                violations.push({
+                    file: f,
+                    line: lineNum,
+                    rule: 'no-untrusted-input-if',
+                    msg: `if: 表达式拼接攻击者可控字段 (${dref.replace(/\\\./g, '.')})，攻击者可控制 step 执行（绕过 release-gate / 安全检查）`,
+                });
+                break; /* 同一 if: 只报一次 */
+            }
+        }
+    }
+
+    /* NN-B2: github-script with.script 内的 dangerous ref 注入检测
+     * actions/github-script@vN 的 with.script: 接受任意 JS，${{ }} 在 JS 解析
+     * 前展开 → 与 shell 同等危险（attacker 控制字段拼入 JS 上下文 = RCE）。
+     * 安全模式：
+     *   with:
+     *     script: |
+     *       const title = process.env.TITLE;
+     *       ...
+     *     env: { TITLE: ${{ github.event.issue.title }} }   ← 实际上 with 段不直接支持 env，需用 step.env
+     * 实务安全模式：在 step 级 env: 中转 + script 内用 process.env */
+    const scriptBlocks = txt.matchAll(/script:\s*[\|>]?[\s\S]*?(?=\n\s{2,8}(?:[a-z-]+:|-\s)|$)/g);
+    for (const sm of scriptBlocks) {
+        const block = sm[0];
+        for (const dref of DANGEROUS_REFS) {
+            const re = new RegExp(`\\$\\{\\{[^}]*${dref}[^}]*\\}\\}`, 'g');
+            const matches = block.matchAll(re);
+            for (const m of matches) {
+                const absIdx = sm.index + (m.index || 0);
+                const lineNum = txt.substring(0, absIdx).split('\n').length;
+                violations.push({
+                    file: f,
+                    line: lineNum,
+                    rule: 'no-untrusted-input-script',
+                    msg: `with.script: 直接拼接攻击者可控字段 (${dref.replace(/\\\./g, '.')})，应改 env: + process.env 中转防 JS 上下文注入`,
+                });
+            }
+        }
+    }
 }
 
 if (violations.length === 0) {
