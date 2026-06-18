@@ -2,7 +2,7 @@
  * decisionTable — 通用幂等决策表执行器（v1.71 V5）
  */
 import { describe, it, expect } from 'vitest';
-import { applyDecisionTable } from '../web/src/lib/decisionTable.js';
+import { applyDecisionTable, applyPriorityLadder } from '../web/src/lib/decisionTable.js';
 
 describe('applyDecisionTable', () => {
     it('空 rules / 空 state 安全返回', () => {
@@ -113,5 +113,70 @@ describe('applyDecisionTable', () => {
     it('返回的是同一 state 引用（支持链式 / 原地修改）', () => {
         const s = { x: 1 };
         expect(applyDecisionTable([], s)).toBe(s);
+    });
+});
+
+describe('applyPriorityLadder — short-circuit 顺序敏感', () => {
+    it('空 ladder → defaultValue', () => {
+        expect(applyPriorityLadder([], {})).toBeNull();
+        expect(applyPriorityLadder([], {}, 'fallback')).toBe('fallback');
+        expect(applyPriorityLadder(null, {})).toBeNull();
+    });
+
+    it('首个匹配赢，后续不评估', () => {
+        const calls = [];
+        const ladder = [
+            { name: 'never', when: () => false, value: 'A' },
+            { name: 'hit',   when: () => { calls.push('B'); return true; }, value: 'B' },
+            { name: 'after', when: () => { calls.push('C'); return true; }, value: 'C' },
+        ];
+        expect(applyPriorityLadder(ladder, {})).toBe('B');
+        expect(calls).toEqual(['B']); /* C 未被评估 */
+    });
+
+    it('value 为函数 → 动态求值', () => {
+        const ladder = [
+            { when: (s) => s.x > 0, value: (s) => `pos-${s.x}` },
+        ];
+        expect(applyPriorityLadder(ladder, { x: 5 })).toBe('pos-5');
+    });
+
+    it('全部未命中 → defaultValue', () => {
+        const ladder = [
+            { when: () => false, value: 'a' },
+            { when: () => false, value: 'b' },
+        ];
+        expect(applyPriorityLadder(ladder, {})).toBeNull();
+        expect(applyPriorityLadder(ladder, {}, 'fallback')).toBe('fallback');
+    });
+
+    it('when 抛错被吞，规则跳过继续下一条', () => {
+        const ladder = [
+            { when: () => { throw new Error('boom'); }, value: 'A' },
+            { when: () => true, value: 'B' },
+        ];
+        expect(applyPriorityLadder(ladder, {})).toBe('B');
+    });
+
+    it('规则项 when 非函数 → 跳过', () => {
+        const ladder = [
+            { value: 'A' },
+            { when: 'not a function', value: 'B' },
+            { when: () => true, value: 'C' },
+        ];
+        expect(applyPriorityLadder(ladder, {})).toBe('C');
+    });
+
+    it('顺序敏感：调换 ladder 顺序改变返回', () => {
+        const a = [
+            { when: (s) => s.flag, value: 'first-wins' },
+            { when: () => true, value: 'always' },
+        ];
+        const b = [
+            { when: () => true, value: 'always' },
+            { when: (s) => s.flag, value: 'first-wins' },
+        ];
+        expect(applyPriorityLadder(a, { flag: true })).toBe('first-wins');
+        expect(applyPriorityLadder(b, { flag: true })).toBe('always');
     });
 });

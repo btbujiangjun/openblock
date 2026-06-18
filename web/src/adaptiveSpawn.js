@@ -37,7 +37,7 @@
 import { getStrategy } from './config.js';
 import { GAME_RULES } from './gameRules.js';
 import { pickByPlatform } from './config/platformProfile.js';
-import { applyDecisionTable } from './lib/decisionTable.js';
+import { applyDecisionTable, applyPriorityLadder } from './lib/decisionTable.js';
 import {
     getSpawnStressFromScore,
     getRunDifficultyModifiers,
@@ -414,20 +414,34 @@ function _applySpawnHintsBaseRules(s) {
     return { clearGuarantee, sizePreference, diversityBoost };
 }
 
-function _resolveChallengeBoostBypass(s) {
-    if (!s.pbDistanceClose) return 'pb_distance_far';
-    if (!(s.segment5 === 'B' || s.sessionTrend !== 'declining')) return 'segment_declining';
-    if (!(s.stress < 0.7)) return 'stress_saturated';
-    if (s.profile?.needsRecovery === true) return 'recovery';
-    if (s.hasBottleneckSignal) return 'bottleneck';
-    if (Number.isFinite(s.profile?.frustrationLevel)
-        && s.profile.frustrationLevel >= s.frustThreshold) return 'frustration';
-    if (s.decisionLoadReliefActive) return 'decision_load';
-    if (s.sessionArc === 'warmup') return 'warmup';
+/**
+ * challengeBoost bypass ladder（v1.71 W1：迁移到 priorityLadder DSL）。
+ *
+ * **关键不变量**：这是「short-circuit ladder」语义——按优先级依次判定，
+ * 首个命中规则的 value 即为返回。**顺序敏感**，不能用 applyDecisionTable。
+ *
+ * 维护原则：
+ *   - 改顺序 = 改业务行为，需重跑 spawnGolden
+ *   - 改判定逻辑（when） = 同上
+ *   - 增删规则 = 在 ladder 数组中操作，无需改函数实现
+ */
+const CHALLENGE_BOOST_BYPASS_LADDER = [
+    { name: 'pb_distance_far',   when: (s) => !s.pbDistanceClose,                                          value: 'pb_distance_far' },
+    { name: 'segment_declining', when: (s) => !(s.segment5 === 'B' || s.sessionTrend !== 'declining'),     value: 'segment_declining' },
+    { name: 'stress_saturated',  when: (s) => !(s.stress < 0.7),                                            value: 'stress_saturated' },
+    { name: 'recovery',          when: (s) => s.profile?.needsRecovery === true,                            value: 'recovery' },
+    { name: 'bottleneck',        when: (s) => s.hasBottleneckSignal,                                        value: 'bottleneck' },
+    { name: 'frustration',       when: (s) => Number.isFinite(s.profile?.frustrationLevel)
+                                                && s.profile.frustrationLevel >= s.frustThreshold,         value: 'frustration' },
+    { name: 'decision_load',     when: (s) => s.decisionLoadReliefActive,                                   value: 'decision_load' },
+    { name: 'warmup',            when: (s) => s.sessionArc === 'warmup',                                    value: 'warmup' },
     /* v1.55 §4.9：破纪录释放窗口期 challengeBoost 完全禁用，
      * 给玩家"破纪录后短暂的'我赢了'情绪"留出释放空间。 */
-    if (s.ctx?.postPbReleaseActive === true) return 'post_pb_release';
-    return null;
+    { name: 'post_pb_release',   when: (s) => s.ctx?.postPbReleaseActive === true,                          value: 'post_pb_release' },
+];
+
+function _resolveChallengeBoostBypass(s) {
+    return applyPriorityLadder(CHALLENGE_BOOST_BYPASS_LADDER, s, null);
 }
 
 export function normalizeStress(raw) {

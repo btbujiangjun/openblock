@@ -68,4 +68,34 @@ function applyDecisionTable(rules, state) {
     return state;
 }
 
-module.exports = { applyDecisionTable };
+/**
+ * applyPriorityLadder — 短路优先级表（v1.71 W1）
+ *
+ * 与 applyDecisionTable 的本质区别：
+ *   - applyDecisionTable: 所有规则都执行，幂等叠加（V1 risk/relief 场景）
+ *   - applyPriorityLadder: 按顺序找首个匹配，返回其 value，后续跳过（U1 bypass 场景）
+ *
+ * 适用于 adaptiveSpawn 的 _resolveChallengeBoostBypass / _selectFlowState 类
+ * 「ladder 选择器」——按优先级依次判断条件，命中即返回。
+ *
+ * 规则形态：
+ *   { name?: string, when: (state) => boolean, value: any | (state) => any }
+ *
+ * @param {Array<{name?:string, when:Function, value:any}>} ladder
+ * @param {object} state
+ * @param {any} [defaultValue=null] 全部未命中时返回
+ * @returns {any}
+ */
+function applyPriorityLadder(ladder, state, defaultValue = null) {
+    if (!Array.isArray(ladder)) return defaultValue;
+    for (const rule of ladder) {
+        if (!rule || typeof rule.when !== 'function') continue;
+        let hit;
+        try { hit = rule.when(state); } catch { hit = false; }
+        if (!hit) continue;
+        return typeof rule.value === 'function' ? rule.value(state) : rule.value;
+    }
+    return defaultValue;
+}
+
+module.exports = { applyDecisionTable, applyPriorityLadder };
