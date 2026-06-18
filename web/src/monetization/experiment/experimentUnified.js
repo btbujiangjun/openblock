@@ -43,6 +43,7 @@ export function mergeRegistries(extra = {}) {
 let _pausedSet = new Set();
 
 /** 从服务端拉取已暂停实验（DA-3），缓存到内存。 */
+/** PUBLIC API: 后端实验配置变更时由 monPanel / 运营工具手动触发刷新（V3 评审保留）。 */
 export async function refreshPausedExperiments(apiBase = '') {
     try {
         const base = (apiBase || '').replace(/\/+$/, '');

@@ -224,6 +224,7 @@ function _safe(fn, label) {
     }
 }
 
+/** PUBLIC API: 供 monPanel / 调试面板 / E2E 测试探测附挂状态（V3 评审保留）。 */
 export function isLifecycleAwareOffersAttached() {
     return _attached;
 }

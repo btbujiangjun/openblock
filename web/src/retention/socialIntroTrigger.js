@@ -222,6 +222,6 @@ function _getNextMilestone(completed) {
     return null;
 }
 
-export function invalidateSocialIntroCache() {
-    _introDataCache = null;
-}
+/* v1.71 V3：原 `export function invalidateSocialIntroCache()`，0 调用。
+ * 缓存现靠下次 getSocialIntroData 自带的 ttl 判断自动失效。
+ * 如未来需要外部强制刷新，恢复 export 即可。 */

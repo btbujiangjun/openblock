@@ -171,6 +171,7 @@ export function registerLifecycleExperiments(abTestManager) {
     return registered;
 }
 
+/** PUBLIC API: 供 monPanel / 实验列表面板枚举实验模板（V3 评审保留）。 */
 export function listLifecycleExperiments() {
     return LIFECYCLE_EXPERIMENT_TEMPLATES.map((t) => ({ ...t }));
 }

@@ -41,6 +41,18 @@ node scripts/scan-unused-exports.mjs --json    # 机器可读 JSON
 | `web/src/audit/profileAuditMath.js` | `finiteNumbers` | STRICT 扫零外部引用；仅同文件 mean/median/stddev 使用 | **改为内部函数**（U5） |
 | `web/src/coordination/unifiedSignals.js` | `invalidateUnifiedSignalsCache` | STRICT 扫零引用；缓存现靠 key 变化自动失效 | **整段删除**（U5） |
 | `web/src/bot/spawnEvaluation.js` | `scoreEvaluationRow` | STRICT 扫零外部引用；仅同文件 deriveOptimizerScore 使用 | **改为内部函数**（U5） |
+| `web/src/monetization/commercialModel.js` | `_resetCommercialModelCacheForTests` | `_*ForTests` 命名说明只服务测试，但测试已不调用 | **整段删除**（V3） |
+| `web/src/retention/socialIntroTrigger.js` | `invalidateSocialIntroCache` | 同 unifiedSignals 模式，cache 靠 ttl 失效 | **整段删除**（V3） |
+
+### B. 保留 + 加 PUBLIC API 豁免注释（V3 评审）
+
+以下 export 0 业务调用但属合理对外/调试 hook，加 `// PUBLIC API:` 注释长期保留：
+- `monetization/lifecycleAwareOffers.js`: `isLifecycleAwareOffersAttached`
+- `monetization/lifecycleOutreach.js`: `isLifecycleOutreachAttached`
+- `monetization/experiment/experimentUnified.js`: `refreshPausedExperiments`
+- `monetization/lifecycleExperiments.js`: `listLifecycleExperiments`
+
+> 扫描脚本未来可识别 `// PUBLIC API:` 注释自动豁免；当前先手动维护台账。
 
 ### B. 中置信度（需人工确认是否为对外/调试入口）
 

@@ -375,11 +375,10 @@ export function getCommercialChurnRisk01(ctx = {}) {
 }
 
 /** 仅供测试 reset。 */
-export function _resetCommercialModelCacheForTests() {
-    _churnCacheKey = null;
-    _churnCacheValue = null;
-    _churnCacheTs = 0;
-}
+/* v1.71 V3：原 `export function _resetCommercialModelCacheForTests()`，
+ * 命名表明仅服务测试，但当前测试套件已不调用（scan-unused-exports.mjs --strict 0 引用）。
+ * 删除以减少公共面噪音；如未来测试需要，churnRisk 主路径有 key 缓存自动失效，
+ * 或重新 export 这个内部 reset 即可。 */
 
 export function shouldAllowMonetizationAction(vector, action) {
     const t = getStrategyConfig().commercialModel?.actionThresholds ?? {};
