@@ -56,8 +56,11 @@ jobs:
         id: benchmark
         continue-on-error: true
         run: |
-          # benchmark:quick 跳过耗时 ~3min 的 perf-bench-cli，保留 dead-code/DFS/dist
-          npm run benchmark:quick > /tmp/benchmark-report.md 2>&1 || true
+          # EE5: 用 --trend-baseline 启用周-over-周 Δ 对比
+          # benchmark:quick 跳过耗时 ~3min 的 perf-bench-cli，保留 dead-code/DFS/dist + trend 段
+          node scripts/benchmark-suite.mjs --skip-perf \
+            --trend-baseline docs/engineering/benchmark-trend-baseline.json \
+            > /tmp/benchmark-report.md 2>&1 || true
           # 截前 60 行作为 issue body 嵌入摘要（避免 issue 太长）
           head -n 60 /tmp/benchmark-report.md > /tmp/benchmark-summary.md
           echo "--- benchmark summary preview ---"

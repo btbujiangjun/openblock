@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "ts": 1781788041008,
+  "deadCode": {
+    "unusedCount": 71,
+    "totalExports": 1418
+  },
+  "dfs": {
+    "truncatedRatio": 0,
+    "cappedRatio": 0.28664495114006516,
+    "totalCalls": 516
+  },
+  "dist": {
+    "bytes": 6121920
+  }
+}

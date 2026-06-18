@@ -19,7 +19,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { writeFile, mkdir, stat, readdir } from 'node:fs/promises';
+import { writeFile, mkdir, stat, readdir, readFile } from 'node:fs/promises';
 import { dirname, resolve, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
@@ -31,6 +31,14 @@ const cliArg = (k, fallback) => {
 };
 const OUT_PATH = cliArg('--out', '');
 const SKIP_PERF = argv.includes('--skip-perf');
+/* EE5：trend 对比 —
+ *   --trend-baseline path.json  读旧 snapshot，与本次跑结果做 Δ 对比
+ *   --write-trend path.json     写本次 snapshot（CI 在主分支跑时用）
+ *   --trend-fail-on-regress     任何关键指标恶化（>10%）时 exit 1
+ * snapshot schema 见下方 _buildTrendSnapshot。 */
+const TREND_BASELINE = cliArg('--trend-baseline', '');
+const TREND_WRITE = cliArg('--write-trend', '');
+const TREND_FAIL_ON_REGRESS = argv.includes('--trend-fail-on-regress');
 
 function runNode(script, args = [], timeoutMs = 180_000) {
     const t0 = performance.now();
@@ -171,10 +179,94 @@ lines.push(`- dist/ 总大小：${fmtBytes(distBytes)}`);
 lines.push(`- 提示：运行 \`npm run build\` 后再跑可获最新数据`);
 lines.push('');
 
+/* ============ 5. Trend 对比（EE5） ============ */
+function _buildTrendSnapshot() {
+    return {
+        schemaVersion: 1,
+        ts: Date.now(),
+        deadCode: {
+            unusedCount: deadJson?.unusedCount ?? null,
+            totalExports: deadJson?.totalExports ?? null,
+        },
+        dfs: {
+            truncatedRatio: dfsJson?.dfs?.truncatedRatio ?? null,
+            cappedRatio: dfsJson?.leafCap?.cappedRatio ?? null,
+            totalCalls: dfsJson?.dfs?.totalCalls ?? null,
+        },
+        dist: { bytes: distBytes },
+    };
+}
+
+const snapshot = _buildTrendSnapshot();
+
+let trendBaseline = null;
+let regressed = false;
+if (TREND_BASELINE) {
+    try {
+        const raw = await readFile(resolve(process.cwd(), TREND_BASELINE), 'utf8');
+        trendBaseline = JSON.parse(raw);
+    } catch (e) {
+        console.error(`[benchmark] trend baseline 读取失败：${e.message}`);
+    }
+}
+
+function fmtDeltaPct(curr, base) {
+    if (base == null || base === 0 || curr == null) return 'N/A';
+    const pct = ((curr - base) / Math.abs(base)) * 100;
+    const sign = pct >= 0 ? '+' : '';
+    return `${sign}${pct.toFixed(1)}%`;
+}
+function deltaIcon(curr, base, lowerIsBetter = true) {
+    if (base == null || curr == null) return '–';
+    if (curr === base) return '=';
+    const better = lowerIsBetter ? (curr < base) : (curr > base);
+    if (better) return '✅';
+    /* 退化阈值：超过 10% 视为显著恶化 */
+    if (base === 0) return '⚠️';
+    const pct = Math.abs((curr - base) / base) * 100;
+    return pct > 10 ? '🔴' : '⚠️';
+}
+
+lines.push('## 维度 5：Trend 对比（EE5）');
+lines.push('');
+if (trendBaseline) {
+    lines.push(`- 基线时间：${new Date(trendBaseline.ts || 0).toISOString()}`);
+    lines.push('');
+    lines.push('| 指标 | 基线 | 当前 | Δ | 状态 |');
+    lines.push('|---|---|---|---|---|');
+    const rows = [
+        ['dead code unused', trendBaseline.deadCode?.unusedCount, snapshot.deadCode.unusedCount, true],
+        ['DFS truncatedRatio', trendBaseline.dfs?.truncatedRatio, snapshot.dfs.truncatedRatio, true],
+        ['DFS cappedRatio', trendBaseline.dfs?.cappedRatio, snapshot.dfs.cappedRatio, true],
+        ['dist bytes', trendBaseline.dist?.bytes, snapshot.dist.bytes, true],
+    ];
+    for (const [name, base, curr, lib] of rows) {
+        const icon = deltaIcon(curr, base, lib);
+        if (icon === '🔴') regressed = true;
+        lines.push(`| ${name} | ${base ?? 'N/A'} | ${curr ?? 'N/A'} | ${fmtDeltaPct(curr, base)} | ${icon} |`);
+    }
+} else if (TREND_BASELINE) {
+    lines.push(`- ⚠️ 基线文件 \`${TREND_BASELINE}\` 不可读，跳过对比`);
+} else {
+    lines.push('- 未指定 `--trend-baseline`，跳过对比（首次运行用 `--write-trend` 写基线）');
+}
+lines.push('');
+
+if (TREND_WRITE) {
+    try {
+        const target = resolve(process.cwd(), TREND_WRITE);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, JSON.stringify(snapshot, null, 2) + '\n', 'utf8');
+        console.error(`[benchmark] trend snapshot 已写入 ${target}`);
+    } catch (e) {
+        console.error(`[benchmark] trend snapshot 写入失败：${e.message}`);
+    }
+}
+
 lines.push('---');
 lines.push('');
 lines.push('> 由 `npm run benchmark`（scripts/benchmark-suite.mjs）生成。');
-lines.push('> 4 维度数据来源：scan-unused-exports / perf-dfs-stats / perf-bench-cli / dist。');
+lines.push('> 5 维度数据来源：scan-unused-exports / perf-dfs-stats / perf-bench-cli / dist / trend baseline。');
 
 const report = lines.join('\n') + '\n';
 
@@ -189,4 +281,6 @@ if (OUT_PATH) {
 
 /* 任何一个维度失败就返回非零（CI 可接） */
 const anyFail = !deadRes.ok || !dfsRes.ok || (!SKIP_PERF && perfRes && !perfRes.ok);
-process.exit(anyFail ? 1 : 0);
+const trendFail = TREND_FAIL_ON_REGRESS && regressed;
+if (trendFail) console.error('[benchmark] ❌ trend 检测到 >10% 退化，按 --trend-fail-on-regress 退出');
+process.exit((anyFail || trendFail) ? 1 : 0);
