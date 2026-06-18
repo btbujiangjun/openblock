@@ -1,5 +1,6 @@
 {
   "_comment": "v1.71 CC5: monetization_bus_window Grafana 仪表盘脚手架（Y4 熔断器可视化）。事件契约见 docs/engineering/OBSERVABILITY_WINDOW_SCHEMA.md。Z4 schema contract tests 锁定字段名。",
+  "_kk3": "KK3: dashboard ↔ alerts.yml 联动 links 已加",
   "title": "OpenBlock — Monetization Bus Window",
   "uid": "openblock-monetization-bus",
   "schemaVersion": 38,
@@ -8,6 +9,10 @@
   "timezone": "browser",
   "refresh": "30s",
   "time": { "from": "now-24h", "to": "now" },
+  "links": [
+    { "title": "KK3 所有 monetization bus 告警", "url": "/alerting/list?queryString=MonetizationBus", "type": "link", "icon": "bolt", "targetBlank": true },
+    { "title": "Y4/FF4 observability schema", "url": "https://github.com/btbujiangjun/openblock/blob/main/docs/engineering/OBSERVABILITY_WINDOW_SCHEMA.md", "type": "link", "icon": "doc", "targetBlank": true }
+  ],
   "templating": {
     "list": [
       { "name": "DS_PROMETHEUS", "type": "datasource", "label": "Prometheus", "query": "prometheus" },
@@ -39,7 +44,10 @@
             ]
           }
         }
-      }
+      },
+      "links": [
+        { "title": "P0 OpenBlockMonetizationBusCircuitTripP0 告警", "url": "/alerting/list?queryString=OpenBlockMonetizationBusCircuitTripP0", "targetBlank": true }
+      ]
     },
     {
       "id": 2,
@@ -67,7 +75,10 @@
             ]
           }
         }
-      }
+      },
+      "links": [
+        { "title": "P1 OpenBlockMonetizationBusHandlerFailHighP1 告警", "url": "/alerting/list?queryString=OpenBlockMonetizationBusHandlerFailHighP1", "targetBlank": true }
+      ]
     },
     {
       "id": 3,
@@ -95,6 +106,9 @@
           "expr": "sum(rate(openblock_monetization_bus_emits{env=\"$env\"}[1m])) * 60",
           "legendFormat": "emits/min"
         }
+      ],
+      "links": [
+        { "title": "P2 OpenBlockMonetizationBusEmitsDropP2 告警", "url": "/alerting/list?queryString=OpenBlockMonetizationBusEmitsDropP2", "targetBlank": true }
       ]
     },
     {

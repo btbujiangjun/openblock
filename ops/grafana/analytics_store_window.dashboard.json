@@ -8,6 +8,10 @@
   "timezone": "browser",
   "refresh": "30s",
   "time": { "from": "now-24h", "to": "now" },
+  "links": [
+    { "title": "KK3 所有 analytics store 告警", "url": "/alerting/list?queryString=AnalyticsStore", "type": "link", "icon": "bolt", "targetBlank": true },
+    { "title": "Y3/EE4 observability schema", "url": "https://github.com/btbujiangjun/openblock/blob/main/docs/engineering/OBSERVABILITY_WINDOW_SCHEMA.md", "type": "link", "icon": "doc", "targetBlank": true }
+  ],
   "templating": {
     "list": [
       { "name": "DS_PROMETHEUS", "type": "datasource", "label": "Prometheus", "query": "prometheus" },
@@ -42,7 +46,10 @@
             ]
           }
         }
-      }
+      },
+      "links": [
+        { "title": "P1 OpenBlockAnalyticsStoreIdbDegradedP1 告警", "url": "/alerting/list?queryString=OpenBlockAnalyticsStoreIdbDegradedP1", "targetBlank": true }
+      ]
     },
     {
       "id": 2,
@@ -67,7 +74,10 @@
         { "expr": "avg(openblock_analytics_store_idb_put_latency_avg{env=\"$env\"})", "legendFormat": "avg" },
         { "expr": "max(openblock_analytics_store_idb_put_latency_max{env=\"$env\"})", "legendFormat": "max" }
       ],
-      "fieldConfig": { "defaults": { "unit": "ms" } }
+      "fieldConfig": { "defaults": { "unit": "ms" } },
+      "links": [
+        { "title": "P1 OpenBlockAnalyticsStoreLatencyHighP1 告警", "url": "/alerting/list?queryString=OpenBlockAnalyticsStoreLatencyHighP1", "targetBlank": true }
+      ]
     },
     {
       "id": 4,
