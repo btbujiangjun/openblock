@@ -106,6 +106,37 @@ import('./monetization/analyticsTracker.js').then(({ getAnalyticsTracker }) => {
             window.addEventListener('pagehide', flushStoreStats);
         }
     }).catch(() => { /* analyticsStore 未就绪 — 跳过 */ });
+
+    /* Y4：MonetizationBus circuit breaker 可视化（60s 窗口上报） */
+    import('./monetization/MonetizationBus.js').then(({ getStats, resetStats }) => {
+        const FLUSH_INTERVAL_MS = 60_000;
+        function flushBusStats() {
+            try {
+                const stats = getStats();
+                if (stats.totalEmits === 0 && stats.totalHandlerFails === 0) return;
+                const tracker = getAnalyticsTracker?.();
+                if (!tracker || typeof tracker.trackEvent !== 'function') return;
+                tracker.trackEvent('monetization_bus_window', {
+                    totalEmits: stats.totalEmits,
+                    totalHandlerFails: stats.totalHandlerFails,
+                    handlerFailRate: stats.handlerFailRate,
+                    totalCircuitTrips: stats.totalCircuitTrips,
+                    circuitOpenCount: stats.circuitOpenCount, /* live snapshot */
+                    eventTypes: stats.eventTypes,
+                    totalHandlers: stats.totalHandlers,
+                    eventsFailed: stats.eventsFailed, /* 失败按事件分布 */
+                    windowMs: FLUSH_INTERVAL_MS,
+                });
+                resetStats();
+            } catch { /* monBus 观测不能拖累主流程 */ }
+        }
+        if (typeof setInterval === 'function') {
+            setInterval(flushBusStats, FLUSH_INTERVAL_MS);
+        }
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            window.addEventListener('pagehide', flushBusStats);
+        }
+    }).catch(() => { /* MonetizationBus 未就绪 — 跳过 */ });
 }).catch(() => { /* tracker 加载失败 — 静默，logger 仍保留 ring buffer 与 console */ });
 import { initPlayerInsightPanel } from './playerInsightPanel.js';
 import { initReplayUI } from './replayUI.js';

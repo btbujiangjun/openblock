@@ -10,7 +10,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-    on, off, emit, _clearAllHandlers, getStats, getHandlerFailCount,
+    on, off, emit, _clearAllHandlers, getStats, getHandlerFailCount, resetStats,
 } from '../web/src/monetization/MonetizationBus.js';
 
 beforeEach(() => {
@@ -127,5 +127,62 @@ describe('MonetizationBus — getStats', () => {
         for (let i = 0; i < 6; i++) emit('x');
         const s = getStats();
         expect(s.circuitOpenCount).toBe(1);
+    });
+});
+
+/* ============ Y4: 全局观测指标 ============ */
+describe('MonetizationBus Y4 — 全局观测指标', () => {
+    it('初始 getStats：累计字段全 0', () => {
+        const s = getStats();
+        expect(s.totalEmits).toBe(0);
+        expect(s.totalHandlerFails).toBe(0);
+        expect(s.totalCircuitTrips).toBe(0);
+        expect(s.handlerFailRate).toBe(0);
+        expect(s.eventsFailed).toEqual({});
+    });
+
+    it('totalEmits 累计所有事件 emit', () => {
+        on('a', () => {});
+        on('b', () => {});
+        emit('a'); emit('a'); emit('b'); emit('c'); /* c 无订阅，仍计 */
+        expect(getStats().totalEmits).toBe(4);
+    });
+
+    it('totalHandlerFails / eventsFailed / handlerFailRate', () => {
+        const bad = () => { throw new Error('e'); };
+        on('x', bad);
+        emit('x'); emit('x'); emit('x'); /* 3 emit、3 fail，未到熔断（5）阈值 */
+        const s = getStats();
+        expect(s.totalHandlerFails).toBe(3);
+        expect(s.eventsFailed).toEqual({ x: 3 });
+        expect(s.handlerFailRate).toBeCloseTo(1.0); /* 3/3 */
+    });
+
+    it('totalCircuitTrips 在第 5 次连续失败时 +1', () => {
+        const bad = () => { throw new Error('e'); };
+        on('y', bad);
+        for (let i = 0; i < 7; i++) emit('y');
+        expect(getStats().totalCircuitTrips).toBe(1);
+        expect(getStats().circuitOpenCount).toBe(1);
+    });
+
+    it('resetStats 清零所有累计字段（不影响 handlers / circuit 状态）', () => {
+        const bad = () => { throw new Error('e'); };
+        on('z', bad);
+        for (let i = 0; i < 6; i++) emit('z'); /* 触发熔断 */
+        expect(getStats().totalCircuitTrips).toBe(1);
+        resetStats();
+        const s = getStats();
+        expect(s.totalEmits).toBe(0);
+        expect(s.totalHandlerFails).toBe(0);
+        expect(s.totalCircuitTrips).toBe(0);
+        expect(s.eventsFailed).toEqual({});
+        /* 但熔断仍生效（live state） */
+        expect(s.circuitOpenCount).toBe(1);
+    });
+
+    it('handlerFailRate 在零 emit 时返回 0（不除零）', () => {
+        const s = getStats();
+        expect(s.handlerFailRate).toBe(0);
     });
 });

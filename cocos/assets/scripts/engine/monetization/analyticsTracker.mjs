@@ -69,6 +69,11 @@ export const ANALYTICS_EVENTS = {
      * 服务端聚焦 idbWriteSuccessRate（< 95% 报警）+ idbMaxLatencyMs P99
      * （长尾延时反映浏览器 storage 健康问题）。 */
     ANALYTICS_STORE_WINDOW: { category: 'performance', name: 'analytics_store_window' },
+
+    /* Y4：MonetizationBus circuit breaker 可视化（60s 窗口）。
+     * 服务端聚焦 totalCircuitTrips > 0 → 告警（线上有商业化模块在挂）；
+     * eventsFailed 字段定位到底是哪个事件类型在频繁失败。 */
+    MONETIZATION_BUS_WINDOW: { category: 'performance', name: 'monetization_bus_window' },
 };
 
 /**

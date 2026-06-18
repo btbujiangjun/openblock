@@ -33,6 +33,20 @@ const _handlerFailCounts = new WeakMap();// handler → 总失败数
 const _handlerConsecutiveFail = new WeakMap(); // handler → 连续失败数（成功即清零）
 const _circuitOpenHandlers = new WeakSet();    // 熔断的 handler 集合
 
+/* Y4：全局可上报观测指标（WeakMap/WeakSet 无法遍历，需要并行的 plain counter）。
+ *
+ * 设计选择：
+ *   - 全局累计而非 per-handler：因 handler 是函数引用，跨 session 不稳定；
+ *     上报用 totalFails + circuitOpenCount 双维度即可定位异常模块（结合
+ *     eventCountsFailed 找到是哪个事件类型在频繁失败）
+ *   - 不暴露 handler 身份：避免 PII 泄漏 + handler 函数源码大小过大
+ */
+const _busStats = {
+    totalHandlerFails: 0,        // 累计 handler 失败次数
+    totalCircuitTrips: 0,        // 累计触发熔断次数
+    eventCountsFailed: new Map(),// eventType → 失败次数（与 _eventCounts 同 key 对照）
+};
+
 /**
  * 订阅游戏事件
  * @param {string} eventType
@@ -76,9 +90,14 @@ export function emit(eventType, data = {}) {
             const consecFails = (_handlerConsecutiveFail.get(h) || 0) + 1;
             _handlerFailCounts.set(h, totalFails);
             _handlerConsecutiveFail.set(h, consecFails);
+            /* Y4: 全局聚合观测 */
+            _busStats.totalHandlerFails++;
+            _busStats.eventCountsFailed.set(eventType,
+                (_busStats.eventCountsFailed.get(eventType) || 0) + 1);
             log.error('handler failed', { eventType, totalFails, consecFails }, e);
             if (consecFails >= HANDLER_CIRCUIT_THRESHOLD) {
                 _circuitOpenHandlers.add(h);
+                _busStats.totalCircuitTrips++; /* Y4 */
                 log.warn('handler circuit OPEN', { eventType, consecFails });
             }
         }
@@ -99,12 +118,32 @@ export function getStats() {
             if (_circuitOpenHandlers.has(h)) circuitOpenCount++;
         }
     }
+    /* Y4：派生指标 + 全局累计计数；调用方可基于此做 dashboard / 告警 */
+    let totalEmits = 0;
+    for (const n of _eventCounts.values()) totalEmits += n;
     return {
         events: Object.fromEntries(_eventCounts),
+        eventsFailed: Object.fromEntries(_busStats.eventCountsFailed),
         eventTypes: _handlers.size,
         totalHandlers,
-        circuitOpenCount,
+        totalEmits,
+        circuitOpenCount,                /* 当前正熔断的 handler 数（live） */
+        totalCircuitTrips: _busStats.totalCircuitTrips, /* 累计熔断次数（含历史已恢复） */
+        totalHandlerFails: _busStats.totalHandlerFails,
+        handlerFailRate: totalEmits > 0 ? _busStats.totalHandlerFails / totalEmits : 0,
     };
+}
+
+/**
+ * Y4 PUBLIC API: 重置全局观测累计（搭配 60s 上报窗口用）。
+ * 不重置 _circuitOpenHandlers（熔断状态是 per-session 持久的，需要 _clearAllHandlers
+ * 或刷新页面恢复）。
+ */
+export function resetStats() {
+    _busStats.totalHandlerFails = 0;
+    _busStats.totalCircuitTrips = 0;
+    _busStats.eventCountsFailed.clear();
+    _eventCounts.clear();
 }
 
 /**
@@ -164,6 +203,9 @@ export function getGame() {
 export function _clearAllHandlers() {
     _handlers.clear();
     _eventCounts.clear();
+    _busStats.totalHandlerFails = 0;
+    _busStats.totalCircuitTrips = 0;
+    _busStats.eventCountsFailed.clear();
 }
 
-export default { on, off, emit, attach, detach, getGame, getStats, getHandlerFailCount, _clearAllHandlers };
+export default { on, off, emit, attach, detach, getGame, getStats, getHandlerFailCount, resetStats, _clearAllHandlers };
