@@ -871,9 +871,71 @@ export class Grid {
         return gaps;
     }
 
+    /* ── v1.71 EE3：countGapFills 直接调 bitmap helper（绕开 findGapPositions 中转） ──
+     * findGapPositions 为通用 API 必须分配 positions 数组；countGapFills 只用
+     * "每行/列空格 mask + empty 数"两项数据，分配 positions 是浪费。
+     * 直接复用 DD3 的 _popcount32 + bit 迭代，0 数组分配。
+     * 注：当 fills 已抬到 N 还可以继续算（与原版一致——多种 gap 类型都计），
+     * 不做提前 break；与 findGapPositions 同样的"行 + 列"全扫。 */
     countGapFills(shapeData) {
+        const n = this.size;
+        if (n > 30) return this._countGapFillsSlow(shapeData);
+        const cells = this.cells;
+        const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
+        /* 一次构 occRows */
+        const occRows = new Int32Array(n);
+        for (let y = 0; y < n; y++) {
+            const row = cells[y];
+            let m = 0;
+            for (let x = 0; x < n; x++) if (row[x] !== null) m |= (1 << x);
+            occRows[y] = m;
+        }
         let fills = 0;
-        const gaps = this.findGapPositions();
+        /* 行扫描：对每行 emptyMask popcount → 1..4 才需要尝试 placement */
+        for (let y = 0; y < n; y++) {
+            const emptyMask = (~occRows[y]) & fullMask;
+            const empty = _popcount32(emptyMask);
+            if (empty < 1 || empty > 4) continue;
+            let mm = emptyMask;
+            while (mm !== 0) {
+                const x = _ctz32(mm);
+                if (this.canPlace(shapeData, x, y)) {
+                    fills += Math.max(1, 4 - empty);
+                    break; /* 与原版一致：行内找到一个即跳出 */
+                }
+                mm &= mm - 1;
+            }
+        }
+        /* 列扫描：构 colOcc */
+        const colOcc = new Int32Array(n);
+        for (let y = 0; y < n; y++) {
+            let occ = occRows[y];
+            while (occ !== 0) {
+                const x = _ctz32(occ);
+                colOcc[x] |= (1 << y);
+                occ &= occ - 1;
+            }
+        }
+        for (let x = 0; x < n; x++) {
+            const emptyMask = (~colOcc[x]) & fullMask;
+            const empty = _popcount32(emptyMask);
+            if (empty < 1 || empty > 4) continue;
+            let mm = emptyMask;
+            while (mm !== 0) {
+                const y = _ctz32(mm);
+                if (this.canPlace(shapeData, x, y)) {
+                    fills += Math.max(1, 4 - empty);
+                    break;
+                }
+                mm &= mm - 1;
+            }
+        }
+        return fills;
+    }
+
+    _countGapFillsSlow(shapeData) {
+        let fills = 0;
+        const gaps = this._findGapPositionsSlow();
         for (const gap of gaps) {
             for (const pos of gap.positions) {
                 if (this.canPlace(shapeData, pos.x, pos.y)) {
