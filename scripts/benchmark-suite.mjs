@@ -370,7 +370,33 @@ if (TREND_HISTORY) {
 }
 
 const newHistEntry = { ts: Date.now(), regressed, snapshot };
-const updatedHistory = [...historyEntries, newHistEntry].slice(-Math.max(TREND_FAIL_STREAK + 1, 10));
+
+/* JJ4: history 压缩——避免无限增长。策略：
+ *   - 最近 N=10 条全留（streak 计算窗口 + 滚动 sparkline 需要）
+ *   - 老条目按月份去重，每月只保留首条（长期趋势够用）
+ *   - 总上限 50 条
+ * 这样 1 年滚动后大约 10 (recent) + 12 (monthly) = ~22 条稳态。 */
+function _compressHistory(entries, recentKeep = 10, hardCap = 50) {
+    if (entries.length <= recentKeep) return entries;
+    const recent = entries.slice(-recentKeep);
+    const old = entries.slice(0, -recentKeep);
+    const seenMonth = new Set();
+    const monthly = [];
+    for (const e of old) {
+        const d = new Date(e.ts || 0);
+        const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+        if (seenMonth.has(key)) continue;
+        seenMonth.add(key);
+        monthly.push(e);
+    }
+    const merged = [...monthly, ...recent];
+    return merged.length > hardCap ? merged.slice(-hardCap) : merged;
+}
+
+const updatedHistory = _compressHistory(
+    [...historyEntries, newHistEntry],
+    Math.max(TREND_FAIL_STREAK + 1, 10),
+);
 
 if (TREND_HISTORY_WRITE && TREND_HISTORY) {
     try {
