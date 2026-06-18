@@ -1037,6 +1037,56 @@ describe('adaptiveSpawn._applySpawnHintsFriendlyBoostRules (DD1)', () => {
     });
 });
 
+/* ============ LL2: holes + bottleneck helpers ============ */
+function _holesRef(s, holes, topo) {
+    if (!(holes >= (topo?.holeClearGuaranteeAt ?? 2))) return s;
+    return {
+        clearGuarantee: Math.max(s.clearGuarantee, 2),
+        sizePreference: Math.min(s.sizePreference, topo?.holeSizePreference ?? -0.22),
+    };
+}
+function _bottleneckRef(s, has, topo) {
+    if (!has) return s;
+    const cgAt = Number.isFinite(topo?.bottleneckClearGuaranteeAt) ? topo.bottleneckClearGuaranteeAt : 2;
+    const sd = Number.isFinite(topo?.bottleneckSizePreferenceDelta) ? topo.bottleneckSizePreferenceDelta : -0.18;
+    return { clearGuarantee: Math.max(s.clearGuarantee, cgAt), sizePreference: Math.min(s.sizePreference, sd) };
+}
+describe('adaptiveSpawn LL2 holes + bottleneck', () => {
+    const s0 = () => ({ clearGuarantee: 0, sizePreference: 0 });
+    it('holes < 阈值 → 不动', () => {
+        expect(_holesRef(s0(), 1, {})).toEqual(s0());
+    });
+    it('holes ≥ 默认 2 → cg≥2 / sp≤-0.22', () => {
+        expect(_holesRef(s0(), 2, {})).toEqual({ clearGuarantee: 2, sizePreference: -0.22 });
+    });
+    it('holes ≥ 自定义阈值 → 用自定义', () => {
+        expect(_holesRef(s0(), 3, { holeClearGuaranteeAt: 3, holeSizePreference: -0.5 })).toEqual({ clearGuarantee: 2, sizePreference: -0.5 });
+        expect(_holesRef(s0(), 2, { holeClearGuaranteeAt: 3 })).toEqual(s0()); /* 未到自定义阈值 */
+    });
+    it('holes 已有更高值 → 不回退（max/min 幂等）', () => {
+        expect(_holesRef({ clearGuarantee: 5, sizePreference: -0.8 }, 3, {})).toEqual({ clearGuarantee: 5, sizePreference: -0.8 });
+    });
+
+    it('bottleneck false → 不动', () => {
+        expect(_bottleneckRef(s0(), false, {})).toEqual(s0());
+    });
+    it('bottleneck true 默认 → cg≥2 / sp≤-0.18', () => {
+        expect(_bottleneckRef(s0(), true, {})).toEqual({ clearGuarantee: 2, sizePreference: -0.18 });
+    });
+    it('bottleneck topoCfg 覆盖', () => {
+        expect(_bottleneckRef(s0(), true, { bottleneckClearGuaranteeAt: 3, bottleneckSizePreferenceDelta: -0.4 }))
+            .toEqual({ clearGuarantee: 3, sizePreference: -0.4 });
+    });
+    it('bottleneck NaN topoCfg → fallback 默认', () => {
+        expect(_bottleneckRef(s0(), true, { bottleneckClearGuaranteeAt: NaN })).toEqual({ clearGuarantee: 2, sizePreference: -0.18 });
+    });
+    it('幂等：双跑一致', () => {
+        const a = _bottleneckRef(s0(), true, {});
+        const b = _bottleneckRef(a, true, {});
+        expect(a).toEqual(b);
+    });
+});
+
 /* ============ JJ2: 5 base helpers ============ */
 function _nearMissRef(s, p, e) {
     if (!p?.hadRecentNearMiss) return s;

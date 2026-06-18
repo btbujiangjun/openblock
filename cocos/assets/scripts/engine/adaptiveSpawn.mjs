@@ -1034,21 +1034,58 @@ function _applySpawnHintsBaseRules(s) {
     );
     clearGuarantee = _rs.clearGuarantee;
     sizePreference = _rs.sizePreference;
-    if (holes >= (topoCfg.holeClearGuaranteeAt ?? 2)) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, topoCfg.holeSizePreference ?? -0.22);
-    }
-    /* v1.30 瓶颈：上一周期严重瓶颈 → 抬保消 + 偏小块。
-     * onboarding 已在 hasBottleneckSignal 计算时排除，无需重判。 */
-    if (hasBottleneckSignal) {
-        const cgAt = Number.isFinite(topoCfg.bottleneckClearGuaranteeAt)
-            ? topoCfg.bottleneckClearGuaranteeAt : 2;
-        const sizeDelta = Number.isFinite(topoCfg.bottleneckSizePreferenceDelta)
-            ? topoCfg.bottleneckSizePreferenceDelta : -0.18;
-        clearGuarantee = Math.max(clearGuarantee, cgAt);
-        sizePreference = Math.min(sizePreference, sizeDelta);
-    }
+    /* v1.71 LL2：holes + bottleneck 两段独立 helper 抽出。
+     * 都是纯幂等 max/min（topo 几何信号 → 保消）。 */
+    ({ clearGuarantee, sizePreference } = _applySpawnHintsHolesRule(
+        { clearGuarantee, sizePreference }, holes, topoCfg,
+    ));
+    ({ clearGuarantee, sizePreference } = _applySpawnHintsBottleneckRule(
+        { clearGuarantee, sizePreference }, hasBottleneckSignal, topoCfg,
+    ));
     return { clearGuarantee, sizePreference, diversityBoost };
+}
+
+/**
+ * Holes spawnHints（v1.71 LL2 抽出 baseRules L1034-1037）。
+ * holes ≥ topoCfg.holeClearGuaranteeAt（默认 2）→ cg≥2 + sp ≤ topoCfg.holeSizePreference（默认 -0.22）。
+ * 纯幂等 max/min。
+ *
+ * @param {{clearGuarantee:number,sizePreference:number}} s
+ * @param {number} holes
+ * @param {{holeClearGuaranteeAt?:number,holeSizePreference?:number}} topoCfg
+ * @returns {{clearGuarantee:number,sizePreference:number}}
+ */
+function _applySpawnHintsHolesRule(s, holes, topoCfg) {
+    if (!(holes >= (topoCfg?.holeClearGuaranteeAt ?? 2))) return s;
+    return {
+        clearGuarantee: Math.max(s.clearGuarantee, 2),
+        sizePreference: Math.min(s.sizePreference, topoCfg?.holeSizePreference ?? -0.22),
+    };
+}
+
+/**
+ * Bottleneck spawnHints（v1.71 LL2 抽出 baseRules L1040-1047）。
+ * hasBottleneckSignal === true → cg ≥ cgAt，sp ≤ sizeDelta。
+ * cgAt 默认 2，sizeDelta 默认 -0.18，可由 topoCfg.bottleneck* 覆盖。
+ * 纯幂等 max/min。
+ *
+ * onboarding 已在 hasBottleneckSignal 计算时排除，无需重判（历史语义保留）。
+ *
+ * @param {{clearGuarantee:number,sizePreference:number}} s
+ * @param {boolean} hasBottleneckSignal
+ * @param {{bottleneckClearGuaranteeAt?:number,bottleneckSizePreferenceDelta?:number}} topoCfg
+ * @returns {{clearGuarantee:number,sizePreference:number}}
+ */
+function _applySpawnHintsBottleneckRule(s, hasBottleneckSignal, topoCfg) {
+    if (!hasBottleneckSignal) return s;
+    const cgAt = Number.isFinite(topoCfg?.bottleneckClearGuaranteeAt)
+        ? topoCfg.bottleneckClearGuaranteeAt : 2;
+    const sizeDelta = Number.isFinite(topoCfg?.bottleneckSizePreferenceDelta)
+        ? topoCfg.bottleneckSizePreferenceDelta : -0.18;
+    return {
+        clearGuarantee: Math.max(s.clearGuarantee, cgAt),
+        sizePreference: Math.min(s.sizePreference, sizeDelta),
+    };
 }
 
 /**
