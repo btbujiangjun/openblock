@@ -35,8 +35,8 @@
  * 如果是无意的退化，本脚本会在 CI / release:check 里把你拦下来。
  */
 
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { resolve, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const argv = process.argv.slice(2);
@@ -50,6 +50,7 @@ const STRICT = hasFlag('--strict');
 const TIME_MS = Number(cliArg('--time', 800)) || 800;
 const WARMUP_MS = Number(cliArg('--warmup', 150)) || 150;
 const BASELINE_PATH = cliArg('--baseline', 'tests/perf-baseline.json');
+const REPORT_PATH = cliArg('--report', '');  /* 可选：输出 markdown 报告路径 */
 
 const FAST_THRESHOLD_MS = 0.01;
 const FAST_WARN_PCT = 40;
@@ -73,6 +74,7 @@ try {
 
 console.error(`[perf-check] baseline: ${BASELINE_PATH}`);
 console.error(`             captured=${baseline.meta?.capturedAt}  node=${baseline.meta?.nodeVersion}  scenarios=${baseline.results.length}`);
+console.error(`             baseline machine: ${baseline.meta?.platform}/${baseline.meta?.arch}  cpuCount=${baseline.meta?.cpuCount}`);
 console.error(`[perf-check] running fresh bench (time=${TIME_MS}ms, warmup=${WARMUP_MS}ms) ...`);
 
 /* 直接 spawn 子进程跑 perf-bench-cli，拿 JSON。这样保证当前进程的 V8 状态不会
@@ -91,13 +93,58 @@ if (subResult.status !== 0) {
 }
 
 let current;
-try {
-    current = JSON.parse(subResult.stdout);
-} catch (e) {
-    console.error(`[perf-check] failed to parse bench output: ${e.message}`);
-    console.error('--- bench stdout (first 400 chars) ---');
-    console.error(subResult.stdout.slice(0, 400));
-    process.exit(1);
+{
+    /* 兜底：vite 等子进程偶尔会向 stdout 喷非 JSON 前缀（例如
+     * "Re-optimizing dependencies because vite config has changed"）。
+     * 优先严格 parse，失败时剥离前置噪声重试（取第一个 '{' 起到对应的 '}' 段）。 */
+    const raw = subResult.stdout;
+    try {
+        current = JSON.parse(raw);
+    } catch {
+        const firstBrace = raw.indexOf('{');
+        const lastBrace = raw.lastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+            try {
+                current = JSON.parse(raw.slice(firstBrace, lastBrace + 1));
+                console.error(`[perf-check] (warn) bench stdout had ${firstBrace} non-JSON prefix bytes (stripped)`);
+            } catch (e2) {
+                console.error(`[perf-check] failed to parse bench output: ${e2.message}`);
+                console.error('--- bench stdout (first 400 chars) ---');
+                console.error(raw.slice(0, 400));
+                process.exit(1);
+            }
+        } else {
+            console.error(`[perf-check] failed to parse bench output (no JSON found)`);
+            console.error('--- bench stdout (first 400 chars) ---');
+            console.error(raw.slice(0, 400));
+            process.exit(1);
+        }
+    }
+}
+
+/* 机器上下文一致性检查：CPU 数 / 平台 / 架构差异较大时给出明显警告，
+ * 因为 baseline 与 current 跨硬件对比时 -30% / +30% 可能纯粹是机器差异。
+ * 这里只警告不失败（让本地开发者也能 `npm run perf:check`）。 */
+const baseMeta = baseline.meta || {};
+const curMeta = current.meta || {};
+const machineMismatch = [];
+if (baseMeta.platform && curMeta.platform && baseMeta.platform !== curMeta.platform) {
+    machineMismatch.push(`platform ${baseMeta.platform} → ${curMeta.platform}`);
+}
+if (baseMeta.arch && curMeta.arch && baseMeta.arch !== curMeta.arch) {
+    machineMismatch.push(`arch ${baseMeta.arch} → ${curMeta.arch}`);
+}
+if (baseMeta.cpuCount && curMeta.cpuCount && Math.abs(baseMeta.cpuCount - curMeta.cpuCount) >= 2) {
+    machineMismatch.push(`cpuCount ${baseMeta.cpuCount} → ${curMeta.cpuCount}`);
+}
+if (baseMeta.nodeVersion && curMeta.nodeVersion && baseMeta.nodeVersion.split('.')[0] !== curMeta.nodeVersion.split('.')[0]) {
+    machineMismatch.push(`node major ${baseMeta.nodeVersion} → ${curMeta.nodeVersion}`);
+}
+if (machineMismatch.length > 0) {
+    console.error('');
+    console.error(`[perf-check] ⚠️  机器上下文不一致，结果仅供参考、不应据此更新基线：`);
+    for (const m of machineMismatch) console.error(`             - ${m}`);
+    console.error(`             建议在与 baseline 同型号机器上运行才能比较；或先 npm run perf:baseline 重建基线。`);
 }
 
 const byName = new Map();
@@ -148,6 +195,42 @@ for (const r of rows) {
 console.error('─'.repeat(96));
 console.error(`scenarios=${rows.length}  warn=${warnCount}  fail=${failCount}  new=${missingFromBaseline}  removed-from-baseline=${removed.length}`);
 console.error(`阈值: 微秒级 (p50<${FAST_THRESHOLD_MS}ms) warn ${FAST_WARN_PCT}%/fail ${FAST_FAIL_PCT}%；其他 warn ${SLOW_WARN_PCT}%/fail ${SLOW_FAIL_PCT}%`);
+
+/* 可选：写 markdown 报告（供 CI artifact / PR 评论） */
+if (REPORT_PATH) {
+    const statusEmoji = { ok: '✅', warn: '⚠️', fail: '❌', gain: '🚀', new: '🆕' };
+    const lines = [];
+    lines.push(`# Perf Check Report`);
+    lines.push('');
+    lines.push(`- **Captured at**: ${current.meta?.capturedAt}`);
+    lines.push(`- **Baseline**: ${BASELINE_PATH} (captured ${baseMeta.capturedAt})`);
+    lines.push(`- **Machine**: baseline ${baseMeta.platform}/${baseMeta.arch} cpuCount=${baseMeta.cpuCount} node=${baseMeta.nodeVersion} → current ${curMeta.platform}/${curMeta.arch} cpuCount=${curMeta.cpuCount} node=${curMeta.nodeVersion}`);
+    if (machineMismatch.length > 0) {
+        lines.push(`- ⚠️ **机器上下文不一致**：${machineMismatch.join('; ')} — 数字仅供参考，不要据此更新 baseline`);
+    }
+    lines.push(`- **Summary**: ${rows.length} scenarios, ${warnCount} warn, ${failCount} fail, ${missingFromBaseline} new, ${removed.length} removed`);
+    lines.push('');
+    lines.push(`| Status | Scenario | Baseline p50 (ms) | Current p50 (ms) | Δ |`);
+    lines.push(`|---|---|---|---|---|`);
+    /* 按 |Δ%| 倒序，让回归/提速浮到顶部 */
+    const sorted = [...rows].sort((a, b) => Math.abs(b.deltaPct || 0) - Math.abs(a.deltaPct || 0));
+    for (const r of sorted) {
+        const emoji = statusEmoji[r.status] || '·';
+        lines.push(`| ${emoji} ${r.status.toUpperCase()} | \`${r.name}\` | ${fmt(r.basePMs)} | ${fmt(r.curPMs)} | ${fmtPct(r.deltaPct)} |`);
+    }
+    if (removed.length > 0) {
+        lines.push('');
+        lines.push(`### Removed from current run (still in baseline)`);
+        for (const r of removed) lines.push(`- \`${r.name}\` (baseline p50=${fmt(r.p50Ms)})`);
+    }
+    lines.push('');
+    lines.push(`> 阈值: 微秒级 (p50<${FAST_THRESHOLD_MS}ms) warn ${FAST_WARN_PCT}%/fail ${FAST_FAIL_PCT}%；其他 warn ${SLOW_WARN_PCT}%/fail ${SLOW_FAIL_PCT}%`);
+    lines.push(`> 如果是有意优化，跑 \`npm run perf:baseline\` 更新基线`);
+    const target = resolve(process.cwd(), REPORT_PATH);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, lines.join('\n') + '\n', 'utf8');
+    console.error(`[perf-check] wrote markdown report to ${REPORT_PATH}`);
+}
 
 if (failCount > 0) {
     console.error(`[perf-check] FAILED: ${failCount} scenarios regressed beyond fail threshold`);

@@ -40,6 +40,16 @@ const FILTER = String(cliArg('--filter', ''));
 const OUT_PATH = cliArg('--out', '');
 const JSON_OUT = hasFlag('--json') || Boolean(OUT_PATH);
 
+/* JSON 模式下 stdout 必须严格只输出 JSON 串本身，供 `perf:check` / CI 解析。
+ * vite 内部偶尔通过 console.log / process.stdout.write 喷信息（例如
+ * "Re-optimizing dependencies because vite config has changed"），会污染 JSON。
+ * 这里把 stdout 改写重定向到 stderr，确保 JSON 模式下 stdout 是干净的；
+ * 真正的 JSON 输出用底层 _stdout.write 绕过拦截。 */
+const _stdoutWrite = process.stdout.write.bind(process.stdout);
+if (JSON_OUT) {
+    process.stdout.write = (chunk, ...rest) => process.stderr.write(chunk, ...rest);
+}
+
 /* 必须经过 Vite ssrLoadModule：项目里 `shared/game_rules.json` 等通过隐式 JSON 导入
  * 在 Node 原生 ESM 下报 ERR_IMPORT_ATTRIBUTE_MISSING；Vite SSR 已经处理好。
  * 用 configFile:false + appType:'custom'，避免任何不必要的 plugin pipeline。 */
@@ -223,7 +233,7 @@ if (JSON_OUT) {
         await writeFile(target, txt, 'utf8');
         console.error(`[perf-bench] wrote ${filtered.length} results to ${target}`);
     } else {
-        process.stdout.write(txt);
+        _stdoutWrite(txt);  /* 绕过 stderr 重定向，确保 JSON 真的进 stdout */
     }
 } else {
     const fmt = (n) => (n < 0.001 ? n.toExponential(2) : n.toFixed(4));

@@ -58,3 +58,7 @@ mobile/ios/App/App.xcodeproj/project.xcworkspace/xcshareddata/
 # Cursor Canvas：源码纳入版本管理；本地类型桩与 IDE 运行时状态不入库
 canvases/node_modules/
 canvases/*.status.json
+
+# perf-check transient report (生成产物，不入仓)
+tests/perf-report.md
+
