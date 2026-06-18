@@ -82,10 +82,14 @@ function applySpawnPrior(shapeWeights, spawnPrior, opts = {}) {
 function applyRelativityShapePrior(shapeWeights, bStar, calibration, shapePriorCfg, lambda) {
     const out = { ...shapeWeights };
     const cfg = shapePriorCfg || {};
-    /* 原 bug：Number(x) 永不为 null，?? 永远走 LHS；行为契约要求与抽出前严格一致，
-     * 留待独立"语义修复 PR"处理（应改为 Number.isFinite 守卫）。 */
-    // eslint-disable-next-line no-constant-binary-expression
-    const lam = clamp01(Number(lambda) || 0) * clamp01(Number(cfg.strength) ?? 0.6);
+    /* 修复原 bug（2026-06-18）：Number(x) 永不为 null/undefined，原写法 `?? 0.6` 是 dead branch，
+     * 缺失 cfg.strength 时实际退化为 clamp01(NaN)=0 → 关闭功能（与作者意图"默认 0.6"相反）。
+     * 实测：生产路径在 adaptiveSpawn L2844 已守卫 drCfg.shapePrior?.enabled !== false 且
+     * shared/game_rules.json#shapePrior.strength 始终配置（当前=0.4），bug 不影响生产；
+     * 修正后保持作者本意，对未配置 strength 的测试夹具/兜底路径返回默认 0.6。 */
+    const _cfgStrength = Number(cfg.strength);
+    const _safeStrength = Number.isFinite(_cfgStrength) ? _cfgStrength : 0.6;
+    const lam = clamp01(Number(lambda) || 0) * clamp01(_safeStrength);
     if (cfg.enabled === false || !bStar || lam <= 0) {
         return { shapeWeights: out, applied: false, lambda: 0 };
     }
