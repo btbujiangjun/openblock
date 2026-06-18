@@ -28,6 +28,7 @@
     "benchmark": "node scripts/benchmark-suite.mjs",
     "benchmark:quick": "node scripts/benchmark-suite.mjs --skip-perf",
     "benchmark:trend": "node scripts/benchmark-suite.mjs --skip-perf --trend-baseline docs/engineering/benchmark-trend-baseline.json",
+    "perf:mono-flush": "node scripts/perf-mono-flush-bench.mjs",
     "benchmark:write-trend": "node scripts/benchmark-suite.mjs --skip-perf --write-trend docs/engineering/benchmark-trend-baseline.json",
     "perf:check:gpu": "node scripts/perf-check-gpu.mjs",
     "lint": "eslint web/src tests",
