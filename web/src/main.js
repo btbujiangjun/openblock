@@ -221,6 +221,33 @@ import('./monetization/analyticsTracker.js').then(({ getAnalyticsTracker }) => {
             window.addEventListener('pagehide', flushBusStats);
         }
     }).catch(() => { /* MonetizationBus 未就绪 — 跳过 */ });
+
+    /* HH3：reportingOutbox quota 健康度观测（60s + pagehide）。
+     * GG3 引入 quota fallback 后，quotaTrips / quotaShedRecords 是
+     * 设备端 LS 5MB 触顶的早期信号 —— 持续 > 0 提示设备装满或恶意
+     * 注入大记录。与 analyticsStore 同模式接入观测窗口。 */
+    import('./net/reportingOutbox.js').then(({ getOutboxStats, resetOutboxStats }) => {
+        const FLUSH_INTERVAL_MS = 60_000;
+        function flushOutboxStats() {
+            try {
+                const stats = getOutboxStats();
+                if (stats.quotaTrips === 0 && stats.totalQueued === 0) return;
+                const tracker = getAnalyticsTracker?.();
+                if (!tracker || typeof tracker.trackEvent !== 'function') return;
+                tracker.trackEvent('reporting_outbox_window', {
+                    ...stats,
+                    windowMs: FLUSH_INTERVAL_MS,
+                });
+                resetOutboxStats();
+            } catch { /* outbox 观测不能拖累主流程 */ }
+        }
+        if (typeof setInterval === 'function') {
+            setInterval(flushOutboxStats, FLUSH_INTERVAL_MS);
+        }
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            window.addEventListener('pagehide', flushOutboxStats);
+        }
+    }).catch(() => { /* reportingOutbox 未就绪 — 跳过 */ });
 }).catch(() => { /* tracker 加载失败 — 静默，logger 仍保留 ring buffer 与 console */ });
 import { initPlayerInsightPanel } from './playerInsightPanel.js';
 import { initReplayUI } from './replayUI.js';

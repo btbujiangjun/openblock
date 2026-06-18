@@ -97,6 +97,23 @@
 
 **FF4 守恒律**：`sum(circuitTripsByType.*) === totalCircuitTrips` —— 契约测试守护。
 
+### `reporting_outbox_window` (HH3 / GG3 配套)
+
+源：`web/src/net/reportingOutbox.js`. `getOutboxStats()` 快照。
+
+| 字段 | 类型 | 含义 | dashboard 用途 |
+|---|---|---|---|
+| `quotaTrips` | int | LS 写失败累计（GG3 quota fallback 触发） | **P0**；> 0 持续告警 |
+| `quotaShedRecords` | int | 因 quota 主动丢弃的记录数 | 数据可用性追踪 |
+| `lastQuotaReason` | string | 最近一次失败原因（≤60 字符） | 调试辅助 |
+| `totalQueued` | int | 当前在队记录总数 | 拓扑健康 / flush loop 监控 |
+| `channelCount` | int | 当前已知 channel 数（behavior/ad） | 拓扑健康；突降提示 enqueue 失效 |
+| `windowMs` | int | 60000 | – |
+
+**P0 告警**：`quotaTrips > 0` 持续 → 设备 LS 触顶，可能丢数据。
+
+**HH3 跳过条件**：`quotaTrips === 0 && totalQueued === 0` 时跳过上报，避免无活动期的噪声 0 事件。
+
 ## 服务端聚合建议
 
 ### 全局 P50/P95/P99

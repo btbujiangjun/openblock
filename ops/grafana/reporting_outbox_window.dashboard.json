@@ -1,0 +1,80 @@
+{
+  "_comment": "v1.71 HH3: reporting_outbox_window Grafana 仪表盘（GG3 quota fallback 健康观测）。事件契约见 docs/engineering/OBSERVABILITY_WINDOW_SCHEMA.md。",
+  "title": "OpenBlock — Reporting Outbox Window",
+  "uid": "openblock-reporting-outbox",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["openblock", "observability", "reliability", "storage"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "DS_PROMETHEUS", "type": "datasource", "label": "Prometheus", "query": "prometheus" },
+      { "name": "env", "type": "custom", "label": "环境", "query": "prod,staging,dev",
+        "current": { "selected": true, "text": "prod", "value": "prod" } }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "outbox 在队记录数（live）",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "totalQueued：累计未上报的记录总数。突增 → 网络出口降级或服务端 5xx；持续高位提示存在 stale 记录或 flush loop 未跑。",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "avg(openblock_reporting_outbox_total_queued{env=\"$env\"})", "legendFormat": "queued" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 2,
+      "title": "LS quota 触顶速率（GG3 核心）",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "quotaTrips/min。GG3 应对策略：每次触顶丢尾部 30% 重试，最多 3 次。持续 > 0 ⇒ 设备 LS 装满或注入大记录。",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(openblock_reporting_outbox_quota_trips{env=\"$env\"}[5m])) * 60", "legendFormat": "trips/min" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.1 },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "因 quota 主动丢弃的记录数",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "quotaShedRecords：被 FIFO 尾部丢弃的记录累计。注意：服务端去重靠 event_id，丢的是「未上报」那部分；持续 > 0 ⇒ 部分数据真丢，需结合 quotaTrips 评估严重度。",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 6 },
+      "targets": [
+        { "expr": "sum(rate(openblock_reporting_outbox_quota_shed_records{env=\"$env\"}[5m]))", "legendFormat": "shed/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "rps" } }
+    },
+    {
+      "id": 4,
+      "title": "channel 数（拓扑健康）",
+      "type": "stat",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "channelCount。突降 → enqueue 路径有模块失效。预期：behavior + ad = 2。",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        { "expr": "avg(openblock_reporting_outbox_channel_count{env=\"$env\"})", "legendFormat": "channels" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    }
+  ]
+}
