@@ -58,10 +58,14 @@ jobs:
           fi
 
       - name: Run benchmark + write new baseline
+        # HH5: 加入 trend history（5 周滑动）—— 仅当连续 3 次 regress 才 fail，
+        # 单次 regress 只 warn。history 同步 commit 进仓库（CI 自动滚动）。
         run: |
           node scripts/benchmark-suite.mjs --skip-perf \
             ${{ steps.prev.outputs.exists == 'true' && '--trend-baseline /tmp/prev-baseline.json' || '' }} \
             --write-trend docs/engineering/benchmark-trend-baseline.json \
+            --trend-history docs/engineering/benchmark-trend-history.json \
+            --trend-history-write \
             > /tmp/benchmark-output.md 2>&1 || true
 
       - name: Show benchmark summary
@@ -73,12 +77,13 @@ jobs:
       - name: Detect changes
         id: changes
         run: |
-          if git diff --quiet docs/engineering/benchmark-trend-baseline.json; then
+          # HH5: 同时检查 baseline 和 history 两个文件
+          if git diff --quiet docs/engineering/benchmark-trend-baseline.json docs/engineering/benchmark-trend-history.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No baseline changes."
+            echo "No baseline/history changes."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            git diff docs/engineering/benchmark-trend-baseline.json | head -50
+            git diff docs/engineering/benchmark-trend-baseline.json docs/engineering/benchmark-trend-history.json | head -80
           fi
 
       - name: Commit rolling baseline
@@ -86,11 +91,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/engineering/benchmark-trend-baseline.json
+          git add docs/engineering/benchmark-trend-baseline.json docs/engineering/benchmark-trend-history.json
           # [skip ci] 防止递归触发；带本周 trend 摘要在 body
           # 提取"维度 5"段嵌入 commit body（便于历史回溯每周 Δ%）
           TREND_SUMMARY=$(sed -n '/## 维度 5/,/^---$/p' /tmp/benchmark-output.md | head -30 || echo "(无对比段)")
-          git commit -m "chore(bench): FF5 自动滚动 trend baseline ($(date -u +%Y-%m-%d))
+          git commit -m "chore(bench): FF5/HH5 自动滚动 trend baseline+history ($(date -u +%Y-%m-%d))
 
 $TREND_SUMMARY
 

@@ -39,6 +39,14 @@ const SKIP_PERF = argv.includes('--skip-perf');
 const TREND_BASELINE = cliArg('--trend-baseline', '');
 const TREND_WRITE = cliArg('--write-trend', '');
 const TREND_FAIL_ON_REGRESS = argv.includes('--trend-fail-on-regress');
+/* HH5：5 周滑动容错。
+ *   --trend-history path.json   读最近 N 次 trend 状态（snapshot 数组）
+ *   --trend-fail-streak N       连续 N 次都"退化"才 fail（默认 3）
+ *   --trend-history-write       同时把本次结果追加到 history
+ * 配合 FF5 自动滚动 CI 使用，避免单周抖动引起的误报。 */
+const TREND_HISTORY = cliArg('--trend-history', '');
+const TREND_FAIL_STREAK = Number(cliArg('--trend-fail-streak', 3)) || 3;
+const TREND_HISTORY_WRITE = argv.includes('--trend-history-write');
 
 function runNode(script, args = [], timeoutMs = 180_000) {
     const t0 = performance.now();
@@ -279,8 +287,61 @@ if (OUT_PATH) {
     process.stdout.write(report);
 }
 
-/* 任何一个维度失败就返回非零（CI 可接） */
+/* HH5: 5 周滑动容错——读 trend history，仅当连续 N 次 regress 才 fail。
+ * history 文件格式：{ entries: [{ ts, regressed: bool, snapshot: {...} }, ...] }
+ * 单次 regress：标准输出 ⚠️ 但不 exit 1；连续 N 次：exit 1。 */
+let historyEntries = [];
+if (TREND_HISTORY) {
+    try {
+        const raw = await readFile(resolve(process.cwd(), TREND_HISTORY), 'utf8');
+        const parsed = JSON.parse(raw);
+        historyEntries = Array.isArray(parsed?.entries) ? parsed.entries : [];
+    } catch { /* 文件不存在或损坏 — 视为空 history */ }
+}
+
+const newHistEntry = { ts: Date.now(), regressed, snapshot };
+const updatedHistory = [...historyEntries, newHistEntry].slice(-Math.max(TREND_FAIL_STREAK + 1, 10));
+
+if (TREND_HISTORY_WRITE && TREND_HISTORY) {
+    try {
+        const target = resolve(process.cwd(), TREND_HISTORY);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, JSON.stringify({ entries: updatedHistory }, null, 2) + '\n', 'utf8');
+        console.error(`[benchmark] trend history 已写入 ${target}（${updatedHistory.length} entries）`);
+    } catch (e) {
+        console.error(`[benchmark] trend history 写入失败：${e.message}`);
+    }
+}
+
+/* 连续 streak 检测：含本次在内的最后 N entries 是否全部 regressed */
+function _consecutiveRegressTail(entries, n) {
+    if (entries.length < n) return 0;
+    let count = 0;
+    for (let i = entries.length - 1; i >= 0; i--) {
+        if (entries[i].regressed) count++;
+        else break;
+    }
+    return count;
+}
+const consecutiveRegress = _consecutiveRegressTail(updatedHistory, TREND_FAIL_STREAK);
+
 const anyFail = !deadRes.ok || !dfsRes.ok || (!SKIP_PERF && perfRes && !perfRes.ok);
-const trendFail = TREND_FAIL_ON_REGRESS && regressed;
-if (trendFail) console.error('[benchmark] ❌ trend 检测到 >10% 退化，按 --trend-fail-on-regress 退出');
+
+let trendFail = false;
+if (TREND_FAIL_ON_REGRESS) {
+    if (TREND_HISTORY && TREND_FAIL_STREAK > 1) {
+        /* HH5 模式：连续 streak 检测 */
+        trendFail = consecutiveRegress >= TREND_FAIL_STREAK;
+        if (regressed && !trendFail) {
+            console.error(`[benchmark] ⚠️ trend 本次退化（连续 ${consecutiveRegress}/${TREND_FAIL_STREAK} 次），未达 streak 阈值，继续观察`);
+        } else if (trendFail) {
+            console.error(`[benchmark] ❌ trend 连续 ${consecutiveRegress} 次退化（≥ ${TREND_FAIL_STREAK}），按 --trend-fail-streak 退出`);
+        }
+    } else {
+        /* 旧行为：单次 regress 即 fail */
+        trendFail = regressed;
+        if (trendFail) console.error('[benchmark] ❌ trend 检测到 >10% 退化，按 --trend-fail-on-regress 退出');
+    }
+}
+
 process.exit((anyFail || trendFail) ? 1 : 0);
