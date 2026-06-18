@@ -860,6 +860,111 @@ describe('adaptiveSpawn._applySpawnHintsDelightRules (BB1)', () => {
     });
 });
 
+/* ============ CC1: _applySpawnHintsTopoOpportunityRules ============ */
+function _applySpawnHintsTopoOpportunityRulesRef(s, signals) {
+    const { pcSetup, nearFullLines, boardFill, pcSetupMinFill } = signals;
+    if (pcSetup >= 1) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.multiLineTarget = Math.max(s.multiLineTarget, 2);
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.75);
+        if ((boardFill ?? 0) >= pcSetupMinFill) s.rhythmPhase = 'payoff';
+    } else if (nearFullLines >= 3) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.6);
+        if (s.rhythmPhase === 'neutral') s.rhythmPhase = 'payoff';
+    }
+    return s;
+}
+const topoState = () => ({
+    clearGuarantee: 0, multiLineTarget: 0, multiClearBonus: 0, rhythmPhase: 'neutral',
+});
+
+describe('adaptiveSpawn._applySpawnHintsTopoOpportunityRules (CC1)', () => {
+    it('pcSetup=0 + nearFullLines=0 → 不动', () => {
+        const s = topoState();
+        _applySpawnHintsTopoOpportunityRulesRef(s, {
+            pcSetup: 0, nearFullLines: 0, boardFill: 0.5, pcSetupMinFill: 0.3,
+        });
+        expect(s).toEqual(topoState());
+    });
+
+    it('pcSetup=1 + boardFill ≥ minFill → cg/mlt/mcb 抬 + rhythmPhase=payoff', () => {
+        const s = topoState();
+        _applySpawnHintsTopoOpportunityRulesRef(s, {
+            pcSetup: 1, nearFullLines: 0, boardFill: 0.40, pcSetupMinFill: 0.3,
+        });
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.multiLineTarget).toBe(2);
+        expect(s.multiClearBonus).toBe(0.75);
+        expect(s.rhythmPhase).toBe('payoff');
+    });
+
+    it('pcSetup=1 + boardFill < minFill → 不提 rhythmPhase（保持 neutral）', () => {
+        const s = topoState();
+        _applySpawnHintsTopoOpportunityRulesRef(s, {
+            pcSetup: 1, nearFullLines: 0, boardFill: 0.10, pcSetupMinFill: 0.30,
+        });
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.multiClearBonus).toBe(0.75);
+        expect(s.rhythmPhase).toBe('neutral'); /* fill 不够 → 不撒谎 */
+    });
+
+    it('pcSetup=1 强制 payoff（无视 rhythmPhase 原值）', () => {
+        const s = topoState(); s.rhythmPhase = 'setup';
+        _applySpawnHintsTopoOpportunityRulesRef(s, {
+            pcSetup: 2, nearFullLines: 0, boardFill: 0.5, pcSetupMinFill: 0.3,
+        });
+        expect(s.rhythmPhase).toBe('payoff'); /* 强制覆盖 setup */
+    });
+
+    it('pcSetup=1 优先于 nearFullLines（互斥 if/else if）', () => {
+        const s = topoState();
+        _applySpawnHintsTopoOpportunityRulesRef(s, {
+            pcSetup: 1, nearFullLines: 5, boardFill: 0.5, pcSetupMinFill: 0.3,
+        });
+        expect(s.multiClearBonus).toBe(0.75); /* pcSetup 的 0.75，不是 nearFull 的 0.6 */
+        expect(s.multiLineTarget).toBe(2);    /* pcSetup 的 2，不是 nearFull 的 1 */
+    });
+
+    it('pcSetup=0 + nearFullLines=3 → cg=2 / mlt=1 / mcb=0.6', () => {
+        const s = topoState();
+        _applySpawnHintsTopoOpportunityRulesRef(s, {
+            pcSetup: 0, nearFullLines: 3, boardFill: 0.5, pcSetupMinFill: 0.3,
+        });
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.multiLineTarget).toBe(1);
+        expect(s.multiClearBonus).toBe(0.6);
+        expect(s.rhythmPhase).toBe('payoff'); /* neutral → payoff */
+    });
+
+    it('nearFullLines=2 → 不触发（< 3 阈值）', () => {
+        const s = topoState();
+        _applySpawnHintsTopoOpportunityRulesRef(s, {
+            pcSetup: 0, nearFullLines: 2, boardFill: 0.5, pcSetupMinFill: 0.3,
+        });
+        expect(s).toEqual(topoState());
+    });
+
+    it('nearFullLines=3 + rhythmPhase=setup → 不被提升（仅 neutral→payoff）', () => {
+        const s = topoState(); s.rhythmPhase = 'setup';
+        _applySpawnHintsTopoOpportunityRulesRef(s, {
+            pcSetup: 0, nearFullLines: 3, boardFill: 0.5, pcSetupMinFill: 0.3,
+        });
+        expect(s.rhythmPhase).toBe('setup');
+    });
+
+    it('幂等：同输入连续两次结果一致', () => {
+        const s1 = topoState();
+        const s2 = topoState();
+        const sig = { pcSetup: 1, nearFullLines: 0, boardFill: 0.5, pcSetupMinFill: 0.3 };
+        _applySpawnHintsTopoOpportunityRulesRef(s1, sig);
+        _applySpawnHintsTopoOpportunityRulesRef(s2, sig);
+        _applySpawnHintsTopoOpportunityRulesRef(s2, sig);
+        expect(s1).toEqual(s2);
+    });
+});
+
 /* ============ W4: _applySpawnHintsComboWinbackRules ============ */
 function _applySpawnHintsComboWinbackRulesRef(s) {
     let { clearGuarantee, sizePreference } = s;

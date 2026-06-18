@@ -615,6 +615,44 @@ function _applySpawnHintsDelightRules(s, delight, canPromoteToPayoff) {
     return s;
 }
 
+/**
+ * 拓扑机会 spawnHints（v1.71 CC1 抽出 L2643-2655）。
+ *
+ * 触发优先级（互斥 if/else if）：
+ *   1. pcSetup ≥ 1                → "清屏 setup 在手"：cg≥2 / mlt≥2 / mcb≥0.75
+ *                                    若 boardFill ≥ PC_SETUP_MIN_FILL → 强制 rhythmPhase='payoff'
+ *   2. nearFullLines ≥ 3          → "多临消同时刻"：cg≥2 / mlt≥1 / mcb≥0.6
+ *                                    rhythmPhase neutral → payoff
+ *
+ * 设计原则：清屏机会比"凑出多消"价值更高，故 pcSetup 路径优先；
+ * 与 deriveDelightSignals 几何门控同源 —— 不凭空制造机会，只对真实机会加权。
+ *
+ * 注意 rhythmPhase 提升语义：
+ *   - pcSetup 路径强制 'payoff'（不门控 canPromoteToPayoff，因为 pcSetup 本身=最强门控）
+ *   - nearFullLines 路径只在 'neutral' 升 'payoff'（避免覆盖 'setup'/'payoff'）
+ *
+ * @param {object} s state object（含 clearGuarantee/multiLineTarget/multiClearBonus/rhythmPhase）
+ * @param {{ pcSetup: number, nearFullLines: number, boardFill: number, pcSetupMinFill: number }} signals
+ * @returns {object} 修改后的 s（同引用）
+ */
+function _applySpawnHintsTopoOpportunityRules(s, signals) {
+    const { pcSetup, nearFullLines, boardFill, pcSetupMinFill } = signals;
+    if (pcSetup >= 1) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.multiLineTarget = Math.max(s.multiLineTarget, 2);
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.75);
+        if ((boardFill ?? 0) >= pcSetupMinFill) {
+            s.rhythmPhase = 'payoff';
+        }
+    } else if (nearFullLines >= 3) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.6);
+        if (s.rhythmPhase === 'neutral') s.rhythmPhase = 'payoff';
+    }
+    return s;
+}
+
 function _applySpawnHintsComboWinbackRules(s) {
     let { clearGuarantee, sizePreference } = s;
     const { comboChain, winbackPreset, ctx } = s;
@@ -2640,18 +2678,16 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         || multiClearCands >= 1
         || (pcSetup >= 1 && (_boardFill ?? 0) >= PC_SETUP_MIN_FILL);
 
-    if (pcSetup >= 1) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        multiLineTarget = Math.max(multiLineTarget, 2);
-        multiClearBonus = Math.max(multiClearBonus, 0.75);
-        if ((_boardFill ?? 0) >= PC_SETUP_MIN_FILL) {
-            rhythmPhase = 'payoff';
-        }
-    } else if (nearFullLines >= 3) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        multiLineTarget = Math.max(multiLineTarget, 1);
-        multiClearBonus = Math.max(multiClearBonus, 0.6);
-        if (rhythmPhase === 'neutral') rhythmPhase = 'payoff';
+    /* --- v1.71 CC1：拓扑机会段抽至 _applySpawnHintsTopoOpportunityRules --- */
+    {
+        const _t = _applySpawnHintsTopoOpportunityRules(
+            { clearGuarantee, multiLineTarget, multiClearBonus, rhythmPhase },
+            { pcSetup, nearFullLines, boardFill: _boardFill, pcSetupMinFill: PC_SETUP_MIN_FILL },
+        );
+        clearGuarantee = _t.clearGuarantee;
+        multiLineTarget = _t.multiLineTarget;
+        multiClearBonus = _t.multiClearBonus;
+        rhythmPhase = _t.rhythmPhase;
     }
 
     /* --- v1.66：低压阶段强化「清屏」达成率 ---
