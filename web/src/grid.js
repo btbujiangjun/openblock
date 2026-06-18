@@ -1124,14 +1124,20 @@ export class Grid {
          * 任何不满足的 placement 直接跳过 sameAs 检查（之前是 O(n) per line × 2 lines）。
          *
          * 与 _buildBitmapView 不复用：bestMonoFlushPotential 需要的是
-         * `emptyCount per row/col`，不是单 mask；自有数据结构更直接。 */
+         * `emptyCount per row/col`，不是单 mask；自有数据结构更直接。
+         *
+         * II1 阶段 2：rowOccBitmap 与 shapeRowBitmap 同时存下，让 canPlace 走
+         * "ANY (rowOcc & shapeBits)" 一次 AND 判定，省掉每 placement 重走
+         * shapeCells 列表。n=8 时整 row 8 bit 一次完成。 */
         const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
-        const rowEmptyCount = new Int32Array(n);
+        const rowOccBitmap = new Int32Array(n); /* II1: occupied mask per row */
         const colEmptyCount = new Int32Array(n);
+        const rowEmptyCount = new Int32Array(n);
         for (let y = 0; y < n; y++) {
             const row = this.cells[y];
             let occ = 0;
             for (let x = 0; x < n; x++) if (row[x] !== null) occ |= (1 << x);
+            rowOccBitmap[y] = occ;
             rowEmptyCount[y] = _popcount32((~occ) & fullMask);
         }
         for (let x = 0; x < n; x++) {
@@ -1139,12 +1145,16 @@ export class Grid {
             for (let y = 0; y < n; y++) if (this.cells[y][x] !== null) occCol |= (1 << y);
             colEmptyCount[x] = _popcount32((~occCol) & fullMask);
         }
-        /* shape 每行/列占用 cell 计数（含 dx/dy 偏移） */
+        /* shape 每行/列占用 cell 计数 + II1 行 bitmap（含 dx/dy 偏移） */
         const shapeRowFill = new Int32Array(sh);
         const shapeColFill = new Int32Array(sw);
+        const shapeRowBits = new Int32Array(sh); /* II1: bit mask of shape cells per row（未平移） */
         for (let k = 0; k < shapeCells.length; k++) {
-            shapeColFill[shapeCells[k][0]]++;
-            shapeRowFill[shapeCells[k][1]]++;
+            const dx = shapeCells[k][0];
+            const dy = shapeCells[k][1];
+            shapeColFill[dx]++;
+            shapeRowFill[dy]++;
+            shapeRowBits[dy] |= (1 << dx);
         }
 
         /* v1.55.11 perf：受影响 row/col 用 Uint8Array 标记位（8 位足够 n=8），
@@ -1157,7 +1167,16 @@ export class Grid {
         let bestTargetCi = null;
         for (let oy = 0; oy <= n - sh; oy++) {
             for (let ox = 0; ox <= n - sw; ox++) {
-                if (!this.canPlace(shapeData, ox, oy)) continue;
+                /* II1 阶段 2：用 row bitmap AND 取代 canPlace 的 O(shapeCells) 循环。
+                 * 对每行 shape 占用 mask 左移 ox 后与 rowOcc 求交，任一非零即冲突。
+                 * 因 dx ∈ [0, sw) 平移 ox 后 ∈ [ox, ox+sw)，不会越界（fullMask 保护）。 */
+                let collide = false;
+                for (let dy = 0; dy < sh; dy++) {
+                    const bits = shapeRowBits[dy];
+                    if (bits === 0) continue;
+                    if ((rowOccBitmap[oy + dy] & (bits << ox)) !== 0) { collide = true; break; }
+                }
+                if (collide) continue;
 
                 rowMask.fill(0);
                 colMask.fill(0);
