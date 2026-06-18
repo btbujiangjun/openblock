@@ -81,6 +81,27 @@ const FILES = [
     'monetization/featureFlags.js',
     'monetization/MonetizationBus.js',
     'monetization/analyticsTracker.js',
+    // inc8-A payments：核心付费/排行/通行证/挑战/任务/弹窗（直接 sync mirror）
+    'monetization/paymentManager.js',
+    'monetization/paymentPredictionModel.js',
+    'monetization/leaderboard.js',
+    'monetization/seasonPass.js',
+    'monetization/weeklyChallenge.js',
+    'monetization/dailyTasks.js',
+    'monetization/offerToast.js',
+    // inc8-B push：本地与远程推送通道
+    'monetization/pushNotificationManager.js',
+    'monetization/pushNotificationSystem.js',
+    'monetization/pushNotifications.js',
+    // inc8-C abtest：实验分流与远程配置
+    'monetization/abTestManager.js',
+    'monetization/experimentPlatform.js',
+    'monetization/remoteConfigManager.js',
+    // inc8-D social：邀请/回放分享/分享卡/社交排行
+    'monetization/inviteRewardSystem.js',
+    'monetization/replayShare.js',
+    'monetization/shareCardGenerator.js',
+    'monetization/socialLeaderboard.js',
     'channelAttribution.js',
     'monetization/ltvPredictor.js',
     'monetization/commercialFeatureSnapshot.js',
@@ -265,6 +286,97 @@ CUSTOM_STUBS.set('monetization/adTrigger.js', `${GEN_HEADER('monetization/adTrig
 export function getAdGuardrailState() { return null; }
 export function initAdTrigger() { return null; }
 export function getAdFreqSnapshot() { return null; }
+`);
+
+/* inc8-A payments 间接依赖桩 —— 为 payments 系列模块提供「形状契合」的安全 no-op，
+ * 避免 getWallet() / getCohortManager() / isPurchased() 在 Cocos 端 crash。
+ * 真实实现留给后续 inc8-A-deps PR（若需要本地钱包/IAP 链路再 sync 源文件）。 */
+
+CUSTOM_STUBS.set('skills/wallet.js', `${GEN_HEADER('skills/wallet（Cocos 桩：钱包 no-op，addBalance 静默）')}
+const _noopWallet = {
+    addBalance() { return 0; },
+    getBalance() { return 0; },
+    spend() { return false; },
+    has() { return false; },
+};
+export function getWallet() { return _noopWallet; }
+`);
+
+CUSTOM_STUBS.set('monetization/cohortManager.js', `${GEN_HEADER('monetization/cohortManager（Cocos 桩：cohort 标记返回空集）')}
+const _noopCohort = {
+    init() {},
+    syncFromSystem() {},
+    getCohorts() { return []; },
+    hasCohort() { return false; },
+    addCohort() {},
+};
+export function getCohortManager() { return _noopCohort; }
+export function initCohortFromUser() {}
+`);
+
+CUSTOM_STUBS.set('monetization/iapAdapter.js', `${GEN_HEADER('monetization/iapAdapter（Cocos 桩：IAP 查询恒为未购买）')}
+export function isPurchased() { return false; }
+export function getOwnedProducts() { return []; }
+export function purchase() { return Promise.resolve({ ok: false, reason: 'stub' }); }
+`);
+
+CUSTOM_STUBS.set('monetization/personalization.js', `${GEN_HEADER('monetization/personalization（Cocos 桩：个性化推荐返回空）')}
+export function getPersonalizedOffer() { return null; }
+export function recordOfferShown() {}
+export function recordOfferAccepted() {}
+`);
+
+/* inc8-B/C/D 间接依赖桩 —— push/abtest/social 模块对 progression / retentionAnalyzer /
+ * i18n / bestScoreBuckets / adAdapter / strategy 的引用，全部用安全 no-op 桩兜底。 */
+
+CUSTOM_STUBS.set('progression.js', `${GEN_HEADER('progression（Cocos 桩：进度持久化 no-op，loadProgress 返回空对象供解构）')}
+export function loadProgress() { return {}; }
+export function saveProgress() {}
+export function applyGameEndProgression() { return null; }
+export function computeXpGain() { return 0; }
+export function getLevelFromTotalXp() { return 1; }
+export function getLevelProgress() { return { level: 1, progress: 0 }; }
+export function invalidateProgressCache() {}
+export function isSkinUnlocked() { return false; }
+export function resetSkinUnlockProvider() {}
+export function setSkinUnlockProvider() {}
+export function titleForLevel() { return ''; }
+`);
+
+CUSTOM_STUBS.set('monetization/retentionAnalyzer.js', `${GEN_HEADER('monetization/retentionAnalyzer（Cocos 桩：lifecycle 查询返回未知，触发 push 降级）')}
+const _noopAnalyzer = {
+    getUserLifecycle() { return { stage: 'unknown', score: 0 }; },
+    recordEvent() {},
+    snapshot() { return {}; },
+};
+export function getRetentionAnalyzer() { return _noopAnalyzer; }
+export function initRetentionAnalyzer() {}
+export function _resetRetentionAnalyzerForTests() {}
+`);
+
+CUSTOM_STUBS.set('i18n/i18n.js', `${GEN_HEADER('i18n（Cocos 桩：翻译恒返回 key 自身，分享文案走原文）')}
+export function t(key) { return String(key ?? ''); }
+export function setLocale() {}
+export function getLocale() { return 'en'; }
+`);
+
+CUSTOM_STUBS.set('bestScoreBuckets.js', `${GEN_HEADER('bestScoreBuckets（Cocos 桩：排行榜分桶返回空集，socialLeaderboard 安全降级）')}
+export function bucketForScore() { return 'unknown'; }
+export function getBucketStats() { return {}; }
+export function recordScoreForBucketing() {}
+`);
+
+CUSTOM_STUBS.set('monetization/adAdapter.js', `${GEN_HEADER('monetization/adAdapter（Cocos 桩：广告适配器 no-op，iapAdapter 间接依赖）')}
+export function showRewardedAd() { return Promise.resolve({ ok: false, reason: 'stub' }); }
+export function showInterstitialAd() { return Promise.resolve(false); }
+export function preloadAds() {}
+export function getAdAvailability() { return { rewarded: false, interstitial: false }; }
+`);
+
+CUSTOM_STUBS.set('monetization/strategy/index.js', `${GEN_HEADER('monetization/strategy/index（Cocos 桩：策略入口空骨架，personalization 间接依赖）')}
+export function selectStrategy() { return null; }
+export function listStrategies() { return []; }
+export default {};
 `);
 
 function genStubs() {
