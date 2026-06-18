@@ -5,10 +5,10 @@ export default {
   "schemaVersion": 1,
   "description": "玩法与 RL 观测的单一数据源：改难度/得分/棋盘参数只改本文件；改特征维度需同步实现 observationEncoder 并重训模型。",
   "rollout": {
-    "comment": "CC2：feature flag A/B 灰度配置（由 lib/userBucketing.resolveRolloutFeature 消费）。{ enabled, percent 0-100, salt } 三字段契约。salt 用 'feature-vN' 形式，迭代灰度方案时改 salt 重新分桶。详见 docs/engineering/DYNAMIC_LEAFCAP_AB_PLAN.md。",
+    "comment": "CC2：feature flag A/B 灰度配置（由 lib/userBucketing.resolveRolloutFeature 消费）。{ enabled, percent 0-100, salt } 三字段契约。salt 用 'feature-vN' 形式，迭代灰度方案时改 salt 重新分桶。详见 docs/engineering/DYNAMIC_LEAFCAP_AB_PLAN.md。EE2：阶段 1 上线 enabled=true percent=5（5% 灰度），监控 7 天后按 DYNAMIC_LEAFCAP_AB_PLAN.md 决策阶段 2。",
     "dynamicLeafCap": {
-      "enabled": false,
-      "percent": 0,
+      "enabled": true,
+      "percent": 5,
       "salt": "dyn-cap-v1"
     }
   },

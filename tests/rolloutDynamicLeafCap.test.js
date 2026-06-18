@@ -31,9 +31,15 @@ describe('CC2 game_rules.rollout.dynamicLeafCap schema', () => {
         expect(typeof cfg.salt).toBe('string');
     });
 
-    it('阶段 0 默认配置：percent=0（行为零变化）', () => {
+    it('当前灰度配置：percent ≤ 100 且 ≥ 0（EE2 阶段 1 上线后允许 5）', () => {
         const cfg = rules.rollout.dynamicLeafCap;
-        expect(cfg.percent).toBe(0);
+        expect(cfg.percent).toBeGreaterThanOrEqual(0);
+        expect(cfg.percent).toBeLessThanOrEqual(100);
+        /* 阶段进展记录（rolling）：
+         *   阶段 0 (CC2): percent=0
+         *   阶段 1 (EE2): percent=5  ← 当前
+         *   阶段 2:       percent=25
+         *   阶段 3:       percent=100 */
     });
 
     it('salt 命名约定：含版本号（dyn-cap-v1）', () => {
