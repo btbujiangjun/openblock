@@ -1,0 +1,108 @@
+name: benchmark trend baseline rolling update
+
+# FF5: 每周自动更新 docs/engineering/benchmark-trend-baseline.json，
+# 让 EE5 的 trend Δ% 对比真的"滚动"而不依赖 owner 手动跑
+# `npm run benchmark:write-trend`。
+#
+# 节奏选择：每周一 03:00 UTC（北京时间 11:00），早于 weekly-dead-code
+# 的 04:00 UTC，让 dead-code 报告里的 trend 对比能用到本周新基线。
+# 真实意图：避免基线无限期老化导致对比无意义（半年前的 cappedRatio
+# 已是 stale data）。
+#
+# 安全：
+#   - 仅在 main 分支跑，不影响 PR
+#   - workflow_dispatch 允许手动触发（应急）
+#   - 自动 commit 用 GITHUB_TOKEN，不需要额外 PAT
+#   - 提交带 [skip ci] 防止自我递归触发其他 CI
+
+on:
+  schedule:
+    - cron: '0 3 * * 1' # 周一 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '只跑不 commit'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+
+jobs:
+  rolling-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Read previous baseline (for diff)
+        id: prev
+        run: |
+          if [ -f docs/engineering/benchmark-trend-baseline.json ]; then
+            cp docs/engineering/benchmark-trend-baseline.json /tmp/prev-baseline.json
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run benchmark + write new baseline
+        run: |
+          node scripts/benchmark-suite.mjs --skip-perf \
+            ${{ steps.prev.outputs.exists == 'true' && '--trend-baseline /tmp/prev-baseline.json' || '' }} \
+            --write-trend docs/engineering/benchmark-trend-baseline.json \
+            > /tmp/benchmark-output.md 2>&1 || true
+
+      - name: Show benchmark summary
+        run: |
+          echo "::group::Benchmark output"
+          head -n 100 /tmp/benchmark-output.md
+          echo "::endgroup::"
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if git diff --quiet docs/engineering/benchmark-trend-baseline.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No baseline changes."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff docs/engineering/benchmark-trend-baseline.json | head -50
+          fi
+
+      - name: Commit rolling baseline
+        if: steps.changes.outputs.changed == 'true' && github.event.inputs.dry_run != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/engineering/benchmark-trend-baseline.json
+          # [skip ci] 防止递归触发；带本周 trend 摘要在 body
+          # 提取"维度 5"段嵌入 commit body（便于历史回溯每周 Δ%）
+          TREND_SUMMARY=$(sed -n '/## 维度 5/,/^---$/p' /tmp/benchmark-output.md | head -30 || echo "(无对比段)")
+          git commit -m "chore(bench): FF5 自动滚动 trend baseline ($(date -u +%Y-%m-%d))
+
+$TREND_SUMMARY
+
+[skip ci]"
+          git push
+
+      - name: Upload benchmark artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-trend-baseline
+          path: |
+            /tmp/benchmark-output.md
+            docs/engineering/benchmark-trend-baseline.json
+          retention-days: 90

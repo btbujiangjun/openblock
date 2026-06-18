@@ -88,7 +88,10 @@ sum(rate(openblock_dfs_budget_window_total_calls{env="prod"}[1h]))
 ## 6. 沉淀产物
 
 - 周报归档：`docs/engineering/changelog/aa5-week-1.md` ... `aa5-week-N.md`
+  - **FF2** 模板：`docs/engineering/changelog/aa5-week-template.md`
 - benchmark 报告：weekly-dead-code CI artifact (DD5)
+- **FF5** 自动滚动 baseline：`.github/workflows/benchmark-trend-rolling.yml`
+  每周一 03:00 UTC 自动 commit 新基线，让周报里的 Δ% 始终反映"本周 vs 上周"
 - 服务端 dashboard 快照（建议）：保留 BB2 / CC5 dashboard 的截图
 
 ## 7. 相关文档
