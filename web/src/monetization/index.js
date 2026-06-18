@@ -12,6 +12,9 @@
 import { attach, detach } from './MonetizationBus.js';
 import { getFlag } from './featureFlags.js';
 import { injectMonStyles } from './styles.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('index');
+
 // progression / skinUnlock 通过 dynamic import 在 init 内引入，避免顶层循环依赖
 
 let _initialized = false;
@@ -44,7 +47,7 @@ async function _loadModule(moduleDef) {
     const { name, loader, flag } = moduleDef;
 
     if (flag && !getFlag(flag)) {
-        console.log(`[Monetization] Skipping ${name} (flag: ${flag} = false)`);
+        log.log(`[Monetization] Skipping ${name} (flag: ${flag} = false)`);
         return null;
     }
 
@@ -54,7 +57,7 @@ async function _loadModule(moduleDef) {
         _lazyModules[name] = module;
         return module;
     } catch (e) {
-        console.warn(`[Monetization] Failed to load ${name}:`, e);
+        log.warn(`[Monetization] Failed to load ${name}:`, e);
         return null;
     }
 }
@@ -88,7 +91,7 @@ export async function initMonetization(game) {
     if (_initialized) return;
     _initialized = true;
 
-    console.log('[Monetization] Initializing...');
+    log.log('[Monetization] Initializing...');
 
     // 1. 注入 CSS（核心样式，静态导入避免抖动）
     injectMonStyles();
@@ -110,7 +113,7 @@ export async function initMonetization(game) {
             setTimeout(() => personalization.fetchPersonaFromServer(userId), 2000);
         }
     } catch (e) {
-        console.warn('[Monetization] personalization unavailable:', e);
+        log.warn('[Monetization] personalization unavailable:', e);
     }
 
     /* 5. v1.48：生命周期感知商业化层 —— 订阅 lifecycle:session_start/end，把
@@ -122,7 +125,7 @@ export async function initMonetization(game) {
         const detach = lifecycleAware.attachLifecycleAwareOffers();
         if (typeof detach === 'function') _cleanups.push(detach);
     } catch (e) {
-        console.warn('[Monetization] lifecycleAwareOffers unavailable:', e);
+        log.warn('[Monetization] lifecycleAwareOffers unavailable:', e);
     }
 
     /* 6. v1.49.x P0-7：lifecycle 事件 → UI Toast 接线。
@@ -134,7 +137,7 @@ export async function initMonetization(game) {
         const detach = offerToast.attachOfferToast();
         if (typeof detach === 'function') _cleanups.push(detach);
     } catch (e) {
-        console.warn('[Monetization] offerToast unavailable:', e);
+        log.warn('[Monetization] offerToast unavailable:', e);
     }
 
     /* 7a. v1.49.x P2-2：lifecycle 事件 → push/share/invite 孤儿模块接线。
@@ -146,7 +149,7 @@ export async function initMonetization(game) {
         const detach = outreach.attachLifecycleOutreach();
         if (typeof detach === 'function') _cleanups.push(detach);
     } catch (e) {
-        console.warn('[Monetization] lifecycleOutreach unavailable:', e);
+        log.warn('[Monetization] lifecycleOutreach unavailable:', e);
     }
 
     /* 6b. v1.49.x 算法层 P0-3：actionOutcomeMatrix 总线接线。
@@ -159,7 +162,7 @@ export async function initMonetization(game) {
             const detach = aom.attachActionOutcomeMatrix();
             if (typeof detach === 'function') _cleanups.push(detach);
         } catch (e) {
-            console.warn('[Monetization] actionOutcomeMatrix unavailable:', e);
+            log.warn('[Monetization] actionOutcomeMatrix unavailable:', e);
         }
     }
 
@@ -175,11 +178,11 @@ export async function initMonetization(game) {
             progression.setSkinUnlockProvider(skinUnlock.isSkinUnlocked);
             _cleanups.push(() => progression.resetSkinUnlockProvider());
         } catch (e) {
-            console.warn('[Monetization] skinUnlock bridge unavailable:', e);
+            log.warn('[Monetization] skinUnlock bridge unavailable:', e);
         }
     }
 
-    console.log('[Monetization] Initialized');
+    log.log('[Monetization] Initialized');
 }
 
 /**
@@ -191,7 +194,7 @@ export function shutdownMonetization() {
         try {
             cleanup();
         } catch (e) {
-            console.warn('[Monetization] Cleanup error:', e);
+            log.warn('[Monetization] Cleanup error:', e);
         }
     }
     _cleanups = [];
@@ -203,7 +206,7 @@ export function shutdownMonetization() {
     _lazyModules = {};
     
     _initialized = false;
-    console.log('[Monetization] Shutdown');
+    log.log('[Monetization] Shutdown');
 }
 
 /**

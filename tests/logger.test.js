@@ -5,7 +5,7 @@
  * console 缺失兜底。
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createLogger, setLogLevel, LOG_LEVELS } from '../web/src/lib/logger.js';
+import { createLogger, setLogLevel, configureLoggerFromConfig, LOG_LEVELS } from '../web/src/lib/logger.js';
 
 describe('lib/logger', () => {
     let warnSpy;
@@ -65,5 +65,34 @@ describe('lib/logger', () => {
         const log = createLogger();
         log.warn('m');
         expect(warnSpy.mock.calls[0][0]).toBe('[app]');
+    });
+
+    it('log() 别名走 info 级别（迁移 console.log 友好）', () => {
+        const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        const log = createLogger('migrate');
+        log.log('a', 'b');
+        expect(logSpy).toHaveBeenCalledTimes(1);
+        expect(logSpy.mock.calls[0][0]).toBe('[migrate]');
+        setLogLevel('warn');
+        log.log('hidden');
+        expect(logSpy).toHaveBeenCalledTimes(1); // warn 级别屏蔽 log
+        logSpy.mockRestore();
+    });
+
+    it('configureLoggerFromConfig: 生产环境 prodLevel 生效', () => {
+        // jsdom 默认 hostname=localhost → dev；显式 env='prod' 走 prodLevel
+        configureLoggerFromConfig({ logging: { defaultLevel: 'info', prodLevel: 'error' } }, 'prod');
+        const log = createLogger('mp');
+        log.warn('warn-should-be-hidden');
+        expect(warnSpy).not.toHaveBeenCalled();
+        log.error('err-visible');
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('configureLoggerFromConfig: dev 走 defaultLevel', () => {
+        configureLoggerFromConfig({ logging: { defaultLevel: 'debug', prodLevel: 'warn' } }, 'dev');
+        const log = createLogger('mp');
+        log.debug('visible');
+        expect(debugSpy).toHaveBeenCalledTimes(1);
     });
 });

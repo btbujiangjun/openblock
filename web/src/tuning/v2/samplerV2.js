@@ -37,6 +37,9 @@ import { selectActionRemote } from '../../bot/pytorchBackend.js';
 // v3.2 严格 no-peek: θ 白名单 (与 Python feature_io.THETA_KEYS 同源), modelConfig 只收这些 key。
 //   用 DEFAULT_THETA_V2 的 key 集 (= 36 维 θ 全集) 做白名单单一真源。
 import { DEFAULT_THETA_V2 } from './clientPolicyV2.js';
+import { createLogger } from '../../lib/logger.js';
+const log = createLogger('samplerV2');
+
 
 const THETA_KEY_SET = new Set(Object.keys(DEFAULT_THETA_V2));
 
@@ -665,7 +668,7 @@ export async function runOneSampleV2(args) {
             } catch (e) {
                 // 静默 fallback (网络抖动不应阻断整局采样)
                 if (typeof console !== 'undefined') {
-                    console.warn('[samplerV2 generative] V3 predict failed, fallback baseline:', e?.message);
+                    log.warn('[samplerV2 generative] V3 predict failed, fallback baseline:', e?.message);
                 }
             }
             lastGenerativeReplaceAt = sim.placements;
@@ -684,7 +687,7 @@ export async function runOneSampleV2(args) {
                 }
             } catch (e) {
                 if (typeof console !== 'undefined') {
-                    console.warn('[samplerV2 rl-bot] RL HTTP failed, fallback clear-greedy:', e?.message);
+                    log.warn('[samplerV2 rl-bot] RL HTTP failed, fallback clear-greedy:', e?.message);
                 }
             }
             // fallback: clear-greedy (跟 rl-bot 同级 strong bot, RL 不可用时数据仍可用)
@@ -921,7 +924,7 @@ export async function collectSamplesV2(args) {
                     const msg = e?.message || String(e);
                     if (!firstError) firstError = msg;
                     if (typeof console !== 'undefined') {
-                        console.error('[samplerV2] error:', msg, e);
+                        log.error('[samplerV2] error:', msg, e);
                     }
                 }
                 sampleSinceLastProgress++;

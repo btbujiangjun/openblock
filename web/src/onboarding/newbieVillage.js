@@ -63,6 +63,9 @@ export {
     shapeCells,
     toGridLike,
 } from './newbieVillageCore.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('newbieVillage');
+
 
 function _loadState() {
     return loadVillageState(typeof localStorage !== 'undefined' ? localStorage : null);
@@ -730,7 +733,7 @@ export async function runNewbieVillageIfFirstLogin({ game = null, audio = null }
         await startNewbieVillage({ game, audio });
         return true;
     } catch (e) {
-        try { console.warn('[newbieVillage] 跳过（异常）:', e); } catch { /* ignore */ }
+        try { log.warn('[newbieVillage] 跳过（异常）:', e); } catch { /* ignore */ }
         return false;
     }
 }

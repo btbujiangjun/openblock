@@ -32,6 +32,9 @@ import {
     evaluate,
     buildWhyLines,
 } from './strategy/index.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('personalization');
+
 
 const CACHE_KEY = 'openblock_mon_persona_v1';
 const CACHE_TTL_MS = 60 * 60 * 1000;
@@ -109,7 +112,7 @@ export async function fetchPersonaFromServer(userId, force = false) {
         // 2. 后端如果同步下发了 model 配置（A/B 实验），写入策略子系统
         if (data.model_config && typeof data.model_config === 'object') {
             try { setStrategyConfig(data.model_config); }
-            catch (err) { console.warn('[personalization] setStrategyConfig from server failed:', err); }
+            catch (err) { log.warn('[personalization] setStrategyConfig from server failed:', err); }
         }
 
         _saveCache(_state);

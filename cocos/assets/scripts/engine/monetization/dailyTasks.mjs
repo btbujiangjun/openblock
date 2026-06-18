@@ -15,6 +15,9 @@ import { getFlag } from './featureFlags.mjs';
 import { on, emit } from './MonetizationBus.mjs';
 import { getWallet } from '../skills/wallet.mjs';
 import { todayYmd } from '../lib/dateUtils.mjs';
+import { createLogger } from '../lib/logger.mjs';
+const log = createLogger('dailyTasks');
+
 
 const STORAGE_KEY = 'openblock_mon_daily_tasks_v1';
 
@@ -171,7 +174,7 @@ function _grantDailyTaskReward(def) {
         if (reward.coin) w.addBalance('coin', reward.coin | 0, source);
         if (reward.fragment) w.addBalance('fragment', reward.fragment | 0, source);
     } catch (e) {
-        console.warn('[dailyTasks] reward grant failed', e);
+        log.warn('[dailyTasks] reward grant failed', e);
     }
 }
 

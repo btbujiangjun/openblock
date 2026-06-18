@@ -13,6 +13,9 @@ import { collectSamplesV2, runOneSampleV2 } from './samplerV2.js';
 import { renderDCurveChart, computeChartMetrics } from './dCurveChart.js';
 import { getApiBaseUrl } from '../../config.js';
 import { THETA_RANGES as THETA_RANGES_V2 } from './clientPolicyV2.js';
+import { createLogger } from '../../lib/logger.js';
+const log = createLogger('dashboardV2');
+
 
 const $ = (id) => document.getElementById(id);
 const API_BASE = getApiBaseUrl().replace(/\/+$/, '');
@@ -721,7 +724,7 @@ async function _loadDeployedBundle() {
         _deployedBundleCache = map;
         return map;
     } catch (e) {
-        console.warn('[θ source] 加载 deployed bundle 失败, 回退 LHS:', e?.message);
+        log.warn('[θ source] 加载 deployed bundle 失败, 回退 LHS:', e?.message);
         _deployedBundleCache = {};
         return _deployedBundleCache;
     }
@@ -774,7 +777,7 @@ async function _buildThetasFactory(nThetas) {
     const bundle = await _loadDeployedBundle();
     const hasAnyBundle = Object.keys(bundle).length > 0;
     if (!hasAnyBundle) {
-        console.warn('[θ source] deployed bundle 为空, 回退 LHS');
+        log.warn('[θ source] deployed bundle 为空, 回退 LHS');
         return _lhsThetas(nThetas);
     }
     return (ctx) => {

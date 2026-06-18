@@ -12,6 +12,9 @@ import { getFlag } from './featureFlags.js';
 import { on, emit } from './MonetizationBus.js';
 import { isPurchased } from './iapAdapter.js';
 import { getWallet } from '../skills/wallet.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('seasonPass');
+
 
 const STORAGE_KEY = 'openblock_mon_season_v1';
 const SEASON_DURATION_MS = 30 * 86400_000;
@@ -158,7 +161,7 @@ function _grantTierWallet(tier, isPaid) {
             w.addBalance(kind, amount | 0, source);
         }
     } catch (e) {
-        console.warn('[seasonPass] tier wallet grant failed', e);
+        log.warn('[seasonPass] tier wallet grant failed', e);
     }
 }
 

@@ -22,6 +22,9 @@
  */
 
 import { t as i18nT } from '../i18n/i18n.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('asyncPk');
+
 
 const STORAGE_KEY = 'openblock_async_pk_v1';
 
@@ -153,7 +156,7 @@ function _showChallengeDialog(payload) {
         try {
             await _game?.start?.({ seed: payload.seed, fromChain: false });
         } catch (e) {
-            console.warn('[asyncPk] start failed', e);
+            log.warn('[asyncPk] start failed', e);
         }
         /* 标记本局为 PK 模式，endGame 时对比分数 */
         if (_game) {

@@ -19,6 +19,9 @@ import {
 } from './audit/profileAudit.js';
 import { getApiBaseUrl } from './config.js';
 import { getUserId } from './lib/userId.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('profileAuditApp');
+
 
 const $ = (id) => document.getElementById(id);
 let _worker = null;
@@ -726,7 +729,7 @@ async function runAutoAudit({ force = false } = {}) {
                 succeeded++;
             } catch (e) {
                 failed++;
-                console.warn(`#${c.sessionId} audit 失败:`, e);
+                log.warn(`#${c.sessionId} audit 失败:`, e);
             }
             /* 每 20 条让浏览器主线程喘口气，避免长时间冻结 UI */
             if ((i + 1) % 20 === 0) {

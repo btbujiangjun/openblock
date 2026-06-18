@@ -1,4 +1,7 @@
 import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('replayAlbumStub');
+
 /**
  * replayAlbumStub.js — v10.16 历史最佳棋谱回放 + 里程碑相册（P2 骨架）
  *
@@ -39,7 +42,7 @@ export function initReplayAlbumStub({ game } = {}) {
     _origEndGame = game.endGame.bind(game);
     game.endGame = async (...args) => {
         const ret = await _origEndGame(...args);
-        try { _maybeRecord(game); } catch (e) { console.warn('[replayAlbum]', e); }
+        try { _maybeRecord(game); } catch (e) { log.warn('[replayAlbum]', e); }
         return ret;
     };
 

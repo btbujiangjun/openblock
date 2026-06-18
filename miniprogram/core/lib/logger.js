@@ -27,8 +27,31 @@
 
 const LEVELS = Object.freeze({ debug: 10, info: 20, warn: 30, error: 40, silent: 99 });
 
+/* 解析优先级（高 → 低）：
+ *   1. URL ?log=<level>      （前端临时调试）
+ *   2. globalThis.__OPENBLOCK_LOG_LEVEL__   （setLogLevel / 测试 / 远程注入）
+ *   3. 默认 'info'             （安装时编译期默认；运行期可被 configureLoggerFromConfig 覆盖）
+ *
+ * 缓存 globalThis 解析结果以避免每条日志都 parse URL。URL 变化场景极少；
+ * 调试想换级别可以直接 setLogLevel。 */
+let _urlChecked = false;
+function _checkUrlOverride() {
+    if (_urlChecked || typeof globalThis === 'undefined') { _urlChecked = true; return; }
+    _urlChecked = true;
+    try {
+        const loc = globalThis.location;
+        if (!loc || typeof loc.search !== 'string') return;
+        const m = /[?&]log=([^&]+)/i.exec(loc.search);
+        if (m) {
+            const lvl = String(m[1]).toLowerCase();
+            if (LEVELS[lvl] !== undefined) globalThis.__OPENBLOCK_LOG_LEVEL__ = lvl;
+        }
+    } catch { /* ignore */ }
+}
+
 function _resolveLevel() {
     if (typeof globalThis === 'undefined') return LEVELS.info;
+    _checkUrlOverride();
     const raw = String(globalThis.__OPENBLOCK_LOG_LEVEL__ || 'info').toLowerCase();
     return LEVELS[raw] ?? LEVELS.info;
 }
@@ -52,6 +75,8 @@ function createLogger(tag = 'app') {
         get isDebug() { return _resolveLevel() <= LEVELS.debug; },
         debug(...args) { if (_resolveLevel() <= LEVELS.debug) _emit('debug', _tag, args); },
         info(...args)  { if (_resolveLevel() <= LEVELS.info)  _emit('info',  _tag, args); },
+        /** log 是 info 的别名 —— 历史 console.log 散点迁移友好（语义=普通日志，info 级别） */
+        log(...args)   { if (_resolveLevel() <= LEVELS.info)  _emit('log',   _tag, args); },
         warn(...args)  { if (_resolveLevel() <= LEVELS.warn)  _emit('warn',  _tag, args); },
         error(...args) { if (_resolveLevel() <= LEVELS.error) _emit('error', _tag, args); },
     };
@@ -67,4 +92,28 @@ function setLogLevel(level) {
 
 const LOG_LEVELS = LEVELS;
 
-module.exports = { createLogger, LOG_LEVELS, setLogLevel };
+/**
+ * 根据 game_rules.logging 段 + 运行环境设定级别。
+ * 调用顺序：main.js 启动时尽早调用一次；URL ?log= 仍可覆盖。
+ *
+ * @param {object} rules game_rules 对象（含 logging 段）
+ * @param {'dev'|'prod'} [env] 运行环境；默认根据 import.meta.env.MODE / location.hostname 启发判断
+ */
+function configureLoggerFromConfig(rules, env) {
+    if (typeof globalThis === 'undefined') return;
+    /* URL 覆盖最高优先级，已设过就不动 */
+    _checkUrlOverride();
+    if (globalThis.__OPENBLOCK_LOG_LEVEL__ && globalThis.__OPENBLOCK_LOG_LEVEL__ !== 'info') return;
+    let resolvedEnv = env;
+    if (!resolvedEnv) {
+        try {
+            const host = globalThis.location?.hostname || '';
+            resolvedEnv = (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local')) ? 'dev' : 'prod';
+        } catch { resolvedEnv = 'prod'; }
+    }
+    const cfg = rules?.logging || {};
+    const level = (resolvedEnv === 'prod' ? cfg.prodLevel : cfg.defaultLevel) || cfg.defaultLevel || 'info';
+    setLogLevel(level);
+}
+
+module.exports = { configureLoggerFromConfig, createLogger, LOG_LEVELS, setLogLevel };

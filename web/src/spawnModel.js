@@ -17,6 +17,9 @@ import { getShapeById } from './shapes.js';
 import { analyzeBoardTopology } from './boardTopology.js';
 import { buildPlayerAbilityVector } from './playerAbilityModel.js';
 import { spatialPlanningFeatures } from './spatialPlanning.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('spawnModel');
+
 
 const SPAWN_MODE_KEY = 'ob_spawn_mode';
 export const SPAWN_MODE_RULE = 'rule';
@@ -449,7 +452,7 @@ async function _predictShapes(grid, profile, recentHistory, adaptiveInsight, tem
 
         return shapes.length >= 3 ? shapes.slice(0, 3) : null;
     } catch (e) {
-        console.warn('SpawnTransformerV2 predict failed:', e);
+        log.warn('SpawnTransformerV2 predict failed:', e);
         return null;
     }
 }
@@ -519,7 +522,7 @@ export async function predictShapesV3(grid, profile, recentHistory, adaptiveInsi
             },
         };
     } catch (e) {
-        console.warn('SpawnPolicyNet predict failed:', e);
+        log.warn('SpawnPolicyNet predict failed:', e);
         return null;
     }
 }

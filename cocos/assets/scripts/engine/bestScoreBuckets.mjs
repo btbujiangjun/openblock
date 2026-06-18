@@ -5,3 +5,6 @@
 export function bucketForScore() { return 'unknown'; }
 export function getBucketStats() { return {}; }
 export function recordScoreForBucketing() {}
+// socialLeaderboard.mjs 顶部 named import getAllBestByStrategy 用于 PB 风险修复；
+// 桩端必须显式 export 否则 rollup MISSING_EXPORT 中断 JS 打包（→ APK 黑屏）。
+export function getAllBestByStrategy() { return {}; }

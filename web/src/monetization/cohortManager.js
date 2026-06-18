@@ -8,6 +8,9 @@
  */
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 import { safeReadJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('cohortManager');
+
 
 const COHORT_STORAGE_KEY = 'openblock_cohorts_v1';
 
@@ -86,7 +89,7 @@ class CohortManager {
     init(userId) {
         this._userId = userId;
         this._loadCohortData();
-        console.log('[Cohort] Initialized for user:', userId);
+        log.log('[Cohort] Initialized for user:', userId);
     }
 
     /**
@@ -203,7 +206,7 @@ class CohortManager {
         this._userCohorts = newCohorts;
         this._saveCohortData();
         
-        console.log('[Cohort] Updated:', Array.from(this._userCohorts));
+        log.log('[Cohort] Updated:', Array.from(this._userCohorts));
     }
 
     /**
@@ -252,7 +255,7 @@ class CohortManager {
                 })
             });
         } catch (e) {
-            console.warn('[Cohort] Sync failed:', e);
+            log.warn('[Cohort] Sync failed:', e);
         }
     }
 

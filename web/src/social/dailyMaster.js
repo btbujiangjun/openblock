@@ -14,6 +14,9 @@
 
 import { applyDom, t } from '../i18n/i18n.js';
 import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('dailyMaster');
+
 
 const KEY = 'openblock_daily_master_v1';
 
@@ -114,7 +117,7 @@ export function startChallenge() {
     _showToast(t('dailyMaster.toastSeed', { seed: seed.toString(36).toUpperCase() }));
     try {
         _game.start({ fromChain: false, dailyMaster: true });
-    } catch (e) { console.warn('[dailyMaster]', e); }
+    } catch (e) { log.warn('[dailyMaster]', e); }
 }
 
 function _mulberry32(seed) {

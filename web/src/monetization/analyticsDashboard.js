@@ -12,6 +12,9 @@ import { getPlayerAbilityModel } from '../playerAbilityModel.js';
 import { getABTestManager } from './abTestManager.js';
 import { getPaymentManager } from './paymentManager.js';
 import { DAY_MS } from '../lib/dateUtils.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('analyticsDashboard');
+
 
 class AnalyticsDashboard {
     constructor() {
@@ -29,7 +32,7 @@ class AnalyticsDashboard {
     init() {
         // 定期刷新数据
         this._startPolling(60000); // 1分钟
-        console.log('[Analytics] Dashboard initialized');
+        log.log('[Analytics] Dashboard initialized');
     }
 
     /**
@@ -80,7 +83,7 @@ class AnalyticsDashboard {
                 this._metrics.daily.userStats = data;
             }
         } catch (e) {
-            console.warn('[Analytics] Failed to fetch user stats:', e);
+            log.warn('[Analytics] Failed to fetch user stats:', e);
         }
     }
 
@@ -110,7 +113,7 @@ class AnalyticsDashboard {
                 };
             }
         } catch (e) {
-            console.warn('[Analytics] Failed to fetch revenue:', e);
+            log.warn('[Analytics] Failed to fetch revenue:', e);
         }
     }
 
@@ -130,7 +133,7 @@ class AnalyticsDashboard {
                 this._metrics.daily.behavior = data;
             }
         } catch (e) {
-            console.warn('[Analytics] Failed to fetch retention:', e);
+            log.warn('[Analytics] Failed to fetch retention:', e);
         }
     }
 
@@ -144,7 +147,7 @@ class AnalyticsDashboard {
             
             this._metrics.daily.persona = persona;
         } catch (e) {
-            console.warn('[Analytics] Failed to fetch behavior:', e);
+            log.warn('[Analytics] Failed to fetch behavior:', e);
         }
     }
 
@@ -255,7 +258,7 @@ class AnalyticsDashboard {
             try {
                 callback(this.getCoreMetrics());
             } catch (e) {
-                console.warn('[Analytics] Listener error:', e);
+                log.warn('[Analytics] Listener error:', e);
             }
         }
     }

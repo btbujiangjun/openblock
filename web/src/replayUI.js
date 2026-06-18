@@ -47,6 +47,9 @@ import {
     exitInsightReplay,
     updateInsightReplayFrame
 } from './playerInsightPanel.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('replayUI');
+
 
 function _attrTitle(s) {
     return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -456,7 +459,7 @@ export function initReplayUI(game) {
                 updateSelectionUi();
             }
         } catch (e) {
-            console.error(e);
+            log.error(e);
             if (listToolbar) listToolbar.hidden = true;
             sessionListEl.innerHTML =
                 '<li class="replay-empty">读取失败（请检查 VITE_API_BASE_URL 与后端是否运行）。</li>';
@@ -500,7 +503,7 @@ export function initReplayUI(game) {
             await openList();
             if (crossUser) _showAlert(`已删除 ${deleted} 条（跨 ${groups.size} 用户）。`, 'success');
         } catch (err) {
-            console.error(err);
+            log.error(err);
             _showAlert(err?.message || String(err), 'error');
         }
     });
@@ -516,7 +519,7 @@ export function initReplayUI(game) {
             await openList();
             _showAlert(n > 0 ? `已删除 ${n} 条。` : '没有符合「得分为 0」的记录。', 'success');
         } catch (err) {
-            console.error(err);
+            log.error(err);
             _showAlert(err?.message || String(err), 'error');
         }
     });
@@ -688,7 +691,7 @@ export function initReplayUI(game) {
             openView(session, frames);
             return true;
         } catch (e) {
-            console.warn('[replay] openFromFrames failed', e);
+            log.warn('[replay] openFromFrames failed', e);
             _viewExitTarget = 'list';
             return false;
         }

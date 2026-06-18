@@ -15,7 +15,12 @@ import {
 } from './i18n/i18n.js';
 import { Game } from './game.js';
 import { reconcileUserId } from './lib/userId.js';
+import { configureLoggerFromConfig } from './lib/logger.js';
+import { GAME_RULES } from './gameRules.js';
 import { getApiBaseUrl, isSqliteClientDatabase } from './config.js';
+
+/* 启动期尽早接入 logger 等级（在 game/各模块拉起前） */
+configureLoggerFromConfig(GAME_RULES);
 import { initPlayerInsightPanel } from './playerInsightPanel.js';
 import { initReplayUI } from './replayUI.js';
 import { applySkinToDocument, getActiveSkin } from './skins.js';

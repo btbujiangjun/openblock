@@ -11,6 +11,9 @@ import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 /* v1.55.10 修复 PB 风险 5：social leaderboard 的"我的最佳"必须以分桶 PB 为权威源
  * （HUD / PB 庆祝 / endGame submitScoreToBucket 都用这个），避免与 HUD 显示不一致。 */
 import { getAllBestByStrategy } from '../bestScoreBuckets.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('socialLeaderboard');
+
 
 const STORAGE_KEY = 'openblock_leaderboard_v1';
 
@@ -36,7 +39,7 @@ class SocialLeaderboard {
     init(userId) {
         this._userId = userId;
         this._loadLocalData();
-        console.log('[Leaderboard] Initialized for user:', userId);
+        log.log('[Leaderboard] Initialized for user:', userId);
     }
 
     /**
@@ -89,7 +92,7 @@ class SocialLeaderboard {
                     return data;
                 }
             } catch (e) {
-                console.warn('[Leaderboard] Fetch failed:', e);
+                log.warn('[Leaderboard] Fetch failed:', e);
             }
         }
         
@@ -179,7 +182,7 @@ class SocialLeaderboard {
             
             return true;
         } catch (e) {
-            console.warn('[Leaderboard] Submit failed:', e);
+            log.warn('[Leaderboard] Submit failed:', e);
             return false;
         }
     }

@@ -14,6 +14,9 @@ import { getCohortManager } from './cohortManager.mjs';
 import { getPlayerAbilityModel } from '../playerAbilityModel.mjs';
 import { DAY_MS } from '../lib/dateUtils.mjs';
 import { safeReadJson } from '../lib/storageAdapter.mjs';
+import { createLogger } from '../lib/logger.mjs';
+const log = createLogger('paymentPredictionModel');
+
 
 const MODEL_VERSION = '1.0.0';
 
@@ -75,7 +78,7 @@ class PaymentPredictionModel {
      * 初始化
      */
     init() {
-        console.log('[PaymentPrediction] Initialized, version:', MODEL_VERSION);
+        log.log('[PaymentPrediction] Initialized, version:', MODEL_VERSION);
     }
 
     /**

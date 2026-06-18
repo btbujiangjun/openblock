@@ -2,6 +2,9 @@
  * 重新生成：node scripts/sync-cocos-engine.mjs（npm run sync:cocos-core 已包含）
  */
 import { DAY_MS } from '../lib/dateUtils.mjs';
+import { createLogger } from '../lib/logger.mjs';
+const log = createLogger('analyticsTracker');
+
 /**
  * AnalyticsTracker - 指标埋点与漏斗分析
  * 
@@ -135,7 +138,7 @@ class AnalyticsTracker {
         this._sessionId = this._generateSessionId();
         this._loadEvents();
         
-        console.log('[Analytics] Initialized for user:', userId);
+        log.log('[Analytics] Initialized for user:', userId);
     }
 
     /**
@@ -206,7 +209,7 @@ class AnalyticsTracker {
         // 入发件箱（无网络本地缓存 + 联网批量上报；去重靠 event_id）。
         this._reportEvent(event);
         
-        console.log('[Analytics] Tracked:', eventType, properties);
+        log.log('[Analytics] Tracked:', eventType, properties);
     }
 
     /**
@@ -396,7 +399,7 @@ class AnalyticsTracker {
         this._events = [];
         this._funnelData = {};
         this._saveEvents();
-        console.log('[Analytics] Reset');
+        log.log('[Analytics] Reset');
     }
 
     /**

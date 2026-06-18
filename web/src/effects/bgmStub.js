@@ -8,6 +8,9 @@
 
 import { getActiveSkinId, onSkinAfterApply } from '../skins.js';
 import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('bgmStub');
+
 
 const STORAGE_KEY = 'openblock_bgm_v1';
 const PREFS_VERSION = 2;
@@ -230,5 +233,5 @@ export function initBgm() {
         if (_prefs?.enabled && _ctx?.state === 'running') _playAmbientMotif();
     });
     void _unsubSkin;
-    console.info('[BGM] procedural skin ambience initialized.');
+    log.info('[BGM] procedural skin ambience initialized.');
 }

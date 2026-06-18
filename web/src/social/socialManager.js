@@ -13,6 +13,9 @@ import { getMultiplayerGame, GAME_MODES } from './multiplayerGame.js';
 import { getFriendSystem, BATTLE_STATES } from './friendSystem.js';
 import { getGuildSystem, GUILD_ROLES } from './guildSystem.js';
 import { getSocialLeaderboard, LEADERBOARD_TYPES } from '../monetization/socialLeaderboard.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('socialManager');
+
 
 let _instance = null;
 let _userId = null;
@@ -33,7 +36,7 @@ export function initSocialManager(userId) {
     }
     
     _initialized = true;
-    console.log('[Social] Manager initialized for user:', userId);
+    log.log('[Social] Manager initialized for user:', userId);
 }
 
 export function getSocialManager() {

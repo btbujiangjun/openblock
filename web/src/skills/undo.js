@@ -25,6 +25,9 @@
 import { getWallet } from './wallet.js';
 import { t } from '../i18n/i18n.js';
 import { registerSkill, refreshSkillBar } from './skillBar.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('undo');
+
 
 let _game = null;
 let _audio = null;
@@ -196,7 +199,7 @@ export function undoOnce() {
         _game.updateUI?.();
         _game.markDirty?.();
     } catch (e) {
-        console.warn('[undo] restore failed', e);
+        log.warn('[undo] restore failed', e);
         _showToast(t('skill.undo.fail'));
         // 失败时尝试退还代币
         wallet.addBalance('undoToken', 1, 'undo-refund');

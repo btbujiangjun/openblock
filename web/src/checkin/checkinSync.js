@@ -16,6 +16,9 @@ const CHECKIN_DEBUG_FLAG = 'openblock_checkin_debug_v1';
 
 /* v1.61.17: 走 lib/userId.js 单源（向后兼容已存在的 ID） */
 import { getUserId as getBbUserId } from '../lib/userId.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('checkinSync');
+
 
 async function _apiJson(path, options = {}) {
     const base = getApiBaseUrl().replace(/\/+$/, '');
@@ -77,7 +80,7 @@ function _isCheckinDebugEnabled() {
 function _debugLog(stage, payload) {
     if (!_isCheckinDebugEnabled()) return;
     try {
-        console.info(`[checkin-sync][debug] ${stage}`, payload);
+        log.info(`[checkin-sync][debug] ${stage}`, payload);
     } catch {
         // ignore
     }
@@ -222,7 +225,7 @@ async function _flushPersist() {
             body: JSON.stringify({ user_id: userId, bundle }),
         });
     } catch (e) {
-        console.warn('[checkin-sync] 写入 SQLite 失败，仅保留本地:', e);
+        log.warn('[checkin-sync] 写入 SQLite 失败，仅保留本地:', e);
     }
 }
 
@@ -274,7 +277,7 @@ export async function hydrateCheckinFromServer() {
         const { recheckMonthlyAfterHydrate } = await import('./monthlyMilestone.js');
         recheckMonthlyAfterHydrate();
     } catch (e) {
-        console.warn('[checkin-sync] 从 SQLite 拉取签到数据失败，使用本地:', e);
+        log.warn('[checkin-sync] 从 SQLite 拉取签到数据失败，使用本地:', e);
     }
 }
 

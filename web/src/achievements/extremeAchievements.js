@@ -21,6 +21,9 @@
 import { getWallet } from '../skills/wallet.js';
 import { t } from '../i18n/i18n.js';
 import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('extremeAchievements');
+
 
 const KEY = 'openblock_extreme_achievements_v1';
 
@@ -66,7 +69,7 @@ export function initExtremeAchievements({ game, audio = null } = {}) {
     _origEndGame = game.endGame.bind(game);
     game.endGame = async (...args) => {
         const ret = await _origEndGame(...args);
-        try { _onGameEnd(game); } catch (e) { console.warn('[extremeAch]', e); }
+        try { _onGameEnd(game); } catch (e) { log.warn('[extremeAch]', e); }
         return ret;
     };
 

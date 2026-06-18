@@ -14,6 +14,9 @@ import { getPlayerAbilityModel } from '../../playerAbilityModel.js';
 import * as adAdapter from '../adAdapter.js';
 import { getFlag } from '../featureFlags.js';
 import { buildAdInsertionState, selectAdInsertionAction } from './adInsertionRL.js';
+import { createLogger } from '../../lib/logger.js';
+const log = createLogger('adDecisionEngine');
+
 
 const AD_SCENES = {
   GAME_OVER: 'game_over',           // 游戏结束
@@ -49,7 +52,7 @@ class AdDecisionEngine {
     this._loadAdCounts();
     this._resetDailyIfNeeded();
     this._startFrequencyGuard();
-    console.log('[AdEngine] Initialized');
+    log.log('[AdEngine] Initialized');
   }
 
   /**
@@ -165,7 +168,7 @@ class AdDecisionEngine {
         vector,
       };
     } catch (e) {
-      console.warn('[AdEngine] Load ad error:', e);
+      log.warn('[AdEngine] Load ad error:', e);
       return { allowed: false, adType, reason: 'exception', detail: e.message };
     }
   }
@@ -355,7 +358,7 @@ class AdDecisionEngine {
    *     此修复让它在被调用时**至少能正确入账**，便于未来接入 SDK 回调或 e2e 测试触发。
    */
   onRewardedAdCompleted(reward) {
-    console.log('[AdEngine] Rewarded ad completed:', reward);
+    log.log('[AdEngine] Rewarded ad completed:', reward);
     const wallet = window.__wallet;
     if (!wallet || !reward) return;
     const amount = Math.max(1, Number(reward.amount) || 1);
@@ -372,7 +375,7 @@ class AdDecisionEngine {
     try {
       wallet.addBalance(kind, amount, 'ad_reward');
     } catch (e) {
-      console.warn('[AdEngine] reward grant failed', e);
+      log.warn('[AdEngine] reward grant failed', e);
     }
   }
 

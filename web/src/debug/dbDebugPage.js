@@ -4,6 +4,9 @@
  */
 import { getApiBaseUrl } from '../config.js';
 import { applyDom, t } from '../i18n/i18n.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('dbDebugPage');
+
 
 /** @type {import('../game.js').Game | null} */
 let _game = null;
@@ -317,7 +320,7 @@ async function _loadTables(opts = {}) {
             sel.appendChild(o);
         }
     } catch (e) {
-        console.warn('[db-debug] tables', e);
+        log.warn('[db-debug] tables', e);
         const detail = e?.body?.error || e?.message || String(e);
         _setTablesStatus(`${t('dbDebug.tablesErrorHint')} ${detail}`);
         sel.innerHTML = `<option value="">${escapeHtml(t('dbDebug.tablesError'))}</option>`;

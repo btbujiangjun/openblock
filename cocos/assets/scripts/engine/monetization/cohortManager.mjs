@@ -2,6 +2,8 @@
  * 重新生成：node scripts/sync-cocos-engine.mjs（npm run sync:cocos-core 已包含）
  */
 
+// experimentPlatform.mjs 顶部 named import initCohortManager，cocos 桩必须 export 否则 rollup 中断。
+export function initCohortManager() {}
 const _noopCohort = {
     init() {},
     syncFromSystem() {},

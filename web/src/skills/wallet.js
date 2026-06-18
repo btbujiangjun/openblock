@@ -22,6 +22,9 @@
  */
 
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('wallet');
+
 
 const STORAGE_KEY = 'openblock_skill_wallet_v1';
 
@@ -183,7 +186,7 @@ class Wallet {
                 body: JSON.stringify({ user_id: this._remoteUserId, wallet: this.state }),
             });
         } catch (e) {
-            console.warn('[wallet] 同步 SQLite 失败，回退写入 localStorage:', e);
+            log.warn('[wallet] 同步 SQLite 失败，回退写入 localStorage:', e);
             try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
             } catch { /* ignore */ }
@@ -444,7 +447,7 @@ export async function hydrateWalletFromApi(userId) {
         });
         w._remotePersistEnabled = true;
     } catch (e) {
-        console.warn('[wallet] SQLite 钱包不可用，使用 localStorage:', e);
+        log.warn('[wallet] SQLite 钱包不可用，使用 localStorage:', e);
         w._remotePersistEnabled = false;
     }
 }

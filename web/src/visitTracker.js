@@ -44,6 +44,9 @@ function _api(path, options = {}) {
 
 /* v1.61.17: 走 lib/userId.js 单源 */
 import { getUserId as _getUserId } from './lib/userId.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('visitTracker');
+
 
 function _safeJson(key, fallback = {}) {
     try {
@@ -153,7 +156,7 @@ export async function initVisitTracker() {
     try {
         await _startVisit();
     } catch (e) {
-        console.warn('[visitTracker] start failed:', e);
+        log.warn('[visitTracker] start failed:', e);
     }
     if (_timer) clearInterval(_timer);
     _timer = setInterval(() => { void _pingVisit(); }, PING_INTERVAL_MS);

@@ -12,6 +12,9 @@ import { getRetentionAnalyzer, initRetentionAnalyzer } from './retentionAnalyzer
 import { getPaymentPredictionModel, initPaymentPredictionModel } from './paymentPredictionModel.js';
 import { getAnalyticsTracker, initAnalyticsTracker } from './analyticsTracker.js';
 import { DAY_MS } from '../lib/dateUtils.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('analyticsPlatform');
+
 
 class AnalyticsPlatform {
     constructor() {
@@ -27,7 +30,7 @@ class AnalyticsPlatform {
         
         this._userId = userId;
         
-        console.log('[AnalyticsPlatform] Initializing...');
+        log.log('[AnalyticsPlatform] Initializing...');
         
         // 初始化各模块
         initRealTimeDashboard();
@@ -39,7 +42,7 @@ class AnalyticsPlatform {
         getRetentionAnalyzer().recordSession(userId);
         
         this._initialized = true;
-        console.log('[AnalyticsPlatform] Ready');
+        log.log('[AnalyticsPlatform] Ready');
     }
 
     /**

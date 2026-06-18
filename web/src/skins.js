@@ -4,6 +4,9 @@
  */
 
 import { GAME_RULES } from './gameRules.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('skins');
+
 
 const STORAGE_KEY = 'openblock_skin';
 
@@ -1686,7 +1689,7 @@ export function onSkinAfterApply(fn) {
 }
 function _emitAfterApply(id) {
     for (const fn of _afterApplyListeners) {
-        try { fn(id); } catch (e) { console.warn('[skin onAfterApply]', e); }
+        try { fn(id); } catch (e) { log.warn('[skin onAfterApply]', e); }
     }
 }
 

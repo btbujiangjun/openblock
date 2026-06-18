@@ -1,4 +1,7 @@
 import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('replayAlbum');
+
 /**
  * replayAlbum.js — v10.17 复盘相册（替换 replayAlbumStub）
  *
@@ -47,7 +50,7 @@ export function initReplayAlbum({ game } = {}) {
 
     game.endGame = async (...args) => {
         const ret = await _origEndGame(...args);
-        try { _onGameEnd(); } catch (e) { console.warn('[replayAlbum]', e); }
+        try { _onGameEnd(); } catch (e) { log.warn('[replayAlbum]', e); }
         return ret;
     };
 

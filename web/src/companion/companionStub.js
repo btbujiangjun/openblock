@@ -1,4 +1,7 @@
 import { safeReadJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('companionStub');
+
 /**
  * companionStub.js — v10.16 角色养成 / 虚拟伙伴（P2 骨架，~8d 工程）
  *
@@ -20,7 +23,7 @@ import { safeReadJson } from '../lib/storageAdapter.js';
  * 接入路径
  * --------
  *   import { initCompanionStub } from './companion/companionStub.js';
- *   initCompanionStub();   // 当前仅 noop + console.info
+ *   initCompanionStub();   // 当前仅 noop + log.info
  */
 
 const COMPANIONS = {
@@ -78,7 +81,7 @@ export function initCompanionStub() {
             isImplemented: () => false,
         };
     }
-    console.info('[companionStub] initialized — animation assets pending.');
+    log.info('[companionStub] initialized — animation assets pending.');
 }
 
 export const __test_only__ = { COMPANIONS };

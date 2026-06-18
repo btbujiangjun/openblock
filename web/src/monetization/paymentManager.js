@@ -11,6 +11,9 @@ import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 import { getWallet } from '../skills/wallet.js';
 import { getFlag } from './featureFlags.js';
 import { DAY_MS } from '../lib/dateUtils.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('paymentManager');
+
 
 const PROMO_STORAGE_KEY = 'openblock_promo_state_v1';
 
@@ -154,7 +157,7 @@ class PaymentManager {
     init() {
         this._loadPromoState();
         this._checkActiveOffers();
-        console.log('[PaymentManager] Initialized');
+        log.log('[PaymentManager] Initialized');
     }
 
     /**
@@ -228,7 +231,7 @@ class PaymentManager {
             } catch { /* localStorage 不可用时仅跳过持久化 */ }
             this._activeOffers.set(offerId, { ...offer, validUntil });
 
-            console.log('[PaymentManager] Offer triggered:', offerId);
+            log.log('[PaymentManager] Offer triggered:', offerId);
             return this._activeOffers.get(offerId);
         }
 
@@ -315,7 +318,7 @@ class PaymentManager {
         try {
             getWallet().addBalance('hintToken', bonusHint, 'first-purchase-bonus');
         } catch (e) {
-            console.warn('[PaymentManager] first-purchase bonus grant failed', e);
+            log.warn('[PaymentManager] first-purchase bonus grant failed', e);
         }
     }
 
@@ -360,7 +363,7 @@ class PaymentManager {
                 })
             });
         } catch (e) {
-            console.warn('[PaymentManager] Sync failed:', e);
+            log.warn('[PaymentManager] Sync failed:', e);
         }
     }
 
@@ -392,7 +395,7 @@ class PaymentManager {
         for (const key of Object.keys(LIMITED_OFFERS)) {
             localStorage.removeItem(`offer_${key}_valid_until`);
         }
-        console.log('[PaymentManager] Offers cleared');
+        log.log('[PaymentManager] Offers cleared');
     }
 }
 

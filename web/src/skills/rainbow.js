@@ -19,6 +19,9 @@
 import { getWallet } from './wallet.js';
 import { registerSkill, refreshSkillBar } from './skillBar.js';
 import { enterAim, exitAim, isAiming } from './aimManager.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('rainbow');
+
 
 const SKILL_ID = 'rainbow';
 
@@ -177,7 +180,7 @@ export function _paintRow(rowY) {
         }, 380);
     } else {
         // 极端情况（不应发生）：grid 状态被外部并发改动
-        console.warn('[rainbow] checkLines unexpectedly cleared 0 lines, rolling back');
+        log.warn('[rainbow] checkLines unexpectedly cleared 0 lines, rolling back');
         _game.grid.cells[rowY] = origRow;
         wallet.addBalance('rainbowToken', 1, 'rainbow-refund');
         _showToast('🌈 彩虹未生效，已退还');

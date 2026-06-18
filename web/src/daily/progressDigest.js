@@ -12,6 +12,9 @@
  */
 import { t } from '../i18n/i18n.js';
 import { animateValueOnElement } from '../scoreAnimator.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('progressDigest');
+
 
 let _game = null;
 
@@ -32,7 +35,7 @@ export function initProgressDigest({ game } = {}) {
     const origShowScreen = game.showScreen.bind(game);
     game.showScreen = (id) => {
         if (id === 'game-over') {
-            try { _renderDigest(); } catch (e) { console.warn('[digest]', e); }
+            try { _renderDigest(); } catch (e) { log.warn('[digest]', e); }
         }
         return origShowScreen(id);
     };

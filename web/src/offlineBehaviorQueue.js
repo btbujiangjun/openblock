@@ -8,6 +8,9 @@
  */
 // 队列只用 fetch + 项目环境变量解析 baseUrl，避免与配置层强耦合；保留注释作为后续接入提示。
 import { getApiBaseUrl } from './config.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('offlineBehaviorQueue');
+
 
 const DB_NAME = 'openblock-offline-queue';
 const DB_VERSION = 1;
@@ -68,7 +71,7 @@ export async function queueBehavior(behavior) {
       tx.onerror = () => resolve(false);
     });
   } catch (e) {
-    console.warn('[OfflineQueue] Failed to add behavior:', e);
+    log.warn('[OfflineQueue] Failed to add behavior:', e);
     return false;
   }
 }
@@ -104,7 +107,7 @@ export async function queueBehaviors(behaviors) {
       tx.onerror = () => resolve(0);
     });
   } catch (e) {
-    console.warn('[OfflineQueue] Failed to batch add:', e);
+    log.warn('[OfflineQueue] Failed to batch add:', e);
     return 0;
   }
 }
@@ -136,7 +139,7 @@ async function getPendingBehaviors(limit = SYNC_BATCH_SIZE) {
       request.onerror = () => resolve(results);
     });
   } catch (e) {
-    console.warn('[OfflineQueue] Failed to get pending:', e);
+    log.warn('[OfflineQueue] Failed to get pending:', e);
     return [];
   }
 }
@@ -146,7 +149,7 @@ async function getPendingBehaviors(limit = SYNC_BATCH_SIZE) {
  */
 export async function syncToBackend() {
   if (!navigator.onLine) {
-    console.log('[OfflineQueue] Offline, skipping sync');
+    log.log('[OfflineQueue] Offline, skipping sync');
     return { synced: 0, failed: 0, queued: await getQueueCount() };
   }
   
@@ -157,7 +160,7 @@ export async function syncToBackend() {
     return { synced: 0, failed: 0, queued: 0 };
   }
   
-  console.log('[OfflineQueue] Syncing', behaviors.length, 'behaviors...');
+  log.log('[OfflineQueue] Syncing', behaviors.length, 'behaviors...');
   
   try {
     const response = await fetch(`${baseUrl}/api/behavior/batch`, {
@@ -169,7 +172,7 @@ export async function syncToBackend() {
     if (response.ok) {
       // 标记已同步
       await markSynced(behaviors.map(b => b.id));
-      console.log('[OfflineQueue] Synced', behaviors.length, 'behaviors');
+      log.log('[OfflineQueue] Synced', behaviors.length, 'behaviors');
       return { 
         synced: behaviors.length, 
         failed: 0,
@@ -179,7 +182,7 @@ export async function syncToBackend() {
       throw new Error(`HTTP ${response.status}`);
     }
   } catch (e) {
-    console.warn('[OfflineQueue] Sync failed:', e);
+    log.warn('[OfflineQueue] Sync failed:', e);
     // 增加重试计数
     await incrementRetryCount(behaviors.map(b => b.id));
     return { 
@@ -213,7 +216,7 @@ async function markSynced(ids) {
       };
     }
   } catch (e) {
-    console.warn('[OfflineQueue] Failed to mark synced:', e);
+    log.warn('[OfflineQueue] Failed to mark synced:', e);
   }
 }
 
@@ -243,7 +246,7 @@ async function incrementRetryCount(ids) {
       };
     }
   } catch (e) {
-    console.warn('[OfflineQueue] Failed to increment retry:', e);
+    log.warn('[OfflineQueue] Failed to increment retry:', e);
   }
 }
 
@@ -325,12 +328,12 @@ export function startAutoSync(interval = 30000) {
   // 监听网络状态变化
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => {
-      console.log('[OfflineQueue] Back online, syncing...');
+      log.log('[OfflineQueue] Back online, syncing...');
       syncToBackend();
     });
   }
   
-  console.log('[OfflineQueue] Auto sync started, interval:', _syncInterval);
+  log.log('[OfflineQueue] Auto sync started, interval:', _syncInterval);
 }
 
 /**
@@ -341,7 +344,7 @@ export function stopAutoSync() {
     clearInterval(_syncTimer);
     _syncTimer = null;
   }
-  console.log('[OfflineQueue] Auto sync stopped');
+  log.log('[OfflineQueue] Auto sync stopped');
 }
 
 /**

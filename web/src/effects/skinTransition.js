@@ -19,6 +19,9 @@
  */
 
 import { SKINS, setSkinTransitionHook } from '../skins.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('skinTransition');
+
 
 let _installed = false;
 
@@ -87,7 +90,7 @@ export function installSkinTransition(opts = {}) {
         const halfDelay = Math.round(TRANSITION_MS / 2);
         setTimeout(() => {
             try { applyImmediate(); }
-            catch (e) { console.warn('[skinTransition] applyImmediate failed:', e); }
+            catch (e) { log.warn('[skinTransition] applyImmediate failed:', e); }
             try { audio?.play?.('unlock'); } catch { /* ignore */ }
             requestAnimationFrame(() => {
                 overlay.style.transition = `opacity ${TRANSITION_MS / 2}ms ease`;

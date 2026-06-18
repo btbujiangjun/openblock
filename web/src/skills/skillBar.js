@@ -19,6 +19,9 @@
 
 import { getWallet } from './wallet.js';
 import { animateBadgeChange, setBadgeImmediate } from '../effects/badgeAnimator.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('skillBar');
+
 
 const REGISTRY = new Map();
 let _bootstrapped = false;
@@ -98,7 +101,7 @@ function _renderSkill(container, skill, changeDetail = null) {
         btn.addEventListener('click', (e) => {
             e.preventDefault();
             if (btn.classList.contains('is-disabled')) return;
-            try { skill.onClick?.({ wallet }); } catch (err) { console.warn('[skillBar]', skill.id, err); }
+            try { skill.onClick?.({ wallet }); } catch (err) { log.warn('[skillBar]', skill.id, err); }
         });
         container.appendChild(btn);
         isFirstRender = true;

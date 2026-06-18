@@ -20,6 +20,9 @@
  */
 
 import { getStrategyConfig } from './strategyConfig.js';
+import { createLogger } from '../../lib/logger.js';
+const log = createLogger('strategyEngine');
+
 
 /**
  * @typedef {Object} EvaluationContext
@@ -64,7 +67,7 @@ export function evaluate(ctx) {
         if (typeof r.when === 'function') {
             try { return Boolean(r.when(evalCtx)); }
             catch (err) {
-                console.warn(`[strategyEngine] rule ${r.id} when() threw:`, err);
+                log.warn(`[strategyEngine] rule ${r.id} when() threw:`, err);
                 return false;
             }
         }
@@ -95,7 +98,7 @@ function _renderAction(rule, evalCtx) {
             if (dyn.why) why = dyn.why;
             if (dyn.effect) effect = dyn.effect;
         } catch (err) {
-            console.warn(`[strategyEngine] rule ${rule.id} explain() threw:`, err);
+            log.warn(`[strategyEngine] rule ${rule.id} explain() threw:`, err);
         }
     }
 

@@ -26,13 +26,13 @@ class ExperimentPlatform {
      */
     async init(userId) {
         if (this._initialized) {
-            console.log('[ExperimentPlatform] Already initialized');
+            log.log('[ExperimentPlatform] Already initialized');
             return;
         }
         
         this._userId = userId;
         
-        console.log('[ExperimentPlatform] Initializing...');
+        log.log('[ExperimentPlatform] Initializing...');
         
         // 按顺序初始化各模块
         await initRemoteConfig();
@@ -45,7 +45,7 @@ class ExperimentPlatform {
         cohortManager.syncFromSystem();
         
         this._initialized = true;
-        console.log('[ExperimentPlatform] Initialization complete');
+        log.log('[ExperimentPlatform] Initialization complete');
     }
 
     /**
@@ -178,10 +178,16 @@ export async function initExperimentPlatform(userId) {
     await getExperimentPlatform().init(userId);
 }
 
-// 导出所有子模块
-export {
-    getABTestManager,
-    getCohortManager,
-    getRemoteConfigManager,
-    getAnalyticsTracker
-} from './index.mjs';
+// 导出所有子模块（每个 getter 走真实定义所在的模块，避免 rollup 解析失败）
+export { getABTestManager } from './abTestManager.mjs';
+export { getCohortManager } from './cohortManager.mjs';
+export { getRemoteConfigManager } from './remoteConfigManager.mjs';
+export { getAnalyticsTracker } from './analyticsTracker.mjs';
+import { createLogger } from '../lib/logger.mjs';
+const log = createLogger('experimentPlatform');
+
+// 历史问题：原本 `} from './index.mjs'` 想再导出这四个 getter，但 ./index.js 实际只导出
+// initMonetization/shutdownMonetization，目标 export 完全错位。Vite 对未匹配再导出宽松（构建仅警告），
+// 所以 web 不挂；cocos Creator 3.8 的 rollup-plugin-mod-lo 严格解析，会因目标缺失中断整包脚本构建
+// （结果是 APK 一直在用旧 JS，本地 .ts/.mjs 任何改动都无法到设备）。
+// 修复：直接从各 manager 模块按名再导出，行为与原意一致，且 Web/Cocos 都能严格解析。

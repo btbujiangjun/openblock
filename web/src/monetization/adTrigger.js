@@ -25,6 +25,9 @@ import { buildCommercialModelVector, shouldAllowMonetizationAction } from './com
 import { resolveUnifiedSignals } from '../coordination/unifiedSignals.js';
 import { coordinate } from '../coordination/policyArbiter.js';
 import { safeWriteJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('adTrigger');
+
 
 // ── 频控配置 ──────────────────────────────────────────────────────────────────
 const AD_CONFIG = {
@@ -285,7 +288,7 @@ async function _triggerRewarded(reason, rewardEvent, userId, game) {
     });
 
     if (!shown) {
-        console.debug('[AdTrigger] rewarded skipped: popup window busy');
+        log.debug('[AdTrigger] rewarded skipped: popup window busy');
     }
 }
 
@@ -325,7 +328,7 @@ export function initAdTrigger(game) {
                         return;
                     }
                 } catch (e) {
-                    console.warn('[AdTrigger] adDecisionEngine fallback:', e?.message);
+                    log.warn('[AdTrigger] adDecisionEngine fallback:', e?.message);
                 }
             }
             _recordInterstitial();
@@ -338,7 +341,7 @@ export function initAdTrigger(game) {
         });
 
         if (!shown) {
-            console.debug('[AdTrigger] interstitial skipped: popup window busy');
+            log.debug('[AdTrigger] interstitial skipped: popup window busy');
         }
     });
 

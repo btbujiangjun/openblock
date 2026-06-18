@@ -20,6 +20,9 @@
 import { getWallet } from './wallet.js';
 import { registerSkill, refreshSkillBar } from './skillBar.js';
 import { t } from '../i18n/i18n.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('reroll');
+
 
 const SKILL_ID = 'reroll';
 
@@ -83,7 +86,7 @@ function _trigger() {
             _game.spawnBlocks();
         }
     } catch (e) {
-        console.warn('[reroll] spawnBlocks failed', e);
+        log.warn('[reroll] spawnBlocks failed', e);
         _showToast(t('skill.reroll.fail'));
         return;
     }

@@ -20,6 +20,9 @@ import {
 import { appendBrowserTrainEpisode, getBrowserTrainingLog } from './browserTrainingLog.js';
 import { updateRlTrainingCharts } from './rlTrainingCharts.js';
 import { skipWhenDocumentHidden } from '../lib/pageVisibility.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('rlPanel');
+
 
 const WIN_WINDOW = 80;
 const AVG_WINDOW = 40;
@@ -167,7 +170,7 @@ export function initRLPanel(game) {
     if (game?.db && isSqliteClientDatabase()) {
         setBrowserRlLinearPersistHook((payload) => {
             void game.db.putBrowserRlLinearAgent(payload).catch((err) => {
-                console.warn('[RL] SQLite 同步失败', err);
+                log.warn('[RL] SQLite 同步失败', err);
             });
         });
     }
@@ -826,7 +829,7 @@ export function initRLPanel(game) {
             try {
                 await refreshDashboardFull();
             } catch (err) {
-                console.warn('[RL panel] refreshDashboardFull:', err);
+                log.warn('[RL panel] refreshDashboardFull:', err);
             }
 
             if (useBackend) {
@@ -891,7 +894,7 @@ export function initRLPanel(game) {
                         : '结束 已写 localStorage')
             );
         } catch (err) {
-            console.error('[RL panel] startBatch', err);
+            log.error('[RL panel] startBatch', err);
             const msg = err instanceof Error ? err.message : String(err);
             logLine(`训练异常退出：${msg}`);
         } finally {
@@ -1054,7 +1057,7 @@ export function initRLPanel(game) {
                 }
             }
         } catch (e) {
-            console.warn('[RL] 从 SQLite 拉取/回填模型失败', e);
+            log.warn('[RL] 从 SQLite 拉取/回填模型失败', e);
         } finally {
             if (btnStart && !running) {
                 btnStart.disabled = false;

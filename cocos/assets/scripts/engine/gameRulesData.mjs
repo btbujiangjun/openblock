@@ -275,6 +275,11 @@ export default {
       "psSnapshotVersionMin": 4
     }
   },
+  "logging": {
+    "comment": "lib/logger.js 默认级别。env=dev 时通常 info；prod 应调到 warn 或 error 以减少噪声。可用值：debug / info / warn / error / silent。优先级：URL ?log=<level> > globalThis.__OPENBLOCK_LOG_LEVEL__ > 本配置 > 'info'。",
+    "defaultLevel": "info",
+    "prodLevel": "warn"
+  },
   "spawnBudget": {
     "comment": "出块算法运行时预算（v1.70 抽取自 web/src/bot/blockSpawn.js 顶部常量）。无需改源码即可调参；缺省/未声明字段会自动回落到源码硬默认（保持向后兼容）。",
     "maxSpawnAttempts": 22,

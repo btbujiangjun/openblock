@@ -6,6 +6,9 @@
  */
 
 import { LEVEL_PACK, getLevelById } from '../level/levelPack.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('levelProgression');
+
 
 const CHAPTER_CONFIG = [
     {
@@ -78,7 +81,7 @@ function loadFromStorage() {
             _progress.retryCount = parsed.retryCount || {};
         }
     } catch (e) {
-        console.warn('Failed to load level progression:', e);
+        log.warn('Failed to load level progression:', e);
     }
 }
 
@@ -97,7 +100,7 @@ function saveToStorage() {
         };
         localStorage.setItem('levelProgression', JSON.stringify(toSave));
     } catch (e) {
-        console.warn('Failed to save level progression:', e);
+        log.warn('Failed to save level progression:', e);
     }
 }
 

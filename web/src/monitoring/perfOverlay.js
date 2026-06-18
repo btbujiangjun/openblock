@@ -30,6 +30,9 @@
  *   .perf-row-fps / .perf-row-longtask / .perf-row-hotspot / .perf-row-layers
  */
 
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('perfOverlay');
+
 const HOST_ID = 'perf-overlay-host';
 const STYLE_ID = 'perf-overlay-style';
 
@@ -459,8 +462,8 @@ function diagnoseGpu() {
         dpr: window.devicePixelRatio || 1,
         viewport: { w: window.innerWidth, h: window.innerHeight },
     };
-    console.log('[perfOverlay] GPU diagnosis:', result);
-    console.log(JSON.stringify(result, null, 2));
+    log.log('[perfOverlay] GPU diagnosis:', result);
+    log.log(JSON.stringify(result, null, 2));
     return result;
 }
 
@@ -522,8 +525,8 @@ async function startProfile(secs = 10) {
     if (typeof window !== 'undefined' && window.__perfOverlay) {
         window.__perfOverlay._lastProfile = result;
     }
-    console.log('[perfOverlay] profile DONE', result);
-    console.log('[perfOverlay] copy as JSON:\n' + JSON.stringify(result, null, 2));
+    log.log('[perfOverlay] profile DONE', result);
+    log.log('[perfOverlay] copy as JSON:\n' + JSON.stringify(result, null, 2));
     return result;
 }
 
@@ -539,7 +542,7 @@ export function openPerfOverlay() {
     /* 文本更新 2Hz：足以看趋势，且 HUD 自己不会成为 GPU 持续热点。 */
     _renderTimer = window.setInterval(_renderTickPaint, 500);
     _renderTickPaint();
-    console.info('[perfOverlay] opened — call window.__perfOverlay.startProfile(10) to record 10s.');
+    log.info('[perfOverlay] opened — call window.__perfOverlay.startProfile(10) to record 10s.');
 }
 
 export function closePerfOverlay() {

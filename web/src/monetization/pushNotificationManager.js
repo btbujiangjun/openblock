@@ -11,6 +11,9 @@ import { getFlag } from './featureFlags.js';
 import { loadProgress } from '../progression.js';
 import { getPlayerAbilityModel } from '../playerAbilityModel.js';
 import { DAY_MS } from '../lib/dateUtils.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('pushNotificationManager');
+
 
 const STORAGE_KEY = 'openblock_push_v1';
 
@@ -114,7 +117,7 @@ class PushNotificationManager {
     async init() {
         this._enabled = getFlag('pushNotifications');
         if (!this._enabled) {
-            console.log('[Push] Disabled via feature flag');
+            log.log('[Push] Disabled via feature flag');
             return;
         }
         
@@ -129,7 +132,7 @@ class PushNotificationManager {
         // 启动定时检查
         this._startScheduledCheck();
         
-        console.log('[Push] Initialized, permission:', this._permission);
+        log.log('[Push] Initialized, permission:', this._permission);
     }
 
     /**
@@ -192,18 +195,18 @@ class PushNotificationManager {
      */
     send(typeId, data = {}) {
         if (!this._enabled || this._permission !== 'granted') {
-            console.log('[Push] Cannot send, permission:', this._permission);
+            log.log('[Push] Cannot send, permission:', this._permission);
             return false;
         }
         
         if (!this._canSend(typeId)) {
-            console.log('[Push] In cooldown:', typeId);
+            log.log('[Push] In cooldown:', typeId);
             return false;
         }
         
         const config = Object.values(NOTIFICATION_TYPES).find(n => n.id === typeId);
         if (!config) {
-            console.warn('[Push] Unknown type:', typeId);
+            log.warn('[Push] Unknown type:', typeId);
             return false;
         }
         
@@ -231,10 +234,10 @@ class PushNotificationManager {
                 if (data.onClick) data.onClick();
             };
             
-            console.log('[Push] Sent:', typeId);
+            log.log('[Push] Sent:', typeId);
             return true;
         } catch (e) {
-            console.warn('[Push] Send failed:', e);
+            log.warn('[Push] Send failed:', e);
             return false;
         }
     }
@@ -265,7 +268,7 @@ class PushNotificationManager {
                 break;
                 
             default:
-                console.log('[Push] Unknown event:', eventType);
+                log.log('[Push] Unknown event:', eventType);
         }
     }
 

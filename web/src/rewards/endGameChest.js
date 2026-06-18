@@ -26,6 +26,9 @@
 import { getWallet } from '../skills/wallet.js';
 import { SKINS } from '../skins.js';
 import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('endGameChest');
+
 
 const STATE_KEY = 'openblock_chest_state_v1';
 
@@ -77,12 +80,12 @@ export function initEndGameChest({ game, audio = null } = {}) {
     if (!game || _origEndGame) return;
     _audio = audio;
 
-    try { _fulfillPendingChestGrant(); } catch (e) { console.warn('[chest] pending flush', e); }
+    try { _fulfillPendingChestGrant(); } catch (e) { log.warn('[chest] pending flush', e); }
 
     _origEndGame = game.endGame.bind(game);
     game.endGame = async (...args) => {
         const ret = await _origEndGame(...args);
-        try { _maybeOpenChest(game); } catch (e) { console.warn('[chest]', e); }
+        try { _maybeOpenChest(game); } catch (e) { log.warn('[chest]', e); }
         return ret;
     };
 }
@@ -190,7 +193,7 @@ function _afterGameOverDismiss(overEl, action) {
 }
 
 function _dismissChestPanel(panel) {
-    try { _fulfillPendingChestGrant(); } catch (e) { console.warn('[chest]', e); }
+    try { _fulfillPendingChestGrant(); } catch (e) { log.warn('[chest]', e); }
     panel.classList.remove('is-visible');
 }
 

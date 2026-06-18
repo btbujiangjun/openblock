@@ -18,6 +18,9 @@ import {
 import { extractStateFeatures } from './features.js';
 
 export { WIN_SCORE_THRESHOLD } from '../gameRules.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('trainer');
+
 
 function _finiteNum(v, fallback) {
     const n = Number(v);
@@ -405,7 +408,7 @@ export async function trainSelfPlay(opts) {
                     bufferSize = res.buffer_size ?? null;
                     batchThreshold = res.batch_threshold ?? null;
                 } catch (err) {
-                    console.warn('[RL backend] train_episode failed:', err);
+                    log.warn('[RL backend] train_episode failed:', err);
                 }
             }
             if (!buffered) {
@@ -413,7 +416,7 @@ export async function trainSelfPlay(opts) {
                     const st = await fetchRlStatus();
                     if (st.available && typeof st.episodes === 'number') serverEpisodes = st.episodes;
                 } catch (err) {
-                    console.warn('[RL backend] status sync failed:', err);
+                    log.warn('[RL backend] status sync failed:', err);
                 }
             }
 

@@ -13,6 +13,9 @@
 
 import { getFlag } from './featureFlags.mjs';
 import { loadProgress } from '../progression.mjs';
+import { createLogger } from '../lib/logger.mjs';
+const log = createLogger('pushNotifications');
+
 
 const STORAGE_KEY = 'openblock_mon_push_v1';
 
@@ -48,7 +51,7 @@ export function sendNotification(title, options = {}) {
             ...options,
         });
     } catch (e) {
-        console.warn('[Push]', e);
+        log.warn('[Push]', e);
     }
 }
 

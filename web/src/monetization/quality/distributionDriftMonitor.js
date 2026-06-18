@@ -27,6 +27,9 @@
  */
 
 import { FEATURE_SCHEMA, FEATURE_SCHEMA_SIZE } from '../commercialFeatureSnapshot.js';
+import { createLogger } from '../../lib/logger.js';
+const log = createLogger('distributionDriftMonitor');
+
 
 export const DRIFT_SCHEMA_VERSION = 1;
 const HIST_BINS = 10;
@@ -166,7 +169,7 @@ export function getDriftReport() {
 export function setTrainingDistribution(payload) {
     if (!payload || typeof payload !== 'object') return false;
     if (payload.schemaVersion !== DRIFT_SCHEMA_VERSION) {
-        console.warn(`[drift] schema mismatch: got ${payload.schemaVersion}, expected ${DRIFT_SCHEMA_VERSION}`);
+        log.warn(`[drift] schema mismatch: got ${payload.schemaVersion}, expected ${DRIFT_SCHEMA_VERSION}`);
         return false;
     }
     if (!payload.bins || typeof payload.bins !== 'object') return false;

@@ -17,6 +17,9 @@
 import { getWallet } from '../skills/wallet.js';
 import { requestPrimaryPopup, releasePrimaryPopup } from '../popupCoordinator.js';
 import { safeWriteJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('firstDayPack');
+
 
 const STORAGE_KEY = 'openblock_first_day_pack_v1';
 
@@ -102,7 +105,7 @@ function _grantPack() {
     granted.push(`trial:${skinId}`);
 
     _save({ claimed: true, ts: Date.now() });
-    console.info('[firstDayPack] granted:', granted.join(', '));
+    log.info('[firstDayPack] granted:', granted.join(', '));
 }
 
 /** 测试用 */

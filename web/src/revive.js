@@ -29,6 +29,9 @@
  */
 
 import { pickByPlatform } from './config/platformProfile.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('revive');
+
 
 /* v1.60.45：复活次数按平台分发。
  *
@@ -74,7 +77,7 @@ export class ReviveManager {
      */
     init(game) {
         if (!this._isEnabled()) {
-            if (typeof __DEV__ !== 'undefined') console.debug('[ReviveManager] disabled');
+            if (typeof __DEV__ !== 'undefined') log.debug('[ReviveManager] disabled');
             return;
         }
         this._game = game;

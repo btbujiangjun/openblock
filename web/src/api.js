@@ -3,6 +3,9 @@
  */
 import { getApiBaseUrl } from './config.js';
 import { skipWhenDocumentHidden } from './lib/pageVisibility.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('api');
+
 
 export class APIClient {
     constructor() {
@@ -33,7 +36,7 @@ export class APIClient {
                 return { success: false, error: 'invalid_json', raw: text.slice(0, 200) };
             }
         } catch (error) {
-            console.warn('API request failed:', error);
+            log.warn('API request failed:', error);
             return { success: false, error: error instanceof Error ? error.message : String(error) };
         }
     }

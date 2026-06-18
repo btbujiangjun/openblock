@@ -175,6 +175,9 @@ const _monitor = {
 
 /* v1.61.17: 走 lib/userId.js 单源 */
 import { getUserId as _getUserId } from './lib/userId.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('localStorageStateSync');
+
 
 function _api(path, options = {}) {
     const base = getApiBaseUrl().replace(/\/+$/, '');
@@ -366,7 +369,7 @@ async function _pushChangedSections(force = false, reason = 'interval') {
         }
         _monitor.droppedByWhitelist = res?.dropped && typeof res.dropped === 'object' ? res.dropped : {};
     } catch (e) {
-        console.warn('[state-sync] push failed:', e);
+        log.warn('[state-sync] push failed:', e);
         _monitor.totalErrors += 1;
         _monitor.retryCount += 1;
         for (const sec of Object.keys(outgoing)) {
@@ -387,7 +390,7 @@ async function _hydrateFromServer() {
         // 若远端有本地没有的键（新设备首次登录等场景），合并后主动回写，完成双端收敛。
         if (changed) await _pushChangedSections(true, 'hydrate-merge');
     } catch (e) {
-        console.warn('[state-sync] hydrate failed:', e);
+        log.warn('[state-sync] hydrate failed:', e);
         _monitor.totalErrors += 1;
     }
 }

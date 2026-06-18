@@ -10,6 +10,9 @@
 
 import { getFlag } from './featureFlags.js';
 import { t } from '../i18n/i18n.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('replayShare');
+
 
 /** 截取游戏画布为 Blob */
 async function _captureCanvas() {
@@ -45,7 +48,7 @@ async function _doShare(score, _game) {
             await navigator.share(shareData);
             return;
         } catch (e) {
-            if (e.name !== 'AbortError') console.warn('[Share]', e);
+            if (e.name !== 'AbortError') log.warn('[Share]', e);
         }
     }
 

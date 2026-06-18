@@ -1,5 +1,8 @@
 import { DAY_MS } from '../lib/dateUtils.js';
 import { safeReadJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('realTimeDashboard');
+
 /**
  * RealTimeDashboard - 实时数据大屏
  * 
@@ -38,7 +41,7 @@ class RealTimeDashboard {
      */
     init() {
         this._startPolling();
-        console.log('[Dashboard] Initialized');
+        log.log('[Dashboard] Initialized');
     }
 
     /**
@@ -335,7 +338,7 @@ class RealTimeDashboard {
             try {
                 callback(metrics);
             } catch (e) {
-                console.warn('[Dashboard] Listener error:', e);
+                log.warn('[Dashboard] Listener error:', e);
             }
         }
     }

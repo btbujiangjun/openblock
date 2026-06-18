@@ -29,6 +29,9 @@
  */
 
 import { FEATURE_SCHEMA_SIZE } from '../commercialFeatureSnapshot.js';
+import { createLogger } from '../../lib/logger.js';
+const log = createLogger('multiTaskEncoder');
+
 
 export const MTL_LATENT_DIM = 16;
 export const MTL_SCHEMA_VERSION = 1;
@@ -135,13 +138,13 @@ export function predictAllTasks(features) {
 
 /**
  * 注入训练好的多任务权重（来自 RemoteConfig 或本地实验）。
- * 任何字段格式不对的 head 会退回默认权重并 console.warn；不会全表 reject，
+ * 任何字段格式不对的 head 会退回默认权重并 log.warn；不会全表 reject，
  * 避免一个 head 出错把所有任务全打回 default。
  */
 export function setMultiTaskWeights(payload) {
     if (!payload || typeof payload !== 'object') return false;
     if (payload.schemaVersion !== MTL_SCHEMA_VERSION) {
-        console.warn(`[mtl] schema mismatch: got ${payload.schemaVersion}, expected ${MTL_SCHEMA_VERSION}`);
+        log.warn(`[mtl] schema mismatch: got ${payload.schemaVersion}, expected ${MTL_SCHEMA_VERSION}`);
         return false;
     }
     const encoder = _validateEncoder(payload.encoder) || _defaultIdentityEncoder();

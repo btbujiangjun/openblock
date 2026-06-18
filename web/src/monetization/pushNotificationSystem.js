@@ -10,6 +10,9 @@
 import { getRetentionAnalyzer } from './retentionAnalyzer.js';
 import { getPaymentPredictionModel } from './paymentPredictionModel.js';
 import { safeReadJson } from '../lib/storageAdapter.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('pushNotificationSystem');
+
 
 const STORAGE_KEY = 'openblock_push_system_v1';
 
@@ -219,7 +222,7 @@ class PushNotificationSystem {
     init() {
         this._loadState();
         this._registerTriggerHandlers();
-        console.log('[PushSystem] Initialized, enabled:', this._enabled);
+        log.log('[PushSystem] Initialized, enabled:', this._enabled);
     }
 
     /**
@@ -305,7 +308,7 @@ class PushNotificationSystem {
     trigger(eventType, context = {}) {
         const template = PUSH_TEMPLATES[eventType];
         if (!template) {
-            console.warn('[PushSystem] Unknown event type:', eventType);
+            log.warn('[PushSystem] Unknown event type:', eventType);
             return null;
         }
 
@@ -333,7 +336,7 @@ class PushNotificationSystem {
             setTimeout(() => handler(context), 1000);
         }
 
-        console.log('[PushSystem] Triggered:', eventType);
+        log.log('[PushSystem] Triggered:', eventType);
         
         return pushRecord;
     }
@@ -388,7 +391,7 @@ class PushNotificationSystem {
      */
     _sendNotification(content) {
         if (typeof Notification === 'undefined' || Notification.permission !== 'granted') {
-            console.log('[PushSystem] Notification not available');
+            log.log('[PushSystem] Notification not available');
             return;
         }
 
@@ -410,7 +413,7 @@ class PushNotificationSystem {
             setTimeout(() => notification.close(), 5000);
             
         } catch (e) {
-            console.warn('[PushSystem] Send failed:', e);
+            log.warn('[PushSystem] Send failed:', e);
         }
     }
 
@@ -437,7 +440,7 @@ class PushNotificationSystem {
             push.conversionAction = conversionAction;
             this._saveState();
             
-            console.log('[PushSystem] Conversion tracked:', pushEventType, conversionAction);
+            log.log('[PushSystem] Conversion tracked:', pushEventType, conversionAction);
         }
     }
 
@@ -462,7 +465,7 @@ class PushNotificationSystem {
             this._saveState();
         }, delayMs);
         
-        console.log('[PushSystem] Scheduled:', eventType, 'delay:', delayMs);
+        log.log('[PushSystem] Scheduled:', eventType, 'delay:', delayMs);
         
         return task;
     }
@@ -564,7 +567,7 @@ class PushNotificationSystem {
         this._pushHistory = [];
         this._scheduledTasks = [];
         this._saveState();
-        console.log('[PushSystem] Reset');
+        log.log('[PushSystem] Reset');
     }
 }
 

@@ -65,6 +65,9 @@ import {
 import { getAdFreqSnapshot } from '../monetization/adTrigger.mjs';
 import { updateMaturity } from '../retention/playerMaturity.mjs';
 import { getLifetimeSpend } from '../monetization/iapAdapter.mjs';
+import { createLogger } from '../lib/logger.mjs';
+const log = createLogger('lifecycleOrchestrator');
+
 
 let _enabled = true;
 
@@ -81,7 +84,7 @@ export function isLifecycleOrchestrationEnabled() {
 
 function _safe(fn, label) {
     try { return fn(); } catch (e) {
-        console.warn(`[lifecycle] ${label} failed:`, e?.message || e);
+        log.warn(`[lifecycle] ${label} failed:`, e?.message || e);
         return null;
     }
 }

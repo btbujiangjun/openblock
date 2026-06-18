@@ -6,6 +6,9 @@ import { getApiBaseUrl, isSqliteClientDatabase, ACHIEVEMENTS_BY_ID } from './con
 import { getSessionAttributionSnapshot } from './channelAttribution.js';
 import { buildAbilityTrainingDataset } from './playerAbilityModel.js';
 import { getUserId } from './lib/userId.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('database');
+
 
 async function apiJson(path, options = {}) {
     const base = getApiBaseUrl().replace(/\/+$/, '');
@@ -51,7 +54,7 @@ export class Database {
         try {
             await apiJson('/api/health');
         } catch (e) {
-            console.error('SQLite API 不可用（请先启动 server.py 并检查 VITE_API_BASE_URL）:', e);
+            log.error('SQLite API 不可用（请先启动 server.py 并检查 VITE_API_BASE_URL）:', e);
             throw e;
         }
         this._ready = true;
@@ -369,7 +372,7 @@ export class Database {
             }
             return f;
         } catch (e) {
-            console.warn('getMoveSequence failed:', sessionId, e);
+            log.warn('getMoveSequence failed:', sessionId, e);
             return null;
         }
     }
@@ -422,7 +425,7 @@ export class Database {
             const m = data?.model;
             return m && typeof m === 'object' ? m : null;
         } catch (e) {
-            console.warn('getBrowserRlLinearAgent failed:', e);
+            log.warn('getBrowserRlLinearAgent failed:', e);
             return null;
         }
     }

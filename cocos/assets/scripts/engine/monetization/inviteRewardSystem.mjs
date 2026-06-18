@@ -12,6 +12,9 @@
  */
 import { getWallet } from '../skills/wallet.mjs';
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.mjs';
+import { createLogger } from '../lib/logger.mjs';
+const log = createLogger('inviteRewardSystem');
+
 
 const STORAGE_KEY = 'openblock_invite_v1';
 
@@ -65,7 +68,7 @@ class InviteRewardSystem {
         // 检查 URL 参数中的邀请码
         this._checkUrlInviteCode();
         
-        console.log('[Invite] Initialized, code:', this._inviteCode, 'invited:', this._invitedBy);
+        log.log('[Invite] Initialized, code:', this._inviteCode, 'invited:', this._invitedBy);
     }
 
     /**
@@ -196,7 +199,7 @@ class InviteRewardSystem {
             wallet.addBalance('coin', reward.coin, 'invitee_reward');
         }
         
-        console.log('[Invite] Invitee reward given:', reward);
+        log.log('[Invite] Invitee reward given:', reward);
     }
 
     /**
@@ -215,7 +218,7 @@ class InviteRewardSystem {
         // 同步到服务端
         await this._syncToServer(inviteeId);
         
-        console.log('[Invite] Invite recorded, count:', this._inviteCount);
+        log.log('[Invite] Invite recorded, count:', this._inviteCount);
     }
 
     /**
@@ -239,7 +242,7 @@ class InviteRewardSystem {
             // XP 会通过 progression 系统自动处理
         }
         
-        console.log('[Invite] Inviter reward given:', reward);
+        log.log('[Invite] Inviter reward given:', reward);
     }
 
     /**
@@ -259,7 +262,7 @@ class InviteRewardSystem {
                     wallet.addBalance('coin', tier.bonus.coin, 'tier_reward');
                 }
                 
-                console.log('[Invite] Tier reward given:', tier.invites);
+                log.log('[Invite] Tier reward given:', tier.invites);
             }
         }
         
@@ -284,7 +287,7 @@ class InviteRewardSystem {
                 })
             });
         } catch (e) {
-            console.warn('[Invite] Sync failed:', e);
+            log.warn('[Invite] Sync failed:', e);
         }
     }
 
@@ -333,7 +336,7 @@ class InviteRewardSystem {
         this._inviteCount = 0;
         this._claimedRewards = [];
         this._saveInviteData();
-        console.log('[Invite] Data reset');
+        log.log('[Invite] Data reset');
     }
 }
 

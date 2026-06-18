@@ -133,6 +133,9 @@ import {
     monoNearFullLineColorWeights,
     pickThreeDockColors
 } from './clearScoring.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('game');
+
 
 export {
     detectBonusLines,
@@ -888,7 +891,7 @@ export class Game {
             /* v1.61.14 离线优先 PB：服务端不可达（安卓 / iOS 原生离线、网络异常）时
              * 不再把 bestScore 清零——改由 _resolveBestScore 用本地分桶 / legacy PB 兜底，
              * 保证 PB 追击压力（百分位映射 / challengeBoost / pbChase）在离线下照常生效。 */
-            console.error('SQLite API 初始化失败（离线降级，使用本地 PB）:', err);
+            log.error('SQLite API 初始化失败（离线降级，使用本地 PB）:', err);
             serverPb = 0;
         }
         this._resolveBestScore(serverPb);
@@ -1009,7 +1012,7 @@ export class Game {
             this.updateUI();
             return true;
         } catch (err) {
-            console.warn('[refreshBestScoreFromBucket] failed:', err?.message || err);
+            log.warn('[refreshBestScoreFromBucket] failed:', err?.message || err);
             return false;
         }
     }
@@ -1395,7 +1398,7 @@ export class Game {
                 firstMoveFreedom: solutionMetrics?.firstMoveFreedom ?? 0,
             });
         } catch (e) {
-            console.warn('[evaluation] onSpawn failed:', e?.message || e);
+            log.warn('[evaluation] onSpawn failed:', e?.message || e);
         }
     }
 
@@ -1458,7 +1461,7 @@ export class Game {
                 ?? 0, Date.now());
             recordFlowSample(ledger, this._lastAdaptiveInsight?.flowState || this.playerProfile?.flowState);
         } catch (e) {
-            console.warn('[evaluation] onPlace failed:', e?.message || e);
+            log.warn('[evaluation] onPlace failed:', e?.message || e);
         }
     }
 
@@ -1513,7 +1516,7 @@ export class Game {
                 }
             }
         } catch (e) {
-            console.warn('[evaluation] closeRound failed:', e?.message || e);
+            log.warn('[evaluation] closeRound failed:', e?.message || e);
         }
         this._evalActiveSpawnIdx = -1;
         this._evalRoundStartCells = null;
@@ -1555,7 +1558,7 @@ export class Game {
             const record = buildSessionEvalRecord(ledger);
             await this._postSessionEvalRecord(record);
         } catch (e) {
-            console.warn('[evaluation] onGameOver failed:', e?.message || e);
+            log.warn('[evaluation] onGameOver failed:', e?.message || e);
         } finally {
             this._evalLedger = null;
         }
@@ -1954,14 +1957,14 @@ export class Game {
                     });
                 } catch { /* tracker 缺失即跳过 */ }
             } catch (e) {
-                console.warn('[runOverRunArc] derive failed:', e?.message || e);
+                log.warn('[runOverRunArc] derive failed:', e?.message || e);
                 this.runOverRunArc = null;
             }
 
             /* v1.48：生命周期编排会话开始钩子 —— 检查 winback 触发（≥7 天未活跃则
              * 自动激活保护包）+ 广播 lifecycle:session_start 让商业化 / 推送等订阅。 */
             try { onSessionStart(this.playerProfile, { tracker: this.analyticsTracker || null }); } catch (e) {
-                console.warn('[lifecycle] onSessionStart failed:', e?.message || e);
+                log.warn('[lifecycle] onSessionStart failed:', e?.message || e);
             }
 
             /* v1.70 warm_run：在 session 启动后立即评估温暖局触发器。
@@ -2036,7 +2039,7 @@ export class Game {
                     this._warmRunModule = warmMod;
                 }
             } catch (e) {
-                console.warn('[warmRun] evaluateWarmTriggers failed:', e?.message || e);
+                log.warn('[warmRun] evaluateWarmTriggers failed:', e?.message || e);
                 this._spawnContext.warmRunState = null;
             }
 
@@ -2090,7 +2093,7 @@ export class Game {
                     }
                 } catch { /* tracker missing */ }
             } catch (e) {
-                console.warn('[peog] buildPeogState failed:', e?.message || e);
+                log.warn('[peog] buildPeogState failed:', e?.message || e);
                 this._spawnContext.peogState = null;
             }
 
@@ -2140,7 +2143,7 @@ export class Game {
                     strategyConfig: baseStrategy
                 });
             } catch (e) {
-                console.warn('会话未写入 SQLite API（请确认已启动 server.py 且 VITE_API_BASE_URL 正确）:', e);
+                log.warn('会话未写入 SQLite API（请确认已启动 server.py 且 VITE_API_BASE_URL 正确）:', e);
                 this.sessionId = null;
             }
 
@@ -2150,7 +2153,7 @@ export class Game {
                 const stats = await this.db.getStats();
                 await this.db.updateStats({ totalGames: stats.totalGames + 1 });
             } catch (e) {
-                console.warn('统计未更新:', e);
+                log.warn('统计未更新:', e);
             }
 
             if (this._levelManager) {
@@ -2200,7 +2203,7 @@ export class Game {
             this.markDirty();
             this.checkGameOver();
         } catch (err) {
-            console.error('开始游戏失败:', err);
+            log.error('开始游戏失败:', err);
             const banner = document.getElementById('boot-error');
             if (banner) {
                 banner.hidden = false;
@@ -2303,7 +2306,7 @@ export class Game {
                     try {
                         window.__hintEconomy.consumeHintAimAt(idx);
                     } catch (err) {
-                        console.warn('[hint] consumeHintAimAt failed', err);
+                        log.warn('[hint] consumeHintAimAt failed', err);
                     }
                     return;
                 }
@@ -4358,7 +4361,7 @@ export class Game {
                         gameOver: !!opts.noMovesLoss,
                     }, { tracker: this.analyticsTracker || null });
                 } catch (e) {
-                    console.warn('[lifecycle] onSessionEnd failed:', e?.message || e);
+                    log.warn('[lifecycle] onSessionEnd failed:', e?.message || e);
                 }
 
                 /* v1.68 局间难度弧线（RoR）：写入本局结束快照，供下一局 deriveRunOverRunArc
@@ -4375,7 +4378,7 @@ export class Game {
                         this._saveDailyRunState();
                     }
                 } catch (e) {
-                    console.warn('[runOverRunArc] save lastGameOver failed:', e?.message || e);
+                    log.warn('[runOverRunArc] save lastGameOver failed:', e?.message || e);
                 }
 
                 /* v1.61.14 离线优先：会话落库走服务端，离线必失败。这里 fail-soft，
@@ -4384,7 +4387,7 @@ export class Game {
                 try {
                     await this.saveSession();
                 } catch (e) {
-                    console.warn('[endGame] saveSession 失败（离线降级，不阻塞本地 PB 持久化）:', e?.message || e);
+                    log.warn('[endGame] saveSession 失败（离线降级，不阻塞本地 PB 持久化）:', e?.message || e);
                 }
 
                 /* 单局评估聚合并上报。失败软降级（已在 _evalOnGameOver 内 try/catch）。 */
@@ -4430,7 +4433,7 @@ export class Game {
                                 emitMonetizationEvent('lifecycle:suspicious_pb', event);
                             }
                         } catch { /* ignore */ }
-                        console.warn('[bestScoreSanity] suspicious PB blocked from persistence:',
+                        log.warn('[bestScoreSanity] suspicious PB blocked from persistence:',
                             { previousBest: persistedBestBase, claimedBest: this.score });
                     } else {
                         this.bestScore = this.score;
@@ -4440,7 +4443,7 @@ export class Game {
                         try {
                             await this.db.saveScore(this.score, this.strategy);
                         } catch (e) {
-                            console.warn('[endGame] saveScore 失败（离线降级，本地 PB 仍保留）:', e?.message || e);
+                            log.warn('[endGame] saveScore 失败（离线降级，本地 PB 仍保留）:', e?.message || e);
                         }
                         /* v1.55.10 修复 PB 风险 5（双源同步）：破全账号 PB 时同步更新
                          * legacy `openblock_best_score`，保证：
@@ -4511,7 +4514,7 @@ export class Game {
                         } catch { /* ignore */ }
                     }
                 } catch (e) {
-                    console.warn('[bestScoreBuckets] submit failed:', e?.message || e);
+                    log.warn('[bestScoreBuckets] submit failed:', e?.message || e);
                 }
 
                 const stats = await this.db.getStats();
@@ -4527,7 +4530,7 @@ export class Game {
                 const unlocked = await this.db.checkAndUnlockAchievements(this.gameStats, { durationMs });
                 unlocked.forEach((a) => this.showAchievement(a));
             } catch (e) {
-                console.error('endGame', e);
+                log.error('endGame', e);
             }
 
             try {
@@ -4545,7 +4548,7 @@ export class Game {
                             this.showAchievement(meta);
                         }
                     } catch (ae) {
-                        console.warn('unlock level achievement', ae);
+                        log.warn('unlock level achievement', ae);
                     }
                 }
                 if (progressionResult.leveledUp && progressionResult.achievementIds.length === 0) {
@@ -4565,7 +4568,7 @@ export class Game {
                 }
                 this.refreshSkinSelectOptions();
             } catch (pe) {
-                console.error('progression', pe);
+                log.error('progression', pe);
             } finally {
                 const overScore = document.getElementById('over-score');
                 if (overScore) {
@@ -4669,7 +4672,7 @@ export class Game {
                         await new Promise((r) => setTimeout(r, 300));
                     }
                 } catch (e) {
-                    console.warn('[OpenBlock] boardFlood effect failed', e);
+                    log.warn('[OpenBlock] boardFlood effect failed', e);
                 }
 
                 this.showScreen('game-over');
@@ -4695,7 +4698,7 @@ export class Game {
             try {
                 await this.db.deleteReplaySessions([this.sessionId]);
             } catch (e) {
-                console.warn('删除过短对局记录失败:', e);
+                log.warn('删除过短对局记录失败:', e);
             }
             this.playerProfile.save();
             return;
@@ -4745,7 +4748,7 @@ export class Game {
                     ts: Date.now(),
                 } : null;
             } catch (e) {
-                console.warn('[lifecycle] saveSession snapshot failed:', e?.message || e);
+                log.warn('[lifecycle] saveSession snapshot failed:', e?.message || e);
                 return null;
             }
         })();
@@ -4894,7 +4897,7 @@ export class Game {
                 return;
             }
             void this.db.upsertMoveSequence(this.sessionId, this.moveSequence).catch((err) => {
-                console.warn('upsertMoveSequence:', err);
+                log.warn('upsertMoveSequence:', err);
             });
         }, 500);
     }
@@ -4917,12 +4920,12 @@ export class Game {
     /** @returns {boolean} 是否已进入回放（首帧合法且已应用） */
     beginReplayFromFrames(frames) {
         if (!Array.isArray(frames) || frames.length === 0) {
-            console.warn('beginReplayFromFrames: 需要非空 frames 数组');
+            log.warn('beginReplayFromFrames: 需要非空 frames 数组');
             return false;
         }
         const first = frames[0];
         if (!first || first.t !== 'init' || !first.grid) {
-            console.warn('beginReplayFromFrames: 首帧须为含 grid 的 init');
+            log.warn('beginReplayFromFrames: 首帧须为含 grid 的 init');
             return false;
         }
         this._replayFrames = _cloneReplayFrames(frames);

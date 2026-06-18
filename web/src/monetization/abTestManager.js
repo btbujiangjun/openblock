@@ -8,6 +8,9 @@
  * 4. 远程配置下发
  */
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('abTestManager');
+
 
 const STORAGE_KEY = 'openblock_ab_test_v1';
 
@@ -117,7 +120,7 @@ class ABTestManager {
         await this._fetchRemoteConfig();
         
         this._initialized = true;
-        console.log('[ABTest] Initialized for user:', userId);
+        log.log('[ABTest] Initialized for user:', userId);
     }
 
     /**
@@ -140,10 +143,10 @@ class ABTestManager {
                     }
                 }
                 this._remoteConfig = data;
-                console.log('[ABTest] Remote config loaded');
+                log.log('[ABTest] Remote config loaded');
             }
         } catch (e) {
-            console.log('[ABTest] Remote config not available:', e.message);
+            log.log('[ABTest] Remote config not available:', e.message);
         }
     }
 
@@ -173,13 +176,13 @@ class ABTestManager {
      */
     getVariant(experimentId) {
         if (!this._initialized) {
-            console.warn('[ABTest] Not initialized');
+            log.warn('[ABTest] Not initialized');
             return null;
         }
         
         const experiment = this._experiments[experimentId];
         if (!experiment) {
-            console.warn('[ABTest] Unknown experiment:', experimentId);
+            log.warn('[ABTest] Unknown experiment:', experimentId);
             return null;
         }
         
@@ -210,7 +213,7 @@ class ABTestManager {
         };
         this._saveVariantCache();
         
-        console.log('[ABTest] Assigned variant:', experimentId, '=', selectedVariant);
+        log.log('[ABTest] Assigned variant:', experimentId, '=', selectedVariant);
         return this._userVariantCache[experimentId];
     }
 
@@ -293,7 +296,7 @@ class ABTestManager {
     forceVariant(experimentId, variantId) {
         const experiment = this._experiments[experimentId];
         if (!experiment || !experiment.variants[variantId]) {
-            console.warn('[ABTest] Invalid experiment or variant');
+            log.warn('[ABTest] Invalid experiment or variant');
             return false;
         }
         

@@ -9,6 +9,9 @@
  */
 import { getWallet } from '../skills/wallet.js';
 import { getAnalyticsTracker } from '../monetization/analyticsTracker.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('enhancedFTUE');
+
 // applyGameEndProgression / getFeatureFlag 由 ftueManager 负责调度，本模块只定义阶段/步骤元数据。
 
 const FTUE_STORAGE_KEY = 'openblock_ftue_v2';
@@ -289,7 +292,7 @@ class EnhancedFTUE {
     init() {
         this._loadProgress();
         this._initAnalytics();
-        console.log('[FTUE] Enhanced FTUE initialized, stage:', this._currentStage);
+        log.log('[FTUE] Enhanced FTUE initialized, stage:', this._currentStage);
     }
 
     /**
@@ -356,7 +359,7 @@ class EnhancedFTUE {
      */
     startFTUE() {
         if (this.isCompleted()) {
-            console.log('[FTUE] Already completed');
+            log.log('[FTUE] Already completed');
             return null;
         }
 
@@ -436,7 +439,7 @@ class EnhancedFTUE {
                 completedSteps: this._stageProgress[stageOrder[currentIndex]]
             });
             
-            console.log('[FTUE] Moving to stage:', this._currentStage);
+            log.log('[FTUE] Moving to stage:', this._currentStage);
         }
     }
 
@@ -456,7 +459,7 @@ class EnhancedFTUE {
                 window.dispatchEvent(event);
             } catch {}
             
-            console.log('[FTUE] Feature unlocked:', featureId);
+            log.log('[FTUE] Feature unlocked:', featureId);
         }
     }
 
@@ -473,7 +476,7 @@ class EnhancedFTUE {
             wallet.addBalance('coin', reward.coin, 'ftue_reward');
         }
         
-        console.log('[FTUE] Reward given:', reward);
+        log.log('[FTUE] Reward given:', reward);
     }
 
     /**
@@ -623,7 +626,7 @@ class EnhancedFTUE {
         
         this._trackEvent('ftue_reset');
         
-        console.log('[FTUE] Reset');
+        log.log('[FTUE] Reset');
     }
 
     /**

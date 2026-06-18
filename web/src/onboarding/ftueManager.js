@@ -13,6 +13,9 @@
  */
 import { getWallet } from '../skills/wallet.js';
 import { applyGameEndProgression } from '../progression.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('ftueManager');
+
 
 /* v1.61.17: 隔离 key 防止与生产 ftue.js 冲突；启用本模块前必须先迁移 */
 const STORAGE_KEY = 'openblock_ftue_manager_legacy_v1';
@@ -122,7 +125,7 @@ class FTUEManager {
      */
     init() {
         this._loadProgress();
-        console.log('[FTUE] Initialized, stage:', this._stage, 'step:', this._currentStep);
+        log.log('[FTUE] Initialized, stage:', this._stage, 'step:', this._currentStep);
     }
 
     /**
@@ -158,7 +161,7 @@ class FTUEManager {
      */
     startFTUE() {
         if (this._stage === FTUE_STAGES.COMPLETED) {
-            console.log('[FTUE] Already completed');
+            log.log('[FTUE] Already completed');
             return null;
         }
         
@@ -199,7 +202,7 @@ class FTUEManager {
         if (this._currentStep >= FTUE_STEPS.length) {
             this._stage = FTUE_STAGES.COMPLETED;
             this._saveProgress();
-            console.log('[FTUE] Completed!');
+            log.log('[FTUE] Completed!');
             return null;
         }
         
@@ -237,7 +240,7 @@ class FTUEManager {
         
         if (reward.hintToken) {
             wallet.addBalance('hintToken', reward.hintToken, 'ftue_reward');
-            console.log('[FTUE] Granted hintToken:', reward.hintToken);
+            log.log('[FTUE] Granted hintToken:', reward.hintToken);
         }
         if (reward.undoToken) {
             wallet.addBalance('undoToken', reward.undoToken, 'ftue_reward');
@@ -254,7 +257,7 @@ class FTUEManager {
                 gameStats: { clears: 0, maxLinesCleared: 0 },
                 strategy: 'normal'
             });
-            console.log('[FTUE] XP granted via progression');
+            log.log('[FTUE] XP granted via progression');
         }
     }
 
@@ -299,7 +302,7 @@ class FTUEManager {
         this._completedSteps = [];
         this._saveProgress();
         
-        console.log('[FTUE] Reset');
+        log.log('[FTUE] Reset');
     }
 
     /**

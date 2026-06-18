@@ -25,6 +25,9 @@ import { getRecommendedOffer, recordPurchase } from '../retention/firstPurchaseF
 import { updateVipScore } from '../retention/vipSystem.js';
 import { getPaymentManager } from './paymentManager.js';
 import { getAnalyticsTracker } from './analyticsTracker.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('lifecycleAwareOffers');
+
 
 /* v1.49.x P0-1：购买金额 → VIP 经验的转换系数。
  * 设计：1 RMB → 100 VIP 分；vipSystem 的等级阈值是 1k/5k/20k/50k/100k，
@@ -216,7 +219,7 @@ function _onPurchaseCompleted({ data }) {
 
 function _safe(fn, label) {
     try { return fn(); } catch (e) {
-        console.warn(`[lifecycleAwareOffers] ${label} failed:`, e?.message || e);
+        log.warn(`[lifecycleAwareOffers] ${label} failed:`, e?.message || e);
         return null;
     }
 }

@@ -17,6 +17,9 @@
  *   - 配套的 ExperimentPlatform.initRemoteConfig() 静默失败 → A/B 配置永挂初始值
  * 修正后远程配置通道才能在 initExperimentPlatform 接入时真正打通（P2 阶段）。 */
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.mjs';
+import { createLogger } from '../lib/logger.mjs';
+const log = createLogger('remoteConfigManager');
+
 
 const CONFIG_STORAGE_KEY = 'openblock_remote_config_v1';
 
@@ -98,7 +101,7 @@ class RemoteConfigManager {
         this._loadLocalConfig();
         await this._fetchRemoteConfig();
         this._startPolling();
-        console.log('[RemoteConfig] Initialized, version:', this._config.version);
+        log.log('[RemoteConfig] Initialized, version:', this._config.version);
     }
 
     /**
@@ -133,7 +136,7 @@ class RemoteConfigManager {
      */
     async _fetchRemoteConfig() {
         if (!isSqliteClientDatabase()) {
-            console.log('[RemoteConfig] Using local config (no server)');
+            log.log('[RemoteConfig] Using local config (no server)');
             return;
         }
         
@@ -149,11 +152,11 @@ class RemoteConfigManager {
                     this._saveLocalConfig();
                     
                     this._notifyListeners('config_updated', this._config);
-                    console.log('[RemoteConfig] Updated to version:', this._config.version);
+                    log.log('[RemoteConfig] Updated to version:', this._config.version);
                 }
             }
         } catch (e) {
-            console.log('[RemoteConfig] Remote fetch failed:', e.message);
+            log.log('[RemoteConfig] Remote fetch failed:', e.message);
         }
     }
 
@@ -197,7 +200,7 @@ class RemoteConfigManager {
         this._saveLocalConfig();
         
         this._notifyListeners('flag_changed', { flag: flagName, value });
-        console.log('[RemoteConfig] Flag overridden:', flagName, '=', value);
+        log.log('[RemoteConfig] Flag overridden:', flagName, '=', value);
     }
 
     /**
@@ -360,7 +363,7 @@ class RemoteConfigManager {
             try {
                 callback(event, data);
             } catch (e) {
-                console.warn('[RemoteConfig] Listener error:', e);
+                log.warn('[RemoteConfig] Listener error:', e);
             }
         }
     }
@@ -390,7 +393,7 @@ class RemoteConfigManager {
     resetAllOverrides() {
         this._localOverrides = {};
         this._saveLocalConfig();
-        console.log('[RemoteConfig] All overrides reset');
+        log.log('[RemoteConfig] All overrides reset');
     }
 }
 

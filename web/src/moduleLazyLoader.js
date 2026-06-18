@@ -2,6 +2,9 @@
  * ModuleLazyLoader - 模块按需加载器
  * 实现商业化模块的 Code Splitting
  */
+import { createLogger } from './lib/logger.js';
+const log = createLogger('moduleLazyLoader');
+
 const _moduleCache = new Map();
 const _loadingPromises = new Map();
 
@@ -20,10 +23,10 @@ export async function lazyLoadModule(modulePath) {
     const loadPromise = import(modulePath).then(module => {
         _moduleCache.set(modulePath, module);
         _loadingPromises.delete(modulePath);
-        console.log('[LazyLoad] Loaded:', modulePath);
+        log.log('[LazyLoad] Loaded:', modulePath);
         return module;
     }).catch(err => {
-        console.error('[LazyLoad] Failed to load:', modulePath, err);
+        log.error('[LazyLoad] Failed to load:', modulePath, err);
         _loadingPromises.delete(modulePath);
         throw err;
     });
@@ -115,7 +118,7 @@ export async function loadModulesForScene(scene) {
                 try {
                     results[name] = await lazyLoadModule(path);
                 } catch (e) {
-                    console.warn('[LazyLoad] Scene module load failed:', name, e);
+                    log.warn('[LazyLoad] Scene module load failed:', name, e);
                 }
             }
         })
@@ -140,5 +143,5 @@ export function getModuleStats() {
  */
 export function clearModuleCache() {
     _moduleCache.clear();
-    console.log('[LazyLoad] Cache cleared');
+    log.log('[LazyLoad] Cache cleared');
 }

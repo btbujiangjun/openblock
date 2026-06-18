@@ -12,6 +12,9 @@ import { getFlag } from './featureFlags.js';
 import { on, emit } from './MonetizationBus.js';
 import { getWallet } from '../skills/wallet.js';
 import { todayYmd } from '../lib/dateUtils.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('dailyTasks');
+
 
 const STORAGE_KEY = 'openblock_mon_daily_tasks_v1';
 
@@ -168,7 +171,7 @@ function _grantDailyTaskReward(def) {
         if (reward.coin) w.addBalance('coin', reward.coin | 0, source);
         if (reward.fragment) w.addBalance('fragment', reward.fragment | 0, source);
     } catch (e) {
-        console.warn('[dailyTasks] reward grant failed', e);
+        log.warn('[dailyTasks] reward grant failed', e);
     }
 }
 

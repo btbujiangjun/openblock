@@ -1,4 +1,7 @@
 import { DAY_MS } from '../lib/dateUtils.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('retentionAnalyzer');
+
 /**
  * RetentionAnalyzer — 用户留存与转化漏斗分析
  *
@@ -31,7 +34,7 @@ class RetentionAnalyzer {
 
     init() {
         this._loadData();
-        console.log('[Retention] Initialized');
+        log.log('[Retention] Initialized');
     }
 
     _loadData() {
@@ -364,7 +367,7 @@ class RetentionAnalyzer {
         this._conversionData = {};
         this._userSessions = [];
         this._saveData();
-        console.log('[Retention] Reset');
+        log.log('[Retention] Reset');
     }
 }
 

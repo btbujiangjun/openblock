@@ -29,6 +29,9 @@ import { getWallet } from './wallet.js';
 import { computeHints } from '../hintEngine.js';
 import { registerSkill, refreshSkillBar } from './skillBar.js';
 import { enterAim, exitAim, isAiming } from './aimManager.js';
+import { createLogger } from '../lib/logger.js';
+const log = createLogger('hintEconomy');
+
 
 const SKILL_ID = 'hint-quick';
 
@@ -174,7 +177,7 @@ function _triggerHint(blockIdx) {
     try {
         hints = computeHints(_game.grid, [block], 1);
     } catch (e) {
-        console.warn('[hint] computeHints failed', e);
+        log.warn('[hint] computeHints failed', e);
         _showToast('⚠ 计算失败，请稍后再试');
         return;
     }

@@ -10,6 +10,9 @@ import {
   getQueueStatus,
   syncToBackend 
 } from './offlineBehaviorQueue.js';
+import { createLogger } from './lib/logger.js';
+const log = createLogger('offlineManager');
+
 
 let _initialized = false;
 let _networkStatusCallbacks = [];
@@ -20,7 +23,7 @@ let _networkStatusCallbacks = [];
 export async function initOfflineManager() {
   if (_initialized) return;
   
-  console.log('[OfflineManager] Initializing...');
+  log.log('[OfflineManager] Initializing...');
   
   // 启动自动同步
   startAutoSync(30000);
@@ -28,20 +31,20 @@ export async function initOfflineManager() {
   // 监听网络状态变化
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => {
-      console.log('[OfflineManager] Online');
+      log.log('[OfflineManager] Online');
       _notifyNetworkChange(true);
       // 立即尝试同步
       syncToBackend();
     });
     
     window.addEventListener('offline', () => {
-      console.log('[OfflineManager] Offline');
+      log.log('[OfflineManager] Offline');
       _notifyNetworkChange(false);
     });
   }
   
   _initialized = true;
-  console.log('[OfflineManager] Initialized');
+  log.log('[OfflineManager] Initialized');
 }
 
 /**
@@ -52,7 +55,7 @@ function _notifyNetworkChange(online) {
     try {
       cb(online);
     } catch (e) {
-      console.warn('[OfflineManager] Callback error:', e);
+      log.warn('[OfflineManager] Callback error:', e);
     }
   }
 }
@@ -83,7 +86,7 @@ export async function logBehavior(eventType, data = {}, gameState = {}) {
       return true;
     } catch {
       // 网络错误，存入离线队列
-      console.log('[OfflineManager] Network error, queueing:', eventType);
+      log.log('[OfflineManager] Network error, queueing:', eventType);
     }
   }
   
@@ -140,7 +143,7 @@ export function initPWAInstall() {
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
-    console.log('[PWA] Install prompt available');
+    log.log('[PWA] Install prompt available');
     
     // 可以触发自定义安装按钮
     window.dispatchEvent(new CustomEvent('pwa-install-ready', { 
@@ -150,7 +153,7 @@ export function initPWAInstall() {
   
   // 监听安装完成
   window.addEventListener('appinstalled', (e) => {
-    console.log('[PWA] Installed:', e);
+    log.log('[PWA] Installed:', e);
     deferredPrompt = null;
     window.dispatchEvent(new CustomEvent('pwa-installed'));
   });
@@ -161,7 +164,7 @@ export function initPWAInstall() {
     
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    console.log('[PWA] Install choice:', outcome);
+    log.log('[PWA] Install choice:', outcome);
     deferredPrompt = null;
     return outcome === 'accepted';
   };
