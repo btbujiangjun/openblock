@@ -309,6 +309,52 @@ module.exports = {
   "adaptiveSpawn": {
     "comment": "自适应出块系统：综合玩家实时能力画像（技能水平、心流状态、节奏相位、挫败感、差一点效应、新手标识）动态选择出块权重档位 + spawnHints，维持心流体验、延长停留时间。",
     "enabled": true,
+    "riskReliefTable": {
+      "comment": "KK2：SPAWN_HINTS_RISK_RELIEF_TABLE 数值参数外移（运营可调）。规则结构（when 条件）仍在 adaptiveSpawn.js 内闭包，但每条规则的阈值/输出值从此 JSON 读取。改值无需发版（仅 reload 配置）。不可改的：规则数量、规则名、apply 字段名（这些是代码侧硬依赖）。",
+      "high-risk-guard": {
+        "thresholds": {
+          "confidenceMin": 0.25,
+          "riskLevelMin": 0.62
+        },
+        "apply": {
+          "clearGuarantee": 2,
+          "sizePreference": -0.22,
+          "multiClearBonus": 0.45
+        }
+      },
+      "expert-low-risk-payoff": {
+        "thresholds": {
+          "confidenceMin": 0.45,
+          "skillScoreMin": 0.72,
+          "riskLevelMax": 0.38
+        },
+        "apply": {
+          "diversityBoost": 0.12,
+          "multiClearBonus": 0.5
+        }
+      },
+      "pre-frustration-relief": {
+        "apply": {
+          "clearGuarantee": 2,
+          "sizePreference": -0.18,
+          "multiClearBonus": 0.42
+        }
+      },
+      "board-frustration-relief": {
+        "apply": {
+          "clearGuarantee": 2,
+          "sizePreference": -0.28,
+          "multiClearBonus": 0.55
+        }
+      },
+      "decision-load-relief": {
+        "apply": {
+          "clearGuarantee": 2,
+          "sizePreference": -0.22,
+          "diversityBoost": 0.08
+        }
+      }
+    },
     "priorInjection": {
       "comment": "离线画像先验注入（playerAnalytics.buildSpawnPrior → spawnContext.spawnPrior → applySpawnPrior）。⚠️ 先验非强制：实时 stress 仍主导当帧难度，本层只对 shapeWeights 做风味偏置 + 个性化 relief/delight 阈值。所有幅度 ×λ（λ=strength×maxStrength，低置信自动退化）。详见 docs/algorithms/ADAPTIVE_SPAWN.md「离线画像先验注入」。",
       "enabled": true,

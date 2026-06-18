@@ -296,59 +296,100 @@ function _applyPbOvershootBoost(s) {
  * 规则全部为 max/min 幂等叠加（无顺序依赖），适合表化。
  * 维护成本：增删改规则只改 SPAWN_HINTS_RISK_RELIEF_TABLE 常量，无需改函数实现。
  */
-const SPAWN_HINTS_RISK_RELIEF_TABLE = [
-    {
-        name: 'high-risk-guard',
-        when: (s) => s.ability.confidence >= 0.25 && (s.ability.riskLevel ?? 0) >= 0.62,
-        apply: [
-            { field: 'clearGuarantee', op: 'max', value: 2 },
-            { field: 'sizePreference', op: 'min', value: -0.22 },
-            { field: 'multiClearBonus', op: 'max', value: 0.45 },
-            { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
-        ],
+/* KK2：硬编码默认值（fallback，仅在 GAME_RULES 缺字段时使用，
+ * 保留与历史完全一致的数值，不要修改）。运营调参请改
+ * shared/game_rules.json:adaptiveSpawn.riskReliefTable。 */
+const _RISK_RELIEF_DEFAULTS = {
+    'high-risk-guard': {
+        thresholds: { confidenceMin: 0.25, riskLevelMin: 0.62 },
+        apply: { clearGuarantee: 2, sizePreference: -0.22, multiClearBonus: 0.45 },
     },
-    {
-        name: 'expert-low-risk-payoff',
-        /* 注意：原版用 else if，这里改 when 表达「不满足 high-risk」语义 */
-        when: (s) => !(s.ability.confidence >= 0.25 && (s.ability.riskLevel ?? 0) >= 0.62)
-            && s.ability.confidence >= 0.45 && s.ability.skillScore >= 0.72 && (s.ability.riskLevel ?? 0) <= 0.38,
-        apply: [
-            { field: 'diversityBoost', op: 'max', value: 0.12 },
-            { field: 'multiClearBonus', op: 'max', value: 0.5 },
-            { field: 'rhythmPhase', op: 'set', value: 'payoff', when: (s) => s.rhythmPhase === 'neutral' && s.nearFullLines >= 1 },
-        ],
+    'expert-low-risk-payoff': {
+        thresholds: { confidenceMin: 0.45, skillScoreMin: 0.72, riskLevelMax: 0.38 },
+        apply: { diversityBoost: 0.12, multiClearBonus: 0.5 },
     },
-    {
-        name: 'pre-frustration-relief',
-        when: (s) => s.preFrustrationRelief < 0,
-        apply: [
-            { field: 'clearGuarantee', op: 'max', value: 2 },
-            { field: 'sizePreference', op: 'min', value: -0.18 },
-            { field: 'multiClearBonus', op: 'max', value: 0.42 },
-            { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
-        ],
+    'pre-frustration-relief': {
+        apply: { clearGuarantee: 2, sizePreference: -0.18, multiClearBonus: 0.42 },
     },
-    {
-        name: 'board-frustration-relief',
-        when: (s) => s.boardFrustrationRelief < 0,
-        apply: [
-            { field: 'clearGuarantee', op: 'max', value: 2 },
-            { field: 'sizePreference', op: 'min', value: -0.28 },
-            { field: 'multiClearBonus', op: 'max', value: 0.55 },
-            { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
-        ],
+    'board-frustration-relief': {
+        apply: { clearGuarantee: 2, sizePreference: -0.28, multiClearBonus: 0.55 },
     },
-    {
-        name: 'decision-load-relief',
-        when: (s) => s.decisionLoadReliefActive === true,
-        apply: [
-            { field: 'clearGuarantee', op: 'max', value: 2 },
-            { field: 'sizePreference', op: 'min', value: -0.22 },
-            { field: 'diversityBoost', op: 'max', value: 0.08 },
-            { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
-        ],
+    'decision-load-relief': {
+        apply: { clearGuarantee: 2, sizePreference: -0.22, diversityBoost: 0.08 },
     },
-];
+};
+
+function _rrCfg(name, field, subKey) {
+    const cfg = GAME_RULES?.adaptiveSpawn?.riskReliefTable?.[name];
+    const v = cfg?.[field]?.[subKey];
+    if (v !== undefined && v !== null) return v;
+    return _RISK_RELIEF_DEFAULTS[name][field][subKey];
+}
+
+/* SPAWN_HINTS_RISK_RELIEF_TABLE 重建为 lazy getter——数值从 GAME_RULES
+ * 读取（运营可调），when 闭包仍在代码内（条件涉及复合表达式不易 JSON 化）。
+ * 测试可通过修改 GAME_RULES.adaptiveSpawn.riskReliefTable 影响此表。 */
+function _buildRiskReliefTable() {
+    return [
+        {
+            name: 'high-risk-guard',
+            when: (s) => s.ability.confidence >= _rrCfg('high-risk-guard', 'thresholds', 'confidenceMin')
+                && (s.ability.riskLevel ?? 0) >= _rrCfg('high-risk-guard', 'thresholds', 'riskLevelMin'),
+            apply: [
+                { field: 'clearGuarantee', op: 'max', value: _rrCfg('high-risk-guard', 'apply', 'clearGuarantee') },
+                { field: 'sizePreference', op: 'min', value: _rrCfg('high-risk-guard', 'apply', 'sizePreference') },
+                { field: 'multiClearBonus', op: 'max', value: _rrCfg('high-risk-guard', 'apply', 'multiClearBonus') },
+                { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
+            ],
+        },
+        {
+            name: 'expert-low-risk-payoff',
+            /* 原 else-if 语义 → 显式排除 high-risk-guard 条件 */
+            when: (s) => !(s.ability.confidence >= _rrCfg('high-risk-guard', 'thresholds', 'confidenceMin')
+                && (s.ability.riskLevel ?? 0) >= _rrCfg('high-risk-guard', 'thresholds', 'riskLevelMin'))
+                && s.ability.confidence >= _rrCfg('expert-low-risk-payoff', 'thresholds', 'confidenceMin')
+                && s.ability.skillScore >= _rrCfg('expert-low-risk-payoff', 'thresholds', 'skillScoreMin')
+                && (s.ability.riskLevel ?? 0) <= _rrCfg('expert-low-risk-payoff', 'thresholds', 'riskLevelMax'),
+            apply: [
+                { field: 'diversityBoost', op: 'max', value: _rrCfg('expert-low-risk-payoff', 'apply', 'diversityBoost') },
+                { field: 'multiClearBonus', op: 'max', value: _rrCfg('expert-low-risk-payoff', 'apply', 'multiClearBonus') },
+                { field: 'rhythmPhase', op: 'set', value: 'payoff', when: (s) => s.rhythmPhase === 'neutral' && s.nearFullLines >= 1 },
+            ],
+        },
+        {
+            name: 'pre-frustration-relief',
+            when: (s) => s.preFrustrationRelief < 0,
+            apply: [
+                { field: 'clearGuarantee', op: 'max', value: _rrCfg('pre-frustration-relief', 'apply', 'clearGuarantee') },
+                { field: 'sizePreference', op: 'min', value: _rrCfg('pre-frustration-relief', 'apply', 'sizePreference') },
+                { field: 'multiClearBonus', op: 'max', value: _rrCfg('pre-frustration-relief', 'apply', 'multiClearBonus') },
+                { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
+            ],
+        },
+        {
+            name: 'board-frustration-relief',
+            when: (s) => s.boardFrustrationRelief < 0,
+            apply: [
+                { field: 'clearGuarantee', op: 'max', value: _rrCfg('board-frustration-relief', 'apply', 'clearGuarantee') },
+                { field: 'sizePreference', op: 'min', value: _rrCfg('board-frustration-relief', 'apply', 'sizePreference') },
+                { field: 'multiClearBonus', op: 'max', value: _rrCfg('board-frustration-relief', 'apply', 'multiClearBonus') },
+                { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
+            ],
+        },
+        {
+            name: 'decision-load-relief',
+            when: (s) => s.decisionLoadReliefActive === true,
+            apply: [
+                { field: 'clearGuarantee', op: 'max', value: _rrCfg('decision-load-relief', 'apply', 'clearGuarantee') },
+                { field: 'sizePreference', op: 'min', value: _rrCfg('decision-load-relief', 'apply', 'sizePreference') },
+                { field: 'diversityBoost', op: 'max', value: _rrCfg('decision-load-relief', 'apply', 'diversityBoost') },
+                { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
+            ],
+        },
+    ];
+}
+
+const SPAWN_HINTS_RISK_RELIEF_TABLE = _buildRiskReliefTable();
 
 /**
  * spawnHints 第 3 段：combo + winback + postPbRelease 三段叠加
