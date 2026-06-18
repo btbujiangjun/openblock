@@ -46,7 +46,7 @@ const {
 const { buildPlayerAbilityVector } = require('./playerAbilityModel');
 const { analyzeBoardTopology } = require('./boardTopology');
 const { getAllShapes } = require('./shapes');
-const { analyzePerfectClearSetup, computeCandidatePlacementMetric } = require('./bot/blockSpawn');
+const { analyzePerfectClearSetup } = require('./bot/blockSpawn');
 let _softDeps_playerLifecycleDashboard = {}; try { _softDeps_playerLifecycleDashboard = require('./retention/playerLifecycleDashboard'); } catch (_e) { /* miniprogram 不分发 retention/ 子目录，软依赖回退空骨架 */ } const { getLifecycleMaturitySnapshot } = _softDeps_playerLifecycleDashboard;
 let _softDeps_lifecycleSignals = {}; try { _softDeps_lifecycleSignals = require('./lifecycle/lifecycleSignals'); } catch (_e) { /* miniprogram 不分发 lifecycle/ 子目录，软依赖回退空骨架 */ } const { getCachedLifecycleSnapshot } = _softDeps_lifecycleSignals;
 /* v1.48：winback 保护包接入；通过 lifecycleOrchestrator 包装层避免直接依赖
@@ -63,6 +63,43 @@ let _softDeps_warmRun = {}; try { _softDeps_warmRun = require('./spawn/warmRun')
 let _softDeps_peog = {}; try { _softDeps_peog = require('./spawn/peog'); } catch (_e) { /* miniprogram 不分发 spawn/ 子目录，软依赖回退空骨架 */ } const { applyPeogSpawnHintsCap } = _softDeps_peog;
 /* §4.17/§2.10 难度相对论：体感→客观目标 b* 反解（影子，不改 stress 主线）。 */
 const { solveObjectiveTarget } = require('./difficultyRelativity');
+/* v1.71：11 项 stress→算法多维难度区间派生器 + _deriveRangeByStress 抽至 ./bot/spawnTargets.js。
+ * 本文件 import 后通过同名 alias 保持原内部调用名（resolveAdaptiveStrategy 主路径调用点不变）。 */
+/* v1.71：applySpawnPrior + applyRelativityShapePrior 抽至 ./bot/spawnPriors.js。
+ * re-export 保持外部 API 完全不变（多处 import 这两个函数）。 */
+const { applySpawnPrior, applyRelativityShapePrior } = require('./bot/spawnPriors');
+
+/* v1.71：PB 双 S 曲线（sigmoid01 + DEFAULT_SPAWN_PARAMS_PB_CURVE + SPAWN_PARAM_KEYS + derivePbCurve）
+ * 抽至 ./bot/pbCurve.js。re-export 保持外部 API（spawnModelPanel 等模块 import 这些常量）。 */
+const {
+    derivePbCurve,
+    DEFAULT_SPAWN_PARAMS_PB_CURVE,
+    SPAWN_PARAM_KEYS,
+} = require('./bot/pbCurve');
+
+/* v1.71：spawn 决策前几何信号实时回灌抽至 ./bot/liveGeometrySignals.js。
+ * 内部 alias 保持原调用名（_mergeLiveGeometrySignals 在 resolveAdaptiveStrategy 主路径调用，
+ * _countMultiClearCandidatesFromShapePool 在 snapshotInsightGeometry 调用）。 */
+const {
+    _mergeLiveGeometrySignals,
+    _countMultiClearCandidatesFromShapePool,
+} = require('./bot/liveGeometrySignals');
+/* v1.71：deriveDelightTuning 抽至 ./bot/delightTuning.js。 */
+const { deriveDelightTuning } = require('./bot/delightTuning');
+const {
+    deriveTargetSolutionRange,
+    deriveTargetHoleIncrement,
+    deriveTargetMaxHoleIncrement,
+    deriveTargetHoleIncrementGap,
+    deriveTargetEndFillRatio,
+    deriveTargetNearFullDelta,
+    deriveTargetFirstMoveSurvivorRatio,
+    deriveTargetSolutionDiversity,
+    deriveTargetEndFlatness,
+    deriveTargetEndDangerColumns,
+    deriveTargetVisualClutter,
+    _deriveRangeByStress,
+} = require('./bot/spawnTargets');
 
 /* ------------------------------------------------------------------ */
 /*  v1.17：harvest / payoff 触发的最低占用率门槛
@@ -203,108 +240,11 @@ function applySignal(signalCfg, name, value) {
     return scaled;
 }
 
-function _bestMultiClearPotential(grid, shapeData) {
-    if (!grid || !shapeData) return 0;
-    /* 性能：只需消行条数 → 优先走轻量 countClearLines（无整盘 temp 分配）；旧 grid 兜底 previewClearOutcome。 */
-    const fast = typeof grid.countClearLines === 'function';
-    let best = 0;
-    for (let y = 0; y < grid.size; y++) {
-        for (let x = 0; x < grid.size; x++) {
-            let lines;
-            if (fast) {
-                lines = grid.countClearLines(shapeData, x, y);
-            } else {
-                const outcome = grid.previewClearOutcome?.(shapeData, x, y, 0);
-                lines = outcome ? (outcome.rows?.length ?? 0) + (outcome.cols?.length ?? 0) : 0;
-            }
-            if (lines > best) best = lines;
-            if (best >= 2) return best;
-        }
-    }
-    return best;
-}
+/* v1.71 拆分占位：_bestMultiClearPotential + _countMultiClearCandidatesFromShapePool
+ * + _mergeLiveGeometrySignals 已抽至 ./bot/liveGeometrySignals.js。
+ * 顶部 import 后通过同名 alias 保持原内部调用（_mergeLiveGeometrySignals /
+ * _countMultiClearCandidatesFromShapePool 在 snapshotInsightGeometry 仍被调用）。 */
 
-function _countMultiClearCandidatesFromShapePool(grid, shapePool) {
-    if (!grid || !Array.isArray(shapePool) || shapePool.length === 0) return null;
-    let count = 0;
-    for (const shape of shapePool) {
-        if (_bestMultiClearPotential(grid, shape.data) >= 2) count++;
-    }
-    return count;
-}
-
-/**
- * v1.25：spawn 决策前优先用“当前盘面”重算几何信号，减少 ctx 快照时序滞后。
- * - nearFullLines：来自 analyzeBoardTopology(grid)
- * - multiClearCandidates：优先按当前 dock 三块；dock 不可用时回退全形状库
- * - pcSetup（v1.57.4 补漏）：来自 analyzePerfectClearSetup(grid)；旧实现只刷新 nfl/mcc
- *   把 pcSetup 留在快照上，导致 17% 散布盘面玩家消行后 spawnIntent='harvest' 仍命中
- *   `pcSetup ≥1 && fill ≥ 0.45` 分支（fill 也只有 mergeLiveGeometrySignals 没刷新）。
- *
- * @param {object} ctx
- * @returns {object}
- */
-function _mergeLiveGeometrySignals(ctx) {
-    const grid = ctx?._gridRef;
-    if (!grid?.cells?.length || !Number.isFinite(grid.size)) return ctx;
-    let next = ctx;
-    /* v1.60.1：adaptiveSpawn 是"玩家失误评估"链路，独立库块产生的孤岛豁免 */
-    const topo = analyzeBoardTopology(grid, { skipSpecialCells: true });
-    if (Number.isFinite(topo?.nearFullLines)) {
-        next = { ...next, nearFullLines: topo.nearFullLines };
-    }
-    /* 回灌 holes / close1 / close2：复用上面这份 topo（零额外算力）。
-     * 历史缺陷修复 —— spawnContext 从未注入这三个几何字段，导致下游
-     * buildPlayerAbilityVector 的 boardPlanning(holePenalty / nearClear) 与
-     * riskLevel(holes 项) 恒读到 0，holeReliefAdjust / deriveBoardDifficulty /
-     * deriveFriendlyBoardRelief(`holes>0` 守卫) 也随之失真。 */
-    if (Number.isFinite(topo?.holes)) next = { ...next, holes: topo.holes };
-    if (Number.isFinite(topo?.close1)) next = { ...next, close1: topo.close1 };
-    if (Number.isFinite(topo?.close2)) next = { ...next, close2: topo.close2 };
-    const dockPool = Array.isArray(ctx?._dockShapePool)
-        ? ctx._dockShapePool
-            .filter((s) => Array.isArray(s?.data))
-            .map((s) => ({ data: s.data }))
-        : [];
-    const shapePool = dockPool.length > 0 ? dockPool : getAllShapes();
-    const liveMcc = _countMultiClearCandidatesFromShapePool(grid, shapePool);
-    if (Number.isFinite(liveMcc)) {
-        next = { ...next, multiClearCandidates: liveMcc };
-    }
-    /* 回灌 mobility(Σ各未放置块合法落点) 与 firstMoveFreedom(瓶颈块最小落点)：
-     * 复用 computeCandidatePlacementMetric（与 game.js _spawnGeoForSnapshot / blockSpawn 同口径 SSOT）。
-     * 修复历史死输入 —— 二者 spawnContext 从未注入：mobility 让 boardPlanning 走 fallback 0.55 常量，
-     * firstMoveFreedom 让 riskLevel 的 lockRisk 项恒不参与。仅在真实 dock 池可用时计算。 */
-    if (dockPool.length > 0) {
-        const placement = computeCandidatePlacementMetric(grid, dockPool.map((s) => ({ shape: s.data })));
-        if (placement) {
-            if (Number.isFinite(placement.solutionCount)) next = { ...next, mobility: placement.solutionCount };
-            if (Number.isFinite(placement.firstMoveFreedom)) next = { ...next, firstMoveFreedom: placement.firstMoveFreedom };
-            /* placementSolutionScore：整盘 dock「平均每块安全度」∈[0,1]，与 game.js _updateBottleneckTrough
-             * 同口径（lockRisk 主分支输入）。本分支服务 bot/simulator（dockPool 非空）路径，玩家路径由
-             * game.js 实时回灌。归一尺度复用 playerAbilityModel.risk.firstMoveFreedomSafe（默认 8）。 */
-            if (Number.isFinite(placement.solutionCount)) {
-                const safe = Number(GAME_RULES.playerAbilityModel?.risk?.firstMoveFreedomSafe) || 8;
-                next = { ...next, placementSolutionScore: Math.max(0, Math.min(1, (placement.solutionCount / dockPool.length) / safe)) };
-            }
-        }
-    }
-    /* v1.57.4：pcSetup 也实时重算。它进入两个口径：
-     *   (a) deriveSpawnIntent 的 harvestable 判定（与 nfl 并列）
-     *   (b) deriveSpawnTargets 的 perfectClearOpportunity 加权
-     * 不重算会让"上次 spawn 时 pcSetup=1"的快照一直驻留，玩家消行后 fill < 0.45
-     * 仍可能误命中 harvest 分支（虽被 PC_SETUP_MIN_FILL 拦住一部分，但 fill 自身
-     * 是 _boardFill 入参的实时值，pcSetup 不重算就让两者口径不对齐）。 */
-    try {
-        const livePc = analyzePerfectClearSetup(grid);
-        if (Number.isFinite(livePc)) {
-            next = { ...next, pcSetup: livePc };
-        }
-    } catch {
-        // pcSetup 重算失败不影响主流程（旧 ctx.pcSetup 兜底）
-    }
-    return next;
-}
 
 /**
  * v1.57.4：spawnIntent 派生纯函数（从 resolveAdaptiveStrategy in-line 块抽出）。
@@ -603,87 +543,10 @@ function smoothStress(current, ctx, cfg, immediateRelief) {
 
 /* v1.61.17: clamp01 已抽到 lib/math.js 单源（含 NaN 防护，性能差异可忽略） */
 
-function sigmoid01(x) {
-    return 1 / (1 + Math.exp(-x));
-}
+/* v1.71 拆分占位：sigmoid01 + DEFAULT_SPAWN_PARAMS_PB_CURVE + SPAWN_PARAM_KEYS
+ * + _resolvePbCurveParams + derivePbCurve 已抽至 ./bot/pbCurve.js。
+ * 顶部 import + re-export 保持外部 API 完全不变。 */
 
-/**
- * 默认 PB 双 S 曲线参数 — 与 v2.1 之前硬编码完全一致, 保持向后兼容。
- * v2.2: 暴露为可覆盖的常量, 让 spawn-tuning v2 寻参可以把这些常数纳入 θ。
- *
- * 业务含义:
- *   pbTensionCenter — 张力 sigmoid 拐点 (玩家接近 PB 多少比例时开始增加难度)
- *   pbTensionWidth  — 张力 sigmoid 斜率宽度 (越小越陡, 即拐点附近变化越剧烈)
- *   pbBrakeCenter   — 刹车 sigmoid 拐点 (超过 PB 多少倍后强力压制 payoff)
- *   pbBrakeWidth    — 刹车 sigmoid 斜率宽度
- */
-/* ──────────────────────────────────────────────────────────────────
- * DEFAULT_SPAWN_PARAMS_PB_CURVE — SpawnParam θ 中「组 B: PB 双 S 曲线 (4 维)」的默认值。
- * 当 SpawnParamTuner 未部署 / policies.json 加载失败时 derivePbCurve 自动 fallback 到这里。
- *
- * SPAWN_PARAM_KEYS — L1 (SpawnPolicyRules) 与 L2 (SpawnParamTuner) 之间的 9 维 θ 数据契约
- * （与 rl_pytorch/spawn_tuning_v2/feature_io.THETA_KEYS 同源）。
- *
- * 详见 docs/algorithms/SPAWN_OVERVIEW.md §5。
- * ────────────────────────────────────────────────────────────────── */
-const DEFAULT_SPAWN_PARAMS_PB_CURVE = Object.freeze({
-    pbTensionCenter: 0.82,
-    pbTensionWidth: 0.08,
-    pbBrakeCenter: 1.05,
-    pbBrakeWidth: 0.06,
-});
-
-const SPAWN_PARAM_KEYS = Object.freeze([
-    'personalizationStrength',
-    'temperature',
-    'surpriseBudgetGain',
-    'surpriseCooldown',
-    'maxEvaluatedTriplets',
-    'pbTensionCenter',
-    'pbTensionWidth',
-    'pbBrakeCenter',
-    'pbBrakeWidth',
-]);
-
-/** 把 options 中的 PB 曲线参数 (可能浮点 / NaN) 整型化并填充默认值。 */
-function _resolvePbCurveParams(options) {
-    const numOrDefault = (v, d) => {
-        const n = Number(v);
-        return Number.isFinite(n) && n > 0 ? n : d;
-    };
-    return {
-        tensionCenter: numOrDefault(options?.pbTensionCenter, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbTensionCenter),
-        tensionWidth: numOrDefault(options?.pbTensionWidth, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbTensionWidth),
-        brakeCenter: numOrDefault(options?.pbBrakeCenter, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbBrakeCenter),
-        brakeWidth: numOrDefault(options?.pbBrakeWidth, DEFAULT_SPAWN_PARAMS_PB_CURVE.pbBrakeWidth),
-    };
-}
-
-function derivePbCurve(score = 0, bestScore = 0, releaseActive = false, options = null) {
-    const best = Number(bestScore) || 0;
-    if (best <= 0) {
-        return {
-            pbRatio: null,
-            pbTension: 0,
-            pbBrake: 0,
-            pbRelease: releaseActive ? 1 : 0,
-            pbPhase: 'unknown',
-        };
-    }
-    const ratio = Math.max(0, Number(score) || 0) / best;
-    const p = _resolvePbCurveParams(options);
-    const pbTension = clamp01(sigmoid01((ratio - p.tensionCenter) / p.tensionWidth));
-    const pbBrake = clamp01(sigmoid01((ratio - p.brakeCenter) / p.brakeWidth));
-    const pbRelease = releaseActive ? 1 : 0;
-    let pbPhase = 'warmup';
-    if (ratio >= 1.15) pbPhase = 'overshoot';
-    else if (ratio >= 1.05) pbPhase = 'brake';
-    else if (ratio >= 1.0) pbPhase = 'release';
-    else if (ratio >= 0.95) pbPhase = 'gate';
-    else if (ratio >= 0.8) pbPhase = 'tension';
-    else if (ratio >= 0.5) pbPhase = 'chase';
-    return { pbRatio: ratio, pbTension, pbBrake, pbRelease, pbPhase };
-}
 
 function deriveSpawnTargets(stress, profile, ctx, fill, boardRisk, delight, cfg = {}, boardDifficulty = fill) {
     const stress01 = clamp01((stress + 0.2) / 1.2);
@@ -842,66 +705,9 @@ function deriveMultiLineTarget(ctx, fill) {
  * @param {number} fill
  * @param {object} cfg adaptiveSpawn.delight
  */
-function deriveDelightTuning(profile, ctx, fill, cfg = {}) {
-    const skill = Math.max(0, Math.min(1, profile.skillLevel ?? 0.5));
-    const momentum = Math.max(-1, Math.min(1, profile.momentum ?? 0));
-    const flow = profile.flowState;
-    const pacing = profile.pacingPhase;
-    const nearFullLines = ctx.nearFullLines ?? 0;
-    const pcSetup = ctx.pcSetup ?? 0;
-    const frustration = profile.frustrationLevel ?? 0;
-    const recovery = profile.needsRecovery === true;
+/* v1.71 拆分占位：deriveDelightTuning 已抽至 ./bot/delightTuning.js。
+ * 顶部 import 后以同名 alias 保持原内部调用。 */
 
-    const highSkill = Math.max(0, (skill - (cfg.highSkillThreshold ?? 0.62)) / 0.38);
-    const positiveMomentum = Math.max(0, momentum);
-    const pressureOpportunity = Math.min(1, nearFullLines / 4 + pcSetup * 0.35 + Math.max(0, fill - 0.42));
-    const recoveryNeed = recovery ? 1 : Math.min(1, frustration / Math.max(1, cfg.frustrationReliefThreshold ?? 5));
-
-    let stressAdjust = 0;
-    if (flow === 'bored' && skill > 0.52) {
-        stressAdjust += (cfg.boredSkillStressBoost ?? 0.07) * Math.min(1, highSkill + 0.35);
-    }
-    if (flow === 'anxious' || recovery) {
-        stressAdjust -= (cfg.anxiousReliefStress ?? 0.08) * Math.max(0.4, recoveryNeed);
-    }
-
-    let multiClearBoost = cfg.baseMultiClearBoost ?? 0.22;
-    multiClearBoost += highSkill * (cfg.highSkillMultiBoost ?? 0.22);
-    multiClearBoost += positiveMomentum * (cfg.momentumMultiBoost ?? 0.16);
-    multiClearBoost += pressureOpportunity * (cfg.opportunityMultiBoost ?? 0.30);
-    if (flow === 'flow' || pacing === 'release') {
-        multiClearBoost += cfg.flowPayoffBoost ?? 0.14;
-    }
-    if (flow === 'anxious' || recovery) {
-        multiClearBoost += recoveryNeed * (cfg.reliefMultiBoost ?? 0.20);
-    }
-
-    /* v1.60.34：大幅提升清屏概率（用户反馈，让位给同花降频）
-     * 派生阶段把 pcSetup>=1 时 boost 提到 0.95（near-max），各场景门槛同步抬升。
-     * 配合 scoreShape pcPotential===2 加权 ×(25+pcb×20) → 峰值 45 倍硬碾压。 */
-    let perfectClearBoost = 0;
-    if (pcSetup >= 2) perfectClearBoost = 1;
-    else if (pcSetup >= 1) perfectClearBoost = 0.95;
-    else if (nearFullLines >= 4 && fill > 0.45) perfectClearBoost = 0.65;
-    /* 疏板 / 双线临门：提高清屏块抽样权重（v1.60.34 全面抬升） */
-    if (nearFullLines >= 2 && fill > 0.30) perfectClearBoost = Math.max(perfectClearBoost, 0.58);
-    if (nearFullLines >= 1 && fill <= 0.42) perfectClearBoost = Math.max(perfectClearBoost, 0.45);
-
-    const mode = recovery || flow === 'anxious'
-        ? 'relief'
-        : flow === 'bored' && skill > 0.55
-            ? 'challenge_payoff'
-            : (flow === 'flow' || positiveMomentum > 0.35)
-                ? 'flow_payoff'
-                : 'neutral';
-
-    return {
-        stressAdjust,
-        multiClearBoost: Math.max(0, Math.min(1, multiClearBoost)),
-        perfectClearBoost: Math.max(0, Math.min(1, perfectClearBoost)),
-        mode
-    };
-}
 
 /* ------------------------------------------------------------------ */
 /*  Layer 3: session 弧线 + 局内分数里程碑                              */
@@ -1040,157 +846,10 @@ function resetAdaptiveMilestone() {
     _milestoneToastBaseFiredThisRun = false;
     _milestoneToastPostPbFiredThisRun = false;
 }
+/* v1.71 拆分占位：deriveTargetSolutionRange / deriveTargetHoleIncrement / 9 项
+ * deriveTargetXxx + _deriveRangeByStress 已抽至 ./bot/spawnTargets.js。本文件
+ * 顶部 import 后通过别名 (alias) 保持原内部调用名，外部 API 零变化。 */
 
-/* ------------------------------------------------------------------ */
-/*  v9: 解法数量难度调控（targetSolutionRange）                         */
-/*                                                                    */
-/*  根据综合 stress 在 adaptiveSpawn.solutionDifficulty.ranges 中选择档位， */
-/*  传给 blockSpawn.js 用于在三连块通过 sequentiallySolvable 校验后再做  */
-/*  解空间收缩/扩张。                                                  */
-/* ------------------------------------------------------------------ */
-
-/**
- * 根据 stress 选择解法数量档位。
- * @param {number} stress 综合压力（内部 raw 域 [-0.2, 1]；本函数在算法内部消费，
- *                        对外面板 stress 域 [0, 1] 见本文件顶部 normalizeStress 注释）
- * @param {object} cfg adaptiveSpawn.solutionDifficulty
- * @param {number} fill 当前盘面填充率
- * @returns {{ min: number|null, max: number|null, label?: string } | null}
- */
-function deriveTargetSolutionRange(stress, cfg, fill) {
-    if (!cfg?.enabled) return null;
-    const activationFill = cfg.activationFill ?? 0.45;
-    if ((fill ?? 0) < activationFill) return null;
-    const ranges = Array.isArray(cfg.ranges) ? cfg.ranges : [];
-    if (ranges.length === 0) return null;
-
-    // ranges 按 minStress 升序，挑选 stress >= minStress 的最大档位
-    const sorted = [...ranges].sort((a, b) => (a.minStress ?? -1) - (b.minStress ?? -1));
-    let chosen = null;
-    for (const r of sorted) {
-        if (stress >= (r.minStress ?? -1)) chosen = r;
-    }
-    if (!chosen) chosen = sorted[0];
-    return {
-        min: chosen.min ?? null,
-        max: chosen.max ?? null,
-        label: chosen.label
-    };
-}
-
-/**
- * v1.57.2：根据 stress 选择新空洞数难度档（与 targetSolutionRange 并列的第二维度）。
- *
- * 语义：blockSpawn 在 earlyAttempt 阶段对每个候选 triplet 计算 minHoleIncrement
- * （6 种放置顺序所有解的"最干净路径"新空洞数），按本函数返回的 { min, max } 区间软过滤。
- *
- *   - max=0   → 候选必须存在 0 新空洞解（"必有干净放法"，玩家放心放）
- *   - max=N   → 候选最优解新空洞 ≤ N（允许少量空洞解）
- *   - min=N   → 候选最优解新空洞 ≥ N（"无论怎么放都会脏"，玩家被迫接受）
- *
- * 共享 cfg.activationFill 与 cfg.enabled——本函数只在解空间评估开启的前提下生效。
- *
- * @param {number} stress  raw 域 [-0.2, 1]
- * @param {object} cfg     adaptiveSpawn.solutionDifficulty（取其 holeIncrement 子节）
- * @param {number} fill    当前盘面填充率
- * @returns {{ min: number|null, max: number|null, label?: string } | null}
- */
-function deriveTargetHoleIncrement(stress, cfg, fill) {
-    if (!cfg?.enabled) return null;
-    const hi = cfg.holeIncrement;
-    if (!hi?.enabled) return null;
-    const activationFill = cfg.activationFill ?? 0.45;
-    if ((fill ?? 0) < activationFill) return null;
-    const ranges = Array.isArray(hi.ranges) ? hi.ranges : [];
-    if (ranges.length === 0) return null;
-
-    const sorted = [...ranges].sort((a, b) => (a.minStress ?? -1) - (b.minStress ?? -1));
-    let chosen = null;
-    for (const r of sorted) {
-        if (stress >= (r.minStress ?? -1)) chosen = r;
-    }
-    if (!chosen) chosen = sorted[0];
-    return {
-        min: chosen.minIncrement ?? null,
-        max: chosen.maxIncrement ?? null,
-        label: chosen.label
-    };
-}
-
-/* ================================================================== */
-/*  v1.57.3 — 9 项 stress→算法 多维难度区间通用派生器                  */
-/*                                                                    */
-/*  与 deriveTargetSolutionRange / deriveTargetHoleIncrement 同源结构  */
-/*  共享 cfg.activationFill 与 cfg.enabled；每个维度独立 enabled 开关  */
-/*  ranges 字段约定：{ minStress, label, min, max }（min/max 均可 null）*/
-/* ================================================================== */
-
-/**
- * 通用 ranges → { min, max, label } 派生器。
- *
- * @param {number} stress       raw 域 [-0.2, 1]
- * @param {object} dimCfg       某一维度的子节，必须含 { enabled, ranges }
- * @param {object} parentCfg    父级 solutionDifficulty 节，提供 activationFill 兜底
- * @param {number} fill         当前盘面填充率
- * @returns {{ min: number|null, max: number|null, label?: string } | null}
- */
-function _deriveRangeByStress(stress, dimCfg, parentCfg, fill) {
-    if (!parentCfg?.enabled) return null;
-    if (!dimCfg?.enabled) return null;
-    const activationFill = parentCfg.activationFill ?? 0.45;
-    if ((fill ?? 0) < activationFill) return null;
-    const ranges = Array.isArray(dimCfg.ranges) ? dimCfg.ranges : [];
-    if (ranges.length === 0) return null;
-
-    const sorted = [...ranges].sort((a, b) => (a.minStress ?? -1) - (b.minStress ?? -1));
-    let chosen = null;
-    for (const r of sorted) {
-        if (stress >= (r.minStress ?? -1)) chosen = r;
-    }
-    if (!chosen) chosen = sorted[0];
-    return {
-        min: chosen.min ?? null,
-        max: chosen.max ?? null,
-        label: chosen.label
-    };
-}
-
-/** v1.57.3 ① — 最差解新空洞数（专注度税上界）*/
-function deriveTargetMaxHoleIncrement(stress, cfg, fill) {
-    return _deriveRangeByStress(stress, cfg?.maxHoleIncrement, cfg, fill);
-}
-/** v1.57.3 ⑨ — 专注度税差距 = max − min */
-function deriveTargetHoleIncrementGap(stress, cfg, fill) {
-    return _deriveRangeByStress(stress, cfg?.holeIncrementGap, cfg, fill);
-}
-/** v1.57.3 ② — 终末填充率（空间窒息）*/
-function deriveTargetEndFillRatio(stress, cfg, fill) {
-    return _deriveRangeByStress(stress, cfg?.endFillRatio, cfg, fill);
-}
-/** v1.57.3 ③ — 近满 delta（消行节律）*/
-function deriveTargetNearFullDelta(stress, cfg, fill) {
-    return _deriveRangeByStress(stress, cfg?.nearFullDelta, cfg, fill);
-}
-/** v1.57.3 ④ — 第一步存活率（试错代价）*/
-function deriveTargetFirstMoveSurvivorRatio(stress, cfg, fill) {
-    return _deriveRangeByStress(stress, cfg?.firstMoveSurvivor, cfg, fill);
-}
-/** v1.57.3 ⑤ — 解多样性 CV */
-function deriveTargetSolutionDiversity(stress, cfg, fill) {
-    return _deriveRangeByStress(stress, cfg?.solutionDiversity, cfg, fill);
-}
-/** v1.57.3 ⑥ — 终末平整度 */
-function deriveTargetEndFlatness(stress, cfg, fill) {
-    return _deriveRangeByStress(stress, cfg?.endFlatness, cfg, fill);
-}
-/** v1.57.3 ⑦ — 终末危险列数 */
-function deriveTargetEndDangerColumns(stress, cfg, fill) {
-    return _deriveRangeByStress(stress, cfg?.endDangerColumns, cfg, fill);
-}
-/** v1.57.3 ⑧ — 视觉杂乱 delta */
-function deriveTargetVisualClutter(stress, cfg, fill) {
-    return _deriveRangeByStress(stress, cfg?.visualClutter, cfg, fill);
-}
 
 /* ------------------------------------------------------------------ */
 /*  自适应策略解析（三层整合）                                          */
@@ -1205,103 +864,10 @@ function deriveTargetVisualClutter(stress, cfg, fill) {
  * @param {object} [spawnContext] 来自 game.js 的跨轮上下文
  * @returns {object} 策略对象 + spawnHints
  */
-/** 离线画像先验消费的 7 类形状权重键（与 shared/shapes.json categoryOrder 一致）。 */
-const _SPAWN_PRIOR_KEYS = ['lines', 'rects', 'squares', 'tshapes', 'zshapes', 'lshapes', 'jshapes'];
+/* v1.71 拆分占位：applySpawnPrior + applyRelativityShapePrior + _SPAWN_PRIOR_KEYS
+ * + _RELATIVITY_DIM_KEYS 已抽至 ./bot/spawnPriors.js。本文件顶部 import 后
+ * 再 re-export 保持外部 API 完全不变。 */
 
-/**
- * 离线画像先验（spawnPrior.shapeBias）对插值后 shapeWeights 的偏置后处理。
- *
- * 公式：weight_k *= clamp(1 + λ·sign·bias_k, 1-cap, 1+cap)
- *   - bias_k ∈ [-0.5,0.5] 是「中性方向」的形状胜任/适配度（>0 擅长/适合多投）；
- *   - sign 由出块意图决定：救济/爽感「顺玩家」(+1)，训练「逆玩家练弱项」(-1)；
- *   - 困境帧（distressed）禁止训练，只允许顺玩家方向，避免在玩家难受时加压。
- * 纯函数，不就地修改入参；偏置后各键 ≥ 0，仍交由下游约束验证层兜底可解性。
- *
- * @param {Record<string,number>} shapeWeights 插值后的 7 类权重
- * @param {object|null} spawnPrior 注入的 spawnContext.spawnPrior
- * @param {{ intent?: string, distressed?: boolean, lambda?: number, cap?: number, trainingEnabled?: boolean }} [opts]
- * @returns {{ shapeWeights: Record<string,number>, mode: string, lambda: number }}
- */
-function applySpawnPrior(shapeWeights, spawnPrior, opts = {}) {
-    const out = { ...shapeWeights };
-    const bias = spawnPrior && spawnPrior.shapeBias;
-    const lambda = clamp01(Number(opts.lambda ?? 0));
-    if (!bias || lambda <= 0) return { shapeWeights: out, mode: 'none', lambda };
-
-    const cap = Number.isFinite(opts.cap) ? Math.max(0, Math.min(1, opts.cap)) : 0.35;
-    const intent = opts.intent || 'maintain';
-    let mode = 'comply'; // sign +1：顺玩家（救济/爽感/默认）
-    if (!opts.distressed && opts.trainingEnabled
-        && (intent === 'engage' || intent === 'flow' || intent === 'maintain')) {
-        mode = 'train'; // sign -1：逆玩家，定向暴露弱项促成长
-    }
-    const sign = mode === 'train' ? -1 : 1;
-
-    for (const k of _SPAWN_PRIOR_KEYS) {
-        const b = Number(bias[k]) || 0;
-        if (!b || !Number.isFinite(out[k])) continue;
-        const m = Math.max(1 - cap, Math.min(1 + cap, 1 + lambda * sign * b));
-        out[k] = Math.max(0, out[k] * m);
-    }
-    return { shapeWeights: out, mode, lambda };
-}
-
-/** 难度相对论 6 维考点顺序（与 difficultyVec / θ⃗ 一致）。 */
-const _RELATIVITY_DIM_KEYS = ['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff'];
-
-/**
- * §4.17/§2.10 阶段5「构造算子 target-aware」：把客观目标 b* 与玩家能力 θ⃗ 的逐维缺口
- * gap = b*[dim] − θ⃗[dim]，经 dimAffinity[dim][cat] 映射为 7 类形状权重的乘性偏置，
- * 提升候选池里"贴近 b* 的三块"的密度（与 blockSpawn best-of-K 选块互补）。
- *
- * 设计护栏：
- *   - 纯函数，不就地改入参；偏置后各键 ≥ 0，可解性仍交下游硬约束兜底；
- *   - 仅改池分布、不绕过任何约束、不抬高 d*（体感主线不变）；
- *   - lambda<=0 / 无 b* / 配置关 → 原样返回（恒等）；
- *   - 缺 θ⃗ 时退化为以 0.5 为基线（gap=b*−0.5），仍是"朝客观目标推"的温和偏置。
- *
- * 公式：weight_k *= clamp(1 + λ · Σ_dim affinity[dim][k]·gap[dim], 1−cap, 1+cap)
- *
- * @param {Record<string,number>} shapeWeights 已经过 applySpawnPrior 的权重
- * @param {object|null} bStar 客观目标向量（6 维，[0,1]）
- * @param {object|null} calibration θ⃗ 标定向量（6 维 μ）；缺省以 0.5 为基线
- * @param {object} shapePriorCfg difficultyRelativity.shapePrior 配置块
- * @param {number} lambda 实际个性化强度（relativityLambda）
- * @returns {{ shapeWeights: Record<string,number>, applied: boolean, lambda: number }}
- */
-function applyRelativityShapePrior(shapeWeights, bStar, calibration, shapePriorCfg, lambda) {
-    const out = { ...shapeWeights };
-    const cfg = shapePriorCfg || {};
-    const lam = clamp01(Number(lambda) || 0) * clamp01(Number(cfg.strength) ?? 0.6);
-    if (cfg.enabled === false || !bStar || lam <= 0) {
-        return { shapeWeights: out, applied: false, lambda: 0 };
-    }
-    const affinity = cfg.dimAffinity || {};
-    const cap = Number.isFinite(cfg.cap) ? Math.max(0, Math.min(1, cfg.cap)) : 0.30;
-    const cal = calibration && typeof calibration === 'object' ? calibration : null;
-    /* 预算逐维缺口 gap=b*−θ⃗（θ⃗ 缺省 0.5）。 */
-    const gap = {};
-    for (const dim of _RELATIVITY_DIM_KEYS) {
-        const b = Number(bStar[dim]);
-        if (!Number.isFinite(b)) { gap[dim] = 0; continue; }
-        const t = cal && Number.isFinite(Number(cal[dim])) ? Number(cal[dim]) : 0.5;
-        gap[dim] = b - t;
-    }
-    let applied = false;
-    for (const k of _SPAWN_PRIOR_KEYS) {
-        if (!Number.isFinite(out[k])) continue;
-        let acc = 0;
-        for (const dim of _RELATIVITY_DIM_KEYS) {
-            const a = affinity[dim] ? Number(affinity[dim][k]) : 0;
-            if (Number.isFinite(a) && a !== 0) acc += a * gap[dim];
-        }
-        if (acc === 0) continue;
-        const m = Math.max(1 - cap, Math.min(1 + cap, 1 + lam * acc));
-        out[k] = Math.max(0, out[k] * m);
-        applied = true;
-    }
-    return { shapeWeights: out, applied, lambda: lam };
-}
 
 function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boardFill, spawnContext) {
     const cfg = GAME_RULES.adaptiveSpawn;
