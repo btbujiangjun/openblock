@@ -206,6 +206,13 @@ const results = [];
     results.push(runBench('PlayerProfile.recordPlace(true,3)', () => profile.recordPlace(true, 3, 0.45)));
     results.push(runBench('PlayerProfile.recordPlace(false)', () => profile.recordPlace(false, 0, 0.55)));
     results.push(runBench('PlayerProfile.metricsForWindow(50)', () => profile.metricsForWindow(50)));
+    /* v1.71 新增 bench：boardFillVelocity / recentSessionStats（T2 重写覆盖） */
+    results.push(runBench('PlayerProfile.boardFillVelocity(5)', () => profile.boardFillVelocity(5)));
+    /* 给 _sessionHistory 注入足量样本以让 recentSessionStats 真实跑 */
+    profile._sessionHistory = Array.from({ length: 60 }, (_, i) => ({
+        score: 800 + i * 7, placements: 28 + (i % 12),
+    }));
+    results.push(runBench('PlayerProfile.recentSessionStats(3)', () => profile.recentSessionStats(3)));
 }
 
 const filtered = results.filter(Boolean);

@@ -1204,21 +1204,30 @@ class PlayerProfile {
     recentSessionStats(n = 3) {
         const hist = this._sessionHistory;
         if (!Array.isArray(hist) || hist.length < n) return null;
-        const recent = hist.slice(-n);
-        const past = hist.slice(0, -n);
-        if (past.length === 0) return null;
-        const recentScores = recent.map((s) => Number(s.score) || 0);
-        const avgScore = recentScores.reduce((a, b) => a + b, 0) / recent.length;
-        const pastScores = past.map((s) => Number(s.score) || 0);
-        const pastAvg = pastScores.reduce((a, b) => a + b, 0) / past.length;
-        const avgScoreRatio = pastAvg > 0 ? avgScore / pastAvg : 1;
+        const histLen = hist.length;
+        const recentStart = histLen - n;
+        if (recentStart === 0) return null;          // past 为空
+
+        /* 单次扫描：past 求和 + recent 求和 + belowAvgCount + shortSessions。
+         * past 求和先做，得到 pastAvg；再单独扫 recent 算 below/short（需要 pastAvg）。
+         * 共 2 次 O(n) 遍历，零中间数组（避免 .slice + .map + .reduce 6 次开销）。 */
+        let pastSum = 0;
+        for (let i = 0; i < recentStart; i++) pastSum += Number(hist[i].score) || 0;
+        const pastAvg = pastSum / recentStart;
+
+        let recentSum = 0;
         let belowAvgCount = 0;
         let shortSessions = 0;
-        for (const s of recent) {
-            if ((Number(s.score) || 0) < pastAvg) belowAvgCount++;
+        for (let i = recentStart; i < histLen; i++) {
+            const s = hist[i];
+            const score = Number(s.score) || 0;
+            recentSum += score;
+            if (score < pastAvg) belowAvgCount++;
             if ((Number(s.placements) || 0) < 30) shortSessions++;
         }
-        return { count: recent.length, avgScore, avgScoreRatio, belowAvgCount, shortSessions };
+        const avgScore = recentSum / n;
+        const avgScoreRatio = pastAvg > 0 ? avgScore / pastAvg : 1;
+        return { count: n, avgScore, avgScoreRatio, belowAvgCount, shortSessions };
     }
 
     /** 沉默后回归暖启动强度：0=无，1=强暖启动 */
@@ -1353,17 +1362,29 @@ class PlayerProfile {
      */
     boardFillVelocity(windowSteps = 5) {
         const w = Number.isFinite(windowSteps) && windowSteps > 1 ? Math.floor(windowSteps) : 5;
-        const placed = this._moves.slice(-w).filter(m => !m.miss && Number.isFinite(m.fill));
-        if (placed.length < 2) return 0;
+        /* 单次反向扫描：跳过 miss / fill 无效的，取最近 w 个 placed 的 fill。
+         * 零中间数组（原 .slice + .filter 是 2 次 O(n)+O(w) GC 分配）。
+         * 由于只需要相邻差分的 max(0, dv) 累计，可直接在反向遍历时把
+         * 当前 fill 与"上一个 placed 的 fill"做差，无需先收集再算。 */
+        const moves = this._moves;
         let sum = 0;
         let count = 0;
-        for (let i = 1; i < placed.length; i++) {
-            const dv = placed[i].fill - placed[i - 1].fill;
-            // 消行后 fill 会跳降，跳降不算"减压"信号——只取正向 / 0 保留 velocity 的"风险加速"语义
-            sum += Math.max(0, dv);
-            count++;
+        let collected = 0;
+        let prevFill = NaN; // 反向遍历时，prevFill 是"时间上更新"的那一帧（更晚）
+        for (let i = moves.length - 1; i >= 0 && collected < w; i--) {
+            const m = moves[i];
+            if (m.miss || !Number.isFinite(m.fill)) continue;
+            collected++;
+            if (Number.isFinite(prevFill)) {
+                // 时间正序差分 = prevFill - m.fill（m 早于 prev）
+                const dv = prevFill - m.fill;
+                sum += Math.max(0, dv);
+                count++;
+            }
+            prevFill = m.fill;
         }
-        return count > 0 ? sum / count : 0;
+        if (count === 0) return 0;
+        return sum / count;
     }
 
     /** 闭环反馈偏移量，正值=玩家消行多于预期→可加压，负值=消行不足→应减压 */
