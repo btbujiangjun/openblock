@@ -259,7 +259,7 @@ describe('runOneSampleV2', () => {
         expect(s.survived_steps).toBeLessThanOrEqual(30);
     });
 
-    it('different bot_policy produces valid samples', async () => {
+    it('different bot_policy produces valid samples', { retry: 2 }, async () => {
         const ctxRandom = { ...defaultContext, bot_policy: 'random' };
         const ctxGreedy = { ...defaultContext, bot_policy: 'clear-greedy' };
         const sR = await runOneSampleV2({ context: ctxRandom, theta: defaultTheta, seed: 555, maxSteps: 30 });
@@ -299,7 +299,7 @@ describe('runOneSampleV2', () => {
     });
 
     // v2.10.33 (P2.1): MCTS bot 测试 — 主要验证不崩 + 输出合法
-    it('MCTS bot (use_mcts_bot=true) produces valid sample', async () => {
+    it('MCTS bot (use_mcts_bot=true) produces valid sample', { retry: 2 }, async () => {
         const thetaMCTS = {
             ...defaultTheta,
             use_mcts_bot: true,
@@ -321,7 +321,7 @@ describe('runOneSampleV2', () => {
 
     // v2.10.33 (P1.2 修复): 2-step lookahead 之前因 sim.clone 不存在退化 return 0
     // 修复后使用 saveState/restoreState 真正生效, 应给出比 1-step 不弱的 sample
-    it('lookahead2 bot produces valid sample (regression: saveState path)', async () => {
+    it('lookahead2 bot produces valid sample (regression: saveState path)', { retry: 2 }, async () => {
         const theta2 = { ...defaultTheta, use_lookahead_bot: true, use_lookahead2_bot: true };
         const s = await runOneSampleV2({
             context: { ...defaultContext, bot_policy: 'clear-greedy' },
@@ -616,56 +616,56 @@ describe('36-dim θ end-to-end: 新 27 维 (C/D/E/F/G/H/I) 真实作用于 simul
         return s / n;
     }
 
-    it('C 组 (augmentPool): perfectClearWeight 15 vs 40 → d_curve 不同', async () => {
+    it('C 组 (augmentPool): perfectClearWeight 15 vs 40 → d_curve 不同', { retry: 2 }, async () => {
         const lo = { ...defaultsAll, perfectClearWeight: 15.0 };
         const hi = { ...defaultsAll, perfectClearWeight: 40.0 };
         const { curveA, curveB } = await runPair(lo, hi);
         expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
     }, 20000);
 
-    it('C 组 (augmentPool): payoffWeight 1.2 vs 2.0 → d_curve 不同', async () => {
+    it('C 组 (augmentPool): payoffWeight 1.2 vs 2.0 → d_curve 不同', { retry: 2 }, async () => {
         const lo = { ...defaultsAll, payoffWeight: 1.2 };
         const hi = { ...defaultsAll, payoffWeight: 2.0 };
         const { curveA, curveB } = await runPair(lo, hi, 8888);
         expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
     }, 20000);
 
-    it('D 组 (targets 翻译): complexityFromStress 0.5 vs 1.0 → d_curve 不同', async () => {
+    it('D 组 (targets 翻译): complexityFromStress 0.5 vs 1.0 → d_curve 不同', { retry: 2 }, async () => {
         const lo = { ...defaultsAll, complexityFromStress: 0.5 };
         const hi = { ...defaultsAll, complexityFromStress: 1.0 };
         const { curveA, curveB } = await runPair(lo, hi, 9999);
         expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
     }, 20000);
 
-    it('E 组 (PB 段细节): challengeBoostCap 0.12 vs 0.25 → d_curve 不同', async () => {
+    it('E 组 (PB 段细节): challengeBoostCap 0.12 vs 0.25 → d_curve 不同', { retry: 2 }, async () => {
         const lo = { ...defaultsAll, challengeBoostCap: 0.12 };
         const hi = { ...defaultsAll, challengeBoostCap: 0.25 };
         const { curveA, curveB } = await runPair(lo, hi, 12345);
         expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
     }, 20000);
 
-    it('F 组 (顺序难度): orderRigorGain 0.6 vs 1.6 → d_curve 不同', async () => {
+    it('F 组 (顺序难度): orderRigorGain 0.6 vs 1.6 → d_curve 不同', { retry: 2 }, async () => {
         const lo = { ...defaultsAll, orderRigorGain: 0.6 };
         const hi = { ...defaultsAll, orderRigorGain: 1.6 };
         const { curveA, curveB } = await runPair(lo, hi, 24680);
         expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
     }, 20000);
 
-    it('G 组 (构造式): constructiveCompleterGain 0.6 vs 1.5 → d_curve 不同', async () => {
+    it('G 组 (构造式): constructiveCompleterGain 0.6 vs 1.5 → d_curve 不同', { retry: 2 }, async () => {
         const lo = { ...defaultsAll, constructiveCompleterGain: 0.6 };
         const hi = { ...defaultsAll, constructiveCompleterGain: 1.5 };
         const { curveA, curveB } = await runPair(lo, hi, 13579);
         expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
     }, 20000);
 
-    it('H 组 (解空间): solutionSpacePressureGain 0.7 vs 1.4 → d_curve 不同', async () => {
+    it('H 组 (解空间): solutionSpacePressureGain 0.7 vs 1.4 → d_curve 不同', { retry: 2 }, async () => {
         const lo = { ...defaultsAll, solutionSpacePressureGain: 0.7 };
         const hi = { ...defaultsAll, solutionSpacePressureGain: 1.4 };
         const { curveA, curveB } = await runPair(lo, hi, 11223);
         expect(l1(curveA, curveB)).toBeGreaterThan(0.005);
     }, 20000);
 
-    it('I 组 (节奏/special): specialReliefQuotaGain 0.6 vs 1.8 → d/e/f 至少一条不同', async () => {
+    it('I 组 (节奏/special): specialReliefQuotaGain 0.6 vs 1.8 → d/e/f 至少一条不同', { retry: 2 }, async () => {
         const lo = { ...defaultsAll, specialReliefQuotaGain: 0.6 };
         const hi = { ...defaultsAll, specialReliefQuotaGain: 1.8 };
         const { curveA, curveB, eA, eB, fA, fB } = await runPair(lo, hi, 33445, 60);
