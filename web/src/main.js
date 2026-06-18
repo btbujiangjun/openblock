@@ -38,6 +38,49 @@ import('./monetization/analyticsTracker.js').then(({ getAnalyticsTracker }) => {
         }, { maxBatch: 20, maxDelayMs: 5000 });
         setRemoteSink(batchSink.sink);
     }).catch(() => { /* batch sink 加载失败回退到原 sink */ });
+
+    /* X1: 把 V4 加的 DFS budget 观测埋点定期上报到 analyticsTracker。
+     *
+     * 策略：
+     *   - 60s 间隔：避免高频上报；DFS 决策本质是统计量，秒级粒度无价值
+     *   - pagehide 时强制 flush 一次（防止 session 末数据丢）
+     *   - totalCalls === 0 时跳过（无新增数据不发空事件）
+     *   - 上报后 reset 计数，让每条事件是「上次 reset 到本次 flush 的增量」语义
+     *
+     * 数据用途：
+     *   服务端聚合 truncatedRatio P50/P95、各桶分布的均值，
+     *   定期产出报告供 docs/engineering/DFS_BUDGET_BASELINE.md 决策表使用。
+     */
+    import('./bot/blockSpawn.js').then(({ getBlockSpawnDfsStats, resetBlockSpawnDfsStats }) => {
+        const FLUSH_INTERVAL_MS = 60_000;
+        function flushDfsStats() {
+            try {
+                const stats = getBlockSpawnDfsStats();
+                if (!stats || stats.totalCalls === 0) return;
+                const tracker = getAnalyticsTracker?.();
+                if (!tracker || typeof tracker.trackEvent !== 'function') return;
+                tracker.trackEvent('dfs_budget_window', {
+                    totalCalls: stats.totalCalls,
+                    truncatedCount: stats.truncatedCount,
+                    truncatedRatio: stats.truncatedRatio,
+                    budgetUsageHist: stats.budgetUsageHist,
+                    windowMs: FLUSH_INTERVAL_MS,
+                });
+                resetBlockSpawnDfsStats();
+            } catch { /* 观测上报永远不能拖累主流程 */ }
+        }
+        if (typeof setInterval === 'function') {
+            setInterval(flushDfsStats, FLUSH_INTERVAL_MS);
+        }
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            window.addEventListener('pagehide', flushDfsStats);
+            if (typeof document !== 'undefined') {
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'hidden') flushDfsStats();
+                });
+            }
+        }
+    }).catch(() => { /* blockSpawn 未就绪 — 跳过 */ });
 }).catch(() => { /* tracker 加载失败 — 静默，logger 仍保留 ring buffer 与 console */ });
 import { initPlayerInsightPanel } from './playerInsightPanel.js';
 import { initReplayUI } from './replayUI.js';
