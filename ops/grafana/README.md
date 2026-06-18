@@ -4,11 +4,13 @@
 
 ```
 ops/grafana/
-├── README.md                              # 本文件
-├── dfs_budget_window.dashboard.json       # X1 dfs_budget_window 仪表盘（5 panel）
-├── dfs_budget_window.alerts.yml           # 告警规则（P0/P1/P2）
-└── (后续) analytics_store_window.*.json   # Y3 待补
-└── (后续) monetization_bus_window.*.json  # Y4 待补
+├── README.md                                    # 本文件
+├── dfs_budget_window.dashboard.json             # X1 DFS budget（5 panel）
+├── dfs_budget_window.alerts.yml                 # 告警规则
+├── analytics_store_window.dashboard.json        # CC5：Y3 IDB 健康（4 panel）
+├── analytics_store_window.alerts.yml            # 告警规则
+├── monetization_bus_window.dashboard.json       # CC5：Y4 熔断器（4 panel）
+└── monetization_bus_window.alerts.yml           # 告警规则
 ```
 
 ## 接入步骤
@@ -74,8 +76,29 @@ curl -X POST http://prometheus.internal/-/reload
 需要服务端在 AA5 配置变更时主动发 `openblock_release_event{type="ab_change",feature="dynamic_leaf_cap"}`
 （Pushgateway / counter += 1 均可）。
 
-## 后续 dashboard 待补
+## CC5 新增：analytics_store_window 字段映射
 
-- `analytics_store_window`（Y3）：IDB 健康（idbPutFail / lsPutFallback / 延迟）
-- `monetization_bus_window`（Y4）：handlerFails / circuitTrips 时序
-- 业务漏斗联动（session_duration / pb_growth）
+| 客户端字段 | Prometheus metric | 类型 |
+|---|---|---|
+| `idbPutOk` | `openblock_analytics_store_idb_put_ok` | counter |
+| `idbPutFail` | `openblock_analytics_store_idb_put_fail` | counter |
+| `idbGetOk` | `openblock_analytics_store_idb_get_ok` | counter |
+| `idbGetMiss` | `openblock_analytics_store_idb_get_miss` | counter |
+| `idbPutLatencyAvg` | `openblock_analytics_store_idb_put_latency_avg` | gauge |
+| `idbPutLatencyMax` | `openblock_analytics_store_idb_put_latency_max` | gauge |
+| `lsPutFallback` | `openblock_analytics_store_ls_fallback` | counter |
+| `lsPutFailCount` | `openblock_analytics_store_ls_fail` | counter |
+
+## CC5 新增：monetization_bus_window 字段映射
+
+| 客户端字段 | Prometheus metric | label | 类型 |
+|---|---|---|---|
+| `totalEmits` | `openblock_monetization_bus_emits` | env | counter |
+| `totalHandlerFails` | `openblock_monetization_bus_handler_fails` | env | counter |
+| `totalCircuitTrips` | `openblock_monetization_bus_circuit_trips` | env | counter |
+| `eventsFailed[t]` | `openblock_monetization_bus_events_failed` | env, event_type | counter |
+
+## 后续待补
+
+- 业务漏斗联动（session_duration / pb_growth / revive_rate）
+- AA5 灰度对照面板（按 bucket label 拆 cappedRatio 对照组 vs 实验组）

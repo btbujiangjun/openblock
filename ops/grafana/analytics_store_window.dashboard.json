@@ -1,0 +1,88 @@
+{
+  "_comment": "v1.71 CC5: analytics_store_window Grafana 仪表盘脚手架（Y3 IDB 健康观测）。事件契约见 docs/engineering/OBSERVABILITY_WINDOW_SCHEMA.md。Z4 schema contract tests 锁定字段名。",
+  "title": "OpenBlock — Analytics Store Window",
+  "uid": "openblock-analytics-store",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["openblock", "observability", "performance", "storage"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "DS_PROMETHEUS", "type": "datasource", "label": "Prometheus", "query": "prometheus" },
+      { "name": "env", "type": "custom", "label": "环境", "query": "prod,staging,dev",
+        "current": { "selected": true, "text": "prod", "value": "prod" } }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "IDB put 成功率",
+      "type": "stat",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "IDB 写入成功率：< 95% 触发 P1（持久化降级到 localStorage，可能丢数）",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(openblock_analytics_store_idb_put_ok{env=\"$env\"}[5m])) / (sum(rate(openblock_analytics_store_idb_put_ok{env=\"$env\"}[5m])) + sum(rate(openblock_analytics_store_idb_put_fail{env=\"$env\"}[5m])))",
+          "legendFormat": "success_rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0, "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.95 },
+              { "color": "green", "value": 0.99 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "localStorage fallback 计数",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "IDB 不可用时退到 localStorage 的频次；持续 > 0 提示设备 IDB 配额耗尽 / 隐私模式",
+      "gridPos": { "h": 6, "w": 8, "x": 8, "y": 0 },
+      "targets": [
+        { "expr": "sum(rate(openblock_analytics_store_ls_fallback{env=\"$env\"}[5m]))", "legendFormat": "fallback/s" },
+        { "expr": "sum(rate(openblock_analytics_store_ls_fail{env=\"$env\"}[5m]))", "legendFormat": "ls_fail/s" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "IDB put 延迟（avg / max）",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "P1 告警 max > 200ms（持续）→ 设备存储性能退化",
+      "gridPos": { "h": 6, "w": 8, "x": 16, "y": 0 },
+      "targets": [
+        { "expr": "avg(openblock_analytics_store_idb_put_latency_avg{env=\"$env\"})", "legendFormat": "avg" },
+        { "expr": "max(openblock_analytics_store_idb_put_latency_max{env=\"$env\"})", "legendFormat": "max" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 4,
+      "title": "IDB get 命中率（ok / (ok+miss)）",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "持续低命中率 → cache 失效 / put 链断；常预兆主流程数据丢失",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "expr": "sum(rate(openblock_analytics_store_idb_get_ok{env=\"$env\"}[5m])) / (sum(rate(openblock_analytics_store_idb_get_ok{env=\"$env\"}[5m])) + sum(rate(openblock_analytics_store_idb_get_miss{env=\"$env\"}[5m])))",
+          "legendFormat": "hit_rate"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } }
+    }
+  ]
+}

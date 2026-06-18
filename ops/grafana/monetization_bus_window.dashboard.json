@@ -1,0 +1,101 @@
+{
+  "_comment": "v1.71 CC5: monetization_bus_window Grafana 仪表盘脚手架（Y4 熔断器可视化）。事件契约见 docs/engineering/OBSERVABILITY_WINDOW_SCHEMA.md。Z4 schema contract tests 锁定字段名。",
+  "title": "OpenBlock — Monetization Bus Window",
+  "uid": "openblock-monetization-bus",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["openblock", "observability", "monetization"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      { "name": "DS_PROMETHEUS", "type": "datasource", "label": "Prometheus", "query": "prometheus" },
+      { "name": "env", "type": "custom", "label": "环境", "query": "prod,staging,dev",
+        "current": { "selected": true, "text": "prod", "value": "prod" } }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "熔断触发次数 / 分钟",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "P0：任何熔断触发都意味着商业化某个 handler 反复失败，可能影响收入。",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(openblock_monetization_bus_circuit_trips{env=\"$env\"}[1m])) * 60",
+          "legendFormat": "trips/min"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.01 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "handler 失败率（fails / emits）",
+      "type": "stat",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "P1 > 1%（持续）→ 某 handler 频繁抛错，下游商业化链路受影响",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(openblock_monetization_bus_handler_fails{env=\"$env\"}[5m])) / sum(rate(openblock_monetization_bus_emits{env=\"$env\"}[5m]))",
+          "legendFormat": "fail_rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0, "max": 0.1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.005 },
+              { "color": "red", "value": 0.01 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "按 eventType 失败数 Top（条形）",
+      "type": "barchart",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "定位哪种事件 handler 最不稳定（label event_type）",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 6 },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (event_type)(rate(openblock_monetization_bus_events_failed{env=\"$env\"}[5m])))",
+          "legendFormat": "{{ event_type }}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "总 emit 吞吐 / 分钟",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "突降 → 商业化事件链断（loop 不在跑 / handler 没注册）",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "sum(rate(openblock_monetization_bus_emits{env=\"$env\"}[1m])) * 60",
+          "legendFormat": "emits/min"
+        }
+      ]
+    }
+  ]
+}

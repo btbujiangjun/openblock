@@ -1,0 +1,62 @@
+# v1.71 CC5: monetization_bus_window 告警规则（Y4 熔断）
+# 数据源 metric 命名见 ops/grafana/README.md 映射表。
+
+groups:
+  - name: openblock.monetization_bus
+    interval: 30s
+    rules:
+
+      # P0: 任意熔断触发即告警
+      - alert: OpenBlockMonetizationBusCircuitTripP0
+        expr: sum(increase(openblock_monetization_bus_circuit_trips{env="prod"}[5m])) > 0
+        for: 0m  # 即时告警
+        labels:
+          severity: P0
+          team: monetization
+        annotations:
+          summary: "MonetizationBus 熔断触发（5min 内 {{ $value }} 次）"
+          description: |
+            P0：某 handler 反复失败触发熔断，可能直接影响收入链路。
+            排查：
+              1. 看 events_failed 按 event_type 分布，定位失败事件
+              2. 检查最近发版是否引入 handler 异常
+              3. 看 client_error_batch 日志（U3 接 logger）取栈
+
+      # P1: handler 失败率 > 1% 持续 10min
+      - alert: OpenBlockMonetizationBusHandlerFailHighP1
+        expr: |
+          (
+            sum(rate(openblock_monetization_bus_handler_fails{env="prod"}[5m]))
+            /
+            sum(rate(openblock_monetization_bus_emits{env="prod"}[5m]))
+          ) > 0.01
+        for: 10m
+        labels:
+          severity: P1
+          team: monetization
+        annotations:
+          summary: "MonetizationBus handler 失败率 > 1%（{{ $value | humanizePercentage }}）"
+          description: |
+            P1：商业化 handler 频繁出错但未触发熔断。
+            排查：哪个 event_type 失败率最高 → 该 handler owner 介入。
+
+      # P2: emit 吞吐突降（< 50% of 1h ago）
+      - alert: OpenBlockMonetizationBusEmitsDropP2
+        expr: |
+          (
+            sum(rate(openblock_monetization_bus_emits{env="prod"}[5m]))
+            /
+            sum(rate(openblock_monetization_bus_emits{env="prod"}[1h] offset 1h))
+          ) < 0.5
+        for: 15m
+        labels:
+          severity: P2
+          team: monetization
+        annotations:
+          summary: "MonetizationBus 吞吐较 1h 前降 > 50%"
+          description: |
+            P2：商业化事件链可能断链。
+            排查：
+              1. 客户端发版是否回滚（看 release marker）
+              2. loop 是否仍在跑（看 game_loop_window 系列）
+              3. DAU 是否真实下降

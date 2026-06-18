@@ -1,0 +1,42 @@
+# v1.71 CC5: analytics_store_window 告警规则（Y3 IDB 健康）
+# 数据源 metric 命名见 ops/grafana/README.md 映射表。
+
+groups:
+  - name: openblock.analytics_store
+    interval: 30s
+    rules:
+
+      # P1: IDB 成功率 < 95%（持续退化）
+      - alert: OpenBlockAnalyticsStoreIdbDegradedP1
+        expr: |
+          (
+            sum(rate(openblock_analytics_store_idb_put_ok{env="prod"}[5m]))
+            /
+            (sum(rate(openblock_analytics_store_idb_put_ok{env="prod"}[5m]))
+             + sum(rate(openblock_analytics_store_idb_put_fail{env="prod"}[5m])))
+          ) < 0.95
+        for: 10m
+        labels:
+          severity: P1
+          team: client
+        annotations:
+          summary: "IDB put 成功率 < 95%（{{ $value | humanizePercentage }}）"
+          description: |
+            P1：客户端 IndexedDB 持久化降级到 localStorage，可能丢失大批量数据。
+            排查：
+              1. 看 ls_fallback / ls_fail 时序
+              2. 检查最近发版是否引入 IDB schema 不兼容
+              3. 浏览器隐私模式 / Safari ITP 比例是否上升
+
+      # P1: IDB put 延迟 max > 200ms（持续）
+      - alert: OpenBlockAnalyticsStoreLatencyHighP1
+        expr: max(openblock_analytics_store_idb_put_latency_max{env="prod"}) > 200
+        for: 15m
+        labels:
+          severity: P1
+          team: client
+        annotations:
+          summary: "IDB put 延迟 max > 200ms 持续 15min"
+          description: |
+            P1：设备 IDB 性能退化，可能阻塞主线程。
+            排查：检查 IDB 写入数据大小是否暴涨；考虑分批写。
