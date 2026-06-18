@@ -47,6 +47,13 @@ const FILES = [
     /* OO6 / NN-F4.1：bitmap ops 抽象层（JS fallback + WASM-ready）。
      * 当前 grid.js 仍内联 popcount32；本模块为后续平滑替换准备。 */
     'lib/bitmapOps.js',
+    /* PP6 / NN-F4.2：60 字节手编码 WASM popcount/ctz；
+     * cocos/小程序若不支持 WASM，loader 返回 null 自动回 JS */
+    'lib/bitmapOpsWasm.js',
+    /* PP1 / NN-F2.2：签名验证（Ed25519/HMAC SubtleCrypto 包装） */
+    'lib/signatureVerifier.js',
+    /* PP3 / NN-F2.5：平台 storage/fetch shim（web/wx/cc 三端） */
+    'lib/platformShim.js',
     'grid.js',
     'shapes.js',
     'gameRules.js',

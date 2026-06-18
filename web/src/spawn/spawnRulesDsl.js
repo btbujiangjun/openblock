@@ -120,12 +120,18 @@ export function runSpawnRules(rules, initialState, ctx, opts = {}) {
 }
 
 /**
- * PoC 规则示例：把 adaptiveSpawn 中 holesRule 的核心 clearGuarantee 提升逻辑
- * 用 DSL 重写。仅用于参考与测试，不替换 adaptiveSpawn 主路径。
+ * PoC 规则示例：与 adaptiveSpawn._applySpawnHintsHolesRule 完全等价。
  *
- * 行为契约（与 _applySpawnHintsHolesRule 等价）：
- *   - ctx.topoCfg.holeClearGuarantee（默认 2）
- *   - ctx.holesSeverity ≥ 阈值时把 state.clearGuarantee 至少抬到该值
+ * 上游契约（adaptiveSpawn.js L1055-1063）：
+ *   if (holes >= topoCfg.holeClearGuaranteeAt ?? 2) {
+ *     cg = topoCfg.holeClearGuarantee ?? 2
+ *     return {
+ *       clearGuarantee: Math.max(s.clearGuarantee, cg),
+ *       sizePreference: Math.min(s.sizePreference, topoCfg.holeSizePreference ?? -0.22),
+ *     }
+ *   }
+ *
+ * DSL 形式：when 判定阈值；apply 同时调 clearGuarantee + sizePreference。
  */
 export const POC_HOLES_RULE = {
     id: 'holes-clear-guarantee',
@@ -133,12 +139,17 @@ export const POC_HOLES_RULE = {
     priority: 100,
     since: 'NN-F3.1',
     owner: 'gameplay',
-    comment: 'PoC：holes 严重度高时强保 clearGuarantee。与 adaptiveSpawn._applySpawnHintsHolesRule 等价。',
-    when: (ctx) => (ctx?.holesSeverity ?? 0) > 0.5,
+    comment: 'PoC：与 adaptiveSpawn._applySpawnHintsHolesRule 完全等价。',
+    when: (ctx) => (ctx?.holes ?? 0) >= (ctx?.topoCfg?.holeClearGuaranteeAt ?? 2),
     apply: (state, ctx) => {
-        const guarantee = ctx?.topoCfg?.holeClearGuarantee ?? 2;
-        if ((state.clearGuarantee ?? 0) >= guarantee) return state;
-        return { ...state, clearGuarantee: guarantee };
+        const topoCfg = ctx?.topoCfg ?? {};
+        const cg = Number.isFinite(topoCfg.holeClearGuarantee) ? topoCfg.holeClearGuarantee : 2;
+        const sp = topoCfg.holeSizePreference ?? -0.22;
+        return {
+            ...state,
+            clearGuarantee: Math.max(state.clearGuarantee, cg),
+            sizePreference: Math.min(state.sizePreference, sp),
+        };
     },
 };
 

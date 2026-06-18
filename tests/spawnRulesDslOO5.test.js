@@ -88,40 +88,35 @@ describe('OO5 / NN-F3.1 spawn DSL', () => {
         expect(trace[0]).toMatchObject({ matched: true, error: expect.stringContaining('xx') });
     });
 
-    it('POC_HOLES_RULE：低 holesSeverity 不命中', () => {
+    /* PP4: POC_HOLES_RULE 现已对齐 adaptiveSpawn 真实实现（基于 holes 计数 +
+     * holeClearGuaranteeAt 阈值）。完整 parity 测试见 spawnDslParityPP4.test.js。 */
+    it('POC_HOLES_RULE：低 holes 不命中', () => {
         const { state, trace } = runSpawnRules(
             [POC_HOLES_RULE],
-            { clearGuarantee: 0 },
-            { holesSeverity: 0.1, topoCfg: { holeClearGuarantee: 2 } },
+            { clearGuarantee: 0, sizePreference: 0 },
+            { holes: 1, topoCfg: { holeClearGuaranteeAt: 2 } },
         );
         expect(state.clearGuarantee).toBe(0);
         expect(trace[0].matched).toBe(false);
     });
 
-    it('POC_HOLES_RULE：命中时把 clearGuarantee 抬到 topoCfg 值', () => {
+    it('POC_HOLES_RULE：命中时同时抬 clearGuarantee + 调 sizePreference', () => {
         const { state } = runSpawnRules(
             [POC_HOLES_RULE],
-            { clearGuarantee: 1 },
-            { holesSeverity: 0.9, topoCfg: { holeClearGuarantee: 2 } },
+            { clearGuarantee: 1, sizePreference: 0 },
+            { holes: 3, topoCfg: { holeClearGuaranteeAt: 2, holeClearGuarantee: 2, holeSizePreference: -0.22 } },
         );
         expect(state.clearGuarantee).toBe(2);
+        expect(state.sizePreference).toBeCloseTo(-0.22);
     });
 
     it('POC_HOLES_RULE：已 ≥ 阈值则保持原值（不下调）', () => {
         const { state } = runSpawnRules(
             [POC_HOLES_RULE],
-            { clearGuarantee: 5 },
-            { holesSeverity: 0.9, topoCfg: { holeClearGuarantee: 2 } },
+            { clearGuarantee: 5, sizePreference: -0.5 },
+            { holes: 3, topoCfg: { holeClearGuarantee: 2 } },
         );
         expect(state.clearGuarantee).toBe(5);
-    });
-
-    it('POC_HOLES_RULE：fallback 默认值 2', () => {
-        const { state } = runSpawnRules(
-            [POC_HOLES_RULE],
-            { clearGuarantee: 0 },
-            { holesSeverity: 0.9, topoCfg: {} },
-        );
-        expect(state.clearGuarantee).toBe(2);
+        expect(state.sizePreference).toBeCloseTo(-0.5); /* min(-0.5, -0.22) */
     });
 });

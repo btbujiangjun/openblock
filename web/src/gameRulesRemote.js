@@ -25,6 +25,7 @@
  */
 
 import { GAME_RULES, _replaceRulesForRemoteSync } from './gameRules.js';
+import { getUserBucket } from './lib/userBucketing.js';
 
 const STORAGE_KEY = 'openblock_remote_rules_v1';
 const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000; /* 24h */
@@ -97,13 +98,16 @@ function _applyRules(rules) {
  * 主入口：初始化远程 rules 拉取。
  *
  * @param {object} opts
- * @param {string} opts.url               必填，远端 JSON URL
+ * @param {string} opts.url               必填，远端 JSON URL（可含 `{bucket}` 占位）
+ * @param {string} [opts.userId]          PP2: A/B 分桶 key
+ * @param {string} [opts.bucketSalt]      PP2: bucket 隔离 salt（默认 'game_rules'）
+ * @param {number} [opts.bucketGroups]    PP2: 分组数（默认 10 → 0..9），URL `{bucket}` 替换为 group id
  * @param {object} [opts.storage]         读/写缓存的对象（typeof getItem/setItem）
  * @param {Function} [opts.fetchImpl]     注入 fetch（小程序 / cocos 用）
  * @param {Function} [opts.verifier]      签名验证 ({payload,signature}) → boolean
  * @param {number}   [opts.timeoutMs]     单次拉取超时
  * @param {Function} [opts.now]           注入时间源（测试）
- * @returns {Promise<{source:'cache'|'remote'|'fallback', rules:object}>}
+ * @returns {Promise<{source:'cache'|'remote'|'fallback', rules:object, bucket?:number}>}
  */
 export async function initRemoteRules(opts) {
     if (!opts || typeof opts.url !== 'string' || !opts.url) {
@@ -116,6 +120,22 @@ export async function initRemoteRules(opts) {
     const verifier = opts.verifier ?? _defaultVerifier;
     const timeoutMs = opts.timeoutMs ?? FETCH_TIMEOUT_MS;
 
+    /* PP2 / NN-F2.3: A/B bucket 路由。
+     * - 用同样的 xfnv1a hash 把 userId 稳定分到 0..bucketGroups-1
+     * - URL 中 {bucket} 占位被替换；CDN 侧按目录组织（/bucket/0.json …）
+     * - 无 userId 或无占位符 → 退化为单一 URL（兼容 P0 不分组路径） */
+    const bucketGroups = Math.max(1, Number(opts.bucketGroups) || 10);
+    let resolvedUrl = opts.url;
+    let bucket = -1;
+    if (opts.userId && opts.url.includes('{bucket}')) {
+        const raw = getUserBucket(opts.userId, opts.bucketSalt || 'game_rules');
+        bucket = raw < 0 ? 0 : raw % bucketGroups;
+        resolvedUrl = opts.url.replace(/\{bucket\}/g, String(bucket));
+    } else if (opts.userId) {
+        const raw = getUserBucket(opts.userId, opts.bucketSalt || 'game_rules');
+        bucket = raw < 0 ? -1 : raw % bucketGroups;
+    }
+
     _inflight = (async () => {
         /* 1. cache 命中且新鲜 → 直接用 */
         const cached = _readCache(storage);
@@ -123,7 +143,7 @@ export async function initRemoteRules(opts) {
             try {
                 /* 同样要走 schema 校验，cache 可能跨版本 */
                 _applyRules(cached.rules);
-                return { source: 'cache', rules: cached.rules };
+                return { source: 'cache', rules: cached.rules, bucket, resolvedUrl };
             } catch {
                 /* schema 漂移 → 丢弃 cache，继续走 remote/fallback */
             }
@@ -131,33 +151,38 @@ export async function initRemoteRules(opts) {
 
         /* 2. 远端拉 */
         if (_sessionFailures >= MAX_FAILURES_PER_SESSION) {
-            return { source: 'fallback', rules: GAME_RULES, reason: 'budget-exhausted' };
+            return { source: 'fallback', rules: GAME_RULES, reason: 'budget-exhausted', bucket };
         }
         try {
-            const payload = await fetchImpl(opts.url, timeoutMs);
+            const payload = await fetchImpl(resolvedUrl, timeoutMs);
             /* payload 约定：{ schemaVersion, rules, signature? } */
             if (!payload || typeof payload !== 'object' || !payload.rules) {
                 throw new Error('invalid payload shape');
             }
-            if (payload.signature && !verifier({ payload: payload.rules, signature: payload.signature })) {
-                throw new Error('signature verification failed');
+            if (payload.signature) {
+                /* PP1: verifier 可同步可异步（boolean | Promise<boolean>）。
+                 * 任何 false / throw 都视为验证失败 → fallback。 */
+                let ok = false;
+                try { ok = await verifier({ payload: payload.rules, signature: payload.signature }); }
+                catch { ok = false; }
+                if (!ok) throw new Error('signature verification failed');
             }
             /* schema 校验由 gameRules 内 _migrateRules 在 apply 时间接完成；
              * 远端 rules 必须含 schemaVersion 字段，否则 _migrateRules 会按"未声明 → 1"处理。 */
             const applied = _applyRules(payload.rules);
             if (!applied) throw new Error('apply skipped (no replace interface)');
-            _writeCache(storage, { ts: _now(), rules: payload.rules });
-            return { source: 'remote', rules: payload.rules };
+            _writeCache(storage, { ts: _now(), rules: payload.rules, bucket });
+            return { source: 'remote', rules: payload.rules, bucket, resolvedUrl };
         } catch (e) {
             _sessionFailures++;
             /* 失败 → 若 cache 还在（哪怕过期）也用，避免 CDN 故障让用户拿不到任何远端配置 */
             if (cached?.rules) {
                 try {
                     _applyRules(cached.rules);
-                    return { source: 'cache', rules: cached.rules, reason: 'remote-failed-stale-cache' };
+                    return { source: 'cache', rules: cached.rules, reason: 'remote-failed-stale-cache', bucket };
                 } catch { /* schema 不兼容 → fallback */ }
             }
-            return { source: 'fallback', rules: GAME_RULES, reason: e.message };
+            return { source: 'fallback', rules: GAME_RULES, reason: e.message, bucket };
         }
     })();
 

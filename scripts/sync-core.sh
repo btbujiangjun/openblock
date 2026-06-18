@@ -61,6 +61,12 @@ FILES=(
   "lib/traceContext.js"
   # OO6 / NN-F4.1：bitmap ops 抽象层（JS fallback + WASM-ready）
   "lib/bitmapOps.js"
+  # PP6 / NN-F4.2：60 字节手编码 WASM popcount/ctz
+  "lib/bitmapOpsWasm.js"
+  # PP1 / NN-F2.2：签名验证（Ed25519/HMAC SubtleCrypto 包装）
+  "lib/signatureVerifier.js"
+  # PP3 / NN-F2.5：平台 storage/fetch shim（web/wx/cc 三端）
+  "lib/platformShim.js"
   "grid.js"
   "shapes.js"
   "gameRules.js"
