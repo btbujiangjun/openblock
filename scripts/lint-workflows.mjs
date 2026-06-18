@@ -116,6 +116,47 @@ for (const f of files) {
             msg: 'echo 输出 secret 风险——日志静默泄露面攻击',
         });
     }
+
+    /* MM4: 防 untrusted input shell injection
+     * 规则：以下 `${{ ... }}` 引用直接拼接到 `run:` 行属危险，必须走 env 中转：
+     *   - github.event.issue.title / body / comment.body / pull_request.title / body
+     *   - github.event.head_commit.message
+     *   - github.head_ref
+     * 攻击者控制这些字段 → 注入 shell 命令（CVE-2023-37896 同类）。
+     * 安全模式：
+     *   env:
+     *     TITLE: ${{ github.event.issue.title }}
+     *   run: echo "$TITLE"
+     * 危险模式：
+     *   run: echo "${{ github.event.issue.title }}"  ← 拼接到 shell 解析前 */
+    const DANGEROUS_REFS = [
+        'github\\.event\\.issue\\.title',
+        'github\\.event\\.issue\\.body',
+        'github\\.event\\.comment\\.body',
+        'github\\.event\\.pull_request\\.title',
+        'github\\.event\\.pull_request\\.body',
+        'github\\.event\\.head_commit\\.message',
+        'github\\.head_ref',
+    ];
+    /* 找 `run: ...` 中包含 dangerous ref 的 ${{ }} 拼接 */
+    const runLines = txt.matchAll(/run:\s*[\|>]?[\s\S]*?(?=\n\s{2,6}(?:[a-z]+:|-\s)|$)/g);
+    for (const rm of runLines) {
+        const block = rm[0];
+        for (const dref of DANGEROUS_REFS) {
+            const re = new RegExp(`\\$\\{\\{[^}]*${dref}[^}]*\\}\\}`, 'g');
+            const matches = block.matchAll(re);
+            for (const m of matches) {
+                const absIdx = rm.index + (m.index || 0);
+                const lineNum = txt.substring(0, absIdx).split('\n').length;
+                violations.push({
+                    file: f,
+                    line: lineNum,
+                    rule: 'no-untrusted-input-shell',
+                    msg: `run: 直接拼接攻击者可控字段 (${dref.replace(/\\\./g, '.')})，应改 env: + "$VAR" 中转防 shell injection`,
+                });
+            }
+        }
+    }
     /* permissions: write-all 全权限警告 */
     if (/permissions:\s*write-all/.test(txt)) {
         warnings.push({ file: f, rule: 'avoid-write-all', msg: 'permissions: write-all 过宽，建议改 token-level 最小权限' });
