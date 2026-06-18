@@ -30,6 +30,7 @@
 
 import { SKINS, setActiveSkinId, getActiveSkinId } from './skins.js';
 import { t } from './i18n/i18n.js';
+import { DAY_MS } from './lib/dateUtils.js';
 
 const STORAGE_KEY = 'openblock_seasonal_v1';
 const USER_CHOSEN_KEY = 'openblock_skin_user_chosen';
@@ -267,7 +268,7 @@ function _isoWeek(d) {
     const day = tmp.getUTCDay() || 7;
     tmp.setUTCDate(tmp.getUTCDate() + 4 - day);
     const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
-    return Math.ceil((((tmp - yearStart) / 86400000) + 1) / 7);
+    return Math.ceil((((tmp - yearStart) / DAY_MS) + 1) / 7);
 }
 function _safeJson(s) { try { return s ? JSON.parse(s) : null; } catch { return null; } }
 function _showWeekendToast(skinId) {

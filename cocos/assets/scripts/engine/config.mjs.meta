@@ -1,9 +1,11 @@
 {
-  "ver": "4.0.24",
-  "importer": "javascript",
+  "ver": "0.0.1",
+  "importer": "*",
   "imported": true,
   "uuid": "a1c0dfbf-5641-485a-bfd6-219b41963676",
-  "files": [],
+  "files": [
+    ".mjs"
+  ],
   "subMetas": {},
   "userData": {}
 }

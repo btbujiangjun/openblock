@@ -11,6 +11,7 @@ import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 import { getPlayerAbilityModel } from '../playerAbilityModel.js';
 import { getABTestManager } from './abTestManager.js';
 import { getPaymentManager } from './paymentManager.js';
+import { DAY_MS } from '../lib/dateUtils.js';
 
 class AnalyticsDashboard {
     constructor() {
@@ -207,7 +208,7 @@ class AnalyticsDashboard {
         const now = Date.now();
         
         for (let i = days - 1; i >= 0; i--) {
-            const date = new Date(now - i * 24 * 60 * 60 * 1000);
+            const date = new Date(now - i * DAY_MS);
             trends.push({
                 date: date.toISOString().slice(0, 10),
                 games: Math.floor(Math.random() * 10) + 1,

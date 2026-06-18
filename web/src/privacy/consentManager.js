@@ -1,3 +1,4 @@
+import { safeWriteJson } from '../lib/storageAdapter.js';
 /**
  * consentManager.js — 隐私同意 CMP + 未成年人策略（CS-3）
  *
@@ -38,7 +39,7 @@ export function loadConsent() {
 
 export function saveConsent(consent) {
     const next = applyMinorPolicy({ ...defaultConsent(), ...consent, ts: Date.now() });
-    try { localStorage.setItem(LS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    safeWriteJson(LS_KEY, next);
     return next;
 }
 

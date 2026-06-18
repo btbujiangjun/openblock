@@ -1,3 +1,4 @@
+import { safeWriteJson } from '../lib/storageAdapter.js';
 /**
  * firstWinBoost.js — v10.17 每日首胜加分（First Win of Day）
  *
@@ -32,7 +33,7 @@ function _load() {
     } catch { return { lastBoostYmd: null, totalDays: 0 }; }
 }
 function _save(s) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, s);
 }
 
 function isBoostAvailableToday() {

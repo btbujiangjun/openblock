@@ -10,6 +10,7 @@
 import { getFlag } from './featureFlags.js';
 import { on } from './MonetizationBus.js';
 import { getApiBaseUrl } from '../config.js';
+import { todayYmd } from '../lib/dateUtils.js';
 
 const LB_KEY = 'openblock_mon_lb_lastSubmit';
 
@@ -69,10 +70,8 @@ export function initLeaderboard() {
     });
 }
 
-function _todayYmd() {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+/* v1.71：_todayYmd 收敛到 lib/dateUtils.js 单源；本地 alias 保旧调用零变更。 */
+const _todayYmd = todayYmd;
 
 /** 打开排行榜 UI 面板 */
 export async function openLeaderboardPanel() {

@@ -1,3 +1,4 @@
+import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
 /**
  * replayAlbum.js — v10.17 复盘相册（替换 replayAlbumStub）
  *
@@ -27,18 +28,16 @@ let _game = null;
 let _gameCount = 0;
 
 function _loadAlbum() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
-    catch { return []; }
+    return safeReadJson(STORAGE_KEY, []);
 }
 function _saveAlbum(arr) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); } catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, arr);
 }
 function _loadMilestones() {
-    try { return JSON.parse(localStorage.getItem(MILESTONE_KEY) || '{"games":0,"locked":[]}'); }
-    catch { return { games: 0, locked: [] }; }
+    return safeReadJson(MILESTONE_KEY, {"games":0,"locked":[]});
 }
 function _saveMilestones(s) {
-    try { localStorage.setItem(MILESTONE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+    safeWriteJson(MILESTONE_KEY, s);
 }
 
 export function initReplayAlbum({ game } = {}) {

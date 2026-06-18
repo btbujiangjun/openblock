@@ -6,6 +6,7 @@
  */
 import { GAME_RULES, buildDefaultStrategiesMap } from './gameRules.js';
 import { CLASSIC_PALETTE } from './skins.js';
+import { safeReadJson } from './lib/storageAdapter.js';
 
 const _defaultSid = GAME_RULES.defaultStrategyId || 'normal';
 const _defaultGrid = GAME_RULES.strategies[_defaultSid]?.gridWidth ?? 8;
@@ -237,13 +238,13 @@ export function getStrategy(id) {
 }
 
 function _saveCustomStrategy(strategy) {
-    const strategies = JSON.parse(localStorage.getItem('custom_strategies') || '{}');
+    const strategies = safeReadJson('custom_strategies', {});
     strategies[strategy.id] = strategy;
     localStorage.setItem('custom_strategies', JSON.stringify(strategies));
 }
 
 function getCustomStrategies() {
-    return JSON.parse(localStorage.getItem('custom_strategies') || '{}');
+    return safeReadJson('custom_strategies', {});
 }
 
 function _getAllStrategies() {

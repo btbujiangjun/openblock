@@ -1,3 +1,4 @@
+const { DAY_MS } = require('../lib/dateUtils');
 /**
  * winbackTiers.js — 召回分层（LO-4）
  *
@@ -27,7 +28,7 @@ function shouldOfferWinback(daysSinceLastPlay) {
 /** 计算未游玩天数（毫秒时间戳）。 */
 function daysSince(lastPlayTs, nowTs = Date.now()) {
     if (!lastPlayTs) return 0;
-    return Math.max(0, Math.floor((nowTs - lastPlayTs) / 86400000));
+    return Math.max(0, Math.floor((nowTs - lastPlayTs) / DAY_MS));
 }
 
 /** 一步到位：从 lastPlayTs 得到召回礼包决策。 */

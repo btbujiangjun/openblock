@@ -14,6 +14,7 @@
 import { getWallet } from '../skills/wallet.js';
 import { SKINS } from '../skins.js';
 import { t } from '../i18n/i18n.js';
+import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
 
 const KEY = 'openblock_lucky_wheel_v1';
 
@@ -38,10 +39,9 @@ const TRIAL_POOL = ['forbidden', 'demon', 'fairy', 'mahjong', 'aurora'];
 let _audio = null;
 
 function _load() {
-    try { return JSON.parse(localStorage.getItem(KEY) || '{}'); }
-    catch { return {}; }
+    return safeReadJson(KEY, {});
 }
-function _save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ } }
+function _save(s) { safeWriteJson(KEY, s); }
 
 function _ymd() {
     const d = new Date();

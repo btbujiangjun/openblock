@@ -6,7 +6,8 @@
 import { describe, it, expect } from 'vitest';
 import { PlayerProfile } from '../web/src/playerProfile.js';
 
-function endSession(p, stats) {
+// 保留作为后续 session 链路测试的 helper；当前用例未启用，故下划线前缀以满足 lint。
+function _endSession(p, stats) {
     p.startSession?.();
     p.recordSessionEnd(stats);
 }

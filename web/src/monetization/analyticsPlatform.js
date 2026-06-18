@@ -11,6 +11,7 @@ import { getRealTimeDashboard, initRealTimeDashboard } from './realTimeDashboard
 import { getRetentionAnalyzer, initRetentionAnalyzer } from './retentionAnalyzer.js';
 import { getPaymentPredictionModel, initPaymentPredictionModel } from './paymentPredictionModel.js';
 import { getAnalyticsTracker, initAnalyticsTracker } from './analyticsTracker.js';
+import { DAY_MS } from '../lib/dateUtils.js';
 
 class AnalyticsPlatform {
     constructor() {
@@ -116,7 +117,7 @@ class AnalyticsPlatform {
             
             // 事件统计
             events: {
-                stats: this.getTracker().getEventStats(7 * 24 * 60 * 60 * 1000),
+                stats: this.getTracker().getEventStats(7 * DAY_MS),
                 session: this.getTracker().getSessionStats(),
                 funnels: this.getTracker().getAllFunnelStatus()
             },

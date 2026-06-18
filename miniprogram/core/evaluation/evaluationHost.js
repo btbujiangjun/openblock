@@ -39,6 +39,9 @@
 const { evaluatePlacement } = require('./placementQuality');
 const { evaluateRound } = require('./roundQuality');
 const { buildSessionEvalRecord } = require('./sessionEvaluator');
+const { createLogger } = require('../lib/logger');
+
+const log = createLogger('evaluation');
 const {
     createEvaluationLedger,
     recordStressSample,
@@ -115,7 +118,7 @@ function evalOnSpawn(host, shapes) {
             firstMoveFreedom: solutionMetrics?.firstMoveFreedom ?? 0,
         });
     } catch (e) {
-        if (typeof console !== 'undefined') console.warn('[evaluation] onSpawn failed:', e?.message || e);
+        log.warn('onSpawn failed:', e?.message || e);
     }
 }
 
@@ -163,7 +166,7 @@ function evalOnPlace(host, dockIndex, pos, linesCleared) {
         const ins = host.getAdaptiveInsight?.() || {};
         recordFlowSample(led, ins.flowState || null);
     } catch (e) {
-        if (typeof console !== 'undefined') console.warn('[evaluation] onPlace failed:', e?.message || e);
+        log.warn('onPlace failed:', e?.message || e);
     }
 }
 
@@ -196,7 +199,7 @@ function evalCloseRound(host) {
             }
         }
     } catch (e) {
-        if (typeof console !== 'undefined') console.warn('[evaluation] closeRound failed:', e?.message || e);
+        log.warn('closeRound failed:', e?.message || e);
     }
     host.evalActiveSpawnIdx = -1;
     host.evalRoundStartCells = null;
@@ -234,7 +237,7 @@ async function evalOnGameOver(host, outcome) {
         const record = buildSessionEvalRecord(led);
         await host.postSessionEvalRecord?.(record);
     } catch (e) {
-        if (typeof console !== 'undefined') console.warn('[evaluation] onGameOver failed:', e?.message || e);
+        log.warn('onGameOver failed:', e?.message || e);
     } finally {
         host.evalLedger = null;
     }

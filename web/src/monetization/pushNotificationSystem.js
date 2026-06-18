@@ -9,6 +9,7 @@
  */
 import { getRetentionAnalyzer } from './retentionAnalyzer.js';
 import { getPaymentPredictionModel } from './paymentPredictionModel.js';
+import { safeReadJson } from '../lib/storageAdapter.js';
 
 const STORAGE_KEY = 'openblock_push_system_v1';
 
@@ -287,7 +288,7 @@ class PushNotificationSystem {
         // 首充窗口 - 检查用户
         this._triggerHandlers[PUSH_TRIGGER_EVENTS.FIRST_PURCHASE_WINDOW] = (_context) => {
             try {
-                const purchases = JSON.parse(localStorage.getItem('openblock_mon_purchases_v1') || '{}');
+                const purchases = safeReadJson('openblock_mon_purchases_v1', {});
                 
                 // 未购买过的用户
                 if (Object.keys(purchases).length === 0) {
@@ -366,7 +367,7 @@ class PushNotificationSystem {
         // 最高分
         if (result.includes('{{bestScore}}')) {
             try {
-                const stats = JSON.parse(localStorage.getItem('openblock_client_stats') || '{}');
+                const stats = safeReadJson('openblock_client_stats', {});
                 result = result.replace('{{bestScore}}', stats.bestScore || 0);
             } catch {}
         }
@@ -374,7 +375,7 @@ class PushNotificationSystem {
         // 连续天数
         if (result.includes('{{streak}}')) {
             try {
-                const progress = JSON.parse(localStorage.getItem('openblock_progression_v1') || '{}');
+                const progress = safeReadJson('openblock_progression_v1', {});
                 result = result.replace('{{streak}}', progress.dailyStreak || 0);
             } catch {}
         }
@@ -517,7 +518,7 @@ class PushNotificationSystem {
         
         // 检查连续签到里程碑
         try {
-            const progress = JSON.parse(localStorage.getItem('openblock_progression_v1') || '{}');
+            const progress = safeReadJson('openblock_progression_v1', {});
             const streak = progress.dailyStreak || 0;
             
             if ([7, 14, 30, 50, 100].includes(streak)) {

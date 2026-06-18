@@ -1,3 +1,4 @@
+import { todayYmd } from '../lib/dateUtils.js';
 /**
  * firstPurchaseFunnel.js - 付费初体验漏斗
  *
@@ -83,13 +84,8 @@ const FIRST_PURCHASE_OFFERS = {
 
 let _funnelDataCache = null;
 
-function _todayYmd() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-}
+/* v1.71：_todayYmd 收敛到 lib/dateUtils.js 单源；本地 alias 保旧调用零变更。 */
+const _todayYmd = todayYmd;
 
 export function getFunnelData() {
     if (_funnelDataCache) {

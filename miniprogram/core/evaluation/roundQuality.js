@@ -39,6 +39,7 @@
 const { evaluatePlacement } = require('./placementQuality');
 const { analyzeBoardTopology } = require('../boardTopology');
 const { wrapCellsAsGrid } = require('./gridAdapter');
+const { clamp01 } = require('../lib/math');
 
 const DEFAULT_WEIGHTS = Object.freeze({
     solutionUsage: 0.25,
@@ -61,13 +62,6 @@ const PERMUTATIONS = Object.freeze([
     [0, 1, 2], [0, 2, 1], [1, 0, 2],
     [1, 2, 0], [2, 0, 1], [2, 1, 0],
 ]);
-
-function clamp01(v) {
-    if (!Number.isFinite(v)) return 0;
-    if (v < 0) return 0;
-    if (v > 1) return 1;
-    return v;
-}
 
 function cloneCells(cells) { return cells.map((row) => row.slice()); }
 

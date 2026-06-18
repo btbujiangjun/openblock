@@ -19,6 +19,7 @@
 
 import { getWallet } from '../skills/wallet.js';
 import { persistCheckinBundleToServer } from './checkinSync.js';
+import { safeWriteJson } from '../lib/storageAdapter.js';
 
 const SELF_KEY = 'openblock_monthly_milestone_v1';
 const CHECKIN_KEY = 'openblock_checkin_v1';
@@ -40,7 +41,7 @@ function _loadSelf() {
         return raw ? JSON.parse(raw) : { lastMilestoneDay: 0 };
     } catch { return { lastMilestoneDay: 0 }; }
 }
-function _saveSelf(s) { try { localStorage.setItem(SELF_KEY, JSON.stringify(s)); } catch { /* ignore */ } }
+function _saveSelf(s) { safeWriteJson(SELF_KEY, s); }
 
 function _readTotalDays() {
     try {

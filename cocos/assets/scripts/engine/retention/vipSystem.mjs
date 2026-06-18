@@ -12,6 +12,7 @@
  * 备注以便后续接入；删除 import 以通过 lint。需要时从 './playerMaturity.js' 重新导入。 */
 
 import { deriveValueTier } from '../segmentation.mjs';
+import { todayYmd } from '../lib/dateUtils.mjs';
 
 const STORAGE_KEY = 'openblock_vip_system_v1';
 
@@ -111,13 +112,8 @@ const VIP_LEVELS = {
 
 let _vipDataCache = null;
 
-function _todayYmd() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-}
+/* v1.71：_todayYmd 收敛到 lib/dateUtils.js 单源；本地 alias 保旧调用零变更。 */
+const _todayYmd = todayYmd;
 
 export function getVipData() {
     if (_vipDataCache) {

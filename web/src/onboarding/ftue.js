@@ -15,6 +15,7 @@
  */
 
 import { requestPrimaryPopup, releasePrimaryPopup } from '../popupCoordinator.js';
+import { safeWriteJson } from '../lib/storageAdapter.js';
 
 const STORAGE_KEY = 'openblock_ftue_v1';
 
@@ -60,8 +61,7 @@ function _load() {
     } catch { return { steps: {}, skipped: false }; }
 }
 function _save(state) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-    catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, state);
 }
 
 function _markShown(stepId) {

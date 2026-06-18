@@ -24,6 +24,7 @@ import { getCommercialModelContext, updateRealtimeSignals } from './personalizat
 import { buildCommercialModelVector, shouldAllowMonetizationAction } from './commercialModel.js';
 import { resolveUnifiedSignals } from '../coordination/unifiedSignals.js';
 import { coordinate } from '../coordination/policyArbiter.js';
+import { safeWriteJson } from '../lib/storageAdapter.js';
 
 // ── 频控配置 ──────────────────────────────────────────────────────────────────
 const AD_CONFIG = {
@@ -62,7 +63,7 @@ function _loadFreq() {
 }
 
 function _saveFreq(data) {
-    try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch { /* ignore */ }
+    safeWriteJson(LS_KEY, data);
 }
 
 // ── 广告体验分 ────────────────────────────────────────────────────────────────

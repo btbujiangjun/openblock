@@ -33,6 +33,7 @@
 
 import { analyzeBoardTopology } from '../boardTopology.mjs';
 import { wrapCellsAsGrid } from './gridAdapter.mjs';
+import { clamp01 } from '../lib/math.mjs';
 
 const DEFAULT_WEIGHTS = Object.freeze({
     contact: 0.20,
@@ -56,13 +57,6 @@ const DEFAULT_BADNESS = Object.freeze({
 const PAYOFF_LADDER = Object.freeze([0, 0.4, 0.7, 1.0]); // 0/1/2/3+ 行
 
 /* ─────────────────────────── 工具 ─────────────────────────── */
-
-function clamp01(v) {
-    if (!Number.isFinite(v)) return 0;
-    if (v < 0) return 0;
-    if (v > 1) return 1;
-    return v;
-}
 
 function sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
 

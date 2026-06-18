@@ -17,6 +17,7 @@
 
 import { getWallet } from '../skills/wallet.js';
 import { requestPrimaryPopup, releasePrimaryPopup } from '../popupCoordinator.js';
+import { safeWriteJson } from '../lib/storageAdapter.js';
 
 const PUSH_STORAGE_KEY = 'openblock_push_v1';
 const SELF_STORAGE_KEY = 'openblock_welcome_back_v1';
@@ -68,7 +69,7 @@ function _readSelf() {
     } catch { return { lastClaimYmd: null, claimedTiers: [] }; }
 }
 function _writeSelf(s) {
-    try { localStorage.setItem(SELF_STORAGE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+    safeWriteJson(SELF_STORAGE_KEY, s);
 }
 
 function _ymd(d = new Date()) {

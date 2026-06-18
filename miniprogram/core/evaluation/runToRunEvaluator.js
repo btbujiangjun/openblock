@@ -8,12 +8,7 @@
  * 纯函数：不读全局状态、不依赖网络；上层负责传入历史数据。
  */
 
-function clamp01(v) {
-    if (!Number.isFinite(v)) return 0;
-    if (v < 0) return 0;
-    if (v > 1) return 1;
-    return v;
-}
+const { clamp01, regressionSlope } = require('../lib/math');
 
 function safeMean(arr) {
     if (!arr || !arr.length) return 0;
@@ -23,17 +18,6 @@ function safeMean(arr) {
         s += v; n += 1;
     }
     return n > 0 ? s / n : 0;
-}
-
-function regressionSlope(arr) {
-    if (!arr || arr.length < 2) return 0;
-    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-    for (let i = 0; i < arr.length; i++) {
-        const y = Number(arr[i]) || 0;
-        sumX += i; sumY += y; sumXY += i * y; sumXX += i * i;
-    }
-    const denom = arr.length * sumXX - sumX * sumX;
-    return denom === 0 ? 0 : (arr.length * sumXY - sumX * sumY) / denom;
 }
 
 function dayKey(ts) {

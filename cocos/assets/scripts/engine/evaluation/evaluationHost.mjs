@@ -42,6 +42,9 @@
 import { evaluatePlacement } from './placementQuality.mjs';
 import { evaluateRound } from './roundQuality.mjs';
 import { buildSessionEvalRecord } from './sessionEvaluator.mjs';
+import { createLogger } from '../lib/logger.mjs';
+
+const log = createLogger('evaluation');
 import {
     createEvaluationLedger,
     recordStressSample,
@@ -118,7 +121,7 @@ export function evalOnSpawn(host, shapes) {
             firstMoveFreedom: solutionMetrics?.firstMoveFreedom ?? 0,
         });
     } catch (e) {
-        if (typeof console !== 'undefined') console.warn('[evaluation] onSpawn failed:', e?.message || e);
+        log.warn('onSpawn failed:', e?.message || e);
     }
 }
 
@@ -166,7 +169,7 @@ export function evalOnPlace(host, dockIndex, pos, linesCleared) {
         const ins = host.getAdaptiveInsight?.() || {};
         recordFlowSample(led, ins.flowState || null);
     } catch (e) {
-        if (typeof console !== 'undefined') console.warn('[evaluation] onPlace failed:', e?.message || e);
+        log.warn('onPlace failed:', e?.message || e);
     }
 }
 
@@ -199,7 +202,7 @@ export function evalCloseRound(host) {
             }
         }
     } catch (e) {
-        if (typeof console !== 'undefined') console.warn('[evaluation] closeRound failed:', e?.message || e);
+        log.warn('closeRound failed:', e?.message || e);
     }
     host.evalActiveSpawnIdx = -1;
     host.evalRoundStartCells = null;
@@ -237,7 +240,7 @@ export async function evalOnGameOver(host, outcome) {
         const record = buildSessionEvalRecord(led);
         await host.postSessionEvalRecord?.(record);
     } catch (e) {
-        if (typeof console !== 'undefined') console.warn('[evaluation] onGameOver failed:', e?.message || e);
+        log.warn('onGameOver failed:', e?.message || e);
     } finally {
         host.evalLedger = null;
     }

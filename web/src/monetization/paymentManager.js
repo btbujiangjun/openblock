@@ -10,6 +10,7 @@
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
 import { getWallet } from '../skills/wallet.js';
 import { getFlag } from './featureFlags.js';
+import { DAY_MS } from '../lib/dateUtils.js';
 
 const PROMO_STORAGE_KEY = 'openblock_promo_state_v1';
 
@@ -85,7 +86,7 @@ export const LIMITED_OFFERS = {
             // 之前购买过周卡/月卡的用户
             return purchaseHistory.some(p => 
                 ['weekly_pass', 'monthly_pass'].includes(p.sku) && 
-                Date.now() - p.timestamp > 30 * 24 * 60 * 60 * 1000
+                Date.now() - p.timestamp > 30 * DAY_MS
             );
         }
     },
@@ -111,7 +112,7 @@ export const LIMITED_OFFERS = {
         triggerCondition: (purchaseHistory, daysSinceRegister, lastPurchaseDate) => {
             // 30天未购买的用户
             if (!lastPurchaseDate) return false;
-            const daysSinceLastPurchase = (Date.now() - lastPurchaseDate) / (24 * 60 * 60 * 1000);
+            const daysSinceLastPurchase = (Date.now() - lastPurchaseDate) / DAY_MS;
             return daysSinceLastPurchase >= 30;
         }
     },

@@ -1,3 +1,4 @@
+import { safeWriteJson } from '../lib/storageAdapter.js';
 /**
  * 个性化商业化引擎（v2 重构）
  *
@@ -68,8 +69,7 @@ function _loadCache() {
 }
 
 function _saveCache(state) {
-    try { localStorage.setItem(CACHE_KEY, JSON.stringify(state)); }
-    catch { /* quota */ }
+    safeWriteJson(CACHE_KEY, state);
 }
 
 function _apiBase() {

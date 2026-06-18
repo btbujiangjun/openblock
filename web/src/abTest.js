@@ -1,3 +1,4 @@
+import { safeWriteJson } from './lib/storageAdapter.js';
 /**
  * A/B 测试框架（轻量、无后端依赖）
  *
@@ -152,7 +153,7 @@ function _loadOverrides() {
 export function forceVariant(experiment, bucket) {
     const overrides = _loadOverrides();
     overrides[experiment] = bucket;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(overrides)); } catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, overrides);
 }
 
 /** 清除所有覆写，恢复哈希分桶 */

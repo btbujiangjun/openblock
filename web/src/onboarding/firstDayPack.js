@@ -16,6 +16,7 @@
 
 import { getWallet } from '../skills/wallet.js';
 import { requestPrimaryPopup, releasePrimaryPopup } from '../popupCoordinator.js';
+import { safeWriteJson } from '../lib/storageAdapter.js';
 
 const STORAGE_KEY = 'openblock_first_day_pack_v1';
 
@@ -36,7 +37,7 @@ function _load() {
     } catch { return { claimed: false, ts: null }; }
 }
 function _save(s) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, s);
 }
 
 export function initFirstDayPack() {

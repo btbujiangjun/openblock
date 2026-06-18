@@ -1,3 +1,4 @@
+import { todayYmd } from '../lib/dateUtils.js';
 /**
  * churnPredictor.js - 流失预警模型
  *
@@ -19,13 +20,8 @@ const CHURN_WEIGHTS = {
 const _CHURN_SIGNAL_KEY = 'openblock_churn_signals_v1';
 let _churnDataCache = null;
 
-function _todayYmd() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-}
+/* v1.71：_todayYmd 收敛到 lib/dateUtils.js 单源；本地 alias 保旧调用零变更。 */
+const _todayYmd = todayYmd;
 
 export function getChurnData() {
     if (_churnDataCache) {

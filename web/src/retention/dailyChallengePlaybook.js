@@ -27,6 +27,7 @@
  */
 
 import { isAndroidLike } from '../config/platformProfile.js';
+import { safeWriteJson } from '../lib/storageAdapter.js';
 
 const STORAGE_KEY = 'openblock_daily_challenge_v1';
 
@@ -55,8 +56,7 @@ function _safeReadState() {
 
 function _safeWriteState(state) {
     if (typeof localStorage === 'undefined') return;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-    catch { /* ignore quota / privacy */ }
+    safeWriteJson(STORAGE_KEY, state);
 }
 
 function _defaultState(today) {

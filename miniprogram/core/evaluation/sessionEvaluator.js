@@ -17,19 +17,14 @@
  * 这是纯函数：不读全局状态、不写网络；上层负责把 record POST 到后端。
  */
 
+const { clamp01, regressionSlope } = require('../lib/math');
+
 const DEFAULT_GUARD = Object.freeze({
     rageQuitDurationMs: 30000,
     rageQuitScoreRatio: 0.3,
     topOutMeanStressMax: 0.3,
     flowStarvationRatioMin: 0.15,
 });
-
-function clamp01(v) {
-    if (!Number.isFinite(v)) return 0;
-    if (v < 0) return 0;
-    if (v > 1) return 1;
-    return v;
-}
 
 function safeMean(arr) {
     if (!arr || !arr.length) return 0;
@@ -66,22 +61,6 @@ function trapezoidAUC(samples) {
         span += dt;
     }
     return span > 0 ? area / span : safeMean(samples.map((s) => s.v));
-}
-
-/* 简单线性回归斜率（最小二乘）。 */
-function regressionSlope(arr) {
-    const n = arr.length;
-    if (n < 2) return 0;
-    let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-    for (let i = 0; i < n; i++) {
-        sumX += i;
-        sumY += arr[i];
-        sumXY += i * arr[i];
-        sumXX += i * i;
-    }
-    const denom = n * sumXX - sumX * sumX;
-    if (denom === 0) return 0;
-    return (n * sumXY - sumX * sumY) / denom;
 }
 
 function shannonEntropy(buckets) {

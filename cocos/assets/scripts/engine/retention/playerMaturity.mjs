@@ -1,6 +1,7 @@
 /* 自动生成 —— 请勿手改。源：web/src/retention/playerMaturity.js
  * 重新生成：node scripts/sync-cocos-engine.mjs（npm run sync:cocos-core 已包含）
  */
+import { todayYmd } from '../lib/dateUtils.mjs';
 /**
  * playerMaturity.js — 玩家成熟度（双分制）
  *
@@ -81,13 +82,8 @@ const DEFAULT_COMBINED_ALPHA = 0.6;
 
 let _maturityCache = null;
 
-function _todayYmd() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-}
+/* v1.71：_todayYmd 收敛到 lib/dateUtils.js 单源；本地 alias 保旧调用零变更。 */
+const _todayYmd = todayYmd;
 
 function _daysBetween(ymd1, ymd2) {
     const [y1, m1, d1] = ymd1.split('-').map(Number);

@@ -25,6 +25,7 @@
 
 import { getWallet } from '../skills/wallet.js';
 import { SKINS } from '../skins.js';
+import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
 
 const STATE_KEY = 'openblock_chest_state_v1';
 
@@ -52,10 +53,9 @@ const TIER_REWARDS = {
 const TRIAL_SKIN_POOL = ['forbidden', 'demon', 'fairy', 'aurora', 'industrial', 'mahjong'];
 
 function _load() {
-    try { return JSON.parse(localStorage.getItem(STATE_KEY) || '{}'); }
-    catch { return {}; }
+    return safeReadJson(STATE_KEY, {});
 }
-function _save(s) { try { localStorage.setItem(STATE_KEY, JSON.stringify(s)); } catch { /* ignore */ } }
+function _save(s) { safeWriteJson(STATE_KEY, s); }
 
 /**
  * 兑现上一局未确认的局末宝箱（幂等；入账后清除 pendingChest）。

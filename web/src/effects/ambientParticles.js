@@ -1,3 +1,4 @@
+import { safeWriteJson } from '../lib/storageAdapter.js';
 /**
  * ambientParticles.js — v10.15 皮肤环境粒子层（Top 5 高 ROI #2）
  *
@@ -128,7 +129,7 @@ function _loadPrefs() {
 }
 
 function _savePrefs(prefs) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, prefs);
 }
 
 function _rand(a, b) { return a + Math.random() * (b - a); }

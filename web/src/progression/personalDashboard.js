@@ -1,3 +1,4 @@
+import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
 /**
  * personalDashboard.js — v10.17 个人数据 dashboard + 年终回顾
  *
@@ -61,8 +62,8 @@ function collectStats() {
     /* 复盘相册 */
     let albumCount = 0, milestones = 0;
     try {
-        albumCount = (JSON.parse(localStorage.getItem('openblock_replay_album_v1') || '[]') || []).length;
-        const ms = JSON.parse(localStorage.getItem('openblock_replay_milestones_v1') || '{"locked":[]}');
+        albumCount = (safeReadJson('openblock_replay_album_v1', []) || []).length;
+        const ms = safeReadJson('openblock_replay_milestones_v1', {"locked":[]});
         milestones = (ms.locked || []).length;
     } catch { /* ignore */ }
 
@@ -94,7 +95,7 @@ function collectStats() {
     /* 偏好皮肤 — 简单实现：只读取当前皮肤 + Top 10 中皮肤分布 */
     const skinFreq = {};
     try {
-        const album = JSON.parse(localStorage.getItem('openblock_replay_album_v1') || '[]');
+        const album = safeReadJson('openblock_replay_album_v1', []);
         for (const e of album) {
             skinFreq[e.skinId] = (skinFreq[e.skinId] || 0) + 1;
         }
@@ -104,7 +105,7 @@ function collectStats() {
     /* 累计 — 这部分依赖运行时统计聚合（粗略实现） */
     const totalGames = (() => {
         try {
-            const ms = JSON.parse(localStorage.getItem('openblock_replay_milestones_v1') || '{"games":0}');
+            const ms = safeReadJson('openblock_replay_milestones_v1', {"games":0});
             return ms.games | 0;
         } catch { return 0; }
     })();
@@ -260,14 +261,13 @@ function _maybeShowYearReview() {
     const days = Math.floor((Date.now() - reg.ts) / 86_400_000);
     if (days < 365) return;
     const lastReview = (() => {
-        try { return JSON.parse(localStorage.getItem('openblock_year_review_v1') || '{}').lastYear; }
+        try { return safeReadJson('openblock_year_review_v1', {}).lastYear; }
         catch { return null; }
     })();
     const thisYear = new Date().getFullYear();
     if (lastReview === thisYear) return;
     /* 记录已弹 */
-    try { localStorage.setItem('openblock_year_review_v1', JSON.stringify({ lastYear: thisYear })); }
-    catch { /* ignore */ }
+    safeWriteJson('openblock_year_review_v1', { lastYear: thisYear });
     /* 通过 personalDashboard 路径弹（精简版） */
     const s = collectStats();
     if (typeof document === 'undefined') return;

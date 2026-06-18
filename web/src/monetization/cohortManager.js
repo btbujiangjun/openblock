@@ -7,6 +7,7 @@
  * 3. 动态分组
  */
 import { getApiBaseUrl, isSqliteClientDatabase } from '../config.js';
+import { safeReadJson } from '../lib/storageAdapter.js';
 
 const COHORT_STORAGE_KEY = 'openblock_cohorts_v1';
 
@@ -136,7 +137,7 @@ class CohortManager {
     syncFromSystem() {
         // 从 progression 获取数据
         try {
-            const progress = JSON.parse(localStorage.getItem('openblock_progression_v1') || '{}');
+            const progress = safeReadJson('openblock_progression_v1', {});
             
             this.updateUserProperties({
                 totalXp: progress.totalXp || 0,
@@ -146,7 +147,7 @@ class CohortManager {
         
         // 从购买历史获取消费数据
         try {
-            const purchases = JSON.parse(localStorage.getItem('openblock_mon_purchases_v1') || '{}');
+            const purchases = safeReadJson('openblock_mon_purchases_v1', {});
             const totalSpent = Object.values(purchases)
                 .reduce((sum, p) => {
                     if (p.priceNum) return sum + p.priceNum * 100;

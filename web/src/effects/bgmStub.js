@@ -7,6 +7,7 @@
  */
 
 import { getActiveSkinId, onSkinAfterApply } from '../skins.js';
+import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
 
 const STORAGE_KEY = 'openblock_bgm_v1';
 const PREFS_VERSION = 2;
@@ -25,12 +26,12 @@ const THEME_MAP = {
 
 function _load() {
     try {
-        const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        const raw = safeReadJson(STORAGE_KEY, {});
         if (raw.version !== PREFS_VERSION) return { ...PREFS_DEFAULT };
         return { ...PREFS_DEFAULT, ...raw };
     } catch { return { ...PREFS_DEFAULT }; }
 }
-function _save(s) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { /* ignore */ } }
+function _save(s) { safeWriteJson(STORAGE_KEY, s); }
 
 let _initialized = false;
 let _prefs = null;

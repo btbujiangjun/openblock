@@ -10,6 +10,7 @@
 import { getFlag } from './featureFlags.js';
 import { loadProgress } from '../progression.js';
 import { getPlayerAbilityModel } from '../playerAbilityModel.js';
+import { DAY_MS } from '../lib/dateUtils.js';
 
 const STORAGE_KEY = 'openblock_push_v1';
 
@@ -25,7 +26,7 @@ export const NOTIFICATION_TYPES = {
         icon: '🎁',
         trigger: 'time',
         time: '09:00',
-        cooldown: 24 * 60 * 60 * 1000 // 24小时
+        cooldown: DAY_MS // 24小时
     },
     
     STREAK_REMINDER: {
@@ -85,7 +86,7 @@ export const NOTIFICATION_TYPES = {
         body: '来看看有哪些炫酷皮肤',
         icon: '✨',
         trigger: 'content_update',
-        cooldown: 24 * 60 * 60 * 1000
+        cooldown: DAY_MS
     },
     
     // 回归用户
@@ -95,7 +96,7 @@ export const NOTIFICATION_TYPES = {
         body: '为你准备了回归礼包',
         icon: '🎉',
         trigger: 'return',
-        cooldown: 24 * 60 * 60 * 1000
+        cooldown: DAY_MS
     }
 };
 
@@ -181,7 +182,7 @@ class PushNotificationManager {
         if (!config) return false;
         
         const lastSent = this._lastSent[typeId] || 0;
-        const cooldown = config.cooldown || 24 * 60 * 60 * 1000;
+        const cooldown = config.cooldown || DAY_MS;
         
         return Date.now() - lastSent > cooldown;
     }
@@ -323,7 +324,7 @@ class PushNotificationManager {
             
             if (dailyStreak > 0) {
                 const lastPlayed = new Date(streakYmd);
-                const daysSince = Math.floor((Date.now() - lastPlayed.getTime()) / (24 * 60 * 60 * 1000));
+                const daysSince = Math.floor((Date.now() - lastPlayed.getTime()) / DAY_MS);
                 
                 if (daysSince >= 1) {
                     this.send('streak_reminder');

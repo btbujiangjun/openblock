@@ -25,6 +25,7 @@
 import { getWallet } from '../skills/wallet.js';
 import { SKINS } from '../skins.js';
 import { persistCheckinBundleToServer } from './checkinSync.js';
+import { safeWriteJson } from '../lib/storageAdapter.js';
 
 const STORAGE_KEY = 'openblock_checkin_v1';
 
@@ -60,8 +61,7 @@ function _load() {
 }
 
 function _save(state) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-    catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, state);
 }
 
 let _audio = null;

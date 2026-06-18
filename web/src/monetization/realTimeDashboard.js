@@ -1,3 +1,5 @@
+import { DAY_MS } from '../lib/dateUtils.js';
+import { safeReadJson } from '../lib/storageAdapter.js';
 /**
  * RealTimeDashboard - 实时数据大屏
  * 
@@ -86,8 +88,8 @@ class RealTimeDashboard {
      */
     async _getUserMetrics() {
         try {
-            const progress = JSON.parse(localStorage.getItem('openblock_progression_v1') || '{}');
-            const stats = JSON.parse(localStorage.getItem('openblock_client_stats') || '{}');
+            const progress = safeReadJson('openblock_progression_v1', {});
+            const stats = safeReadJson('openblock_client_stats', {});
             
             return {
                 totalXp: progress.totalXp || 0,
@@ -126,7 +128,7 @@ class RealTimeDashboard {
      */
     async _getRevenueMetrics() {
         try {
-            const purchases = JSON.parse(localStorage.getItem('openblock_mon_purchases_v1') || '{}');
+            const purchases = safeReadJson('openblock_mon_purchases_v1', {});
             
             let totalRevenue = 0;
             let purchaseCount = 0;
@@ -159,7 +161,7 @@ class RealTimeDashboard {
     async _getEngagementMetrics() {
         try {
             const analytics = window.__analyticsTracker;
-            const eventStats = analytics?.getEventStats(24 * 60 * 60 * 1000) || {};
+            const eventStats = analytics?.getEventStats(DAY_MS) || {};
             
             const gameStarts = eventStats['game_start']?.count || 0;
             const places = eventStats['place_block']?.count || 0;
@@ -181,7 +183,7 @@ class RealTimeDashboard {
      */
     async _getAdsMetrics() {
         try {
-            const adCounts = JSON.parse(localStorage.getItem('openblock_ad_counts_v1') || '{}');
+            const adCounts = safeReadJson('openblock_ad_counts_v1', {});
             const counts = adCounts.counts || {};
             
             return {

@@ -7,6 +7,7 @@
 
 import { t } from '../i18n/i18n.js';
 import { getPlayerLifecycleStage, getLifecycleConfig } from './playerLifecycleDashboard.js';
+import { todayYmd } from '../lib/dateUtils.js';
 
 const STORAGE_KEY = 'openblock_social_intro_v1';
 
@@ -50,13 +51,8 @@ const SOCIAL_INTRO_TRIGGERS = {
 
 let _introDataCache = null;
 
-function _todayYmd() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-}
+/* v1.71：_todayYmd 收敛到 lib/dateUtils.js 单源；本地 alias 保旧调用零变更。 */
+const _todayYmd = todayYmd;
 
 export function getSocialIntroData() {
     if (_introDataCache) {

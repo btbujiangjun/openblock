@@ -21,6 +21,7 @@
 
 import { getWallet } from '../skills/wallet.js';
 import { persistCheckinBundleToServer } from '../checkin/checkinSync.js';
+import { safeWriteJson } from '../lib/storageAdapter.js';
 
 const STORAGE_KEY = 'openblock_skin_fragments_v1';
 const COST_PER_UNLOCK = 30;
@@ -40,7 +41,7 @@ function _load() {
     } catch { return { unlocked: [], lastEarnYmd: null }; }
 }
 function _save(s) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, s);
 }
 
 export function initSkinFragments({ game } = {}) {

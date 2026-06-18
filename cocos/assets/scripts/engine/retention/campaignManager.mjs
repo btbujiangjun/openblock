@@ -1,6 +1,7 @@
 /* 自动生成 —— 请勿手改。源：web/src/retention/campaignManager.js
  * 重新生成：node scripts/sync-cocos-engine.mjs（npm run sync:cocos-core 已包含）
  */
+import { DAY_MS } from '../lib/dateUtils.mjs';
 /**
  * campaignManager.js — 运营活动日历（LO-1，配置化下发）
  *
@@ -20,7 +21,7 @@ export function isCampaignActive(campaign, nowTs = Date.now()) {
     const start = _toTs(campaign.start);
     const end = _toTs(campaign.end);
     if (start !== null && nowTs < start) return false;
-    if (end !== null && nowTs > end + 86400000 - 1) return false; // end 当天有效
+    if (end !== null && nowTs > end + DAY_MS - 1) return false; // end 当天有效
     if (campaign.recurring === 'weekly' && Array.isArray(campaign.weekdays)) {
         const dow = new Date(nowTs).getUTCDay(); // 0=周日…6=周六
         if (!campaign.weekdays.includes(dow)) return false;

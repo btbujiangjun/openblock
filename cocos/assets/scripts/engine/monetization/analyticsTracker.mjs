@@ -1,6 +1,7 @@
 /* 自动生成 —— 请勿手改。源：web/src/monetization/analyticsTracker.js
  * 重新生成：node scripts/sync-cocos-engine.mjs（npm run sync:cocos-core 已包含）
  */
+import { DAY_MS } from '../lib/dateUtils.mjs';
 /**
  * AnalyticsTracker - 指标埋点与漏斗分析
  * 
@@ -307,7 +308,7 @@ class AnalyticsTracker {
     /**
      * 获取用户事件统计
      */
-    getEventStats(timeRange = 7 * 24 * 60 * 60 * 1000) {
+    getEventStats(timeRange = 7 * DAY_MS) {
         const now = Date.now();
         const recentEvents = this._events.filter(e => now - e.timestamp < timeRange);
         

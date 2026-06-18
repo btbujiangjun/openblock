@@ -1,5 +1,6 @@
 import { persistCheckinBundleToServer } from './checkinSync.js';
 import { t } from '../i18n/i18n.js';
+import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
 
 /**
  * loginStreak.js — v10.16 连登勋章（P1）
@@ -18,11 +19,10 @@ const MILESTONES = [
 ];
 
 function _load() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); }
-    catch { return {}; }
+    return safeReadJson(STORAGE_KEY, {});
 }
 function _save(s) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, s);
 }
 
 let _audio = null;

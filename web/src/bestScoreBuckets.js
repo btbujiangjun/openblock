@@ -1,3 +1,4 @@
+import { DAY_MS } from './lib/dateUtils.js';
 /**
  * bestScoreBuckets.js — v1.55 BEST_SCORE_CHASE_STRATEGY §4.4 + §4.7
  *
@@ -121,7 +122,7 @@ export function deriveWeekKey(now = new Date()) {
     const dayNum = (d.getUTCDay() + 6) % 7; // 周一 = 0
     d.setUTCDate(d.getUTCDate() - dayNum + 3); // 跳到当前周的周四
     const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
-    const weekNo = 1 + Math.round(((d - firstThursday) / 86400000 - 3
+    const weekNo = 1 + Math.round(((d - firstThursday) / DAY_MS - 3
         + ((firstThursday.getUTCDay() + 6) % 7)) / 7);
     return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 }

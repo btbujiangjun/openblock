@@ -1,3 +1,4 @@
+import { safeReadJson } from '../lib/storageAdapter.js';
 /**
  * companionStub.js — v10.16 角色养成 / 虚拟伙伴（P2 骨架，~8d 工程）
  *
@@ -61,8 +62,7 @@ const COMPANIONS = {
 const STORAGE_KEY = 'openblock_companion_v1';
 
 function _load() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); }
-    catch { return {}; }
+    return safeReadJson(STORAGE_KEY, {});
 }
 
 function getCompanion(skinId) {

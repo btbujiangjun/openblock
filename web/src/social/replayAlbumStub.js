@@ -1,3 +1,4 @@
+import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
 /**
  * replayAlbumStub.js — v10.16 历史最佳棋谱回放 + 里程碑相册（P2 骨架）
  *
@@ -24,12 +25,10 @@ const STORAGE_KEY = 'openblock_replay_album_v1';
 const MAX_TOP_N = 10;
 
 function _load() {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
-    catch { return []; }
+    return safeReadJson(STORAGE_KEY, []);
 }
 function _save(arr) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(arr)); }
-    catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, arr);
 }
 
 let _origEndGame = null;

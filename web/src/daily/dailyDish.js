@@ -1,3 +1,4 @@
+import { safeWriteJson } from '../lib/storageAdapter.js';
 /**
  * dailyDish.js — v10.17 每日轮换主题盘面（"今日特餐"）
  *
@@ -46,7 +47,7 @@ function _load() {
     } catch { return { lastShownYmd: null, disabled: false }; }
 }
 function _save(s) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, s);
 }
 
 export function getTodayDish() {

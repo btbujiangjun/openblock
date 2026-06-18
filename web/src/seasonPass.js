@@ -30,6 +30,7 @@
  */
 
 import { addSeasonXp as addMonSeasonXp } from './monetization/seasonPass.js';
+import { safeWriteJson } from './lib/storageAdapter.js';
 
 const STORAGE_KEY = 'openblock_season_pass';
 
@@ -155,9 +156,7 @@ export class SeasonPass {
     }
 
     _save() {
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(this._data));
-        } catch { /* ignore */ }
+        safeWriteJson(STORAGE_KEY, this._data);
         // 异步同步到后端（不阻塞本地逻辑）
         this._syncToBackend();
     }
@@ -187,7 +186,7 @@ export class SeasonPass {
             this._data.points = Math.max(this._data.points ?? 0, remote.points ?? 0);
             // 付费状态以远端为准
             if (remote.premium) this._data.premium = true;
-            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this._data)); } catch { /* ignore */ }
+            safeWriteJson(STORAGE_KEY, this._data);
             this._refreshPanel();
         } catch { /* 离线时静默 */ }
     }

@@ -9,6 +9,8 @@
  */
 import { getCohortManager } from './cohortManager.js';
 import { getPlayerAbilityModel } from '../playerAbilityModel.js';
+import { DAY_MS } from '../lib/dateUtils.js';
+import { safeReadJson } from '../lib/storageAdapter.js';
 
 const MODEL_VERSION = '1.0.0';
 
@@ -82,14 +84,14 @@ class PaymentPredictionModel {
         
         // 用户属性
         try {
-            const progress = JSON.parse(localStorage.getItem('openblock_progression_v1') || '{}');
+            const progress = safeReadJson('openblock_progression_v1', {});
             features.user_level = Math.floor(Math.sqrt((progress.totalXp || 0) / 100)) + 1;
             features.total_xp = progress.totalXp || 0;
             features.daily_streak = progress.dailyStreak || 0;
             
             // 注册天数
             const created = new Date(progress.createdAt || Date.now()).getTime();
-            features.days_since_register = Math.floor((Date.now() - created) / (24 * 60 * 60 * 1000));
+            features.days_since_register = Math.floor((Date.now() - created) / DAY_MS);
         } catch {
             features.user_level = 1;
             features.total_xp = 0;
@@ -98,7 +100,7 @@ class PaymentPredictionModel {
         
         // 活跃度
         try {
-            const stats = JSON.parse(localStorage.getItem('openblock_client_stats') || '{}');
+            const stats = safeReadJson('openblock_client_stats', {});
             features.games_played = stats.totalGames || 0;
             features.score_per_game = stats.totalGames > 0 
                 ? (stats.totalScore || 0) / stats.totalGames 
@@ -116,7 +118,7 @@ class PaymentPredictionModel {
         try {
             const analytics = window.__analyticsTracker;
             if (analytics) {
-                const eventStats = analytics.getEventStats(7 * 24 * 60 * 60 * 1000);
+                const eventStats = analytics.getEventStats(7 * DAY_MS);
                 features.clears_per_game = eventStats['clear_lines']?.count 
                     ? (eventStats['clear_lines'].count / Math.max(1, eventStats['game_start']?.count || 1)).toFixed(1)
                     : 0;
@@ -129,7 +131,7 @@ class PaymentPredictionModel {
         
         // 商业化信号
         try {
-            const purchases = JSON.parse(localStorage.getItem('openblock_mon_purchases_v1') || '{}');
+            const purchases = safeReadJson('openblock_mon_purchases_v1', {});
             features.shop_visits = Object.keys(purchases).length > 0 ? Math.random() * 10 + 1 : 0;
             
             // 免费使用天数
@@ -145,7 +147,7 @@ class PaymentPredictionModel {
         
         // 广告交互
         try {
-            const adCounts = JSON.parse(localStorage.getItem('openblock_ad_counts_v1') || '{}');
+            const adCounts = safeReadJson('openblock_ad_counts_v1', {});
             features.ad_interactions = (adCounts.counts?.rewarded || 0) + (adCounts.counts?.interstitial || 0);
         } catch {
             features.ad_interactions = 0;

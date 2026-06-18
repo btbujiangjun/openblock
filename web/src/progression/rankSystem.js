@@ -1,3 +1,4 @@
+import { safeWriteJson } from '../lib/storageAdapter.js';
 /**
  * rankSystem.js — v10.17 段位系统（青铜→传奇 7 段位）
  *
@@ -61,7 +62,7 @@ function _load() {
     } catch { return { exp: 0, peakExp: 0, lastSeenIdx: 0 }; }
 }
 function _save(s) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, s);
 }
 
 /** 根据 exp 计算当前段位 */

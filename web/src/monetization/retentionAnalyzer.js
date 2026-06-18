@@ -1,3 +1,4 @@
+import { DAY_MS } from '../lib/dateUtils.js';
 /**
  * RetentionAnalyzer — 用户留存与转化漏斗分析
  *
@@ -20,7 +21,6 @@
 
 const RETENTION_PERIODS = [1, 3, 7, 14, 30, 60, 90];
 const STORAGE_KEY = 'openblock_retention_v1';
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 class RetentionAnalyzer {
     constructor() {

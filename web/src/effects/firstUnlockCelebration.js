@@ -12,15 +12,15 @@
  */
 
 import { onSkinAfterApply, SKINS } from '../skins.js';
+import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
 
 const KEY = 'openblock_skin_first_seen_v1';
 const SUPPRESS_INITIAL = ['classic', 'titanium'];
 
 function _load() {
-    try { return JSON.parse(localStorage.getItem(KEY) || '{}'); }
-    catch { return {}; }
+    return safeReadJson(KEY, {});
 }
-function _save(s) { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* ignore */ } }
+function _save(s) { safeWriteJson(KEY, s); }
 
 let _audio = null;
 let _bootstrapped = false;

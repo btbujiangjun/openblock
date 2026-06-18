@@ -1,3 +1,4 @@
+import { safeReadJson, safeWriteJson } from '../lib/storageAdapter.js';
 /**
  * wowMoments.js — v10.17 首次成功 wow moment 强化
  *
@@ -34,11 +35,11 @@ let _streakCount = 0;
 let _lastClearTs = 0;
 
 function _load() {
-    try { return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')); }
+    try { return new Set(safeReadJson(STORAGE_KEY, [])); }
     catch { return new Set(); }
 }
 function _save(set) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify([...set])); } catch { /* ignore */ }
+    safeWriteJson(STORAGE_KEY, [...set]);
 }
 
 export function initWowMoments({ game, audio = null } = {}) {

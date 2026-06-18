@@ -2,6 +2,7 @@
  * 玩家成长：经验、等级、每日连续活跃（localStorage）；主题与等级解耦，见 skins.js
  */
 import { t } from './i18n/i18n.js';
+import { todayYmd } from './lib/dateUtils.js';
 
 const STORAGE_KEY = 'openblock_progression_v1';
 
@@ -35,13 +36,8 @@ const STRATEGY_XP_MUL = {
     hard: 1.12
 };
 
-function _todayYmd() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-}
+/* v1.71：_todayYmd 收敛到 lib/dateUtils.js 单源；本地 alias 保旧调用零变更。 */
+const _todayYmd = todayYmd;
 
 function _yesterdayYmd(ymd) {
     const [y, m, d] = ymd.split('-').map(Number);

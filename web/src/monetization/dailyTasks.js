@@ -11,13 +11,12 @@
 import { getFlag } from './featureFlags.js';
 import { on, emit } from './MonetizationBus.js';
 import { getWallet } from '../skills/wallet.js';
+import { todayYmd } from '../lib/dateUtils.js';
 
 const STORAGE_KEY = 'openblock_mon_daily_tasks_v1';
 
-function _todayYmd() {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+/* v1.71：_todayYmd 收敛到 lib/dateUtils.js 单源；本地 alias 保旧调用零变更。 */
+const _todayYmd = todayYmd;
 
 /** 任务定义 */
 export const TASK_DEFS = [
