@@ -276,6 +276,73 @@ function _applyPbOvershootBoost(s) {
     return { newStress, boost, active, newOrderBoost };
 }
 
+/**
+ * spawnHints "原有条件逻辑"段（v1.71 U1 抽出自 resolveAdaptiveStrategy L2143-2188）。
+ *
+ * 这是 spawnHints 三层构建里第一段独立的 9 条救济/挑战规则，
+ * 输出 { clearGuarantee, sizePreference, diversityBoost } 三个标量。
+ *
+ * ⚠️ **行为契约关键**：原代码 frustration/recovery/onboarding/bored 用的是
+ *   直接赋值（非 Math.min/Math.max），因此存在**后置覆盖前置**的顺序依赖语义。
+ *   抽出时必须 1:1 保留这一行为，否则会改变多触发场景下的最终输出。
+ *   例如 frust+recovery+onboarding 同时触发：sizePreference 原版 = -0.4
+ *   （onboarding 最后覆盖），不能改成 -0.5 的 min 语义。
+ *
+ * @param {object} s 输入状态
+ * @returns {{ clearGuarantee:number, sizePreference:number, diversityBoost:number }}
+ */
+function _applySpawnHintsBaseRules(s) {
+    let clearGuarantee = s.clearGuarantee;
+    let sizePreference = s.sizePreference;
+    let diversityBoost = s.diversityBoost;
+    const { profile, frustThreshold, flow, eng, ctx, holes, topoCfg, hasBottleneckSignal } = s;
+
+    if (profile.hadRecentNearMiss) {
+        clearGuarantee = Math.max(clearGuarantee, eng.nearMissClearGuarantee ?? 2);
+    }
+    if (profile.frustrationLevel >= frustThreshold) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = -0.3;            /* 直接赋值（与原版一致，会被后续覆盖） */
+    }
+    if (profile.needsRecovery) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = -0.5;
+    }
+    if (flow === 'bored') {
+        diversityBoost = eng.noveltyDiversityBoost ?? 0.15;
+    }
+    if (profile.isInOnboarding) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = -0.4;
+    }
+    if (profile.sessionPhase === 'late' && profile.momentum < -0.3) {
+        sizePreference = Math.min(sizePreference, -0.2);
+        clearGuarantee = Math.max(clearGuarantee, 1);
+    }
+    /* 连续多轮无消行进入救援态 */
+    const rsc = ctx.roundsSinceClear ?? 0;
+    if (rsc >= 2) clearGuarantee = Math.max(clearGuarantee, 2);
+    if (rsc >= 4) {
+        clearGuarantee = Math.max(clearGuarantee, 3);
+        sizePreference = Math.min(sizePreference, -0.35);
+    }
+    if (holes >= (topoCfg.holeClearGuaranteeAt ?? 2)) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, topoCfg.holeSizePreference ?? -0.22);
+    }
+    /* v1.30 瓶颈：上一周期严重瓶颈 → 抬保消 + 偏小块。
+     * onboarding 已在 hasBottleneckSignal 计算时排除，无需重判。 */
+    if (hasBottleneckSignal) {
+        const cgAt = Number.isFinite(topoCfg.bottleneckClearGuaranteeAt)
+            ? topoCfg.bottleneckClearGuaranteeAt : 2;
+        const sizeDelta = Number.isFinite(topoCfg.bottleneckSizePreferenceDelta)
+            ? topoCfg.bottleneckSizePreferenceDelta : -0.18;
+        clearGuarantee = Math.max(clearGuarantee, cgAt);
+        sizePreference = Math.min(sizePreference, sizeDelta);
+    }
+    return { clearGuarantee, sizePreference, diversityBoost };
+}
+
 function _resolveChallengeBoostBypass(s) {
     if (!s.pbDistanceClose) return 'pb_distance_far';
     if (!(s.segment5 === 'B' || s.sessionTrend !== 'declining')) return 'segment_declining';
@@ -2143,51 +2210,16 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         || boardFrustrationRelief < 0
         || decisionLoadReliefActive;
 
-    /* --- 原有条件逻辑 --- */
-    if (profile.hadRecentNearMiss) {
-        clearGuarantee = Math.max(clearGuarantee, eng.nearMissClearGuarantee ?? 2);
-    }
-    if (profile.frustrationLevel >= frustThreshold) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = -0.3;
-    }
-    if (profile.needsRecovery) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = -0.5;
-    }
-    if (flow === 'bored') {
-        diversityBoost = eng.noveltyDiversityBoost ?? 0.15;
-    }
-    if (profile.isInOnboarding) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = -0.4;
-    }
-    if (profile.sessionPhase === 'late' && profile.momentum < -0.3) {
-        sizePreference = Math.min(sizePreference, -0.2);
-        clearGuarantee = Math.max(clearGuarantee, 1);
-    }
-    // 连续多轮无消行时进入救援态，强制提高可解压出块比例
-    if ((ctx.roundsSinceClear ?? 0) >= 2) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-    }
-    if ((ctx.roundsSinceClear ?? 0) >= 4) {
-        clearGuarantee = Math.max(clearGuarantee, 3);
-        sizePreference = Math.min(sizePreference, -0.35);
-    }
-    if (holes >= (topoCfg.holeClearGuaranteeAt ?? 2)) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, topoCfg.holeSizePreference ?? -0.22);
-    }
-    /* --- v1.30：上一周期出现严重瓶颈时，下一波抬保消 + 偏小块。
-     * `hasBottleneckSignal` 已在主路径里排除 onboarding，因此这里不必再判一次；
-     * 仅当 bottleneckTrough <= 配置阈值时触发；调整量由配置决定，避免代码内硬编码。 */
-    if (hasBottleneckSignal) {
-        const cgAt = Number.isFinite(topoCfg.bottleneckClearGuaranteeAt)
-            ? topoCfg.bottleneckClearGuaranteeAt : 2;
-        const sizeDelta = Number.isFinite(topoCfg.bottleneckSizePreferenceDelta)
-            ? topoCfg.bottleneckSizePreferenceDelta : -0.18;
-        clearGuarantee = Math.max(clearGuarantee, cgAt);
-        sizePreference = Math.min(sizePreference, sizeDelta);
+    /* --- 原有条件逻辑：v1.71 U1 抽至 _applySpawnHintsBaseRules（9 条决策表）
+     * 保留赋值/min/max 混用的精确顺序语义；breakdown 字段与外层 closure 无关。 */
+    {
+        const _base = _applySpawnHintsBaseRules({
+            clearGuarantee, sizePreference, diversityBoost,
+            profile, frustThreshold, flow, eng, ctx, holes, topoCfg, hasBottleneckSignal,
+        });
+        clearGuarantee = _base.clearGuarantee;
+        sizePreference = _base.sizePreference;
+        diversityBoost = _base.diversityBoost;
     }
 
     /* --- Layer 2: combo 活跃时提高消行保证 --- */

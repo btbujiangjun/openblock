@@ -211,6 +211,148 @@ describe('adaptiveSpawn._applyPbOvershootBoost — D4 超 PB 加压', () => {
     });
 });
 
+/* ============ U1: _applySpawnHintsBaseRules ============ */
+/* 引用实现（与源同源；用于断言原有 9 条规则的顺序赋值/min/max 混用语义不被破坏）。 */
+function _applySpawnHintsBaseRulesRef(s) {
+    let clearGuarantee = s.clearGuarantee;
+    let sizePreference = s.sizePreference;
+    let diversityBoost = s.diversityBoost;
+    const { profile, frustThreshold, flow, eng, ctx, holes, topoCfg, hasBottleneckSignal } = s;
+
+    if (profile.hadRecentNearMiss) {
+        clearGuarantee = Math.max(clearGuarantee, eng.nearMissClearGuarantee ?? 2);
+    }
+    if (profile.frustrationLevel >= frustThreshold) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = -0.3;
+    }
+    if (profile.needsRecovery) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = -0.5;
+    }
+    if (flow === 'bored') {
+        diversityBoost = eng.noveltyDiversityBoost ?? 0.15;
+    }
+    if (profile.isInOnboarding) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = -0.4;
+    }
+    if (profile.sessionPhase === 'late' && profile.momentum < -0.3) {
+        sizePreference = Math.min(sizePreference, -0.2);
+        clearGuarantee = Math.max(clearGuarantee, 1);
+    }
+    const rsc = ctx.roundsSinceClear ?? 0;
+    if (rsc >= 2) clearGuarantee = Math.max(clearGuarantee, 2);
+    if (rsc >= 4) {
+        clearGuarantee = Math.max(clearGuarantee, 3);
+        sizePreference = Math.min(sizePreference, -0.35);
+    }
+    if (holes >= (topoCfg.holeClearGuaranteeAt ?? 2)) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, topoCfg.holeSizePreference ?? -0.22);
+    }
+    if (hasBottleneckSignal) {
+        const cgAt = Number.isFinite(topoCfg.bottleneckClearGuaranteeAt)
+            ? topoCfg.bottleneckClearGuaranteeAt : 2;
+        const sizeDelta = Number.isFinite(topoCfg.bottleneckSizePreferenceDelta)
+            ? topoCfg.bottleneckSizePreferenceDelta : -0.18;
+        clearGuarantee = Math.max(clearGuarantee, cgAt);
+        sizePreference = Math.min(sizePreference, sizeDelta);
+    }
+    return { clearGuarantee, sizePreference, diversityBoost };
+}
+
+describe('adaptiveSpawn._applySpawnHintsBaseRules — 9 条规则的顺序赋值语义', () => {
+    const baseInput = (over = {}) => ({
+        clearGuarantee: 1, sizePreference: 0, diversityBoost: 0,
+        profile: { hadRecentNearMiss: false, frustrationLevel: 0, needsRecovery: false, isInOnboarding: false, sessionPhase: 'mid', momentum: 0 },
+        frustThreshold: 0.6, flow: 'flow', eng: {}, ctx: { roundsSinceClear: 0 },
+        holes: 0, topoCfg: {}, hasBottleneckSignal: false,
+        ...over,
+    });
+
+    it('零信号 → 输出原值', () => {
+        const r = _applySpawnHintsBaseRulesRef(baseInput());
+        expect(r).toEqual({ clearGuarantee: 1, sizePreference: 0, diversityBoost: 0 });
+    });
+
+    it('nearMiss → clearGuarantee 抬到 eng.nearMissClearGuarantee', () => {
+        const r = _applySpawnHintsBaseRulesRef(baseInput({
+            profile: { hadRecentNearMiss: true, frustrationLevel: 0, needsRecovery: false, isInOnboarding: false, sessionPhase: 'mid', momentum: 0 },
+            eng: { nearMissClearGuarantee: 3 },
+        }));
+        expect(r.clearGuarantee).toBe(3);
+    });
+
+    it('frust+recovery+onboarding → sizePreference=-0.4（onboarding 最后覆盖，关键不变量）', () => {
+        const r = _applySpawnHintsBaseRulesRef(baseInput({
+            profile: { hadRecentNearMiss: false, frustrationLevel: 0.8, needsRecovery: true, isInOnboarding: true, sessionPhase: 'mid', momentum: 0 },
+        }));
+        expect(r.sizePreference).toBe(-0.4);
+        expect(r.clearGuarantee).toBe(2);
+    });
+
+    it('frust+recovery 无 onboarding → sizePreference=-0.5（recovery 最后覆盖）', () => {
+        const r = _applySpawnHintsBaseRulesRef(baseInput({
+            profile: { hadRecentNearMiss: false, frustrationLevel: 0.8, needsRecovery: true, isInOnboarding: false, sessionPhase: 'mid', momentum: 0 },
+        }));
+        expect(r.sizePreference).toBe(-0.5);
+    });
+
+    it('只 frust → sizePreference=-0.3', () => {
+        const r = _applySpawnHintsBaseRulesRef(baseInput({
+            profile: { hadRecentNearMiss: false, frustrationLevel: 0.8, needsRecovery: false, isInOnboarding: false, sessionPhase: 'mid', momentum: 0 },
+        }));
+        expect(r.sizePreference).toBe(-0.3);
+    });
+
+    it('bored → diversityBoost = eng.noveltyDiversityBoost', () => {
+        const r = _applySpawnHintsBaseRulesRef(baseInput({
+            flow: 'bored', eng: { noveltyDiversityBoost: 0.25 },
+        }));
+        expect(r.diversityBoost).toBe(0.25);
+    });
+
+    it('late+低 momentum → sizePreference = min(prev, -0.2)', () => {
+        const r = _applySpawnHintsBaseRulesRef(baseInput({
+            profile: { hadRecentNearMiss: false, frustrationLevel: 0, needsRecovery: false, isInOnboarding: false, sessionPhase: 'late', momentum: -0.5 },
+        }));
+        expect(r.sizePreference).toBe(-0.2);
+    });
+
+    it('roundsSinceClear ≥ 4 → clearGuarantee=3 + sizePreference ≤ -0.35', () => {
+        const r = _applySpawnHintsBaseRulesRef(baseInput({ ctx: { roundsSinceClear: 5 } }));
+        expect(r.clearGuarantee).toBe(3);
+        expect(r.sizePreference).toBeLessThanOrEqual(-0.35);
+    });
+
+    it('holes ≥ topoCfg.holeClearGuaranteeAt → clearGuarantee 抬 + 偏小块', () => {
+        const r = _applySpawnHintsBaseRulesRef(baseInput({
+            holes: 3, topoCfg: { holeClearGuaranteeAt: 2, holeSizePreference: -0.25 },
+        }));
+        expect(r.clearGuarantee).toBeGreaterThanOrEqual(2);
+        expect(r.sizePreference).toBeLessThanOrEqual(-0.25);
+    });
+
+    it('hasBottleneckSignal → 配置驱动的 cgAt + sizeDelta', () => {
+        const r = _applySpawnHintsBaseRulesRef(baseInput({
+            hasBottleneckSignal: true,
+            topoCfg: { bottleneckClearGuaranteeAt: 3, bottleneckSizePreferenceDelta: -0.30 },
+        }));
+        expect(r.clearGuarantee).toBe(3);
+        expect(r.sizePreference).toBe(-0.30);
+    });
+
+    it('空 cfg → 走硬默认（cg=2 / sizeDelta=-0.18 / noveltyBoost=0.15 / holeSize=-0.22）', () => {
+        const r = _applySpawnHintsBaseRulesRef(baseInput({
+            holes: 5, hasBottleneckSignal: true, flow: 'bored',
+        }));
+        expect(r.clearGuarantee).toBe(2);
+        expect(r.sizePreference).toBeCloseTo(-0.22, 4);
+        expect(r.diversityBoost).toBe(0.15);
+    });
+});
+
 describe('adaptiveSpawn._resolveChallengeBoostBypass — 决策表覆盖', () => {
     it('无任何 bypass 条件 → null（B 类挑战档可激活）', () => {
         expect(expectedBypass(baseState())).toBeNull();
