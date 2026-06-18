@@ -350,6 +350,50 @@ const SPAWN_HINTS_RISK_RELIEF_TABLE = [
     },
 ];
 
+/**
+ * spawnHints 第 3 段：combo + winback + postPbRelease 三段叠加
+ * （v1.71 W4 抽出，原 L2310-2333）。
+ *
+ * 三段都使用 **加法 + clamp** 语义（非幂等 min/max），因此不能用 decisionTable DSL；
+ * 但抽出为 helper 仍能让主函数瘦身，并提供精确的不变量文档：
+ *
+ * **重要不变量**：
+ *   - combo：`comboChain > 0.5` 时 `Math.max(cg, 2)`（幂等）
+ *   - winback：`clearGuarantee + boost` 再 clamp 到 [_, 3]（**加法，非幂等**）
+ *   - winback：`sizePreference + shift` 再 clamp 到 [-1, _]（**加法，非幂等**）
+ *   - postPbRelease：`clearGuarantee + 1` 再 clamp 到 [_, 3]（**加法**）
+ *   - postPbRelease：`sizePreference = Math.min(_, -0.15)`（幂等）
+ *
+ * 加法语义在多次调用此 helper 时会累积，**所以本 helper 不可被同次主路径调用多次**。
+ *
+ * @param {object} s 输入状态
+ * @returns {{ clearGuarantee, sizePreference }}
+ */
+function _applySpawnHintsComboWinbackRules(s) {
+    let { clearGuarantee, sizePreference } = s;
+    const { comboChain, winbackPreset, ctx } = s;
+
+    if (comboChain > 0.5) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+    }
+
+    if (winbackPreset) {
+        if (Number.isFinite(winbackPreset.clearGuaranteeBoost) && winbackPreset.clearGuaranteeBoost > 0) {
+            clearGuarantee = Math.min(3, clearGuarantee + winbackPreset.clearGuaranteeBoost);
+        }
+        if (Number.isFinite(winbackPreset.sizePreferenceShift) && winbackPreset.sizePreferenceShift < 0) {
+            sizePreference = Math.max(-1, sizePreference + winbackPreset.sizePreferenceShift);
+        }
+    }
+
+    if (ctx?.postPbReleaseActive === true) {
+        clearGuarantee = Math.min(3, clearGuarantee + 1);
+        sizePreference = Math.min(sizePreference, -0.15);
+    }
+
+    return { clearGuarantee, sizePreference };
+}
+
 function _applySpawnHintsRiskReliefRules(s) {
     /* 原地修改 state；调用方 destructure 5 个返回字段（保持原 API 形状） */
     applyDecisionTable(SPAWN_HINTS_RISK_RELIEF_TABLE, s);
@@ -2307,29 +2351,17 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         diversityBoost = _base.diversityBoost;
     }
 
-    /* --- Layer 2: combo 活跃时提高消行保证 --- */
-    if (comboChain > 0.5) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-    }
-
-    /* --- v1.48 winback 保护包：spawnHints 加成 ---
-     * 与上方 stress cap 同来源；进入回流保护期后给 spawnHints 加固，确保
-     * "保护包确实让前 3 局更轻松"。 */
-    if (winbackPreset) {
-        if (Number.isFinite(winbackPreset.clearGuaranteeBoost) && winbackPreset.clearGuaranteeBoost > 0) {
-            clearGuarantee = Math.min(3, clearGuarantee + winbackPreset.clearGuaranteeBoost);
-        }
-        if (Number.isFinite(winbackPreset.sizePreferenceShift) && winbackPreset.sizePreferenceShift < 0) {
-            sizePreference = Math.max(-1, sizePreference + winbackPreset.sizePreferenceShift);
-        }
-    }
-
-    /* --- v1.55 §4.9：postPbRelease spawnHints 加成 ---
-     * 与上方 stress×0.7 同来源；释放窗口期内进一步抬保消（+1）+ 略偏小块，
-     * 确保玩家在"破纪录后下三波"切实感到轻盈而不是被下波加压重新攻击。 */
-    if (ctx.postPbReleaseActive === true) {
-        clearGuarantee = Math.min(3, clearGuarantee + 1);
-        sizePreference = Math.min(sizePreference, -0.15);
+    /* --- Layer 2 combo + v1.48 winback + v1.55 postPbRelease：
+     * v1.71 W4 抽至 _applySpawnHintsComboWinbackRules。
+     * 注意：含**加法语义**（winback boost / postPb +1），非幂等，
+     * 不可被同次主路径重复调用。 */
+    {
+        const _cw = _applySpawnHintsComboWinbackRules({
+            clearGuarantee, sizePreference,
+            comboChain, winbackPreset, ctx,
+        });
+        clearGuarantee = _cw.clearGuarantee;
+        sizePreference = _cw.sizePreference;
     }
 
     /* --- Ability 风险护栏 + 实时状态救济：v1.71 V1 抽至 _applySpawnHintsRiskReliefRules

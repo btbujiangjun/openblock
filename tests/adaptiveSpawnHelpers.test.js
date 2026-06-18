@@ -262,6 +262,109 @@ function _applySpawnHintsBaseRulesRef(s) {
     return { clearGuarantee, sizePreference, diversityBoost };
 }
 
+/* ============ W4: _applySpawnHintsComboWinbackRules ============ */
+function _applySpawnHintsComboWinbackRulesRef(s) {
+    let { clearGuarantee, sizePreference } = s;
+    const { comboChain, winbackPreset, ctx } = s;
+    if (comboChain > 0.5) clearGuarantee = Math.max(clearGuarantee, 2);
+    if (winbackPreset) {
+        if (Number.isFinite(winbackPreset.clearGuaranteeBoost) && winbackPreset.clearGuaranteeBoost > 0) {
+            clearGuarantee = Math.min(3, clearGuarantee + winbackPreset.clearGuaranteeBoost);
+        }
+        if (Number.isFinite(winbackPreset.sizePreferenceShift) && winbackPreset.sizePreferenceShift < 0) {
+            sizePreference = Math.max(-1, sizePreference + winbackPreset.sizePreferenceShift);
+        }
+    }
+    if (ctx?.postPbReleaseActive === true) {
+        clearGuarantee = Math.min(3, clearGuarantee + 1);
+        sizePreference = Math.min(sizePreference, -0.15);
+    }
+    return { clearGuarantee, sizePreference };
+}
+
+describe('adaptiveSpawn._applySpawnHintsComboWinbackRules — combo/winback/postPb 三段叠加', () => {
+    const baseInput = (over = {}) => ({
+        clearGuarantee: 1, sizePreference: 0,
+        comboChain: 0, winbackPreset: null, ctx: {}, ...over,
+    });
+
+    it('零信号 → 输出原值', () => {
+        expect(_applySpawnHintsComboWinbackRulesRef(baseInput())).toEqual({ clearGuarantee: 1, sizePreference: 0 });
+    });
+
+    it('combo > 0.5 → clearGuarantee = max(_, 2)', () => {
+        expect(_applySpawnHintsComboWinbackRulesRef(baseInput({ comboChain: 0.6 })).clearGuarantee).toBe(2);
+        expect(_applySpawnHintsComboWinbackRulesRef(baseInput({ comboChain: 0.5 })).clearGuarantee).toBe(1);
+    });
+
+    it('winback boost：加法 + clamp 到 3', () => {
+        const r = _applySpawnHintsComboWinbackRulesRef(baseInput({
+            clearGuarantee: 2,
+            winbackPreset: { clearGuaranteeBoost: 5 }, /* 2+5=7 → clamp 3 */
+        }));
+        expect(r.clearGuarantee).toBe(3);
+    });
+
+    it('winback sizePreferenceShift：加法 + clamp 到 -1', () => {
+        const r = _applySpawnHintsComboWinbackRulesRef(baseInput({
+            sizePreference: -0.5,
+            winbackPreset: { sizePreferenceShift: -2 }, /* -0.5+(-2) = -2.5 → clamp -1 */
+        }));
+        expect(r.sizePreference).toBe(-1);
+    });
+
+    it('winback boost = 0 / NaN → 不变', () => {
+        const r = _applySpawnHintsComboWinbackRulesRef(baseInput({
+            winbackPreset: { clearGuaranteeBoost: 0 },
+        }));
+        expect(r.clearGuarantee).toBe(1);
+    });
+
+    it('winback shift > 0 不触发（必须 < 0）', () => {
+        const r = _applySpawnHintsComboWinbackRulesRef(baseInput({
+            winbackPreset: { sizePreferenceShift: 0.5 },
+        }));
+        expect(r.sizePreference).toBe(0);
+    });
+
+    it('postPbRelease：clearGuarantee +1 clamp 3, sizePreference min(-0.15)', () => {
+        const r = _applySpawnHintsComboWinbackRulesRef(baseInput({
+            clearGuarantee: 1, sizePreference: 0, ctx: { postPbReleaseActive: true },
+        }));
+        expect(r.clearGuarantee).toBe(2);
+        expect(r.sizePreference).toBe(-0.15);
+    });
+
+    it('postPbRelease 时已经在 -0.5：sizePreference 取较小值', () => {
+        const r = _applySpawnHintsComboWinbackRulesRef(baseInput({
+            sizePreference: -0.5, ctx: { postPbReleaseActive: true },
+        }));
+        expect(r.sizePreference).toBe(-0.5);
+    });
+
+    it('combo + winback + postPb 同时触发 → 加法累积（关键不变量）', () => {
+        const r = _applySpawnHintsComboWinbackRulesRef(baseInput({
+            comboChain: 0.7, clearGuarantee: 1, sizePreference: 0,
+            winbackPreset: { clearGuaranteeBoost: 1, sizePreferenceShift: -0.3 },
+            ctx: { postPbReleaseActive: true },
+        }));
+        /* combo: cg = max(1,2) = 2
+         * winback: cg = min(3, 2+1) = 3；sp = max(-1, 0+(-0.3)) = -0.3
+         * postPb: cg = min(3, 3+1) = 3；sp = min(-0.3, -0.15) = -0.3 */
+        expect(r.clearGuarantee).toBe(3);
+        expect(r.sizePreference).toBe(-0.3);
+    });
+
+    it('幂等性反例：本 helper **不可** 重复调用（postPb 加法会累积）', () => {
+        /* 这是文档化反例：说明为什么不能用 decisionTable DSL */
+        const input = baseInput({ clearGuarantee: 1, ctx: { postPbReleaseActive: true } });
+        const r1 = _applySpawnHintsComboWinbackRulesRef(input);
+        const r2 = _applySpawnHintsComboWinbackRulesRef({ ...input, clearGuarantee: r1.clearGuarantee });
+        expect(r1.clearGuarantee).toBe(2);  /* 1+1=2 */
+        expect(r2.clearGuarantee).toBe(3);  /* 2+1=3，已变 */
+    });
+});
+
 /* ============ V1: _applySpawnHintsRiskReliefRules ============ */
 function _applySpawnHintsRiskReliefRulesRef(s) {
     let { clearGuarantee, sizePreference, multiClearBonus, diversityBoost, rhythmPhase } = s;
