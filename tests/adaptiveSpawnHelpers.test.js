@@ -262,6 +262,91 @@ function _applySpawnHintsBaseRulesRef(s) {
     return { clearGuarantee, sizePreference, diversityBoost };
 }
 
+/* ============ X2: _resolveFarFromPBBoostBypass / _resolveExpertEarlyBoostBypass ============ */
+/* 引用实现：与源同源；用于断言 priorityLadder 顺序敏感行为契约。 */
+function _resolveFarFromPBBoostBypassRef(s) {
+    if (s.bestScore < s.intenseFloor) return 'low_best_score';
+    if (s.pctOfBest >= s.farThreshold) return 'pct_above_threshold';
+    if (s.sessionArc === 'warmup') return 'warmup';
+    if (s.profile?.needsRecovery === true) return 'recovery';
+    if (s.profile?.hadRecentNearMiss) return 'near_miss';
+    if (s.ctx?.pbGrowthFast === true) return 'pb_growth_throttled';
+    if (s.ctx?.postPbReleaseActive === true) return 'post_pb_release';
+    return null;
+}
+
+function _resolveExpertEarlyBoostBypassRef(s) {
+    if (s.bestScore < s.expertThreshold) return 'not_expert';
+    if (s.rDifficulty >= s.earlyUntil) return 'past_early_phase';
+    if (s.sessionArc === 'warmup') return 'warmup';
+    if (s.profile?.needsRecovery === true) return 'recovery';
+    if (s.profile?.hadRecentNearMiss) return 'near_miss';
+    if (s.ctx?.postPbReleaseActive === true) return 'post_pb_release';
+    return null;
+}
+
+describe('adaptiveSpawn._resolveFarFromPBBoostBypass — priorityLadder 7 条', () => {
+    const base = (over = {}) => ({
+        bestScore: 1000, intenseFloor: 200, pctOfBest: 0.20, farThreshold: 0.30,
+        sessionArc: 'peak', profile: {}, ctx: {}, ...over,
+    });
+    it('零信号 → null（active 应执行）', () => {
+        expect(_resolveFarFromPBBoostBypassRef(base())).toBeNull();
+    });
+    it('low_best_score 最优先（bestScore<intenseFloor）', () => {
+        expect(_resolveFarFromPBBoostBypassRef(base({ bestScore: 100, intenseFloor: 200 }))).toBe('low_best_score');
+    });
+    it('pct_above_threshold（差距不够远）', () => {
+        expect(_resolveFarFromPBBoostBypassRef(base({ pctOfBest: 0.50 }))).toBe('pct_above_threshold');
+    });
+    it('warmup → warmup', () => {
+        expect(_resolveFarFromPBBoostBypassRef(base({ sessionArc: 'warmup' }))).toBe('warmup');
+    });
+    it('recovery → recovery', () => {
+        expect(_resolveFarFromPBBoostBypassRef(base({ profile: { needsRecovery: true } }))).toBe('recovery');
+    });
+    it('near_miss → near_miss', () => {
+        expect(_resolveFarFromPBBoostBypassRef(base({ profile: { hadRecentNearMiss: true } }))).toBe('near_miss');
+    });
+    it('pb_growth_throttled', () => {
+        expect(_resolveFarFromPBBoostBypassRef(base({ ctx: { pbGrowthFast: true } }))).toBe('pb_growth_throttled');
+    });
+    it('post_pb_release', () => {
+        expect(_resolveFarFromPBBoostBypassRef(base({ ctx: { postPbReleaseActive: true } }))).toBe('post_pb_release');
+    });
+    it('多触发 → low_best_score 优先', () => {
+        const r = _resolveFarFromPBBoostBypassRef(base({
+            bestScore: 50, intenseFloor: 200,
+            sessionArc: 'warmup', profile: { needsRecovery: true },
+        }));
+        expect(r).toBe('low_best_score');
+    });
+});
+
+describe('adaptiveSpawn._resolveExpertEarlyBoostBypass — priorityLadder 6 条', () => {
+    const base = (over = {}) => ({
+        bestScore: 1500, expertThreshold: 1200, rDifficulty: 0.30, earlyUntil: 0.45,
+        sessionArc: 'peak', profile: {}, ctx: {}, ...over,
+    });
+    it('零信号 → null', () => {
+        expect(_resolveExpertEarlyBoostBypassRef(base())).toBeNull();
+    });
+    it('not_expert 最优先', () => {
+        expect(_resolveExpertEarlyBoostBypassRef(base({ bestScore: 500 }))).toBe('not_expert');
+    });
+    it('past_early_phase', () => {
+        expect(_resolveExpertEarlyBoostBypassRef(base({ rDifficulty: 0.50 }))).toBe('past_early_phase');
+    });
+    it('warmup', () => {
+        expect(_resolveExpertEarlyBoostBypassRef(base({ sessionArc: 'warmup' }))).toBe('warmup');
+    });
+    it('recovery / near_miss / post_pb_release 顺序覆盖', () => {
+        expect(_resolveExpertEarlyBoostBypassRef(base({ profile: { needsRecovery: true } }))).toBe('recovery');
+        expect(_resolveExpertEarlyBoostBypassRef(base({ profile: { hadRecentNearMiss: true } }))).toBe('near_miss');
+        expect(_resolveExpertEarlyBoostBypassRef(base({ ctx: { postPbReleaseActive: true } }))).toBe('post_pb_release');
+    });
+});
+
 /* ============ W4: _applySpawnHintsComboWinbackRules ============ */
 function _applySpawnHintsComboWinbackRulesRef(s) {
     let { clearGuarantee, sizePreference } = s;

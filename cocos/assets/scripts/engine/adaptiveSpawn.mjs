@@ -372,6 +372,46 @@ const SPAWN_HINTS_RISK_RELIEF_TABLE = [
  * @param {object} s 输入状态
  * @returns {{ clearGuarantee, sizePreference }}
  */
+/**
+ * farFromPBBoost bypass ladder（v1.71 X2 抽出 L2479-2495）。
+ *
+ * 短路优先级：low_best_score → pct_above_threshold → warmup → recovery
+ *           → near_miss → pb_growth_throttled → post_pb_release
+ * 命中即返回 bypass 字符串，未命中返回 null（即 active 分支应执行）。
+ *
+ * @returns {string|null} bypass 原因
+ */
+function _resolveFarFromPBBoostBypass(s) {
+    return applyPriorityLadder([
+        { name: 'low_best_score',      when: (st) => st.bestScore < st.intenseFloor,                       value: 'low_best_score' },
+        { name: 'pct_above_threshold', when: (st) => st.pctOfBest >= st.farThreshold,                       value: 'pct_above_threshold' },
+        { name: 'warmup',              when: (st) => st.sessionArc === 'warmup',                            value: 'warmup' },
+        { name: 'recovery',            when: (st) => st.profile?.needsRecovery === true,                    value: 'recovery' },
+        { name: 'near_miss',           when: (st) => st.profile?.hadRecentNearMiss,                         value: 'near_miss' },
+        { name: 'pb_growth_throttled', when: (st) => st.ctx?.pbGrowthFast === true,                         value: 'pb_growth_throttled' },
+        { name: 'post_pb_release',     when: (st) => st.ctx?.postPbReleaseActive === true,                  value: 'post_pb_release' },
+    ], s, null);
+}
+
+/**
+ * expertEarlyBoost bypass ladder（v1.71 X2 抽出 L2557-2568）。
+ *
+ * 短路优先级：not_expert → past_early_phase → warmup → recovery
+ *           → near_miss → post_pb_release
+ *
+ * @returns {string|null} bypass 原因
+ */
+function _resolveExpertEarlyBoostBypass(s) {
+    return applyPriorityLadder([
+        { name: 'not_expert',        when: (st) => st.bestScore < st.expertThreshold,                       value: 'not_expert' },
+        { name: 'past_early_phase',  when: (st) => st.rDifficulty >= st.earlyUntil,                         value: 'past_early_phase' },
+        { name: 'warmup',            when: (st) => st.sessionArc === 'warmup',                              value: 'warmup' },
+        { name: 'recovery',          when: (st) => st.profile?.needsRecovery === true,                      value: 'recovery' },
+        { name: 'near_miss',         when: (st) => st.profile?.hadRecentNearMiss,                           value: 'near_miss' },
+        { name: 'post_pb_release',   when: (st) => st.ctx?.postPbReleaseActive === true,                    value: 'post_pb_release' },
+    ], s, null);
+}
+
 function _applySpawnHintsComboWinbackRules(s) {
     let { clearGuarantee, sizePreference } = s;
     const { comboChain, winbackPreset, ctx } = s;
@@ -2479,24 +2519,12 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     if (farCfg && farCfg.enabled !== false && ctx.bestScore > 0) {
         const pctOfBest = score / ctx.bestScore;
         const farThreshold = Number.isFinite(farCfg.pctThreshold) ? farCfg.pctThreshold : 0.30;
-        if (ctx.bestScore < _intenseFloor) {
-            // v1.56.2 §5.α.6：低 PB 守卫——best 太低时（默认 < 200），
-            // 远征送爽对新手无意义（盘面本就空旷、PB 太近无压力），跳过算法注入。
-            farFromPBBoostBypass = 'low_best_score';
-        } else if (pctOfBest >= farThreshold) {
-            farFromPBBoostBypass = 'pct_above_threshold';
-        } else if (sessionArc === 'warmup') {
-            farFromPBBoostBypass = 'warmup';
-        } else if (profile.needsRecovery === true) {
-            farFromPBBoostBypass = 'recovery';
-        } else if (profile.hadRecentNearMiss) {
-            farFromPBBoostBypass = 'near_miss';
-        } else if (ctx.pbGrowthFast === true) {
-            // Q+1.4：PB 增长率过快 → 节流；交由 game.js 上游计算
-            farFromPBBoostBypass = 'pb_growth_throttled';
-        } else if (ctx.postPbReleaseActive === true) {
-            farFromPBBoostBypass = 'post_pb_release';
-        } else {
+        /* v1.71 X2：bypass ladder 抽至 _resolveFarFromPBBoostBypass（priorityLadder DSL） */
+        farFromPBBoostBypass = _resolveFarFromPBBoostBypass({
+            bestScore: ctx.bestScore, intenseFloor: _intenseFloor,
+            pctOfBest, farThreshold, sessionArc, profile, ctx,
+        });
+        if (farFromPBBoostBypass === null) {
             farFromPBBoostActive = true;
             const cgBoost = Math.max(0, Math.min(2, Number(farCfg.clearGuaranteeBoost) || 1));
             // θ-E: farFromPBBoost (modelConfig 优先) - 控制 multiClearBonus floor 总强度
@@ -2557,19 +2585,12 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         const earlyUntil = Number.isFinite(eebCfg.earlyRampUntil) ? eebCfg.earlyRampUntil : 0.45;
         const effPb = deriveEffectivePb(ctx.bestScore, GAME_RULES.dynamicDifficulty);
         const rDifficulty = effPb > 0 ? score / effPb : 0;
-        if (ctx.bestScore < expertThreshold) {
-            expertEarlyBoostBypass = 'not_expert';
-        } else if (rDifficulty >= earlyUntil) {
-            expertEarlyBoostBypass = 'past_early_phase';
-        } else if (sessionArc === 'warmup') {
-            expertEarlyBoostBypass = 'warmup';
-        } else if (profile.needsRecovery === true) {
-            expertEarlyBoostBypass = 'recovery';
-        } else if (profile.hadRecentNearMiss) {
-            expertEarlyBoostBypass = 'near_miss';
-        } else if (ctx.postPbReleaseActive === true) {
-            expertEarlyBoostBypass = 'post_pb_release';
-        } else {
+        /* v1.71 X2：bypass ladder 抽至 _resolveExpertEarlyBoostBypass（priorityLadder DSL） */
+        expertEarlyBoostBypass = _resolveExpertEarlyBoostBypass({
+            bestScore: ctx.bestScore, expertThreshold, rDifficulty, earlyUntil,
+            sessionArc, profile, ctx,
+        });
+        if (expertEarlyBoostBypass === null) {
             expertEarlyBoostActive = true;
             const mcbFloor = Math.max(0, Math.min(1, Number(eebCfg.multiClearBonusFloor) || 0.5));
             const pcFloor = Math.max(0, Math.min(1, Number(eebCfg.perfectClearBoostFloor) || 0.5));
