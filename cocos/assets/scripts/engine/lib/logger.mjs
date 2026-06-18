@@ -30,6 +30,28 @@
 
 const LEVELS = Object.freeze({ debug: 10, info: 20, warn: 30, error: 40, silent: 99 });
 
+/* ── v1.71 ring buffer + 远程结构化上报 ────────────────────────────────
+ * 设计目标：
+ *   - 进程内保留最近 N 条结构化日志（含时间、级别、tag、参数），
+ *     在 error 触发时整批 dump 给上报 sink，给运维"事故现场上下文"
+ *   - 远程上报 sink 默认 no-op；业务侧（analyticsTracker / Sentry / Datadog）
+ *     通过 setRemoteSink(fn) 注入；纯函数 sink，错误自动被 logger 兜住不传染
+ *   - 同 tag+message 错误 30s 内只上报 1 次（防风暴）
+ *   - 上报零阻塞：所有 sink 调用走 try-catch，且失败不会回流到 logger 自身
+ *
+ * 不做的事：
+ *   - 不引入异步队列（保持 SSR/早期 init 同步可用；上报 sink 自己处理 batch）
+ *   - 不持久化（防 GDPR / 跨设备追踪）
+ *   - 不暴露内部 buffer 给业务侧迭代（防内存泄漏）；只在 error 时通过 sink 回调暴露 */
+
+const RING_CAPACITY = 200;
+const _ringBuffer = new Array(RING_CAPACITY); // 循环数组
+let _ringHead = 0;                              // 下一条要写入的位置
+let _ringSize = 0;                              // 当前已写条数（≤ RING_CAPACITY）
+const _errorDedupe = new Map();                 // `${tag}|${msg}` → lastTsMs
+const ERROR_DEDUPE_WINDOW_MS = 30_000;
+let _remoteSink = null;                         // (entry, recentContext) => void | null
+
 /* 解析优先级（高 → 低）：
  *   1. URL ?log=<level>      （前端临时调试）
  *   2. globalThis.__OPENBLOCK_LOG_LEVEL__   （setLogLevel / 测试 / 远程注入）
@@ -60,12 +82,53 @@ function _resolveLevel() {
 }
 
 function _emit(method, tag, args) {
-    /* console 在 Cocos 原生 / 老 Capacitor 上偶有缺失方法，做兜底。 */
+    /* 1. 写入 ring buffer（每条结构化记录） */
+    const entry = {
+        ts: Date.now(),
+        level: method,
+        tag,
+        args, // 注意：保留引用；sink 端如需序列化自行 try/catch
+    };
+    _ringBuffer[_ringHead] = entry;
+    _ringHead = (_ringHead + 1) % RING_CAPACITY;
+    if (_ringSize < RING_CAPACITY) _ringSize++;
+
+    /* 2. console 输出（兼容 Cocos 原生 / 老 Capacitor 偶缺方法） */
     const fn = (typeof console !== 'undefined' && typeof console[method] === 'function')
         ? console[method]
         : (typeof console !== 'undefined' && typeof console.log === 'function' ? console.log : null);
-    if (!fn) return;
-    fn(`[${tag}]`, ...args);
+    if (fn) fn(`[${tag}]`, ...args);
+
+    /* 3. error 级别触发远程上报（去重 + 兜错） */
+    if (method === 'error' && _remoteSink) {
+        const firstArg = args[0];
+        const msgKey = `${tag}|${typeof firstArg === 'string' ? firstArg : (firstArg?.message || 'err')}`;
+        const lastTs = _errorDedupe.get(msgKey) || 0;
+        if (entry.ts - lastTs >= ERROR_DEDUPE_WINDOW_MS) {
+            _errorDedupe.set(msgKey, entry.ts);
+            try {
+                _remoteSink(entry, _snapshotRing());
+            } catch { /* sink 失败不传染 logger 自身 */ }
+        }
+    }
+}
+
+/**
+ * 返回 ring buffer 的有序快照（旧→新）。WeakMap 不可，必须新建数组。
+ * 内部使用；sink 端收到该数组后请视为不可变（O(N) 拷贝避免业务侧污染内部状态）。
+ */
+function _snapshotRing() {
+    const out = new Array(_ringSize);
+    if (_ringSize < RING_CAPACITY) {
+        /* 还没填满：0..head-1 即顺序 */
+        for (let i = 0; i < _ringSize; i++) out[i] = _ringBuffer[i];
+    } else {
+        /* 已绕回：从 head 开始读 */
+        for (let i = 0; i < RING_CAPACITY; i++) {
+            out[i] = _ringBuffer[(_ringHead + i) % RING_CAPACITY];
+        }
+    }
+    return out;
 }
 
 /**
@@ -94,6 +157,40 @@ export function setLogLevel(level) {
 }
 
 export const LOG_LEVELS = LEVELS;
+
+/**
+ * 注入远程上报 sink。当 error 级别被触发时（且通过去重窗口），
+ * sink 收到当前 entry + 整个 ring buffer 的快照（旧→新有序）。
+ *
+ *   setRemoteSink((entry, recentContext) => {
+ *     analyticsTracker.trackEvent('client_error', { entry, recentContext });
+ *   });
+ *
+ * 传 null 即可禁用上报。
+ *
+ * @param {((entry: {ts:number,level:string,tag:string,args:Array}, recentContext: Array) => void) | null} sink
+ */
+export function setRemoteSink(sink) {
+    _remoteSink = typeof sink === 'function' ? sink : null;
+}
+
+/**
+ * 调试 / 自检：返回 ring buffer 快照。生产代码不应频繁调用（会拷贝整个 buffer）。
+ * 主要用于：
+ *   - perfOverlay / DevTools 查看最近日志
+ *   - 单测断言 error 是否被记录
+ */
+export function getRecentLogs() {
+    return _snapshotRing();
+}
+
+/** 测试 / hot-reload 专用：清空 ring buffer + 去重表。 */
+export function _resetLoggerState() {
+    _ringHead = 0;
+    _ringSize = 0;
+    _errorDedupe.clear();
+    for (let i = 0; i < RING_CAPACITY; i++) _ringBuffer[i] = undefined;
+}
 
 /**
  * 根据 game_rules.logging 段 + 运行环境设定级别。
