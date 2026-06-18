@@ -1,0 +1,88 @@
+# v1.71 MM3：每周自动跑 LL3 audit-artifacts，写 GitHub Issue 汇报
+# 规范遵循：
+#   - II4 retention: 报告 artifact retention-days=90（趋势类）
+#   - JJ5 lint:strict: workflow 用 actions/* @v4（可信组织，LL4 接受）
+#   - LL3 audit-artifacts.mjs: 不主动删，仅审计 + ancient>5 时 fail
+
+name: weekly-artifact-audit
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'   # 周一 04:00 UTC（错开 weekly-dead-code 03:00 UTC）
+  workflow_dispatch: {}    # 支持手动触发
+
+permissions:
+  contents: read
+  issues: write           # 写汇报 Issue
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Run artifact audit
+        id: audit
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          node scripts/audit-artifacts.mjs \
+            --owner ${{ github.repository_owner }} \
+            --repo ${{ github.event.repository.name }} \
+            --out /tmp/audit-report.md
+          status=$?
+          set -e
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" -ne 0 ]; then
+            echo "audit_status=fail" >> "$GITHUB_OUTPUT"
+          else
+            echo "audit_status=ok" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload audit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: artifact-audit-week-${{ github.run_number }}
+          path: /tmp/audit-report.md
+          retention-days: 90   # II4: 趋势/审计类 90 天
+      - name: Create or update issue (only on fail or first-of-month)
+        if: steps.audit.outputs.audit_status == 'fail' || github.event.schedule == '0 4 1 * *'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('/tmp/audit-report.md', 'utf8');
+            const today = new Date().toISOString().slice(0, 10);
+            const title = `[weekly-audit] CI artifact health ${today}`;
+            const status = '${{ steps.audit.outputs.audit_status }}';
+            const finalBody = `${body}\n\n---\n_Status: **${status}** · 由 weekly-artifact-audit.yml 生成_`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'audit:artifact',
+              state: 'open',
+              per_page: 5,
+            });
+            if (issues.length > 0) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues[0].number,
+                title,
+                body: finalBody,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: finalBody,
+                labels: ['audit:artifact'],
+              });
+            }
