@@ -729,12 +729,40 @@ function _applySpawnHintsComboWinbackRules(s) {
         }
     }
 
-    if (ctx?.postPbReleaseActive === true) {
-        clearGuarantee = Math.min(3, clearGuarantee + 1);
-        sizePreference = Math.min(sizePreference, -0.15);
-    }
+    /* v1.71 GG1：postPbRelease 主体段抽至 _applySpawnHintsPostPbReleaseRules */
+    const _pp = _applySpawnHintsPostPbReleaseRules({ clearGuarantee, sizePreference }, ctx);
+    clearGuarantee = _pp.clearGuarantee;
+    sizePreference = _pp.sizePreference;
 
     return { clearGuarantee, sizePreference };
+}
+
+/**
+ * postPbRelease 主体段 spawnHints（v1.71 GG1 抽出 L729-732）。
+ *
+ * 触发：ctx.postPbReleaseActive === true（玩家刚破 PB 的释放窗口）
+ *
+ * 调整：
+ *   - clearGuarantee = min(3, current + 1)  ← **加法** 语义，clamp 到 3
+ *   - sizePreference = min(current, -0.15)  ← 幂等 min（不下推已经更小的值）
+ *
+ * 设计契约：**释放窗口"软"加力**。破纪录后给玩家更稳定的清屏体验，
+ * 但不无限叠加（clamp 到 3）；sizePreference 用 min 保留已有更负值
+ * （别的规则可能已经更激进，本规则不回退）。
+ *
+ * 非幂等：clearGuarantee 是加法，连续两次调用会变成 +2/+3。
+ * 不可被同次主路径重复调用——与 winback / combo 的加法段同段同次。
+ *
+ * @param {{clearGuarantee:number,sizePreference:number}} s
+ * @param {{postPbReleaseActive?:boolean}|null|undefined} ctx
+ * @returns {{clearGuarantee:number,sizePreference:number}}
+ */
+function _applySpawnHintsPostPbReleaseRules(s, ctx) {
+    if (ctx?.postPbReleaseActive !== true) return s;
+    return {
+        clearGuarantee: Math.min(3, s.clearGuarantee + 1),
+        sizePreference: Math.min(s.sizePreference, -0.15),
+    };
 }
 
 function _applySpawnHintsRiskReliefRules(s) {

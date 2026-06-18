@@ -1037,6 +1037,62 @@ describe('adaptiveSpawn._applySpawnHintsFriendlyBoostRules (DD1)', () => {
     });
 });
 
+/* ============ GG1: _applySpawnHintsPostPbReleaseRules ============ */
+function _applySpawnHintsPostPbReleaseRulesRef(s, ctx) {
+    if (ctx?.postPbReleaseActive !== true) return s;
+    return {
+        clearGuarantee: Math.min(3, s.clearGuarantee + 1),
+        sizePreference: Math.min(s.sizePreference, -0.15),
+    };
+}
+
+describe('adaptiveSpawn._applySpawnHintsPostPbReleaseRules (GG1)', () => {
+    const base = (over = {}) => ({ clearGuarantee: 0, sizePreference: 0, ...over });
+
+    it('ctx 缺失 → 不动', () => {
+        expect(_applySpawnHintsPostPbReleaseRulesRef(base(), null)).toEqual(base());
+        expect(_applySpawnHintsPostPbReleaseRulesRef(base(), undefined)).toEqual(base());
+    });
+
+    it('postPbReleaseActive=false → 不动', () => {
+        expect(_applySpawnHintsPostPbReleaseRulesRef(base(), { postPbReleaseActive: false }))
+            .toEqual(base());
+    });
+
+    it('postPbReleaseActive=true → cg+1 (clamp 3) / sp=min(-0.15)', () => {
+        const r = _applySpawnHintsPostPbReleaseRulesRef(base(), { postPbReleaseActive: true });
+        expect(r.clearGuarantee).toBe(1);
+        expect(r.sizePreference).toBe(-0.15);
+    });
+
+    it('cg=3 时 +1 仍 clamp 到 3（不溢出）', () => {
+        const r = _applySpawnHintsPostPbReleaseRulesRef(base({ clearGuarantee: 3 }), { postPbReleaseActive: true });
+        expect(r.clearGuarantee).toBe(3);
+    });
+
+    it('cg=2.5 → +1=3.5 clamp 3', () => {
+        const r = _applySpawnHintsPostPbReleaseRulesRef(base({ clearGuarantee: 2.5 }), { postPbReleaseActive: true });
+        expect(r.clearGuarantee).toBe(3);
+    });
+
+    it('sp=-0.5（已更负）→ 保持 -0.5（min 不回退）', () => {
+        const r = _applySpawnHintsPostPbReleaseRulesRef(base({ sizePreference: -0.5 }), { postPbReleaseActive: true });
+        expect(r.sizePreference).toBe(-0.5);
+    });
+
+    it('非幂等性守护：连续两次 cg 累加（+1+1=+2，clamp 到 3）', () => {
+        const s1 = _applySpawnHintsPostPbReleaseRulesRef(base(), { postPbReleaseActive: true });
+        const s2 = _applySpawnHintsPostPbReleaseRulesRef(s1, { postPbReleaseActive: true });
+        expect(s1.clearGuarantee).toBe(1);
+        expect(s2.clearGuarantee).toBe(2);
+    });
+
+    it('严格 === true 校验（截断 truthy 防误触发）', () => {
+        expect(_applySpawnHintsPostPbReleaseRulesRef(base(), { postPbReleaseActive: 1 })).toEqual(base());
+        expect(_applySpawnHintsPostPbReleaseRulesRef(base(), { postPbReleaseActive: 'yes' })).toEqual(base());
+    });
+});
+
 /* ============ EE1: _applySpawnHintsLowPhaseRules ============ */
 function _applySpawnHintsLowPhaseRulesRef(s, signals) {
     const { lowPhase, pcSetup, nearFullLines, lowClearGuaranteeAt } = signals;
