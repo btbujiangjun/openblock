@@ -39,6 +39,24 @@ function _iterateBits(mask, fn) {
 }
 
 /**
+ * v1.71 NN-A1：可中断版本——callback 返回 true 即终止迭代。
+ * 用于"找到第一个满足条件即跳出"模式（countGapFills 行/列扫 placement）。
+ *
+ * @param {number} mask
+ * @param {(bitIdx: number) => boolean | void} fn 返回 truthy 即中断
+ * @returns {boolean} 是否中断（true=曾返回 truthy）
+ */
+function _iterateBitsUntil(mask, fn) {
+    let m = mask;
+    while (m !== 0) {
+        const idx = 31 - Math.clz32(m & -m);
+        if (fn(idx)) return true;
+        m &= m - 1;
+    }
+    return false;
+}
+
+/**
  * v1.71 LL1：mono flush 共享 bitmap 预计算工具（potential + buildup 共用）。
  *
  * 同时返回：
@@ -957,15 +975,14 @@ export class Grid {
             const emptyMask = (~occRows[y]) & fullMask;
             const empty = _popcount32(emptyMask);
             if (empty < 1 || empty > 4) continue;
-            let mm = emptyMask;
-            while (mm !== 0) {
-                const x = _ctz32(mm);
+            /* NN-A1: _iterateBitsUntil 替代 while-ctz-break 模式（行内首个 placement 即跳出） */
+            _iterateBitsUntil(emptyMask, (x) => {
                 if (this.canPlace(shapeData, x, y)) {
                     fills += Math.max(1, 4 - empty);
-                    break; /* 与原版一致：行内找到一个即跳出 */
+                    return true; /* 命中即终止迭代（与原 break 语义一致） */
                 }
-                mm &= mm - 1;
-            }
+                return false;
+            });
         }
         /* 列扫描：构 colOcc（MM1：_iterateBits 替代） */
         const colOcc = new Int32Array(n);
@@ -976,15 +993,14 @@ export class Grid {
             const emptyMask = (~colOcc[x]) & fullMask;
             const empty = _popcount32(emptyMask);
             if (empty < 1 || empty > 4) continue;
-            let mm = emptyMask;
-            while (mm !== 0) {
-                const y = _ctz32(mm);
+            /* NN-A1: _iterateBitsUntil 替代 while-ctz-break */
+            _iterateBitsUntil(emptyMask, (y) => {
                 if (this.canPlace(shapeData, x, y)) {
                     fills += Math.max(1, 4 - empty);
-                    break;
+                    return true;
                 }
-                mm &= mm - 1;
-            }
+                return false;
+            });
         }
         return fills;
     }
