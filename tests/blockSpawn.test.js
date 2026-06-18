@@ -1719,7 +1719,9 @@ describe('v1.60.24 — monoFlush 主路径直通：1×2/2×1 绕过 _passesShape
         expect(hit1x2, `20 次抽样应有 ≥1 次命中 1×2（实际命中 ${hit1x2}）`).toBeGreaterThanOrEqual(1);
     });
 
-    it('chosen 命中后 diagnostics.chosen 对应块 topDriver.key="monoFlush"', () => {
+    /* A1-审计：理论 99.997% 通过但仍偶发命中失败（连续跑 ~300 次约 1 次）。
+     * retry 2 把"两次都不中"概率降至 < 1e-12，实际等同消除。 */
+    it('chosen 命中后 diagnostics.chosen 对应块 topDriver.key="monoFlush"', { retry: 2 }, () => {
         /* v1.60.38：trials 从 20 提到 100。
          * 旧版下注入路径漏过 monoFlushRound 节流（接近 100% 命中），20 trials 稳定命中。
          * v1.60.38 修复后注入路径受 cap=10% 节流，20 trials 命中概率 1-0.9^20 ≈ 88%

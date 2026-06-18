@@ -10,7 +10,9 @@
  *   - 返回值 + 缓存包含 bucket
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { initRemoteRules, _resetRemoteRulesForTest, _internal } from '../web/src/gameRulesRemote.js';
+import {
+    initRemoteRules, _resetRemoteRulesForTest, _internal,
+} from '../web/src/gameRulesRemote.js';
 import { GAME_RULES, _replaceRulesForRemoteSync } from '../web/src/gameRules.js';
 
 function makeStorage() {
@@ -119,17 +121,47 @@ describe('PP2 / NN-F2.3 remote bucket routing', () => {
         restore(original);
     });
 
-    it('缓存条目包含 bucket（供后续 telemetry 关联）', async () => {
+    it('缓存条目包含 bucket + 按 bucket key 隔离（A3 审计：防 A/B 污染）', async () => {
         const storage = makeStorage();
-        await initRemoteRules({
+        const r = await initRemoteRules({
             url: 'https://cdn/{bucket}.json',
             userId: 'u-cache-test',
             storage,
             fetchImpl: async () => ({ rules: { ...original } }),
         });
-        const entry = JSON.parse(storage.getItem(_internal.STORAGE_KEY));
+        /* bucket ≥ 0 → cache key 加 ":bN" 后缀 */
+        const expectedKey = `${_internal.STORAGE_KEY}:b${r.bucket}`;
+        expect(storage._map.has(expectedKey)).toBe(true);
+        expect(storage._map.has(_internal.STORAGE_KEY)).toBe(false);
+        const entry = JSON.parse(storage.getItem(expectedKey));
         expect(typeof entry.bucket).toBe('number');
-        expect(entry.bucket).toBeGreaterThanOrEqual(0);
+        expect(entry.bucket).toBe(r.bucket);
+        restore(original);
+    });
+
+    it('同设备两个 userId 落不同 bucket → cache 互不污染', async () => {
+        const storage = makeStorage();
+        /* 找两个会分到不同 bucket 的 userId */
+        const fetches = [];
+        async function run(userId, marker) {
+            _resetRemoteRulesForTest();
+            return initRemoteRules({
+                url: 'https://cdn/{bucket}.json',
+                userId,
+                storage,
+                fetchImpl: async (u) => { fetches.push(u); return { rules: { ...original, _marker: marker } }; },
+            });
+        }
+        /* 暴力找两个不同 bucket 的 userId（理论 < 11 次必中） */
+        let a = null, b = null;
+        for (let i = 0; i < 30 && (a == null || b == null || a.bucket === b.bucket); i++) {
+            a = await run(`uA-${i}`, 'A');
+            b = await run(`uB-${i}`, 'B');
+        }
+        expect(a.bucket).not.toBe(b.bucket);
+        /* 各自 key 都存在 */
+        expect(storage._map.has(`${_internal.STORAGE_KEY}:b${a.bucket}`)).toBe(true);
+        expect(storage._map.has(`${_internal.STORAGE_KEY}:b${b.bucket}`)).toBe(true);
         restore(original);
     });
 

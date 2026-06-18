@@ -133,6 +133,10 @@ export async function verifyHmacSha256({ messageBytes, signatureBytes, keyBytes 
  */
 export async function verify({ payload, signature, algorithm, key }) {
     if (!signature || !algorithm || !key) return false;
+    /* A2 审计加固：payload 必须是 object/array（remote rules 约定如此）；
+     * undefined/null/原始类型 → 直接 false，避免 canonicalJson 返 undefined
+     * 后被 TextEncoder 隐式转成字符串 "undefined" 引发歧义。 */
+    if (payload === null || payload === undefined || typeof payload !== 'object') return false;
     let messageBytes, signatureBytes, keyBytes;
     try {
         messageBytes = _utf8Bytes(canonicalJson(payload));

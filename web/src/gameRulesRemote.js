@@ -36,10 +36,16 @@ const MAX_FAILURES_PER_SESSION = 3;
 let _sessionFailures = 0;
 let _inflight = null;
 
-/* 抽象 storage 读写，避免直接耦合 localStorage（cocos / 小程序 shim） */
-function _readCache(storage) {
+/* 抽象 storage 读写，避免直接耦合 localStorage（cocos / 小程序 shim）
+ * A3 审计：cache key 按 bucket 后缀隔离。同设备多帐号 / 同 userId 多 feature
+ * 不会读到对方 cache（防 A/B 污染）。bucket=-1 走基础 key（无分桶语义）。 */
+function _cacheKey(bucket) {
+    return (bucket == null || bucket < 0) ? STORAGE_KEY : `${STORAGE_KEY}:b${bucket}`;
+}
+
+function _readCache(storage, bucket) {
     try {
-        const raw = storage?.getItem?.(STORAGE_KEY);
+        const raw = storage?.getItem?.(_cacheKey(bucket));
         if (!raw) return null;
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== 'object') return null;
@@ -47,8 +53,8 @@ function _readCache(storage) {
     } catch { return null; }
 }
 
-function _writeCache(storage, entry) {
-    try { storage?.setItem?.(STORAGE_KEY, JSON.stringify(entry)); } catch { /* ignore */ }
+function _writeCache(storage, entry, bucket) {
+    try { storage?.setItem?.(_cacheKey(bucket), JSON.stringify(entry)); } catch { /* ignore */ }
 }
 
 function _now() { return Date.now(); }
@@ -138,7 +144,7 @@ export async function initRemoteRules(opts) {
 
     _inflight = (async () => {
         /* 1. cache 命中且新鲜 → 直接用 */
-        const cached = _readCache(storage);
+        const cached = _readCache(storage, bucket);
         if (_isCacheFresh(cached) && cached.rules) {
             try {
                 /* 同样要走 schema 校验，cache 可能跨版本 */
@@ -171,7 +177,7 @@ export async function initRemoteRules(opts) {
              * 远端 rules 必须含 schemaVersion 字段，否则 _migrateRules 会按"未声明 → 1"处理。 */
             const applied = _applyRules(payload.rules);
             if (!applied) throw new Error('apply skipped (no replace interface)');
-            _writeCache(storage, { ts: _now(), rules: payload.rules, bucket });
+            _writeCache(storage, { ts: _now(), rules: payload.rules, bucket }, bucket);
             return { source: 'remote', rules: payload.rules, bucket, resolvedUrl };
         } catch (e) {
             _sessionFailures++;
