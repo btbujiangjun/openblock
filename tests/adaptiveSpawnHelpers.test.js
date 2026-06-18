@@ -1037,6 +1037,77 @@ describe('adaptiveSpawn._applySpawnHintsFriendlyBoostRules (DD1)', () => {
     });
 });
 
+/* ============ EE1: _applySpawnHintsLowPhaseRules ============ */
+function _applySpawnHintsLowPhaseRulesRef(s, signals) {
+    const { lowPhase, pcSetup, nearFullLines, lowClearGuaranteeAt } = signals;
+    if (!lowPhase) return s;
+    if (!(pcSetup >= 1 || nearFullLines >= 1)) return s;
+    const cgFloor = Number.isFinite(lowClearGuaranteeAt) ? lowClearGuaranteeAt : 2;
+    s.clearGuarantee = Math.max(s.clearGuarantee, cgFloor);
+    s.multiClearBonus = Math.max(s.multiClearBonus, 0.6);
+    return s;
+}
+const lpState = () => ({ clearGuarantee: 0, multiClearBonus: 0 });
+const lpSig = (over = {}) => ({
+    lowPhase: false, pcSetup: 0, nearFullLines: 0, lowClearGuaranteeAt: 2, ...over,
+});
+
+describe('adaptiveSpawn._applySpawnHintsLowPhaseRules (EE1)', () => {
+    it('lowPhase=false → 不动', () => {
+        const s = lpState();
+        _applySpawnHintsLowPhaseRulesRef(s, lpSig({ lowPhase: false, pcSetup: 5, nearFullLines: 5 }));
+        expect(s).toEqual(lpState());
+    });
+
+    it('lowPhase=true 但无机会 (pcSetup=0 + nearFull=0) → 不动（不凭空制造）', () => {
+        const s = lpState();
+        _applySpawnHintsLowPhaseRulesRef(s, lpSig({ lowPhase: true }));
+        expect(s).toEqual(lpState());
+    });
+
+    it('lowPhase + pcSetup=1 → cg≥floor(2) / mcb≥0.6', () => {
+        const s = lpState();
+        _applySpawnHintsLowPhaseRulesRef(s, lpSig({ lowPhase: true, pcSetup: 1 }));
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.multiClearBonus).toBe(0.6);
+    });
+
+    it('lowPhase + nearFullLines=1 → 同效果', () => {
+        const s = lpState();
+        _applySpawnHintsLowPhaseRulesRef(s, lpSig({ lowPhase: true, nearFullLines: 1 }));
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.multiClearBonus).toBe(0.6);
+    });
+
+    it('配置 lowClearGuaranteeAt=3 → cg=3', () => {
+        const s = lpState();
+        _applySpawnHintsLowPhaseRulesRef(s, lpSig({ lowPhase: true, pcSetup: 1, lowClearGuaranteeAt: 3 }));
+        expect(s.clearGuarantee).toBe(3);
+    });
+
+    it('配置 lowClearGuaranteeAt 非数 → fallback 默认 2', () => {
+        const s = lpState();
+        _applySpawnHintsLowPhaseRulesRef(s, lpSig({ lowPhase: true, pcSetup: 1, lowClearGuaranteeAt: 'oops' }));
+        expect(s.clearGuarantee).toBe(2);
+    });
+
+    it('已有更高 cg → 不下降', () => {
+        const s = lpState(); s.clearGuarantee = 4;
+        _applySpawnHintsLowPhaseRulesRef(s, lpSig({ lowPhase: true, pcSetup: 1 }));
+        expect(s.clearGuarantee).toBe(4);
+    });
+
+    it('幂等：连续调两次结果一致', () => {
+        const s1 = lpState();
+        const s2 = lpState();
+        const sig = lpSig({ lowPhase: true, pcSetup: 1, nearFullLines: 1 });
+        _applySpawnHintsLowPhaseRulesRef(s1, sig);
+        _applySpawnHintsLowPhaseRulesRef(s2, sig);
+        _applySpawnHintsLowPhaseRulesRef(s2, sig);
+        expect(s1).toEqual(s2);
+    });
+});
+
 /* ============ W4: _applySpawnHintsComboWinbackRules ============ */
 function _applySpawnHintsComboWinbackRulesRef(s) {
     let { clearGuarantee, sizePreference } = s;

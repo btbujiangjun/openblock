@@ -681,6 +681,34 @@ function _applySpawnHintsFriendlyBoostRules(s, signals) {
     return s;
 }
 
+/**
+ * lowPhase 强化清屏 spawnHints（v1.71 EE1 抽出 L2725-2729）。
+ *
+ * 触发：lowPhase（低压阶段）∧ (pcSetup≥1 ∨ nearFullLines≥1)
+ *   → clearGuarantee 抬到配置 floor（默认 2）
+ *   → multiClearBonus ≥ 0.6
+ *
+ * 设计契约：**几何门控**——机会真实存在才加力，绝不"凭空制造清屏"。
+ * 与 deriveDelightSignals 的 perfectClearBoost 同哲学：不在低占用盘
+ * 撒谎"现在适合清屏"。
+ *
+ * 配置点：lowClearGuaranteeAt（profile-level，配置缺失时默认 2）
+ *
+ * @param {object} s state（含 clearGuarantee/multiClearBonus）
+ * @param {{ lowPhase: boolean, pcSetup: number, nearFullLines: number,
+ *           lowClearGuaranteeAt: number }} signals
+ * @returns {object} 修改后的 s（同引用）
+ */
+function _applySpawnHintsLowPhaseRules(s, signals) {
+    const { lowPhase, pcSetup, nearFullLines, lowClearGuaranteeAt } = signals;
+    if (!lowPhase) return s;
+    if (!(pcSetup >= 1 || nearFullLines >= 1)) return s;
+    const cgFloor = Number.isFinite(lowClearGuaranteeAt) ? lowClearGuaranteeAt : 2;
+    s.clearGuarantee = Math.max(s.clearGuarantee, cgFloor);
+    s.multiClearBonus = Math.max(s.multiClearBonus, 0.6);
+    return s;
+}
+
 function _applySpawnHintsComboWinbackRules(s) {
     let { clearGuarantee, sizePreference } = s;
     const { comboChain, winbackPreset, ctx } = s;
@@ -2718,14 +2746,17 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         rhythmPhase = _t.rhythmPhase;
     }
 
-    /* --- v1.66：低压阶段强化「清屏」达成率 ---
-     * 只在机会已存在（pcSetup≥1 ∨ nearFullLines≥1）时抬 clearGuarantee 到配置地板，
-     * 让低压期"该送的清屏更确定地送出"。机会不存在时不做任何事——不凭空制造清屏块，
-     * 与 perfectClearBoost 的几何门控（deriveDelightSignals）保持同一哲学。 */
-    if (lowPhase && (pcSetup >= 1 || nearFullLines >= 1)) {
-        const _lowCg = Number.isFinite(_pf.lowClearGuaranteeAt) ? _pf.lowClearGuaranteeAt : 2;
-        clearGuarantee = Math.max(clearGuarantee, _lowCg);
-        multiClearBonus = Math.max(multiClearBonus, 0.6);
+    /* --- v1.71 EE1：v1.66 lowPhase 强化清屏段抽至 _applySpawnHintsLowPhaseRules --- */
+    {
+        const _lp = _applySpawnHintsLowPhaseRules(
+            { clearGuarantee, multiClearBonus },
+            {
+                lowPhase, pcSetup, nearFullLines,
+                lowClearGuaranteeAt: _pf.lowClearGuaranteeAt,
+            },
+        );
+        clearGuarantee = _lp.clearGuarantee;
+        multiClearBonus = _lp.multiClearBonus;
     }
 
     /* --- v1.71 BB1：delight 调度段抽至 _applySpawnHintsDelightRules --- */
