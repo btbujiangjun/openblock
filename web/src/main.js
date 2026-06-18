@@ -22,31 +22,23 @@ import { getApiBaseUrl, isSqliteClientDatabase } from './config.js';
 /* 启动期尽早接入 logger 等级（在 game/各模块拉起前） */
 configureLoggerFromConfig(GAME_RULES);
 
-/* T4：把 logger error 接到 analyticsTracker。
- * - 用动态 import 避免启动期循环依赖（analyticsTracker 自己也用 logger）
- * - tracker 未就绪时静默丢（30s 去重窗口足以等待 init）
- * - sink 抛错由 logger 自身兜住，零阻塞主路径 */
+/* T4 + U3：把 logger error 接到 analyticsTracker，通过 batch sink 平滑 burst。
+ * - 动态 import 避免启动期循环依赖（analyticsTracker 自己也用 logger）
+ * - createBatchSink：满 20 条 / 5s 任一触发 flush；pagehide/beforeunload/visibility=hidden 强 flush
+ * - tracker 未就绪 / 上报失败由本模块兜住，零阻塞主路径 */
 import('./monetization/analyticsTracker.js').then(({ getAnalyticsTracker }) => {
-    setRemoteSink((entry, recentContext) => {
-        const tracker = getAnalyticsTracker?.();
-        if (!tracker || typeof tracker.trackEvent !== 'function') return;
-        /* 把 args 中的 Error 对象提取出 message + stack（避免 JSON 失败） */
-        const safeArgs = entry.args.map((a) => (a instanceof Error
-            ? { __error: true, message: a.message, stack: a.stack }
-            : a));
-        tracker.trackEvent('client_error', {
-            errorTag: entry.tag,
-            errorLevel: entry.level,
-            errorTs: entry.ts,
-            errorArgs: safeArgs,
-            /* 只取最后 20 条上下文（避免 payload 过大；ring buffer 全量保留供本地 debug） */
-            recentContext: recentContext.slice(-20).map((e) => ({
-                ts: e.ts, level: e.level, tag: e.tag,
-                msg: typeof e.args[0] === 'string' ? e.args[0] : '',
-            })),
-        });
-    });
-}).catch(() => { /* tracker 加载失败时静默 — 不能让 logger 上报失败拖累启动 */ });
+    import('./lib/loggerBatchSink.js').then(({ createBatchSink }) => {
+        const batchSink = createBatchSink((batch) => {
+            const tracker = getAnalyticsTracker?.();
+            if (!tracker || typeof tracker.trackEvent !== 'function') return;
+            tracker.trackEvent('client_error_batch', {
+                count: batch.length,
+                items: batch,
+            });
+        }, { maxBatch: 20, maxDelayMs: 5000 });
+        setRemoteSink(batchSink.sink);
+    }).catch(() => { /* batch sink 加载失败回退到原 sink */ });
+}).catch(() => { /* tracker 加载失败 — 静默，logger 仍保留 ring buffer 与 console */ });
 import { initPlayerInsightPanel } from './playerInsightPanel.js';
 import { initReplayUI } from './replayUI.js';
 import { applySkinToDocument, getActiveSkin } from './skins.js';
