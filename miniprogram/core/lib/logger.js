@@ -78,13 +78,18 @@ function _resolveLevel() {
     return LEVELS[raw] ?? LEVELS.info;
 }
 
-function _emit(method, tag, args) {
+function _emit(method, tag, args, extra) {
     /* 1. 写入 ring buffer（每条结构化记录） */
     const entry = {
         ts: Date.now(),
         level: method,
         tag,
         args, // 注意：保留引用；sink 端如需序列化自行 try/catch
+        /* DD4：可选结构化字段。
+         * 与 args 区分：args=人读字符串/对象；extra=机读 key→value 标签，
+         * 服务端可按 extra.<field> group_by 聚合（如 game_mode, screen, build_id）。
+         * 不传 extra 时为 undefined（向后兼容；服务端按缺失字段处理）。 */
+        extra: extra ?? undefined,
     };
     _ringBuffer[_ringHead] = entry;
     _ringHead = (_ringHead + 1) % RING_CAPACITY;
@@ -142,6 +147,20 @@ function createLogger(tag = 'app') {
         log(...args)   { if (_resolveLevel() <= LEVELS.info)  _emit('log',   _tag, args); },
         warn(...args)  { if (_resolveLevel() <= LEVELS.warn)  _emit('warn',  _tag, args); },
         error(...args) { if (_resolveLevel() <= LEVELS.error) _emit('error', _tag, args); },
+        /**
+         * DD4：带结构化字段的 error 上报。
+         * 与 .error(...) 等价 + 附加 extra 字段（写入 entry.extra）。
+         *
+         *   log.errorWithExtra('decode failed', err, { gameMode: 'classic', buildId: '1.71.2' });
+         *
+         * 服务端可按 extra.gameMode group_by 聚合错误率。
+         *
+         * @param {object} extra 结构化字段（推荐 flat key→primitive）
+         * @param {...*}   args  普通参数（同 error）
+         */
+        errorWithExtra(extra, ...args) {
+            if (_resolveLevel() <= LEVELS.error) _emit('error', _tag, args, extra);
+        },
     };
 }
 

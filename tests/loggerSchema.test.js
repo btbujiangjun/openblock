@@ -44,7 +44,7 @@ describe('AA4 LOG_LEVELS 常量 schema', () => {
 });
 
 describe('AA4 createLogger 返回 logger 形状', () => {
-    it('含 5 个方法 + 1 个 getter (isDebug)', () => {
+    it('含 5 个方法 + 1 个 getter (isDebug) + DD4 errorWithExtra', () => {
         const log = createLogger('test');
         expect(typeof log.debug).toBe('function');
         expect(typeof log.info).toBe('function');
@@ -52,6 +52,8 @@ describe('AA4 createLogger 返回 logger 形状', () => {
         expect(typeof log.warn).toBe('function');
         expect(typeof log.error).toBe('function');
         expect(typeof log.isDebug).toBe('boolean');
+        /* DD4：新方法 */
+        expect(typeof log.errorWithExtra).toBe('function');
     });
 
     it('默认 tag = "app" 当 tag 为空', () => {
@@ -162,6 +164,70 @@ describe('AA4 远程 sink 契约', () => {
         setRemoteSink(null);
         createLogger('t').error('boom');
         expect(sink).not.toHaveBeenCalled();
+    });
+});
+
+describe('DD4 errorWithExtra 结构化字段契约', () => {
+    it('entry.extra 透传完整 object', () => {
+        const log = createLogger('test');
+        log.errorWithExtra({ gameMode: 'classic', buildId: '1.71.2' }, 'boom');
+        const e = getRecentLogs()[0];
+        expect(e.extra).toEqual({ gameMode: 'classic', buildId: '1.71.2' });
+        expect(e.args).toEqual(['boom']);
+    });
+
+    it('entry.extra 是 undefined 当用 .error()（非 errorWithExtra）', () => {
+        const log = createLogger('test');
+        log.error('plain');
+        const e = getRecentLogs()[0];
+        expect(e.extra).toBeUndefined();
+    });
+
+    it('sink 收到 entry 含 extra（远端可按 extra.X group_by）', () => {
+        const sink = vi.fn();
+        setRemoteSink(sink);
+        const log = createLogger('m');
+        log.errorWithExtra({ screen: 'lobby' }, 'click failed');
+        expect(sink).toHaveBeenCalledTimes(1);
+        const [entry] = sink.mock.calls[0];
+        expect(entry.extra).toEqual({ screen: 'lobby' });
+        expect(entry.level).toBe('error');
+        expect(entry.tag).toBe('m');
+    });
+
+    it('args 与 extra 完全独立：args 用人读、extra 用机读', () => {
+        const log = createLogger('test');
+        const err = new Error('decode fail');
+        log.errorWithExtra({ retry: 3, code: 'E_DECODE' }, 'parse error:', err);
+        const e = getRecentLogs()[0];
+        expect(e.args).toEqual(['parse error:', err]);
+        expect(e.extra).toEqual({ retry: 3, code: 'E_DECODE' });
+    });
+
+    it('extra 为空 object → 上报但不影响 args', () => {
+        const log = createLogger('t');
+        log.errorWithExtra({}, 'msg');
+        const e = getRecentLogs()[0];
+        expect(e.extra).toEqual({});
+        expect(e.args).toEqual(['msg']);
+    });
+
+    it('低于 error 级别时不写入（与原 .error 一致）', () => {
+        setLogLevel('silent');
+        const log = createLogger('t');
+        log.errorWithExtra({ x: 1 }, 'should not appear');
+        expect(getRecentLogs()).toHaveLength(0);
+    });
+
+    it('30s 去重窗口对 errorWithExtra 同样生效', () => {
+        const sink = vi.fn();
+        setRemoteSink(sink);
+        const log = createLogger('t');
+        log.errorWithExtra({ a: 1 }, 'dup-msg');
+        log.errorWithExtra({ a: 2 }, 'dup-msg'); /* 同 tag+msg → 被去重 */
+        expect(sink).toHaveBeenCalledTimes(1);
+        /* 第一次的 extra 被透传 */
+        expect(sink.mock.calls[0][0].extra).toEqual({ a: 1 });
     });
 });
 
