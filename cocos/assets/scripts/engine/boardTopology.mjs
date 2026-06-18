@@ -43,14 +43,122 @@ export function countUnfillableCells(grid, shapes, opts) {
  * @param {{ excludeSpecial?: boolean }} [opts]
  * @returns {boolean[][]}
  */
+/* ── v1.71 性能优化：shape mask 缓存 + bitmap canPlace ───────────────
+ * computeCoverableCells 是 boardTopology 模块最热的 5 重循环（pool × n × n × sy × sx）。
+ * 原版每个 (shape, gx, gy) 都调 grid.canPlace 走一遍 shape × shape 的双层 if 链 + 边界检查。
+ *
+ * 这里：
+ *  1. 把每个 shape 预编译为 {rowMasks: Int32Array, width, height}
+ *     rowMasks[sy] = 该行的 bitmap（位 sx=1 表示该格非空），左对齐
+ *  2. 把 grid.cells 投影为 occupiedRows: Int32Array(n)
+ *  3. canPlace 变成两步：
+ *      a. 边界检查：gx+width ≤ n && gy+height ≤ n
+ *      b. 冲突检查：所有 sy 行 (occRows[gy+sy] & (rowMasks[sy] << gx)) === 0
+ *  4. 命中后写 coverable 也用 bitmap：coverableRows[y] |= rowMasks[sy] << gx，
+ *     最后一次性投影回 boolean[][]
+ *
+ * 限制：n ≤ 30（位运算用 32 位 int 兼容；OpenBlock 默认 n=8，远小于上限）。
+ * 大于该限制时自动回退到原 grid.canPlace 路径（安全兜底）。 */
+
+const _SHAPE_MASK_CACHE = new WeakMap(); // shape.data → { rowMasks, width, height, isEmpty }
+
+function _compileShapeMask(data) {
+    let cached = _SHAPE_MASK_CACHE.get(data);
+    if (cached !== undefined) return cached;
+    let height = data.length;
+    let width = 0;
+    for (let y = 0; y < height; y++) {
+        const rowLen = data[y]?.length || 0;
+        if (rowLen > width) width = rowLen;
+    }
+    const rowMasks = new Int32Array(height);
+    let anyCell = false;
+    for (let y = 0; y < height; y++) {
+        const row = data[y];
+        if (!row) continue;
+        let m = 0;
+        for (let x = 0; x < row.length; x++) {
+            if (row[x]) { m |= (1 << x); anyCell = true; }
+        }
+        rowMasks[y] = m;
+    }
+    cached = { rowMasks, width, height, isEmpty: !anyCell };
+    _SHAPE_MASK_CACHE.set(data, cached);
+    return cached;
+}
+
+function _projectGridToBitmap(grid, n) {
+    const occRows = new Int32Array(n);
+    const cells = grid.cells;
+    for (let y = 0; y < n; y++) {
+        const row = cells[y];
+        let m = 0;
+        for (let x = 0; x < n; x++) {
+            if (row[x] !== null) m |= (1 << x);
+        }
+        occRows[y] = m;
+    }
+    return occRows;
+}
+
 export function computeCoverableCells(grid, shapes, opts) {
     if (!grid?.cells?.length) return [];
     const pool = Array.isArray(shapes)
         ? shapes
         : (opts?.excludeSpecial === true ? getRegularShapes() : getAllShapes());
     const n = grid.size;
-    const coverable = Array.from({ length: n }, () => new Array(n).fill(false));
+    /* 兼容性兜底：
+     *   - n > 30：位运算溢出 32 位 int
+     *   - 调用方传入了非标准 grid（自定义 canPlace 不与 cells null 等价；
+     *     极少数测试 / mock 场景会这样）— 通过 grid._isBitmapSafe 显式 opt-out，
+     *     或当 grid.cells 不是数组阵列时回退
+     * OpenBlock 真正的 Grid 实例 canPlace 严格基于 cells null，bitmap 路径与原版语义等价。 */
+    if (n > 30 || grid._isBitmapSafe === false) return _computeCoverableCellsFallback(grid, pool, n);
 
+    const occRows = _projectGridToBitmap(grid, n);
+    const coverableRows = new Int32Array(n);
+
+    for (let s = 0; s < pool.length; s++) {
+        const data = pool[s]?.data;
+        if (!Array.isArray(data) || data.length === 0) continue;
+        const mask = _compileShapeMask(data);
+        if (mask.isEmpty) continue;
+        const sh = mask.height;
+        const sw = mask.width;
+        const rowMasks = mask.rowMasks;
+        const maxGy = n - sh;
+        const maxGx = n - sw;
+        if (maxGy < 0 || maxGx < 0) continue;
+        for (let gy = 0; gy <= maxGy; gy++) {
+            for (let gx = 0; gx <= maxGx; gx++) {
+                /* canPlace via bitmap: 所有 sy 行 (occ & (mask << gx)) === 0 */
+                let conflict = false;
+                for (let sy = 0; sy < sh; sy++) {
+                    if ((occRows[gy + sy] & (rowMasks[sy] << gx)) !== 0) { conflict = true; break; }
+                }
+                if (conflict) continue;
+                /* 命中：更新 coverable 行 bitmap */
+                for (let sy = 0; sy < sh; sy++) {
+                    coverableRows[gy + sy] |= (rowMasks[sy] << gx);
+                }
+            }
+        }
+    }
+
+    /* 投影回 boolean[][]（保持对外契约不变） */
+    const coverable = new Array(n);
+    for (let y = 0; y < n; y++) {
+        const row = new Array(n);
+        const m = coverableRows[y];
+        for (let x = 0; x < n; x++) row[x] = (m & (1 << x)) !== 0;
+        coverable[y] = row;
+    }
+    return coverable;
+}
+
+/* n > 30 时的兜底：原版语义，无 bitmap 加速 */
+function _computeCoverableCellsFallback(grid, pool, n) {
+    const coverable = Array.from({ length: n }, () => new Array(n).fill(false));
     for (const shape of pool) {
         const data = shape?.data;
         if (!Array.isArray(data) || data.length === 0) continue;

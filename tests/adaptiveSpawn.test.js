@@ -637,6 +637,10 @@ describe('resolveAdaptiveStrategy', () => {
         const gridStub = {
             size: n,
             cells,
+            /* v1.71 注：这个 stub 的 canPlace 仅检查边界，不与 cells null 等价；
+             * boardTopology 的 bitmap 优化对真 Grid 与原版语义等价，但对此 stub 不等价。
+             * 通过 _isBitmapSafe=false 让 boardTopology 走 fallback 路径。 */
+            _isBitmapSafe: false,
             canPlace: (shape, x, y) => {
                 if (!Array.isArray(shape) || shape.length === 0 || !Array.isArray(shape[0])) return false;
                 const h = shape.length;
