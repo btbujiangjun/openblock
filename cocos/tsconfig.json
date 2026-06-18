@@ -14,6 +14,9 @@
     "useDefineForClassFields": false,
     "outDir": "temp/tsc-out"
   },
+  "files": [
+    "typecheck/cc.d.ts"
+  ],
   "include": ["assets/**/*.ts"],
   "exclude": ["library", "temp", "build", "node_modules"]
 }
