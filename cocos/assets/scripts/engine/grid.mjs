@@ -1324,6 +1324,28 @@ export class Grid {
         const rowMask = new Uint8Array(n);
         const colMask = new Uint8Array(n);
 
+        /* KK1：预计算每 row/col 已填 cell 数 + shape 每行/列占 cell 数。
+         * 内圈 mono 检查无法 bitmap 化（要查 ci 同色），但能用
+         *   preFilledUpperBound + shapeCellsOnLine < minBuildup → skip
+         * 预剪掉绝大多数空盘行/列，让内圈只跑可能合格的 line。 */
+        let rowPreFilled = null; let colPreFilled = null;
+        let shapeRowCount = null; let shapeColCount = null;
+        if (useBitmap) {
+            rowPreFilled = new Int32Array(n);
+            colPreFilled = new Int32Array(n);
+            for (let y = 0; y < n; y++) {
+                rowPreFilled[y] = n - _popcount32((~rowOccBitmap[y]) & fullMask);
+            }
+            for (let x = 0; x < n; x++) {
+                let cnt = 0;
+                for (let y = 0; y < n; y++) if ((rowOccBitmap[y] >> x) & 1) cnt++;
+                colPreFilled[x] = cnt;
+            }
+            shapeRowCount = new Int32Array(sh);
+            shapeColCount = new Int32Array(sw);
+            for (const [dx, dy] of shapeCells) { shapeRowCount[dy]++; shapeColCount[dx]++; }
+        }
+
         let best = 0;
         for (let oy = 0; oy <= n - sh; oy++) {
             for (let ox = 0; ox <= n - sw; ox++) {
@@ -1350,6 +1372,12 @@ export class Grid {
                 for (let y = 0; y < n; y++) {
                     if (!rowMask[y]) continue;
                     const sy = y - oy;
+                    /* KK1：preFilled 上界 + shape 占用 < minBuildup → 直接跳过
+                     * 该行不可能凑齐 minBuildup，无需走内圈 O(n) mono 检查。 */
+                    if (useBitmap) {
+                        const upper = rowPreFilled[y] + shapeRowCount[sy];
+                        if (upper < minBuildup) continue;
+                    }
                     const shapeRow = shapeData[sy];
                     const cellRow = this.cells[y];
                     let refCi = null;
@@ -1375,6 +1403,11 @@ export class Grid {
                 for (let x = 0; x < n; x++) {
                     if (!colMask[x]) continue;
                     const sx = x - ox;
+                    /* KK1：列扫同行扫剪枝 */
+                    if (useBitmap) {
+                        const upper = colPreFilled[x] + shapeColCount[sx];
+                        if (upper < minBuildup) continue;
+                    }
                     let refCi = null;
                     let mono = true;
                     let preFilled = 0;
