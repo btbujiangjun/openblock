@@ -522,6 +522,61 @@ function _applySpawnHintsPlaystyleRules(s, playstyle, ctx) {
     return s;
 }
 
+/**
+ * 全球化个性化动机层（v1.71 AA1 抽出 L2823-2853）。
+ *
+ * 调用前提：personalizationEnabled === true（调用方守卫）。
+ *
+ * 含 3 段独立调制：
+ *   1. returningWarmupStrength ≥ 0.35 → 回归玩家热身保消
+ *   2. accessibilityLoad ≥ 0.35 → 可访问性减压
+ *   3. motivationIntent enum → 4 分支风格调（collection/challenge/relaxation+competence/social）
+ *
+ * 设计契约：行为画像**只调节策略倾向**，不绕过几何护栏与可解性约束。
+ * 所有调制均 Math.max/min 幂等。
+ *
+ * 调用约定：原地修改 s（含 clearGuarantee / sizePreference / multiClearBonus /
+ * multiLineTarget / iconBonusTarget / diversityBoost / rhythmPhase 字段）。
+ *
+ * @param {object} s state object
+ * @param {{ returningWarmupStrength: number, accessibilityLoad: number, motivationIntent: string,
+ *           canPromoteToPayoff: boolean }} signals
+ * @returns {object} 修改后的 s（同引用）
+ */
+function _applySpawnHintsPersonalizationRules(s, signals) {
+    const { returningWarmupStrength, accessibilityLoad, motivationIntent, canPromoteToPayoff } = signals;
+    if (returningWarmupStrength >= 0.35) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.24 - returningWarmupStrength * 0.12);
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.38);
+        if (s.rhythmPhase === 'setup') s.rhythmPhase = 'neutral';
+    }
+    if (accessibilityLoad >= 0.35) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.20 - accessibilityLoad * 0.25);
+        s.diversityBoost = Math.max(s.diversityBoost, 0.08);
+    }
+    if (motivationIntent === 'collection') {
+        s.iconBonusTarget = Math.max(s.iconBonusTarget, canPromoteToPayoff ? 0.50 : 0.32);
+        if (canPromoteToPayoff) {
+            s.multiClearBonus = Math.max(s.multiClearBonus, 0.52);
+            s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+        }
+    } else if (motivationIntent === 'challenge') {
+        s.diversityBoost = Math.max(s.diversityBoost, 0.18);
+        if (canPromoteToPayoff) {
+            s.multiClearBonus = Math.max(s.multiClearBonus, 0.58);
+            s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+        }
+    } else if (motivationIntent === 'relaxation' || motivationIntent === 'competence') {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.22);
+    } else if (motivationIntent === 'social') {
+        s.diversityBoost = Math.max(s.diversityBoost, 0.12);
+    }
+    return s;
+}
+
 function _applySpawnHintsComboWinbackRules(s) {
     let { clearGuarantee, sizePreference } = s;
     const { comboChain, winbackPreset, ctx } = s;
@@ -2822,37 +2877,22 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
     }
 
-    /* --- 全球化个性化动机层：行为画像只调节策略倾向，不绕过几何与可解性护栏 --- */
+    /* --- v1.71 AA1：全球化个性化动机层抽至 _applySpawnHintsPersonalizationRules --- */
     if (personalizationEnabled) {
-        if (returningWarmupStrength >= 0.35) {
-            clearGuarantee = Math.max(clearGuarantee, 2);
-            sizePreference = Math.min(sizePreference, -0.24 - returningWarmupStrength * 0.12);
-            multiClearBonus = Math.max(multiClearBonus, 0.38);
-            if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
-        }
-        if (accessibilityLoad >= 0.35) {
-            clearGuarantee = Math.max(clearGuarantee, 2);
-            sizePreference = Math.min(sizePreference, -0.20 - accessibilityLoad * 0.25);
-            diversityBoost = Math.max(diversityBoost, 0.08);
-        }
-        if (motivationIntent === 'collection') {
-            iconBonusTarget = Math.max(iconBonusTarget, canPromoteToPayoff ? 0.50 : 0.32);
-            if (canPromoteToPayoff) {
-                multiClearBonus = Math.max(multiClearBonus, 0.52);
-                multiLineTarget = Math.max(multiLineTarget, 1);
-            }
-        } else if (motivationIntent === 'challenge') {
-            diversityBoost = Math.max(diversityBoost, 0.18);
-            if (canPromoteToPayoff) {
-                multiClearBonus = Math.max(multiClearBonus, 0.58);
-                multiLineTarget = Math.max(multiLineTarget, 1);
-            }
-        } else if (motivationIntent === 'relaxation' || motivationIntent === 'competence') {
-            clearGuarantee = Math.max(clearGuarantee, 2);
-            sizePreference = Math.min(sizePreference, -0.22);
-        } else if (motivationIntent === 'social') {
-            diversityBoost = Math.max(diversityBoost, 0.12);
-        }
+        const _p = _applySpawnHintsPersonalizationRules(
+            {
+                clearGuarantee, sizePreference, multiClearBonus, multiLineTarget,
+                iconBonusTarget, diversityBoost, rhythmPhase,
+            },
+            { returningWarmupStrength, accessibilityLoad, motivationIntent, canPromoteToPayoff },
+        );
+        clearGuarantee = _p.clearGuarantee;
+        sizePreference = _p.sizePreference;
+        multiClearBonus = _p.multiClearBonus;
+        multiLineTarget = _p.multiLineTarget;
+        iconBonusTarget = _p.iconBonusTarget;
+        diversityBoost = _p.diversityBoost;
+        rhythmPhase = _p.rhythmPhase;
     }
 
     /* --- v1.16：AFK 召回（engage 路径） ---

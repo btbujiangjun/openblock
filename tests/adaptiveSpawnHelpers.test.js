@@ -603,6 +603,152 @@ describe('adaptiveSpawn._applySpawnHintsPlaystyleRules — 风格对齐 (Z2)', (
     });
 });
 
+/* ============ AA1: _applySpawnHintsPersonalizationRules ============ */
+function _applySpawnHintsPersonalizationRulesRef(s, signals) {
+    const { returningWarmupStrength, accessibilityLoad, motivationIntent, canPromoteToPayoff } = signals;
+    if (returningWarmupStrength >= 0.35) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.24 - returningWarmupStrength * 0.12);
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.38);
+        if (s.rhythmPhase === 'setup') s.rhythmPhase = 'neutral';
+    }
+    if (accessibilityLoad >= 0.35) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.20 - accessibilityLoad * 0.25);
+        s.diversityBoost = Math.max(s.diversityBoost, 0.08);
+    }
+    if (motivationIntent === 'collection') {
+        s.iconBonusTarget = Math.max(s.iconBonusTarget, canPromoteToPayoff ? 0.50 : 0.32);
+        if (canPromoteToPayoff) {
+            s.multiClearBonus = Math.max(s.multiClearBonus, 0.52);
+            s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+        }
+    } else if (motivationIntent === 'challenge') {
+        s.diversityBoost = Math.max(s.diversityBoost, 0.18);
+        if (canPromoteToPayoff) {
+            s.multiClearBonus = Math.max(s.multiClearBonus, 0.58);
+            s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+        }
+    } else if (motivationIntent === 'relaxation' || motivationIntent === 'competence') {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.22);
+    } else if (motivationIntent === 'social') {
+        s.diversityBoost = Math.max(s.diversityBoost, 0.12);
+    }
+    return s;
+}
+
+const personState = () => ({
+    clearGuarantee: 0, sizePreference: 0, multiClearBonus: 0, multiLineTarget: 0,
+    iconBonusTarget: 0, diversityBoost: 0, rhythmPhase: 'neutral',
+});
+const personSig = (over = {}) => ({
+    returningWarmupStrength: 0, accessibilityLoad: 0, motivationIntent: '',
+    canPromoteToPayoff: false, ...over,
+});
+
+describe('adaptiveSpawn._applySpawnHintsPersonalizationRules (AA1)', () => {
+    it('returningWarmupStrength < 0.35 → 不触发', () => {
+        const s = personState();
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ returningWarmupStrength: 0.34 }));
+        expect(s.clearGuarantee).toBe(0); /* 阈值未达 */
+    });
+
+    it('returningWarmupStrength = 0.50 → cg≥2 / sp 下压含线性项 / mcb≥0.38', () => {
+        const s = personState();
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ returningWarmupStrength: 0.50 }));
+        expect(s.clearGuarantee).toBe(2);
+        /* sp = min(0, -0.24 - 0.50*0.12 = -0.30) = -0.30 */
+        expect(s.sizePreference).toBeCloseTo(-0.30);
+        expect(s.multiClearBonus).toBe(0.38);
+    });
+
+    it('returningWarmup + rhythmPhase=setup → 切 neutral', () => {
+        const s = personState(); s.rhythmPhase = 'setup';
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ returningWarmupStrength: 0.50 }));
+        expect(s.rhythmPhase).toBe('neutral');
+    });
+
+    it('returningWarmup + rhythmPhase=payoff → 保留 payoff（仅 setup 降级）', () => {
+        const s = personState(); s.rhythmPhase = 'payoff';
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ returningWarmupStrength: 0.50 }));
+        expect(s.rhythmPhase).toBe('payoff');
+    });
+
+    it('accessibilityLoad ≥ 0.35 → cg≥2 / sp 下压（陡） / diversity ≥ 0.08', () => {
+        const s = personState();
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ accessibilityLoad: 0.60 }));
+        expect(s.clearGuarantee).toBe(2);
+        /* sp = min(0, -0.20 - 0.60*0.25 = -0.35) = -0.35 */
+        expect(s.sizePreference).toBeCloseTo(-0.35);
+        expect(s.diversityBoost).toBe(0.08);
+    });
+
+    it('motivationIntent=collection + canPromoteToPayoff=true → icon 0.50 / mcb 0.52 / mlt 1', () => {
+        const s = personState();
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ motivationIntent: 'collection', canPromoteToPayoff: true }));
+        expect(s.iconBonusTarget).toBe(0.50);
+        expect(s.multiClearBonus).toBe(0.52);
+        expect(s.multiLineTarget).toBe(1);
+    });
+
+    it('motivationIntent=collection + canPromoteToPayoff=false → icon 0.32（仅）', () => {
+        const s = personState();
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ motivationIntent: 'collection', canPromoteToPayoff: false }));
+        expect(s.iconBonusTarget).toBe(0.32);
+        expect(s.multiClearBonus).toBe(0);
+        expect(s.multiLineTarget).toBe(0);
+    });
+
+    it('motivationIntent=challenge → diversity ≥ 0.18，含 payoff 兜底', () => {
+        const s = personState();
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ motivationIntent: 'challenge', canPromoteToPayoff: true }));
+        expect(s.diversityBoost).toBe(0.18);
+        expect(s.multiClearBonus).toBe(0.58);
+        expect(s.multiLineTarget).toBe(1);
+    });
+
+    it('motivationIntent=relaxation → cg≥2 / sp≤-0.22', () => {
+        const s = personState();
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ motivationIntent: 'relaxation' }));
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.sizePreference).toBe(-0.22);
+    });
+
+    it('motivationIntent=competence → 与 relaxation 等价', () => {
+        const s = personState();
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ motivationIntent: 'competence' }));
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.sizePreference).toBe(-0.22);
+    });
+
+    it('motivationIntent=social → 仅 diversity ≥ 0.12', () => {
+        const s = personState();
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ motivationIntent: 'social' }));
+        expect(s.diversityBoost).toBe(0.12);
+        expect(s.clearGuarantee).toBe(0);
+    });
+
+    it('未知 motivationIntent → 不触发任何 motivation 分支', () => {
+        const s = personState();
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({ motivationIntent: 'unknown' }));
+        expect(s).toEqual(personState());
+    });
+
+    it('多触发：returningWarmup + accessibilityLoad + collection 互不冲突，各自抬升 floor', () => {
+        const s = personState();
+        _applySpawnHintsPersonalizationRulesRef(s, personSig({
+            returningWarmupStrength: 0.50, accessibilityLoad: 0.60,
+            motivationIntent: 'collection', canPromoteToPayoff: true,
+        }));
+        expect(s.clearGuarantee).toBe(2); /* 两个 cg≥2 取 max */
+        /* sp = min(min(min(0, -0.30), -0.35), [无 collection sp 调]) = -0.35 */
+        expect(s.sizePreference).toBeCloseTo(-0.35);
+        expect(s.iconBonusTarget).toBe(0.50);
+        expect(s.diversityBoost).toBe(0.08);
+    });
+});
+
 /* ============ W4: _applySpawnHintsComboWinbackRules ============ */
 function _applySpawnHintsComboWinbackRulesRef(s) {
     let { clearGuarantee, sizePreference } = s;
