@@ -1080,14 +1080,22 @@ function _applySpawnHintsHolesRule(s, holes, topoCfg) {
  */
 function _applySpawnHintsBottleneckRule(s, hasBottleneckSignal, topoCfg) {
     if (!hasBottleneckSignal) return s;
-    /* MM2：cgAt 现在同时考虑 bottleneckClearGuaranteeAt（阈值，历史名）和
-     * bottleneckClearGuarantee（保底值），两者等价直接复用同一字段。 */
-    const cgAt = Number.isFinite(topoCfg?.bottleneckClearGuaranteeAt)
-        ? topoCfg.bottleneckClearGuaranteeAt : 2;
+    /* NN-B1（修 MM2 死字段）：bottleneckClearGuaranteeAt（历史命名，是 cg "保底值"
+     * 而非"触发阈值"——hasBottleneckSignal 已是布尔触发，再用 At 字段名混淆）+
+     * bottleneckClearGuarantee（NN-B1 新字段，与 holeClearGuarantee 命名对齐）。
+     *
+     * 优先级（向后兼容）：
+     *   1. topoCfg.bottleneckClearGuarantee（新，明确"cg floor"语义）
+     *   2. topoCfg.bottleneckClearGuaranteeAt（旧别名，向后兼容）
+     *   3. 硬编码默认 2 */
+    const cgFloor = Number.isFinite(topoCfg?.bottleneckClearGuarantee)
+        ? topoCfg.bottleneckClearGuarantee
+        : (Number.isFinite(topoCfg?.bottleneckClearGuaranteeAt)
+            ? topoCfg.bottleneckClearGuaranteeAt : 2);
     const sizeDelta = Number.isFinite(topoCfg?.bottleneckSizePreferenceDelta)
         ? topoCfg.bottleneckSizePreferenceDelta : -0.18;
     return {
-        clearGuarantee: Math.max(s.clearGuarantee, cgAt),
+        clearGuarantee: Math.max(s.clearGuarantee, cgFloor),
         sizePreference: Math.min(s.sizePreference, sizeDelta),
     };
 }
