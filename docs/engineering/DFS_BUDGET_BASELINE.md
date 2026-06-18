@@ -22,6 +22,49 @@ npm run perf:dfs-stats -- --json --out /tmp/dfs.json   # 机器可读
 | `SOLUTION_BUDGET_DEFAULT` | 8000 | `evaluateTripletSolutions` 解法枚举上限 |
 | `SOLUTION_LEAF_CAP_DEFAULT` | 64 | 解法计数 cap |
 
+## X4 增量观测：leafCap 触顶率
+
+V4 仅观测 `budget`（DFS 入栈预算耗尽）。X4 补齐 `leafCap`（评估完成时
+solutionCount/cap 触顶率）：
+
+| 字段 | 含义 |
+|---|---|
+| `cappedCount` | `solutionCount >= cap` 的 triplet 数 |
+| `cappedRatio` | cappedCount / evalTripletCalls |
+| `leafUsageHist` | solutionCount/cap 落入 [<25%, <50%, <75%, ≤100%] 4 桶 |
+| `evalTripletCalls` | evaluateTripletSolutions 调用次数 |
+
+### 模拟数据（200 round，2026-06-18）
+
+```
+leafCap（evaluateTripletSolutions 调用 336）：
+  触顶 88（26.19%）
+  solutionCount/cap 桶分布：
+     <25%   38.4%  ███████████████████
+     <50%   17.9%  █████████
+     <75%    9.5%  █████
+    ≤100%   34.2%  █████████████████  ← 含 26% 触顶
+```
+
+**双峰分布解读**：
+- **< 25% 桶（38%）**：低 fill / 简单 triplet，解空间小，远未到 cap → leafCap 对这些场景"过大"
+- **≤ 100% 桶（34%）**：高 fill / 复杂 triplet，解空间被 cap 截断 → leafCap 对这些场景"偏小"
+
+→ **决策推论（仍仅基于模拟）**：单一 `leafCap=64` 难以同时优化两类场景；
+若实际生产数据印证双峰，可考虑：
+1. 短期：维持 64 不动（OK 区间）
+2. 长期：让 leafCap 跟随 `pressureContext.solutionSpace` 动态——简单盘面 cap=32，复杂盘面 cap=96
+
+### X4 leafCap 决策表
+
+| cappedRatio | leafHist[<25%] | 决策 |
+|---|---|---|
+| > 30% | – | **TIGHT** — cap 过小，建议上调 25–50% |
+| < 5% | > 70% | **EXCESS** — cap 过大，可下调 20–30% |
+| 其余 | – | **OK** — 维持 |
+
+线上数据回流后（X1 已接入 tracker），1 周观察期再决策。
+
 ## 模拟数据首发结果（2026-06-18）
 
 200 round 模拟（fill 0.10–0.75 正弦漂移，平均 profile）：

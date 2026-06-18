@@ -187,6 +187,21 @@ const _dfsStats = {
     totalCalls: 0,
     truncatedCount: 0,
     budgetUsageHist: [0, 0, 0, 0], // [<25%, <50%, <75%, <=100%]
+    /* X4：solution leafCap 观测——「解空间足够大但被 cap 截断」的频率。
+     *
+     * 与 budget 截断的区别：
+     *   - budget 截断：DFS 入栈预算耗尽（盘面解过密，深度递归过深）
+     *   - leafCap 触顶：满足 cap 个完整 triplet 解后主动 short-circuit
+     *
+     * leafCap 触顶不是 bug，而是产品配置——cap 越大评估越准确但越慢；
+     * 若长期 100% triplet 都触顶，说明 cap 过小（评估失真），可考虑上调。
+     * 若 < 5% 触顶，说明 cap 过大（浪费 DFS 调用），可下调节省主线程。
+     *
+     * leafUsageHist：评估完成时 solutionCount / cap 落入的 4 个桶
+     *   [<25%, <50%, <75%, <=100%]
+     */
+    cappedCount: 0,
+    leafUsageHist: [0, 0, 0, 0],
 };
 function _recordDfsUsage(initialBudget, remainingBudget, truncated) {
     _dfsStats.totalCalls++;
@@ -198,6 +213,16 @@ function _recordDfsUsage(initialBudget, remainingBudget, truncated) {
     }
 }
 
+/** X4：记录 evaluateTripletSolutions 退出时的 leafCap 触顶情况。 */
+function _recordLeafCapUsage(solutionCount, cap, capped) {
+    if (capped) _dfsStats.cappedCount++;
+    if (cap > 0) {
+        const usedRatio = Math.min(1, solutionCount / cap);
+        const bucket = Math.min(3, Math.floor(usedRatio * 4));
+        _dfsStats.leafUsageHist[bucket]++;
+    }
+}
+
 /**
  * PUBLIC API: 观测 DFS budget 占用统计（V4 加入），供 monPanel / 性能调优面板读取。
  * 返回快照（不是 live 引用），调用方可安全持有。
@@ -206,11 +231,20 @@ function _recordDfsUsage(initialBudget, remainingBudget, truncated) {
  */
 function getBlockSpawnDfsStats() {
     const tot = _dfsStats.totalCalls;
+    /* X4：leafCappedRatio 与 leafUsageHist 是 evaluateTripletSolutions 入口次数维度，
+     * 与 totalCalls（含 dfsCountSolutions / tripletSequentiallySolvable）粒度不同；
+     * leafUsageHist 各桶总和 = evaluateTripletSolutions 调用数 ≤ totalCalls。 */
+    const evalCalls = _dfsStats.leafUsageHist[0] + _dfsStats.leafUsageHist[1]
+        + _dfsStats.leafUsageHist[2] + _dfsStats.leafUsageHist[3];
     return {
         totalCalls: tot,
         truncatedCount: _dfsStats.truncatedCount,
         truncatedRatio: tot > 0 ? _dfsStats.truncatedCount / tot : 0,
         budgetUsageHist: _dfsStats.budgetUsageHist.slice(),
+        cappedCount: _dfsStats.cappedCount,
+        cappedRatio: evalCalls > 0 ? _dfsStats.cappedCount / evalCalls : 0,
+        leafUsageHist: _dfsStats.leafUsageHist.slice(),
+        evalTripletCalls: evalCalls,
     };
 }
 
@@ -222,6 +256,11 @@ function resetBlockSpawnDfsStats() {
     _dfsStats.budgetUsageHist[1] = 0;
     _dfsStats.budgetUsageHist[2] = 0;
     _dfsStats.budgetUsageHist[3] = 0;
+    _dfsStats.cappedCount = 0;
+    _dfsStats.leafUsageHist[0] = 0;
+    _dfsStats.leafUsageHist[1] = 0;
+    _dfsStats.leafUsageHist[2] = 0;
+    _dfsStats.leafUsageHist[3] = 0;
 }
 
 /* ---------- 解法数量评估常量（可被 game_rules.solutionDifficulty 覆盖） ---------- */
@@ -683,11 +722,14 @@ function evaluateTripletSolutions(grid, threeData, opts = {}) {
 
     /* v1.71 V4：DFS budget 占用观测（不改返回值，纯统计） */
     _recordDfsUsage(_initialBudget, budget.n, accum.truncated);
+    /* X4：leafCap 触顶观测（同样不改返回值） */
+    const _capped = accum.count >= cap;
+    _recordLeafCapUsage(accum.count, cap, _capped);
 
     return {
         validPerms,
         solutionCount: accum.count,
-        capped: accum.count >= cap,
+        capped: _capped,
         truncated: accum.truncated,
         firstMoveFreedom,
         perPermCounts,

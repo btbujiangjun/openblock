@@ -111,3 +111,63 @@ describe('blockSpawn V4 — DFS budget 占用观测', () => {
         expect(getBlockSpawnDfsStats().budgetUsageHist[0]).toBe(0);
     });
 });
+
+describe('blockSpawn X4 — leafCap 观测', () => {
+    beforeEach(() => {
+        resetBlockSpawnDfsStats();
+    });
+
+    it('初始快照含 leafCap 字段且全 0', () => {
+        const s = getBlockSpawnDfsStats();
+        expect(s.cappedCount).toBe(0);
+        expect(s.cappedRatio).toBe(0);
+        expect(s.leafUsageHist).toEqual([0, 0, 0, 0]);
+        expect(s.evalTripletCalls).toBe(0);
+    });
+
+    it('一次 generateDockShapes 后 evalTripletCalls > 0', () => {
+        const grid = makeGrid(0.55);
+        const profile = makeProfile();
+        const strategy = resolveAdaptiveStrategy('normal', profile, 800, 0, 0.55, {
+            totalRounds: 24, bestScore: 1500, roundsSinceClear: 1,
+        });
+        generateDockShapes(grid, strategy, { score: 800, bestScore: 1500, roundCounter: 24 });
+        const s = getBlockSpawnDfsStats();
+        expect(s.evalTripletCalls).toBeGreaterThan(0);
+        const histSum = s.leafUsageHist.reduce((a, b) => a + b, 0);
+        expect(histSum).toBe(s.evalTripletCalls);
+    });
+
+    it('cappedRatio 在 [0, 1] 范围', () => {
+        const grid = makeGrid(0.3); /* 低 fill 解空间大，更可能触顶 */
+        const profile = makeProfile();
+        const strategy = resolveAdaptiveStrategy('normal', profile, 800, 0, 0.3, {
+            totalRounds: 24, bestScore: 1500, roundsSinceClear: 1,
+        });
+        generateDockShapes(grid, strategy, { score: 800, bestScore: 1500, roundCounter: 24 });
+        const s = getBlockSpawnDfsStats();
+        expect(s.cappedRatio).toBeGreaterThanOrEqual(0);
+        expect(s.cappedRatio).toBeLessThanOrEqual(1);
+    });
+
+    it('reset 同时清零 leafCap 计数', () => {
+        const grid = makeGrid(0.45);
+        const profile = makeProfile();
+        const strategy = resolveAdaptiveStrategy('normal', profile, 800, 0, 0.45, {
+            totalRounds: 24, bestScore: 1500, roundsSinceClear: 1,
+        });
+        generateDockShapes(grid, strategy, { score: 800, bestScore: 1500, roundCounter: 24 });
+        expect(getBlockSpawnDfsStats().evalTripletCalls).toBeGreaterThan(0);
+        resetBlockSpawnDfsStats();
+        const s = getBlockSpawnDfsStats();
+        expect(s.cappedCount).toBe(0);
+        expect(s.evalTripletCalls).toBe(0);
+        expect(s.leafUsageHist).toEqual([0, 0, 0, 0]);
+    });
+
+    it('leafUsageHist 快照是副本', () => {
+        const s = getBlockSpawnDfsStats();
+        s.leafUsageHist[2] = 99999;
+        expect(getBlockSpawnDfsStats().leafUsageHist[2]).toBe(0);
+    });
+});

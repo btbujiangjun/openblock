@@ -115,8 +115,26 @@ function recommend(truncatedRatio) {
 
 const rec = recommend(stats.truncatedRatio);
 
+/* X4：leafCap 观测——「解空间足够大但被 cap 截断」的频率。
+ * leafUsageHist 各桶 = solutionCount/cap 落入的区间。 */
+const leafHistTotal = stats.leafUsageHist.reduce((a, b) => a + b, 0);
+const leafHistPct = stats.leafUsageHist.map((n) => (leafHistTotal > 0 ? (n / leafHistTotal * 100) : 0));
+
+function recommendLeafCap(cappedRatio, leafHist) {
+    /* leafCap 决策更微妙：
+     *   - 触顶率 > 30%：cap 过小，部分 triplet 解空间被强制截断 → 评估失真 → 建议上调
+     *   - 触顶率 < 5% 且 leafUsageHist[<25%] 占比 > 70%：cap 过大 → 可下调节省 DFS
+     *   - 其余视为合理
+     */
+    if (cappedRatio > 0.30) return { level: 'TIGHT', advice: 'leafCap 过小，>30% triplet 评估被截断，建议上调 25–50%' };
+    if (cappedRatio < 0.05 && leafHist[0] > 0.70) return { level: 'EXCESS', advice: 'leafCap 过大，>70% triplet 仅用 <25% 容量，可下调 20–30% 节省 DFS 调用' };
+    return { level: 'OK', advice: 'leafCap 合理，维持现状' };
+}
+
+const leafRec = recommendLeafCap(stats.cappedRatio, leafHistPct.map(p => p / 100));
+
 const payload = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     capturedAt: new Date().toISOString(),
     config: { rounds: ROUNDS, spawnedTotal: _spawnedTotal, totalElapsedMs },
     dfs: {
@@ -127,7 +145,16 @@ const payload = {
         budgetUsageHistPct: histPct,
         bucketLabels: ['<25%', '<50%', '<75%', '≤100%'],
     },
+    leafCap: {
+        evalTripletCalls: stats.evalTripletCalls,
+        cappedCount: stats.cappedCount,
+        cappedRatio: stats.cappedRatio,
+        leafUsageHist: stats.leafUsageHist,
+        leafUsageHistPct: leafHistPct,
+        bucketLabels: ['<25%', '<50%', '<75%', '≤100%'],
+    },
     recommendation: rec,
+    leafCapRecommendation: leafRec,
 };
 
 if (JSON_OUT) {
@@ -157,4 +184,17 @@ if (JSON_OUT) {
     }
     console.log('');
     console.log(`决策：[${rec.level}] ${rec.advice}`);
+    console.log('');
+    console.log(`leafCap（evaluateTripletSolutions 调用 ${stats.evalTripletCalls}）：`);
+    console.log(`  触顶 ${stats.cappedCount}（${(stats.cappedRatio * 100).toFixed(2)}%）`);
+    console.log('  solutionCount/cap 桶分布：');
+    for (let i = 0; i < 4; i++) {
+        const label = payload.leafCap.bucketLabels[i].padStart(7);
+        const cnt = stats.leafUsageHist[i];
+        const pct = leafHistPct[i].toFixed(1).padStart(5);
+        const bar = '█'.repeat(Math.round(leafHistPct[i] / 2));
+        console.log(`  ${label}  ${String(cnt).padStart(6)}  ${pct}%  ${bar}`);
+    }
+    console.log('');
+    console.log(`leafCap 决策：[${leafRec.level}] ${leafRec.advice}`);
 }
