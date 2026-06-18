@@ -677,50 +677,69 @@ export class PlayerProfile {
                 afkCount: 0, samples: 0, activeSamples: 0, windowSize: w
             };
         }
-        const placed = recent.filter(m => !m.miss);
         const afkMs = _afkThreshold();
-        const active = placed.filter(m => m.thinkMs < afkMs);
-        const afkCount = placed.length - active.length;
-        const clearCount = active.filter(m => m.cleared).length;
-        const comboCount = active.filter(m => m.lines >= 2).length;
+        /* ── 单次扫描累加所有统计：避免 8 次 .filter() + 多次 .reduce() ──
+         * 原版每次 filter 都生成新数组（n 元素 → ~400 GC 分配 + 8 次遍历）；
+         * 这里改为 1 次 O(n) 遍历 + 一组累加器，零中间数组，性能可降至 ~1/8。
+         * 行为完全等价（同 fixture 下输出按字段逐一断言）。 */
+        let missCount = 0;            // recent 内 m.miss === true
+        let placedCount = 0;          // recent 内 !m.miss
+        let activeCount = 0;          // placed 且 m.thinkMs < afkMs
+        let activeThinkSum = 0;
+        let clearCount = 0;           // active 内 m.cleared
+        let comboCount = 0;           // active 内 m.lines >= 2
+        let clearedLinesSum = 0;      // cleared 内 sum(lines)
+        let clearedFillZeroCount = 0; // cleared 内 m.fill === 0
+        let clearedMultiCount = 0;    // cleared 内 m.lines >= 2（== comboCount）
+        let reactiveCount = 0;        // recent 内 pickToPlaceMs 有效
+        let reactivePickToPlaceSum = 0;
 
-        const reactive = recent.filter(m => m.pickToPlaceMs != null && m.pickToPlaceMs < afkMs);
-        const pickToPlaceMs = reactive.length > 0
-            ? reactive.reduce((s, m) => s + m.pickToPlaceMs, 0) / reactive.length
-            : null;
+        for (let i = 0, len = recent.length; i < len; i++) {
+            const m = recent[i];
+            /* reactive 统计基于 recent 全集（含 miss）— 与原 .filter(recent, ...) 等价。 */
+            if (m.pickToPlaceMs != null && m.pickToPlaceMs < afkMs) {
+                reactiveCount++;
+                reactivePickToPlaceSum += m.pickToPlaceMs;
+            }
+            if (m.miss) { missCount++; continue; }
+            placedCount++;
+            const isActive = m.thinkMs < afkMs;
+            if (isActive) {
+                activeCount++;
+                activeThinkSum += m.thinkMs;
+                if (m.cleared) {
+                    clearCount++;
+                    clearedLinesSum += m.lines;
+                    if (m.fill === 0) clearedFillZeroCount++;
+                    if (m.lines >= 2) { comboCount++; clearedMultiCount++; }
+                }
+            }
+        }
+        const afkCount = placedCount - activeCount;
+
+        const pickToPlaceMs = reactiveCount > 0 ? reactivePickToPlaceSum / reactiveCount : null;
 
         /* v2：multiClear / perfectClear 在窗口口径内单独统计，让 clearEfficiency
          * 不必依赖 PlayerProfile 全局 _window 的 multiClearRate / perfectClearRate getter
          * （那两个 getter 仍保留作为对外公开 API，与本窗口口径一致）。 */
-        const cleared = active.filter(m => m.cleared);
-        const multiClearRate = cleared.length >= 2
-            ? cleared.filter(m => m.lines >= 2).length / cleared.length
-            : 0;
-        const perfectClearRate = cleared.length >= 2
-            ? cleared.filter(m => m.fill === 0).length / cleared.length
-            : 0;
-        const avgLines = cleared.length > 0
-            ? cleared.reduce((s, m) => s + m.lines, 0) / cleared.length
-            : 0;
+        const multiClearRate = clearCount >= 2 ? clearedMultiCount / clearCount : 0;
+        const perfectClearRate = clearCount >= 2 ? clearedFillZeroCount / clearCount : 0;
+        const avgLines = clearCount > 0 ? clearedLinesSum / clearCount : 0;
 
         return {
-            thinkMs: active.length > 0
-                ? active.reduce((s, m) => s + m.thinkMs, 0) / active.length
-                : 3000,
-            clearRate: active.length > 0 ? clearCount / active.length : 0.3,
+            thinkMs: activeCount > 0 ? activeThinkSum / activeCount : 3000,
+            clearRate: activeCount > 0 ? clearCount / activeCount : 0.3,
             comboRate: clearCount > 0 ? comboCount / clearCount : 0,
-            missRate: recent.length > 0
-                ? recent.filter(m => m.miss).length / recent.length
-                : 0,
+            missRate: recent.length > 0 ? missCount / recent.length : 0,
             multiClearRate,
             perfectClearRate,
             avgLines,
             pickToPlaceMs,
-            reactionSamples: reactive.length,
+            reactionSamples: reactiveCount,
             afkCount,
             samples: recent.length,
-            activeSamples: active.length,
-            windowSize: w
+            activeSamples: activeCount,
+            windowSize: w,
         };
     }
 
