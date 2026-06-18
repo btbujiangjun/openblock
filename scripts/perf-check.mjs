@@ -58,6 +58,12 @@ const FAST_FAIL_PCT = 80;
 const SLOW_WARN_PCT = 15;
 const SLOW_FAIL_PCT = 30;
 
+/* MM5: perf-baseline.json 兼容性 schema 版本（对称 LL5 trend-history）
+ * v1：初版（已存档）。
+ * v2：预留——若未来加新 meta 字段或 results 结构变化时 bump。
+ * 守护：未知 schemaVersion 直接 fail，避免静默误解读 */
+const PERF_BASELINE_SCHEMA_VERSION = 1;
+
 /* 从命令行读基线 */
 let baseline;
 try {
@@ -65,6 +71,17 @@ try {
     baseline = JSON.parse(raw);
     if (!Array.isArray(baseline?.results) || baseline.results.length === 0) {
         throw new Error('baseline missing results[]');
+    }
+    /* MM5: schemaVersion 校验 */
+    const baseVer = baseline?.meta?.schemaVersion ?? 1; /* 无字段→当作 v1（最早版本） */
+    if (baseVer > PERF_BASELINE_SCHEMA_VERSION) {
+        console.error(`[perf-check] baseline schemaVersion=${baseVer} > 脚本支持的 ${PERF_BASELINE_SCHEMA_VERSION}`);
+        console.error('             → 升级 perf-check.mjs 后再跑（防止字段误解读）');
+        process.exit(3);
+    }
+    if (baseVer < 1) {
+        console.error(`[perf-check] baseline schemaVersion=${baseVer} 不合法（应 >=1）`);
+        process.exit(3);
     }
 } catch (e) {
     console.error(`[perf-check] failed to load baseline ${BASELINE_PATH}: ${e.message}`);
