@@ -1048,14 +1048,14 @@ export class Grid {
      * @param {number} fillRatio  目标填充率（0~1）
      * @param {object} weights    形状类别权重
      */
-    initBoard(fillRatio, weights) {
+    initBoard(fillRatio, weights, rng = Math.random) {
         this.clear();
         const targetCells = Math.floor(this.size * this.size * fillRatio);
         let placedCells = 0;
         let noProgressStreak = 0;
 
         while (placedCells < targetCells && noProgressStreak < 25) {
-            const shape = pickShapeByCategoryWeights(weights);
+            const shape = pickShapeByCategoryWeights(weights, { rng });
             if (!shape) break;
 
             const sh = shape.data.length;
@@ -1072,7 +1072,7 @@ export class Grid {
                     const holes = this._countNewHoles(shape.data, x, y);
                     // 底部偏好：形状底边 (y + sh) 占格高比例
                     const bottomBonus = ((y + sh) / this.size) * 3;
-                    const score = bottomBonus - holes * 2.5 + Math.random() * 0.6;
+                    const score = bottomBonus - holes * 2.5 + rng() * 0.6;
 
                     if (best === null || score > best.score) {
                         best = { x, y, score };
@@ -1086,7 +1086,7 @@ export class Grid {
             }
 
             noProgressStreak = 0;
-            const colorIdx = Math.floor(Math.random() * 8);
+            const colorIdx = Math.floor(rng() * 8);
             this.place(shape.data, colorIdx, best.x, best.y);
             placedCells += shapeSize;
         }

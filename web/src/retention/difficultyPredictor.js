@@ -223,7 +223,7 @@ export function recordGameResult(gameStats) {
     }
 }
 
-export function predictDifficulty(playerProfile) {
+export function predictDifficulty(playerProfile, rng = Math.random) {
     const features = extractFeatures(null, playerProfile);
     
     let baseScore = computeWeightedScore(features);
@@ -234,9 +234,10 @@ export function predictDifficulty(playerProfile) {
     
     const confidence = Math.min(1, _featureBuffer.length / 3);
     
+    // 非推荐项加入微小抖动打散排序；rng 可注入以便 replay/测试确定化（默认 Math.random，行为不变）
     const alternatives = DIFFICULTY_LEVELS.map(level => ({
         level,
-        score: level === recommendedLevel ? baseScore : baseScore + (Math.random() - 0.5) * 0.2
+        score: level === recommendedLevel ? baseScore : baseScore + (rng() - 0.5) * 0.2
     })).sort((a, b) => b.score - a.score);
     
     return {

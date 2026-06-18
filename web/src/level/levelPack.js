@@ -12,6 +12,12 @@
 
 /** @typedef {import('./levelManager.js').LevelConfig} LevelConfig */
 
+import { createMulberry32 } from '../lib/seededRng.js';
+
+/* 关卡包盘面用固定 seed 生成：保证 web / cocos / 小程序三端关卡布局完全一致，
+ * 且每次加载可复现（此前用 Math.random 会让每个客户端拿到不同的关卡盘面）。 */
+const _lpRng = createMulberry32(0x1EE1ACE5);
+
 // ────────────────────────────────────────────────
 // 工具函数
 // ────────────────────────────────────────────────
@@ -117,7 +123,7 @@ const LEVEL_12 = {
 /** 中等填充盘面（约 30% 填充）*/
 function _randomFill30() {
     return Array.from({ length: 8 }, () =>
-        Array.from({ length: 8 }, () => Math.random() < 0.3 ? 0 : -1)
+        Array.from({ length: 8 }, () => _lpRng() < 0.3 ? 0 : -1)
     );
 }
 
