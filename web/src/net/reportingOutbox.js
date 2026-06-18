@@ -58,9 +58,60 @@ function _load(channel) {
     return list;
 }
 
+/* GG3：quota 应对统计。LS 5MB 触顶时，旧版本仅 catch ignore，导致
+ * cache 与 LS 静默不一致（cache 仍含最新记录，LS 还是旧的），重启
+ * 后丢数。新策略：写失败时主动丢弃队列尾部 30%（FIFO 保留最旧—
+ * 防止"上报失败的"和"刚入队的"混杂导致永远写不进），重试一次。
+ * 三次失败仍走 catch ignore（避免无限循环）；统计上报让运维侧
+ * 看到 quota 健康度。 */
+const _outboxStats = {
+    quotaTrips: 0,         // 累计 LS 写失败次数
+    quotaShedRecords: 0,   // 累计因 quota 主动丢弃的记录数
+    lastQuotaReason: '',   // 最近一次失败原因（仅 message 短截）
+};
+
 function _writeChannel(channel, list) {
     _channelCache.set(channel, list);
-    try { localStorage.setItem(_key(channel), JSON.stringify(list)); } catch { /* ignore */ }
+    let toWrite = list;
+    let attempt = 0;
+    while (attempt < 3) {
+        try {
+            localStorage.setItem(_key(channel), JSON.stringify(toWrite));
+            return;
+        } catch (e) {
+            _outboxStats.quotaTrips++;
+            _outboxStats.lastQuotaReason = String(e?.message || e?.name || 'unknown').slice(0, 60);
+            /* 丢弃尾部 30% 后再试。保留最旧记录的契约：服务端去重靠 event_id，
+             * 让 FIFO 头部"老但稳定"的记录优先入库。 */
+            const dropCount = Math.max(1, Math.floor(toWrite.length * 0.3));
+            if (toWrite.length <= 1) break; /* 单条记录已无法再瘦身 */
+            toWrite = toWrite.slice(0, toWrite.length - dropCount);
+            _outboxStats.quotaShedRecords += dropCount;
+            attempt++;
+        }
+    }
+    /* 三次仍失败 — cache 与 LS 失同步，但仍保留 cache 让在线 flush 能拿到。
+     * 下次成功 _writeChannel 会重新同步。 */
+}
+
+/** GG3 PUBLIC API：上报队列 quota 健康度快照。 */
+export function getOutboxStats() {
+    let totalQueued = 0;
+    for (const list of _channelCache.values()) totalQueued += list.length;
+    return {
+        quotaTrips: _outboxStats.quotaTrips,
+        quotaShedRecords: _outboxStats.quotaShedRecords,
+        lastQuotaReason: _outboxStats.lastQuotaReason,
+        totalQueued,
+        channelCount: _channelCache.size,
+    };
+}
+
+/** GG3 PUBLIC API：重置统计（搭配窗口上报用）。 */
+export function resetOutboxStats() {
+    _outboxStats.quotaTrips = 0;
+    _outboxStats.quotaShedRecords = 0;
+    _outboxStats.lastQuotaReason = '';
 }
 
 /* 旧 _save 保留为薄包装供已有调用方使用（语义不变） */
@@ -191,4 +242,6 @@ export function __resetForTest() {
     } catch { /* ignore */ }
     /* v1.71 W5：清 hot cache，下次 _load 会重读 LS（已清） */
     _channelCache.clear();
+    /* GG3：清 quota stats */
+    resetOutboxStats();
 }
