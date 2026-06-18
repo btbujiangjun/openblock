@@ -56,6 +56,7 @@ FILES=(
   "lib/storageAdapter.js"
   "lib/decisionTable.js"
   "lib/userBucketing.js"
+  "lib/beaconSender.js"
   "grid.js"
   "shapes.js"
   "gameRules.js"
