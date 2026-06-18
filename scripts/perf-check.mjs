@@ -210,14 +210,35 @@ if (REPORT_PATH) {
     }
     lines.push(`- **Summary**: ${rows.length} scenarios, ${warnCount} warn, ${failCount} fail, ${missingFromBaseline} new, ${removed.length} removed`);
     lines.push('');
-    lines.push(`| Status | Scenario | Baseline p50 (ms) | Current p50 (ms) | Δ |`);
-    lines.push(`|---|---|---|---|---|`);
+    lines.push(`| Status | Scenario | Baseline p50 (ms) | Current p50 (ms) | Δ | trend |`);
+    lines.push(`|---|---|---|---|---|---|`);
     /* 按 |Δ%| 倒序，让回归/提速浮到顶部 */
     const sorted = [...rows].sort((a, b) => Math.abs(b.deltaPct || 0) - Math.abs(a.deltaPct || 0));
+    /* KK4：mini sparkline——基于 [base, cur] 两点的方向标，无需历史文件 */
+    const _spark2 = (base, cur) => {
+        if (!Number.isFinite(base) || !Number.isFinite(cur) || base === 0) return '· ·';
+        const pct = (cur - base) / base * 100;
+        if (Math.abs(pct) < 1) return '▁▁';        /* 持平 */
+        if (pct > 30) return '▁█';                 /* 大回归 */
+        if (pct > 10) return '▁▆';                 /* 中回归 */
+        if (pct > 0)  return '▁▃';                 /* 小回归 */
+        if (pct < -30) return '█▁';                /* 大提速 */
+        if (pct < -10) return '▆▁';                /* 中提速 */
+        return '▃▁';                                /* 小提速 */
+    };
     for (const r of sorted) {
         const emoji = statusEmoji[r.status] || '·';
-        lines.push(`| ${emoji} ${r.status.toUpperCase()} | \`${r.name}\` | ${fmt(r.basePMs)} | ${fmt(r.curPMs)} | ${fmtPct(r.deltaPct)} |`);
+        const sp = _spark2(r.basePMs, r.curPMs);
+        lines.push(`| ${emoji} ${r.status.toUpperCase()} | \`${r.name}\` | ${fmt(r.basePMs)} | ${fmt(r.curPMs)} | ${fmtPct(r.deltaPct)} | \`${sp}\` |`);
     }
+    /* KK4：分桶汇总段——按 status 计数，PR reviewer 一眼看大盘 */
+    const buckets = { gain: 0, ok: 0, warn: 0, fail: 0, new: 0 };
+    for (const r of rows) if (buckets[r.status] != null) buckets[r.status]++;
+    lines.push('');
+    lines.push('### 状态分桶（KK4）');
+    lines.push('');
+    lines.push(`- 🚀 gain：${buckets.gain}　✅ ok：${buckets.ok}　⚠️ warn：${buckets.warn}　❌ fail：${buckets.fail}　🆕 new：${buckets.new}`);
+    lines.push('');
     if (removed.length > 0) {
         lines.push('');
         lines.push(`### Removed from current run (still in baseline)`);
