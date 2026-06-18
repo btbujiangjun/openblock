@@ -49,6 +49,7 @@ jobs:
           name: web-coverage
           path: coverage/
           if-no-files-found: ignore
+          retention-days: 30  # II4: coverage 短期诊断够用
 
   perf-check:
     # 性能基线"软警告"。GitHub Actions runner 与开发本机硬件不同，绝对值
@@ -96,6 +97,7 @@ jobs:
           name: perf-report
           path: tests/perf-report.md
           if-no-files-found: ignore
+          retention-days: 90  # II4: perf 趋势对照需长期
 
   npm-audit:
     name: npm audit (high+)
@@ -187,6 +189,7 @@ jobs:
           name: python-coverage
           path: coverage.xml
           if-no-files-found: ignore
+          retention-days: 30  # II4: coverage 短期诊断够用
 
   alembic-check:
     name: Alembic (migration vs models)
