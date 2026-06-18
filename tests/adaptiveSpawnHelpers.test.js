@@ -1037,6 +1037,92 @@ describe('adaptiveSpawn._applySpawnHintsFriendlyBoostRules (DD1)', () => {
     });
 });
 
+/* ============ II2: _applySpawnHintsLateMomentumRules ============ */
+function _applySpawnHintsLateMomentumRulesRef(s, profile) {
+    if (!(profile?.sessionPhase === 'late' && profile.momentum < -0.3)) return s;
+    return {
+        clearGuarantee: Math.max(s.clearGuarantee, 1),
+        sizePreference: Math.min(s.sizePreference, -0.2),
+    };
+}
+describe('adaptiveSpawn._applySpawnHintsLateMomentumRules (II2)', () => {
+    const s0 = () => ({ clearGuarantee: 0, sizePreference: 0 });
+    it('profile 缺失 / 非 late → 不动', () => {
+        expect(_applySpawnHintsLateMomentumRulesRef(s0(), null)).toEqual(s0());
+        expect(_applySpawnHintsLateMomentumRulesRef(s0(), { sessionPhase: 'mid', momentum: -0.5 })).toEqual(s0());
+    });
+    it('late 但 momentum ≥ -0.3 → 不动', () => {
+        expect(_applySpawnHintsLateMomentumRulesRef(s0(), { sessionPhase: 'late', momentum: -0.3 })).toEqual(s0());
+    });
+    it('late + momentum < -0.3 → cg≥1 / sp≤-0.2', () => {
+        const r = _applySpawnHintsLateMomentumRulesRef(s0(), { sessionPhase: 'late', momentum: -0.4 });
+        expect(r.clearGuarantee).toBe(1);
+        expect(r.sizePreference).toBe(-0.2);
+    });
+    it('已有更高 cg / 更负 sp → 不回退', () => {
+        const r = _applySpawnHintsLateMomentumRulesRef(
+            { clearGuarantee: 3, sizePreference: -0.6 },
+            { sessionPhase: 'late', momentum: -0.5 },
+        );
+        expect(r.clearGuarantee).toBe(3);
+        expect(r.sizePreference).toBe(-0.6);
+    });
+    it('幂等：双跑一致', () => {
+        const a = _applySpawnHintsLateMomentumRulesRef(s0(), { sessionPhase: 'late', momentum: -0.5 });
+        const b = _applySpawnHintsLateMomentumRulesRef(a, { sessionPhase: 'late', momentum: -0.5 });
+        expect(a).toEqual(b);
+    });
+});
+
+/* ============ II2: _applySpawnHintsRoundsSinceClearRules ============ */
+function _applySpawnHintsRoundsSinceClearRulesRef(s, rsc) {
+    if (!(rsc >= 2)) return s;
+    let { clearGuarantee, sizePreference } = s;
+    clearGuarantee = Math.max(clearGuarantee, 2);
+    if (rsc >= 4) {
+        clearGuarantee = Math.max(clearGuarantee, 3);
+        sizePreference = Math.min(sizePreference, -0.35);
+    }
+    return { clearGuarantee, sizePreference };
+}
+describe('adaptiveSpawn._applySpawnHintsRoundsSinceClearRules (II2)', () => {
+    const s0 = () => ({ clearGuarantee: 0, sizePreference: 0 });
+    it('rsc<2 → 不动', () => {
+        expect(_applySpawnHintsRoundsSinceClearRulesRef(s0(), 0)).toEqual(s0());
+        expect(_applySpawnHintsRoundsSinceClearRulesRef(s0(), 1)).toEqual(s0());
+    });
+    it('rsc=2 → cg≥2，sp 不动', () => {
+        expect(_applySpawnHintsRoundsSinceClearRulesRef(s0(), 2)).toEqual({ clearGuarantee: 2, sizePreference: 0 });
+    });
+    it('rsc=3 → 同 2（未到 4 阶）', () => {
+        expect(_applySpawnHintsRoundsSinceClearRulesRef(s0(), 3)).toEqual({ clearGuarantee: 2, sizePreference: 0 });
+    });
+    it('rsc=4 → cg≥3 / sp≤-0.35', () => {
+        const r = _applySpawnHintsRoundsSinceClearRulesRef(s0(), 4);
+        expect(r.clearGuarantee).toBe(3);
+        expect(r.sizePreference).toBe(-0.35);
+    });
+    it('rsc=10 → 同 4 档（已达上限）', () => {
+        const r = _applySpawnHintsRoundsSinceClearRulesRef(s0(), 10);
+        expect(r.clearGuarantee).toBe(3);
+        expect(r.sizePreference).toBe(-0.35);
+    });
+    it('已有更高 cg / 更负 sp → 不回退（max/min 幂等）', () => {
+        const r = _applySpawnHintsRoundsSinceClearRulesRef(
+            { clearGuarantee: 3, sizePreference: -0.7 }, 4,
+        );
+        expect(r.clearGuarantee).toBe(3);
+        expect(r.sizePreference).toBe(-0.7);
+    });
+    it('幂等：双跑一致（任意 rsc 值）', () => {
+        for (const rsc of [0, 1, 2, 3, 4, 5, 10]) {
+            const a = _applySpawnHintsRoundsSinceClearRulesRef(s0(), rsc);
+            const b = _applySpawnHintsRoundsSinceClearRulesRef(a, rsc);
+            expect(a).toEqual(b);
+        }
+    });
+});
+
 /* ============ HH1: _applySpawnHintsFarFromPBBoostBody ============ */
 function _applySpawnHintsFarFromPBBoostBodyRef(s, signals) {
     const { pctOfBest, farCfg, farRampCfg, modelFarTheta } = signals;

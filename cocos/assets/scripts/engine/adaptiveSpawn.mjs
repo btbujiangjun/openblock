@@ -819,6 +819,53 @@ function _applySpawnHintsPostPbReleaseRules(s, ctx) {
     };
 }
 
+/**
+ * 晚期颓势 spawnHints（v1.71 II2 抽出 baseRules L855-858）。
+ *
+ * 触发：sessionPhase === 'late' ∧ momentum < -0.3
+ *   → cg ≥ 1（最低保消）
+ *   → sp ≤ -0.2（偏小块）
+ *
+ * 设计契约：晚期玩家颓势已现，给"小、可消"的稳态块。
+ * 幂等（max/min）；不可被同次主路径重复调用语义不变。
+ *
+ * @param {{clearGuarantee:number,sizePreference:number}} s
+ * @param {{sessionPhase?:string, momentum?:number}} profile
+ * @returns {{clearGuarantee:number,sizePreference:number}}
+ */
+function _applySpawnHintsLateMomentumRules(s, profile) {
+    if (!(profile?.sessionPhase === 'late' && profile.momentum < -0.3)) return s;
+    return {
+        clearGuarantee: Math.max(s.clearGuarantee, 1),
+        sizePreference: Math.min(s.sizePreference, -0.2),
+    };
+}
+
+/**
+ * 连消断档救援 spawnHints（v1.71 II2 抽出 baseRules L860-865）。
+ *
+ * 两档阈值：
+ *   - rsc ≥ 2 → cg ≥ 2
+ *   - rsc ≥ 4 → cg ≥ 3 + sp ≤ -0.35（强制小块）
+ *
+ * 设计契约：连续多轮无消行 → 玩家可能挫败，递进送爽。
+ * 幂等（max/min）；rsc 单调判断，两档不冲突（4 隐含 ≥2）。
+ *
+ * @param {{clearGuarantee:number,sizePreference:number}} s
+ * @param {number} rsc roundsSinceClear（默认 0）
+ * @returns {{clearGuarantee:number,sizePreference:number}}
+ */
+function _applySpawnHintsRoundsSinceClearRules(s, rsc) {
+    if (!(rsc >= 2)) return s;
+    let { clearGuarantee, sizePreference } = s;
+    clearGuarantee = Math.max(clearGuarantee, 2);
+    if (rsc >= 4) {
+        clearGuarantee = Math.max(clearGuarantee, 3);
+        sizePreference = Math.min(sizePreference, -0.35);
+    }
+    return { clearGuarantee, sizePreference };
+}
+
 function _applySpawnHintsRiskReliefRules(s) {
     /* 原地修改 state；调用方 destructure 5 个返回字段（保持原 API 形状） */
     applyDecisionTable(SPAWN_HINTS_RISK_RELIEF_TABLE, s);
@@ -855,17 +902,19 @@ function _applySpawnHintsBaseRules(s) {
         clearGuarantee = Math.max(clearGuarantee, 2);
         sizePreference = -0.4;
     }
-    if (profile.sessionPhase === 'late' && profile.momentum < -0.3) {
-        sizePreference = Math.min(sizePreference, -0.2);
-        clearGuarantee = Math.max(clearGuarantee, 1);
-    }
-    /* 连续多轮无消行进入救援态 */
-    const rsc = ctx.roundsSinceClear ?? 0;
-    if (rsc >= 2) clearGuarantee = Math.max(clearGuarantee, 2);
-    if (rsc >= 4) {
-        clearGuarantee = Math.max(clearGuarantee, 3);
-        sizePreference = Math.min(sizePreference, -0.35);
-    }
+    /* v1.71 II2：晚期颓势 + 连消断档救援抽至独立 helper（纯幂等 max/min）。
+     * 设计契约：两段都是"防进一步坏"的兜底——sp 用 min（已激进不回退）、
+     * cg 用 max（已 ≥ 阈值不下推）。不可被同次主路径重复调用语义不变。 */
+    const _lm = _applySpawnHintsLateMomentumRules({ clearGuarantee, sizePreference }, profile);
+    clearGuarantee = _lm.clearGuarantee;
+    sizePreference = _lm.sizePreference;
+
+    const _rs = _applySpawnHintsRoundsSinceClearRules(
+        { clearGuarantee, sizePreference },
+        ctx.roundsSinceClear ?? 0,
+    );
+    clearGuarantee = _rs.clearGuarantee;
+    sizePreference = _rs.sizePreference;
     if (holes >= (topoCfg.holeClearGuaranteeAt ?? 2)) {
         clearGuarantee = Math.max(clearGuarantee, 2);
         sizePreference = Math.min(sizePreference, topoCfg.holeSizePreference ?? -0.22);
