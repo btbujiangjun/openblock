@@ -70,6 +70,7 @@ import { initWeatherStub } from './seasonalSkin.weather.js';
 import { initCompanionStub } from './companion/companionStub.js';
 /* v10.17 留存 / 活跃提升 sprint */
 import { initFtue } from './onboarding/ftue.js';
+import { runNewbieVillageIfFirstLogin } from './onboarding/newbieVillage.js';
 import { initFirstDayPack } from './onboarding/firstDayPack.js';
 import { initWowMoments } from './onboarding/wowMoments.js';
 import { initWelcomeBack } from './onboarding/welcomeBack.js';
@@ -453,6 +454,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         initCheckIn({ audio: audioFx });
         initMonthlyMilestone();
         initLuckyWheel({ audio: audioFx });
+
+        /* 新手村：对首次登录用户，先用自包含交互沙盒引导体验「消行 / 计分 / 特效」，
+         * 完成或跳过后再进入真实对局。永不抛错，非首登立即返回，不阻塞开局。 */
+        window.__openblockBootStage = 'newbie-village';
+        await runNewbieVillageIfFirstLogin({ game, audio: audioFx });
 
         // 初始化完成后直接进入游戏，跳过菜单界面
         window.__openblockBootStage = 'game-start-start';
