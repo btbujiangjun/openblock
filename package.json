@@ -22,6 +22,7 @@
     "perf:baseline": "node scripts/perf-bench-cli.mjs --json --out tests/perf-baseline.json",
     "perf:check": "node scripts/perf-check.mjs",
     "perf:check:report": "node scripts/perf-check.mjs --report tests/perf-report.md",
+    "perf:dfs-stats": "node scripts/perf-dfs-stats.mjs",
     "perf:check:gpu": "node scripts/perf-check-gpu.mjs",
     "lint": "eslint web/src tests",
     "sync:core": "bash scripts/sync-core.sh",
