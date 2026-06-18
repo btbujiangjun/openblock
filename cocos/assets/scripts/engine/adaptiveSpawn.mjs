@@ -148,6 +148,43 @@ const PC_SETUP_MIN_FILL = 0.45;
 export const STRESS_NORM_OFFSET = 0.2;
 export const STRESS_NORM_SCALE = 1.2;
 
+/**
+ * resolveAdaptiveStrategy 内部辅助：按优先级判定 challengeBoost 是否应被 bypass。
+ *
+ * 抽出自 resolveAdaptiveStrategy（v1.71 拆分）。所有判定依赖均通过 state 对象显式传入，
+ * 保持纯函数（无 closure / 副作用），便于单测覆盖。
+ *
+ * 返回首个命中的 bypass 原因（string）或 null（无 bypass，进入 B 类挑战档）。
+ *
+ * @param {object} s
+ * @param {boolean} s.pbDistanceClose  分数是否接近 PB（≥ bestScore * 0.8）
+ * @param {string} s.segment5          5 段成熟度（A..E）
+ * @param {string} s.sessionTrend      'declining' / 'flat' / 'rising' / null
+ * @param {number} s.stress            综合 stress（已归一化）
+ * @param {object} s.profile           玩家状态快照
+ * @param {boolean} s.hasBottleneckSignal
+ * @param {number} s.frustThreshold    挫败感阈值（cfg.frustration.threshold）
+ * @param {boolean} s.decisionLoadReliefActive
+ * @param {string} s.sessionArc        'warmup' / 'mid' / ...
+ * @param {object} s.ctx               spawnContext（postPbReleaseActive 等）
+ * @returns {string|null}
+ */
+function _resolveChallengeBoostBypass(s) {
+    if (!s.pbDistanceClose) return 'pb_distance_far';
+    if (!(s.segment5 === 'B' || s.sessionTrend !== 'declining')) return 'segment_declining';
+    if (!(s.stress < 0.7)) return 'stress_saturated';
+    if (s.profile?.needsRecovery === true) return 'recovery';
+    if (s.hasBottleneckSignal) return 'bottleneck';
+    if (Number.isFinite(s.profile?.frustrationLevel)
+        && s.profile.frustrationLevel >= s.frustThreshold) return 'frustration';
+    if (s.decisionLoadReliefActive) return 'decision_load';
+    if (s.sessionArc === 'warmup') return 'warmup';
+    /* v1.55 §4.9：破纪录释放窗口期 challengeBoost 完全禁用，
+     * 给玩家"破纪录后短暂的'我赢了'情绪"留出释放空间。 */
+    if (s.ctx?.postPbReleaseActive === true) return 'post_pb_release';
+    return null;
+}
+
 export function normalizeStress(raw) {
     const n = (Number(raw) + STRESS_NORM_OFFSET) / STRESS_NORM_SCALE;
     if (!Number.isFinite(n)) return 0;
@@ -1446,29 +1483,11 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     const sessionTrend = profile.sessionTrend ?? 'stable';
     const pbDistanceClose = ctx.bestScore > 0 && score >= ctx.bestScore * 0.8;
     /** @type {string|null} 命中的 bypass 原因（按优先级返回首个）；未触发任何 bypass 时为 null */
-    let challengeBoostBypass = null;
-    if (!pbDistanceClose) {
-        challengeBoostBypass = 'pb_distance_far';
-    } else if (!(segment5 === 'B' || sessionTrend !== 'declining')) {
-        challengeBoostBypass = 'segment_declining';
-    } else if (!(stress < 0.7)) {
-        challengeBoostBypass = 'stress_saturated';
-    } else if (profile.needsRecovery === true) {
-        challengeBoostBypass = 'recovery';
-    } else if (hasBottleneckSignal) {
-        challengeBoostBypass = 'bottleneck';
-    } else if (Number.isFinite(profile.frustrationLevel)
-        && profile.frustrationLevel >= frustThreshold) {
-        challengeBoostBypass = 'frustration';
-    } else if (decisionLoadReliefActive) {
-        challengeBoostBypass = 'decision_load';
-    } else if (sessionArc === 'warmup') {
-        challengeBoostBypass = 'warmup';
-    } else if (ctx.postPbReleaseActive === true) {
-        /* v1.55 §4.9：破纪录释放窗口期内 challengeBoost 完全禁用，
-         * 给玩家"破纪录后短暂的'我赢了'情绪"留出释放空间。 */
-        challengeBoostBypass = 'post_pb_release';
-    }
+    const challengeBoostBypass = _resolveChallengeBoostBypass({
+        pbDistanceClose, segment5, sessionTrend, stress, profile,
+        hasBottleneckSignal, frustThreshold, decisionLoadReliefActive,
+        sessionArc, ctx,
+    });
     const isBClassChallenge = challengeBoostBypass === null;
     /* v1.56.4 §5.α.8 PB 增长率反向加压：pbGrowthFast=true 时把 challengeBoost cap
      * 从 baseCap 临时上调到 baseCap+capDelta。pbGrowthTracker 检测到 7d 内 PB

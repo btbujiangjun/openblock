@@ -252,34 +252,66 @@ export function detectNearClears(grid, opts = {}) {
 export function analyzeBoardTopology(grid, opts) {
     const skipSpecialCells = opts?.skipSpecialCells === true;
     const n = grid.size;
+    const cells = grid.cells;
+
+    /* ── Pass 1: 在一次 O(n²) 遍历内同时计算
+     *   - colHeights[x]：列顶高（从顶往下首个非空的高度）
+     *   - occupiedCount：占用格总数
+     *   - rowTransitions / colTransitions：行/列方向上 occupied↔empty 转换次数
+     *   - wells[x][y]：左右两侧均填的空格（井）
+     * 原版按 5 次独立遍历分别计算，合并后减少 4 次循环开销与 5 倍 cells[y][x] 索引。
+     */
     const colHeights = new Array(n).fill(0);
+    const colFirstSeen = new Array(n).fill(false);
     let occupiedCount = 0;
+    let rowTransitions = 0;
+    let wells = 0;
 
-    for (let x = 0; x < n; x++) {
-        for (let y = 0; y < n; y++) {
-            if (grid.cells[y][x] !== null) {
-                colHeights[x] = n - y;
-                break;
-            }
-        }
-    }
+    /* 行扫一次，同时维护 colHeights 与 wells（需要左右邻），rowTransitions */
     for (let y = 0; y < n; y++) {
+        let prevOccupied = true; // 隐式左墙
         for (let x = 0; x < n; x++) {
-            if (grid.cells[y][x] !== null) occupiedCount++;
+            const occupied = cells[y][x] !== null;
+            if (occupied) {
+                occupiedCount++;
+                if (!colFirstSeen[x]) {
+                    colHeights[x] = n - y;
+                    colFirstSeen[x] = true;
+                }
+            } else {
+                /* well: 左侧、右侧均填（边界视为填） */
+                const left = x === 0 || cells[y][x - 1] !== null;
+                const right = x === n - 1 || cells[y][x + 1] !== null;
+                if (left && right) wells++;
+            }
+            if (occupied !== prevOccupied) rowTransitions++;
+            prevOccupied = occupied;
         }
+        if (!prevOccupied) rowTransitions++; // 隐式右墙
     }
 
-    /* v1.60.2：coverable 工具池与 skipSpecialCells 联动，参见上方 jsdoc 末段。 */
+    /* colTransitions 必须按列遍历（不能与行扫合并） */
+    let colTransitions = 0;
+    for (let x = 0; x < n; x++) {
+        let prevOccupied = true; // 隐式顶墙
+        for (let y = 0; y < n; y++) {
+            const occupied = cells[y][x] !== null;
+            if (occupied !== prevOccupied) colTransitions++;
+            prevOccupied = occupied;
+        }
+        if (!prevOccupied) colTransitions++; // 隐式底墙
+    }
+
+    /* v1.60.2：coverable 工具池与 skipSpecialCells 联动，参见上方 jsdoc 末段。
+     * computeCoverableCells 是 5 重循环热点；后续如需进一步压热点应在 grid 层做 bitmap. */
     const coverable = computeCoverableCells(grid, undefined, { excludeSpecial: skipSpecialCells });
     let holes = 0;
     let holesNearSpecial = 0;
+    const hasNearSpecialFn = skipSpecialCells && typeof grid.isCellNearSpecial === 'function';
     for (let y = 0; y < n; y++) {
         for (let x = 0; x < n; x++) {
-            if (grid.cells[y][x] !== null || coverable[y][x]) continue;
-            const nearSpecial = skipSpecialCells && typeof grid.isCellNearSpecial === 'function'
-                ? grid.isCellNearSpecial(x, y)
-                : false;
-            if (nearSpecial) {
+            if (cells[y][x] !== null || coverable[y][x]) continue;
+            if (hasNearSpecialFn && grid.isCellNearSpecial(x, y)) {
                 holesNearSpecial++;
             } else {
                 holes++;
@@ -287,51 +319,27 @@ export function analyzeBoardTopology(grid, opts) {
         }
     }
 
-    let heightVariance = 0;
-    const avgHeight = colHeights.reduce((s, h) => s + h, 0) / Math.max(1, n);
+    /* 由 colHeights 衍生：avg / variance / flatness / max（单次循环避免 reduce + Math.max 两遍） */
+    let sumH = 0;
+    let maxColHeight = 0;
     for (let x = 0; x < n; x++) {
-        heightVariance += (colHeights[x] - avgHeight) ** 2;
+        const h = colHeights[x];
+        sumH += h;
+        if (h > maxColHeight) maxColHeight = h;
+    }
+    const avgHeight = sumH / Math.max(1, n);
+    let heightVariance = 0;
+    for (let x = 0; x < n; x++) {
+        const d = colHeights[x] - avgHeight;
+        heightVariance += d * d;
     }
     heightVariance /= Math.max(1, n);
     const flatness = 1 / (1 + heightVariance);
-
-    const maxColHeight = Math.max(...colHeights);
 
     const nearClears = detectNearClears(grid, { coverable, maxEmpty: 2 });
     const nearFullLines = nearClears.nearFullLines;
     const close1 = nearClears.close1;
     const close2 = nearClears.close2;
-
-    let rowTransitions = 0;
-    let colTransitions = 0;
-    for (let y = 0; y < n; y++) {
-        let prev = true;
-        for (let x = 0; x < n; x++) {
-            const cur = grid.cells[y][x] !== null;
-            if (cur !== prev) rowTransitions++;
-            prev = cur;
-        }
-        if (!prev) rowTransitions++;
-    }
-    for (let x = 0; x < n; x++) {
-        let prev = true;
-        for (let y = 0; y < n; y++) {
-            const cur = grid.cells[y][x] !== null;
-            if (cur !== prev) colTransitions++;
-            prev = cur;
-        }
-        if (!prev) colTransitions++;
-    }
-
-    let wells = 0;
-    for (let y = 0; y < n; y++) {
-        for (let x = 0; x < n; x++) {
-            if (grid.cells[y][x] !== null) continue;
-            const left = x === 0 || grid.cells[y][x - 1] !== null;
-            const right = x === n - 1 || grid.cells[y][x + 1] !== null;
-            if (left && right) wells++;
-        }
-    }
 
     /* ── v1.60.3 / v1.60.5 玩家心智口径"孔洞"双口径 ───────────────────────
      * `holes`（基于 coverable）口径只统计"任何形状都无法覆盖"的空格——但 OpenBlock
