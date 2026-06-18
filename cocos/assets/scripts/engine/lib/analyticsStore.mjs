@@ -59,7 +59,21 @@ const _storeStats = {
     idbGetOk: 0, idbGetMiss: 0,
     idbPutLatencyMs: 0, idbPutLatencyMax: 0,
     lsPutFallback: 0, lsPutFailCount: 0,
+    /* EE4：失败原因 tag 桶（与 DD4 logger.errorWithExtra 同思路）。
+     * 常见 reason 枚举：
+     *   - 'no_db'         _openDb 返回 null（SSR / 隐私模式）
+     *   - 'tx_error'      事务 onerror
+     *   - 'tx_abort'      事务 onabort（quota / 浏览器策略）
+     *   - 'exception'     try/catch 兜底
+     *   - 'put_timeout'   预留（当前未启用，留给后续）
+     * 服务端按 reason group_by 排查具体瓶颈，避免"只看总数无法定位"。 */
+    idbFailReasons: Object.create(null),
 };
+
+function _bumpFailReason(reason) {
+    const k = (typeof reason === 'string' && reason.length > 0 && reason.length < 32) ? reason : 'unknown';
+    _storeStats.idbFailReasons[k] = (_storeStats.idbFailReasons[k] || 0) + 1;
+}
 
 let _dbPromise = null;
 function _openDb() {
@@ -102,7 +116,7 @@ async function _idbGet() {
 
 async function _idbPut(payload) {
     const db = await _openDb();
-    if (!db) { _storeStats.idbPutFail++; return false; }
+    if (!db) { _storeStats.idbPutFail++; _bumpFailReason('no_db'); return false; }
     const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     return new Promise((resolve) => {
         try {
@@ -115,9 +129,9 @@ async function _idbPut(payload) {
                 if (dt > _storeStats.idbPutLatencyMax) _storeStats.idbPutLatencyMax = dt;
                 resolve(true);
             };
-            tx.onerror = () => { _storeStats.idbPutFail++; resolve(false); };
-            tx.onabort = () => { _storeStats.idbPutFail++; resolve(false); };
-        } catch { _storeStats.idbPutFail++; resolve(false); }
+            tx.onerror = () => { _storeStats.idbPutFail++; _bumpFailReason('tx_error'); resolve(false); };
+            tx.onabort = () => { _storeStats.idbPutFail++; _bumpFailReason('tx_abort'); resolve(false); };
+        } catch { _storeStats.idbPutFail++; _bumpFailReason('exception'); resolve(false); }
     });
 }
 
@@ -228,6 +242,8 @@ export function getAnalyticsStoreStats() {
         idbMaxLatencyMs: _storeStats.idbPutLatencyMax,
         lsPutFallback: _storeStats.lsPutFallback,
         lsPutFailCount: _storeStats.lsPutFailCount,
+        /* EE4：失败 reason 拆分（浅拷贝防上层污染 live state） */
+        idbFailReasons: Object.assign(Object.create(null), _storeStats.idbFailReasons),
     };
 }
 
@@ -241,6 +257,7 @@ export function resetAnalyticsStoreStats() {
     _storeStats.idbPutLatencyMax = 0;
     _storeStats.lsPutFallback = 0;
     _storeStats.lsPutFailCount = 0;
+    _storeStats.idbFailReasons = Object.create(null);
 }
 
 /**
