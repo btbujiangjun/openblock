@@ -4,6 +4,10 @@ name: Weekly Dead Code Scan
 # - 新增项 → 在 Issue 中追踪
 # - 已解决项 → 在 Issue 中确认
 # 不阻塞 PR（与 main CI 完全独立），仅作可视化跟踪用。
+#
+# DD5: 增加 benchmark suite（npm run benchmark:quick）输出附件 +
+# 嵌入 issue body 的摘要段，让 owner 一次看完 4 维度健康度：
+# dead-code / DFS budget / dist size（perf-bench 因 ~3min 跳过）。
 
 on:
   schedule:
@@ -48,6 +52,25 @@ jobs:
           echo "--- Summary ---"
           echo "baseline=$BASELINE current=$CURRENT added=$ADDED removed=$REMOVED"
 
+      - name: Run benchmark suite (quick)
+        id: benchmark
+        continue-on-error: true
+        run: |
+          # benchmark:quick 跳过耗时 ~3min 的 perf-bench-cli，保留 dead-code/DFS/dist
+          npm run benchmark:quick > /tmp/benchmark-report.md 2>&1 || true
+          # 截前 60 行作为 issue body 嵌入摘要（避免 issue 太长）
+          head -n 60 /tmp/benchmark-report.md > /tmp/benchmark-summary.md
+          echo "--- benchmark summary preview ---"
+          cat /tmp/benchmark-summary.md
+
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: weekly-benchmark-report
+          path: /tmp/benchmark-report.md
+          retention-days: 90
+
       - name: Build report body
         id: report
         if: steps.scan.outputs.added != '0' || steps.scan.outputs.removed != '0'
@@ -72,6 +95,24 @@ jobs:
               const d=require('/tmp/dead-code.json');
               for (const r of (d.diff?.removed ?? [])) console.log('- \`'+r.file+'\` :: \`'+r.name+'\`'+(r.entry?' (entry-shape)':''));
             "
+            echo ""
+            echo '---'
+            echo ""
+            echo '## Benchmark Suite 摘要（DD5 新增）'
+            echo ""
+            echo '<details><summary>展开 4 维度健康度（dead-code / DFS / dist）</summary>'
+            echo ""
+            echo '```'
+            if [ -f /tmp/benchmark-summary.md ]; then
+              cat /tmp/benchmark-summary.md
+            else
+              echo "(benchmark step skipped or failed)"
+            fi
+            echo '```'
+            echo ""
+            echo '</details>'
+            echo ""
+            echo '> 完整报告见本次 workflow run 的 `weekly-benchmark-report` artifact（保留 90 天）。'
             echo ""
             echo '---'
             echo '> 如果新增项都是预期（如新模块尚未接入），手动跑 `node scripts/scan-unused-exports.mjs --strict --write-baseline docs/engineering/dead-code-baseline.json` 提交更新基线。'
