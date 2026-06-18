@@ -81,6 +81,31 @@ import('./monetization/analyticsTracker.js').then(({ getAnalyticsTracker }) => {
             }
         }
     }).catch(() => { /* blockSpawn 未就绪 — 跳过 */ });
+
+    /* Y3：analyticsStore IDB 持久化健康观测（与 X1 同模式 60s + pagehide） */
+    import('./lib/analyticsStore.js').then(({ getAnalyticsStoreStats, resetAnalyticsStoreStats }) => {
+        const FLUSH_INTERVAL_MS = 60_000;
+        function flushStoreStats() {
+            try {
+                const stats = getAnalyticsStoreStats();
+                const total = stats.idbPutOk + stats.idbPutFail;
+                if (total === 0 && stats.idbGetOk === 0 && stats.idbGetMiss === 0) return; /* 无活动跳过 */
+                const tracker = getAnalyticsTracker?.();
+                if (!tracker || typeof tracker.trackEvent !== 'function') return;
+                tracker.trackEvent('analytics_store_window', {
+                    ...stats,
+                    windowMs: FLUSH_INTERVAL_MS,
+                });
+                resetAnalyticsStoreStats();
+            } catch { /* 持久化观测自身永不能拖累主流程 */ }
+        }
+        if (typeof setInterval === 'function') {
+            setInterval(flushStoreStats, FLUSH_INTERVAL_MS);
+        }
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            window.addEventListener('pagehide', flushStoreStats);
+        }
+    }).catch(() => { /* analyticsStore 未就绪 — 跳过 */ });
 }).catch(() => { /* tracker 加载失败 — 静默，logger 仍保留 ring buffer 与 console */ });
 import { initPlayerInsightPanel } from './playerInsightPanel.js';
 import { initReplayUI } from './replayUI.js';

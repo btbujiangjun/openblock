@@ -59,6 +59,16 @@ export const ANALYTICS_EVENTS = {
     WEEKLY_CHALLENGE_COMPLETE: { category: 'lifecycle', name: 'weekly_challenge_complete' },
     WINBACK_SESSION_STARTED: { category: 'lifecycle', name: 'winback_session_started' },
     WINBACK_SESSION_COMPLETED: { category: 'lifecycle', name: 'winback_session_completed' },
+
+    /* X1：DFS budget 观测窗口上报（main.js 60s 触发 + pagehide flush）。
+     * 服务端聚合 truncatedRatio P50/P95 + 桶分布均值，喂给
+     * docs/engineering/DFS_BUDGET_BASELINE.md 的 EXCESS/OK/TIGHT/CRITICAL 决策表。 */
+    DFS_BUDGET_WINDOW: { category: 'performance', name: 'dfs_budget_window' },
+
+    /* Y3：analyticsStore IDB 持久化健康观测（60s 窗口）。
+     * 服务端聚焦 idbWriteSuccessRate（< 95% 报警）+ idbMaxLatencyMs P99
+     * （长尾延时反映浏览器 storage 健康问题）。 */
+    ANALYTICS_STORE_WINDOW: { category: 'performance', name: 'analytics_store_window' },
 };
 
 /**

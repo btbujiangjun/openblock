@@ -308,3 +308,94 @@ describe('analyticsStore — IDB 路径', () => {
         expect(JSON.parse(lsStub.getItem('openblock_analytics_v1') || '{}').events).toEqual([{ recovered: 'ls' }]);
     });
 });
+
+/* ============ Y3: IDB 持久化健康观测 ============ */
+describe('analyticsStore Y3 — IDB 健康观测', () => {
+    let mod, lsStub;
+    beforeEach(async () => {
+        vi.useFakeTimers();
+        globalThis.indexedDB = undefined;
+        lsStub = makeLocalStorageStub();
+        vi.stubGlobal('localStorage', lsStub);
+        vi.resetModules();
+        mod = await import('../web/src/lib/analyticsStore.js');
+        mod._resetAnalyticsStoreForTests();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it('初始快照：全 0，successRate=1（无操作时默认健康）', () => {
+        const s = mod.getAnalyticsStoreStats();
+        expect(s.idbPutOk).toBe(0);
+        expect(s.idbPutFail).toBe(0);
+        expect(s.idbWriteSuccessRate).toBe(1);
+        expect(s.idbAvgLatencyMs).toBe(0);
+        expect(s.lsPutFallback).toBe(0);
+    });
+
+    it('IDB 不可用 → put 计 fail；lsPut 兜底成功 → lsPutFallback++', async () => {
+        mod.queueAnalyticsSave({ events: [{ v: 1 }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        const s = mod.getAnalyticsStoreStats();
+        expect(s.idbPutFail).toBeGreaterThanOrEqual(1);
+        expect(s.idbPutOk).toBe(0);
+        expect(s.idbWriteSuccessRate).toBe(0);
+        expect(s.lsPutFallback).toBeGreaterThanOrEqual(1);
+    });
+
+    it('IDB 可用且写入成功 → put 计 ok + 累计 latency；avg/max ≥ 0', async () => {
+        /* 自定义 IDB stub，tx.oncomplete 自动触发（fakeIDB 不会自动触发） */
+        globalThis.indexedDB = {
+            open() {
+                const req = { onsuccess: null, result: null };
+                queueMicrotask(() => {
+                    req.result = {
+                        objectStoreNames: { contains: () => true },
+                        transaction() {
+                            const tx = {
+                                objectStore() {
+                                    return { put() { return { onsuccess: null, onerror: null }; } };
+                                },
+                                oncomplete: null, onerror: null, onabort: null,
+                            };
+                            queueMicrotask(() => tx.oncomplete && tx.oncomplete());
+                            return tx;
+                        },
+                    };
+                    req.onsuccess && req.onsuccess();
+                });
+                return req;
+            },
+        };
+        mod._resetAnalyticsStoreForTests();
+        mod.queueAnalyticsSave({ events: [{ v: 1 }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        const s = mod.getAnalyticsStoreStats();
+        expect(s.idbPutOk).toBeGreaterThanOrEqual(1);
+        expect(s.idbWriteSuccessRate).toBe(1);
+        expect(s.idbAvgLatencyMs).toBeGreaterThanOrEqual(0);
+        expect(s.idbMaxLatencyMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('resetAnalyticsStoreStats 清零所有字段', async () => {
+        mod.queueAnalyticsSave({ events: [{ v: 1 }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        expect(mod.getAnalyticsStoreStats().idbPutFail).toBeGreaterThan(0);
+        mod.resetAnalyticsStoreStats();
+        const s = mod.getAnalyticsStoreStats();
+        expect(s.idbPutOk).toBe(0);
+        expect(s.idbPutFail).toBe(0);
+        expect(s.lsPutFallback).toBe(0);
+    });
+
+    it('快照是副本：外部修改不影响内部', () => {
+        const s = mod.getAnalyticsStoreStats();
+        s.idbPutOk = 99999;
+        expect(mod.getAnalyticsStoreStats().idbPutOk).toBe(0);
+    });
+});

@@ -61,6 +61,11 @@ export const ANALYTICS_EVENTS = {
      * 服务端聚合 truncatedRatio P50/P95 + 桶分布均值，喂给
      * docs/engineering/DFS_BUDGET_BASELINE.md 的 EXCESS/OK/TIGHT/CRITICAL 决策表。 */
     DFS_BUDGET_WINDOW: { category: 'performance', name: 'dfs_budget_window' },
+
+    /* Y3：analyticsStore IDB 持久化健康观测（60s 窗口）。
+     * 服务端聚焦 idbWriteSuccessRate（< 95% 报警）+ idbMaxLatencyMs P99
+     * （长尾延时反映浏览器 storage 健康问题）。 */
+    ANALYTICS_STORE_WINDOW: { category: 'performance', name: 'analytics_store_window' },
 };
 
 /**
