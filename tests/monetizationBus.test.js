@@ -1,0 +1,131 @@
+/**
+ * MonetizationBus 可观测性 / 错误处理契约（v1.71 加固）
+ *
+ * 覆盖：
+ *   - 基本订阅 / emit / off / unsubscribe 闭包
+ *   - handler 抛错不传染其他 handler
+ *   - 失败计数（总数 / 连续数）+ 成功后连续计数清零
+ *   - 连续失败 ≥ 5 次后熔断（不再被调用）
+ *   - getStats 反映 emit / 订阅 / 熔断状态
+ */
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import {
+    on, off, emit, _clearAllHandlers, getStats, getHandlerFailCount,
+} from '../web/src/monetization/MonetizationBus.js';
+
+beforeEach(() => {
+    _clearAllHandlers();
+    /* 屏蔽 logger 输出避免污染测试日志 */
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+describe('MonetizationBus — 订阅 / emit / off', () => {
+    it('on() 注册 handler，emit() 调用它', () => {
+        const h = vi.fn();
+        on('foo', h);
+        emit('foo', { a: 1 });
+        expect(h).toHaveBeenCalledTimes(1);
+        expect(h.mock.calls[0][0]).toMatchObject({ data: { a: 1 } });
+    });
+
+    it('on() 返回的 unsubscribe 函数能取消订阅', () => {
+        const h = vi.fn();
+        const unsub = on('bar', h);
+        emit('bar');
+        unsub();
+        emit('bar');
+        expect(h).toHaveBeenCalledTimes(1);
+    });
+
+    it('off() 也能取消', () => {
+        const h = vi.fn();
+        on('baz', h);
+        off('baz', h);
+        emit('baz');
+        expect(h).not.toHaveBeenCalled();
+    });
+
+    it('无 handler 的 eventType emit 不报错', () => {
+        expect(() => emit('nobody-listens', {})).not.toThrow();
+    });
+});
+
+describe('MonetizationBus — 错误隔离', () => {
+    it('一个 handler 抛错不影响其他 handler', () => {
+        const bad = vi.fn(() => { throw new Error('boom'); });
+        const good = vi.fn();
+        on('e', bad);
+        on('e', good);
+        expect(() => emit('e')).not.toThrow();
+        expect(bad).toHaveBeenCalledTimes(1);
+        expect(good).toHaveBeenCalledTimes(1);
+    });
+
+    it('失败计数：total 与 consecutive 同时累加', () => {
+        const bad = () => { throw new Error('e'); };
+        on('x', bad);
+        emit('x'); emit('x'); emit('x');
+        const s = getHandlerFailCount(bad);
+        expect(s.total).toBe(3);
+        expect(s.consecutive).toBe(3);
+        expect(s.circuitOpen).toBe(false);
+    });
+
+    it('一次成功后 consecutive 清零，total 保留', () => {
+        let fail = true;
+        const sometimes = () => { if (fail) throw new Error('e'); };
+        on('x', sometimes);
+        emit('x'); emit('x');
+        fail = false;
+        emit('x');
+        const s = getHandlerFailCount(sometimes);
+        expect(s.total).toBe(2);
+        expect(s.consecutive).toBe(0);
+    });
+});
+
+describe('MonetizationBus — 熔断', () => {
+    it('连续失败 ≥ 5 次后熔断；之后不再调用', () => {
+        const bad = vi.fn(() => { throw new Error('e'); });
+        on('x', bad);
+        for (let i = 0; i < 7; i++) emit('x');
+        expect(bad).toHaveBeenCalledTimes(5); // 第 5 次失败后熔断
+        const s = getHandlerFailCount(bad);
+        expect(s.circuitOpen).toBe(true);
+        expect(s.total).toBe(5);
+    });
+
+    it('其他 handler 不受熔断影响', () => {
+        const bad = () => { throw new Error('e'); };
+        const good = vi.fn();
+        on('x', bad);
+        on('x', good);
+        for (let i = 0; i < 10; i++) emit('x');
+        expect(good).toHaveBeenCalledTimes(10);
+    });
+});
+
+describe('MonetizationBus — getStats', () => {
+    it('emit 计数 + 订阅 handler 数 + 熔断数', () => {
+        const h1 = () => {};
+        const h2 = () => {};
+        on('a', h1);
+        on('a', h2);
+        on('b', h1);
+        emit('a'); emit('a'); emit('b');
+        const s = getStats();
+        expect(s.events).toEqual({ a: 2, b: 1 });
+        expect(s.eventTypes).toBe(2);
+        expect(s.totalHandlers).toBe(3); // a:h1, a:h2, b:h1
+        expect(s.circuitOpenCount).toBe(0);
+    });
+
+    it('熔断的 handler 在 circuitOpenCount 中可见', () => {
+        const bad = () => { throw new Error('e'); };
+        on('x', bad);
+        for (let i = 0; i < 6; i++) emit('x');
+        const s = getStats();
+        expect(s.circuitOpenCount).toBe(1);
+    });
+});
