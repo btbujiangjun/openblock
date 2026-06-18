@@ -169,6 +169,7 @@ export function resolveUnifiedSignals(profile, ctx = {}) {
     return _cache;
 }
 
-export function invalidateUnifiedSignalsCache() {
-    _cache = null; _cacheKey = null; _cacheTs = 0;
-}
+/* v1.71 U5：原 `export function invalidateUnifiedSignalsCache()`，
+ * 全代码库 0 调用方（scan-unused-exports.mjs --strict 确认），删除。
+ * 缓存的失效现在仅靠 key 自动变化（key 含 grid hash + adaptive snapshot）。
+ * 如未来需要外部强制刷新，把此函数恢复 export 即可。 */

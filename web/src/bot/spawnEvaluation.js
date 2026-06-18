@@ -266,7 +266,9 @@ function summarizeComparisons(rows) {
  * 1 个新增权重 (v1.62.9+ 反膨胀目标):
  *   antiInflation - 抑制分数膨胀 (overshootRate ≤ 5% 为目标),默认 0 保持向后兼容
  */
-export function scoreEvaluationRow(row, weights = {}) {
+/* v1.71 U5：原 `export`，但仅本文件内部 deriveOptimizerScore 调用，无外部消费者。
+ * 改为模块内函数收窄公共面。 */
+function scoreEvaluationRow(row, weights = {}) {
     const w = {
         noMove: Number(weights.noMove ?? 0.35),
         rewardAgency: Number(weights.rewardAgency ?? 0.25),

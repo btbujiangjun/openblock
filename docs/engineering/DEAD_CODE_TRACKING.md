@@ -17,11 +17,19 @@ python3 scripts/scan-unused-exports.py  # 或参考 git log b9bb200..HEAD 中的
 - 排除自身定义文件
 - 排除 `__*` / `^[A-Z_]+$` / 含 `VERSION|SCHEMA|DEFAULT` 的常量（多为公开 schema）
 
-## 当前快照（2026-06-18，HEAD ≈ inc8）
+## 当前快照（2026-06-18，HEAD ≈ U5）
 
-- 总 export：**1470**
-- 全仓零引用：**149**
-- 排除"公开 API 候选"后：**102 项 / 58 文件**
+- 总 export：**1402**（U5 收窄 3 项；其余 65 差异主要来自其他清理 commit / 文件变动）
+- 全仓零引用：**73**（STRICT 模式，已排除入口型 init*/get*Instance/open*/start* 等）
+- LOOSE 模式（不排除入口型）历史值：~149
+
+## 扫描命令
+
+```bash
+node scripts/scan-unused-exports.mjs           # 文本报告（LOOSE）
+node scripts/scan-unused-exports.mjs --strict  # STRICT（排除入口型，更高置信度）
+node scripts/scan-unused-exports.mjs --json    # 机器可读 JSON
+```
 
 ## 分类与处置建议
 
@@ -29,7 +37,10 @@ python3 scripts/scan-unused-exports.py  # 或参考 git log b9bb200..HEAD 中的
 
 | 文件 | export | 备注 | 处置 |
 |---|---|---|---|
-| `web/src/lib/storageAdapter.js` | `safeRemoveKey` | 本会话新增但未被任何调用点使用 | **已删除**（见 commit `5c69d4f`） |
+| `web/src/lib/storageAdapter.js` | `safeRemoveKey` | 本会话新增但未被任何调用点使用 | **已删除**（commit `5c69d4f`） |
+| `web/src/audit/profileAuditMath.js` | `finiteNumbers` | STRICT 扫零外部引用；仅同文件 mean/median/stddev 使用 | **改为内部函数**（U5） |
+| `web/src/coordination/unifiedSignals.js` | `invalidateUnifiedSignalsCache` | STRICT 扫零引用；缓存现靠 key 变化自动失效 | **整段删除**（U5） |
+| `web/src/bot/spawnEvaluation.js` | `scoreEvaluationRow` | STRICT 扫零外部引用；仅同文件 deriveOptimizerScore 使用 | **改为内部函数**（U5） |
 
 ### B. 中置信度（需人工确认是否为对外/调试入口）
 

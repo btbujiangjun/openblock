@@ -15,7 +15,9 @@
  * @param {Iterable<unknown>} xs
  * @returns {number[]}
  */
-export function finiteNumbers(xs) {
+/* v1.71 U5：原 `export function`，但仅模块内 mean/median/stddev 依赖，无外部消费者。
+ * 改为模块内函数以收窄公共面（避免 unused export 噪音）。如需复用请重新 export。 */
+function finiteNumbers(xs) {
     if (xs == null) return [];
     const out = [];
     for (const v of xs) {
