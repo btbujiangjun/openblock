@@ -73,7 +73,7 @@ describe('II1 与 HH2 baseline 高强度等价（覆盖 II1 新路径）', () =>
     }
 
     /* 模拟 HH2 baseline（无 II1 优化） */
-    function baselineFlushPotential(grid, shapeData, skin = null, opts = {}) {
+    function baselineFlushPotential(grid, shapeData, _skin = null, opts = {}) {
         const returnTarget = opts && opts.returnTarget === true;
         if (!shapeData?.length) return returnTarget ? { count: 0, targetCi: null } : 0;
         const sh = shapeData.length; const sw = shapeData[0].length; const n = grid.size;

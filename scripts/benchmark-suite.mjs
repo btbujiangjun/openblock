@@ -20,6 +20,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { writeFile, mkdir, stat, readdir, readFile } from 'node:fs/promises';
+import { readFileSync as _readFileSyncNode } from 'node:fs';
 import { dirname, resolve, join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
@@ -259,6 +260,75 @@ if (trendBaseline) {
     lines.push('- 未指定 `--trend-baseline`，跳过对比（首次运行用 `--write-trend` 写基线）');
 }
 lines.push('');
+
+/* II5: 历史 sparkline + 周环比汇总（依赖 history 文件，多于 1 entry 时启用）。 */
+function _readHistorySync() {
+    if (!TREND_HISTORY) return [];
+    try {
+        const raw = _readFileSyncNode(resolve(process.cwd(), TREND_HISTORY), 'utf8');
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed?.entries) ? parsed.entries : [];
+    } catch { return []; }
+}
+/* 异步 readFile 已读过；此处用同步重读以避顺序耦合（小文件无开销）。 */
+const _SPARK_CHARS = '▁▂▃▄▅▆▇█';
+function _sparkline(values) {
+    const v = values.filter(x => Number.isFinite(x));
+    if (v.length === 0) return '(no data)';
+    const min = Math.min(...v);
+    const max = Math.max(...v);
+    if (max === min) return _SPARK_CHARS[0].repeat(v.length);
+    return v.map(x => {
+        const idx = Math.min(_SPARK_CHARS.length - 1,
+            Math.max(0, Math.floor((x - min) / (max - min) * (_SPARK_CHARS.length - 1))));
+        return _SPARK_CHARS[idx];
+    }).join('');
+}
+function _wowSummary(snapshots, key) {
+    /* week-over-week：取最近 2 个 snapshot 比 Δ% */
+    if (snapshots.length < 2) return '–';
+    const last = snapshots[snapshots.length - 1]?.[key];
+    const prev = snapshots[snapshots.length - 2]?.[key];
+    if (!Number.isFinite(last) || !Number.isFinite(prev) || prev === 0) return '–';
+    const pct = (last - prev) / Math.abs(prev) * 100;
+    const sign = pct >= 0 ? '+' : '';
+    return `${sign}${pct.toFixed(1)}%`;
+}
+
+const histRaw = _readHistorySync();
+/* 加入本次未写入的 snapshot 以让 sparkline 含 latest */
+const histAll = [...histRaw.map(e => ({ ts: e.ts, ...(e.snapshot || {}) })), { ts: snapshot.ts, ...snapshot }];
+
+if (histAll.length >= 2) {
+    lines.push('## 维度 6：Trend History（II5 sparkline + 周环比）');
+    lines.push('');
+    lines.push(`- 历史窗口：${histAll.length} entries（最近 ${Math.min(histAll.length, 5)} 周）`);
+    lines.push('');
+    lines.push('| 指标 | sparkline | WoW |');
+    lines.push('|---|---|---|');
+    const metricRows = [
+        ['dead code unused', histAll.map(e => e.deadCode?.unusedCount)],
+        ['DFS truncatedRatio', histAll.map(e => e.dfs?.truncatedRatio)],
+        ['DFS cappedRatio', histAll.map(e => e.dfs?.cappedRatio)],
+        ['dist bytes', histAll.map(e => e.dist?.bytes)],
+    ];
+    for (const [name, series] of metricRows) {
+        const sparks = _sparkline(series);
+        const wow = _wowSummary(
+            series.map((v, i) => ({ x: v })),
+            'x',
+        );
+        lines.push(`| ${name} | \`${sparks}\` | ${wow} |`);
+    }
+    lines.push('');
+    lines.push('> sparkline 字符级折线（▁..█），从早→晚；WoW = 最近两次 snapshot 环比。');
+    lines.push('');
+} else if (TREND_HISTORY) {
+    lines.push('## 维度 6：Trend History');
+    lines.push('');
+    lines.push(`- 历史 entries < 2 (${histAll.length})，sparkline 暂未启用（需积累 ≥ 2 次跑）`);
+    lines.push('');
+}
 
 if (TREND_WRITE) {
     try {
