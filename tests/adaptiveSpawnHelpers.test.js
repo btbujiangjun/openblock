@@ -408,6 +408,95 @@ describe('adaptiveSpawn._applySpawnHintsD4Tighten — D4 收紧 (Y2)', () => {
     });
 });
 
+/* ============ Y5: _applySpawnHintsPbCurveRules ============ */
+function _applySpawnHintsPbCurveRulesRef(s, pbCurve) {
+    if (pbCurve.pbRelease > 0) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.35);
+        s.sizePreference = Math.min(s.sizePreference, -0.12);
+    }
+    if (pbCurve.pbBrake > 0.35 && !(pbCurve.pbRelease > 0)) {
+        s.multiClearBonus = Math.max(0, s.multiClearBonus * (1 - pbCurve.pbBrake * 0.22));
+        s.clearGuarantee = Math.max(0, s.clearGuarantee - (pbCurve.pbBrake > 0.75 ? 1 : 0));
+        s.sizePreference = Math.max(s.sizePreference, pbCurve.pbBrake * 0.10);
+    }
+    return {
+        clearGuarantee: s.clearGuarantee,
+        multiClearBonus: s.multiClearBonus,
+        sizePreference: s.sizePreference,
+    };
+}
+
+describe('adaptiveSpawn._applySpawnHintsPbCurveRules — PB 双 S 段 (Y5)', () => {
+    it('pbRelease > 0 → clearGuarantee 抬到 ≥2、mcb ≥0.35、sp ≤-0.12', () => {
+        const s = { clearGuarantee: 0, multiClearBonus: 0.10, sizePreference: 0.30 };
+        _applySpawnHintsPbCurveRulesRef(s, { pbRelease: 1, pbBrake: 0 });
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.multiClearBonus).toBe(0.35);
+        expect(s.sizePreference).toBe(-0.12);
+    });
+
+    it('pbRelease > 0 时已经在 floor 之上的字段不下压（Math.max 幂等）', () => {
+        const s = { clearGuarantee: 3, multiClearBonus: 0.5, sizePreference: -0.25 };
+        _applySpawnHintsPbCurveRulesRef(s, { pbRelease: 1, pbBrake: 0 });
+        expect(s.clearGuarantee).toBe(3);
+        expect(s.multiClearBonus).toBe(0.5);
+        expect(s.sizePreference).toBe(-0.25);
+    });
+
+    it('pbBrake > 0.35 触发：mcb 乘性收紧、cg -1 (pbBrake > 0.75)、sp 抬高', () => {
+        const s = { clearGuarantee: 3, multiClearBonus: 0.50, sizePreference: -0.20 };
+        _applySpawnHintsPbCurveRulesRef(s, { pbRelease: 0, pbBrake: 0.80 });
+        /* mcb = 0.50 * (1 - 0.80 * 0.22) = 0.50 * 0.824 ≈ 0.412 */
+        expect(s.multiClearBonus).toBeCloseTo(0.412, 3);
+        /* cg = max(0, 3 - 1) = 2 (pbBrake > 0.75 减一) */
+        expect(s.clearGuarantee).toBe(2);
+        /* sp = max(-0.20, 0.80 * 0.10 = 0.08) = 0.08 */
+        expect(s.sizePreference).toBeCloseTo(0.08, 3);
+    });
+
+    it('pbBrake 在 (0.35, 0.75] 不减 cg（条件 > 0.75 不满足）', () => {
+        const s = { clearGuarantee: 3, multiClearBonus: 0.50, sizePreference: 0 };
+        _applySpawnHintsPbCurveRulesRef(s, { pbRelease: 0, pbBrake: 0.50 });
+        expect(s.clearGuarantee).toBe(3); /* 不减 */
+    });
+
+    it('pbBrake ≤ 0.35 不触发任何修改', () => {
+        const s = { clearGuarantee: 3, multiClearBonus: 0.50, sizePreference: -0.10 };
+        _applySpawnHintsPbCurveRulesRef(s, { pbRelease: 0, pbBrake: 0.30 });
+        expect(s).toEqual({ clearGuarantee: 3, multiClearBonus: 0.50, sizePreference: -0.10 });
+    });
+
+    it('互斥保护：pbRelease > 0 时 pbBrake 段不触发（避免语义冲突）', () => {
+        const s = { clearGuarantee: 1, multiClearBonus: 0.50, sizePreference: 0 };
+        /* 两个 trigger 都给到：release 抬 cg 到 2，brake 段绝不触发把它拉回 1 */
+        _applySpawnHintsPbCurveRulesRef(s, { pbRelease: 1, pbBrake: 0.90 });
+        expect(s.clearGuarantee).toBe(2);    /* 释放窗口期 cg 保持 ≥2 */
+        expect(s.multiClearBonus).toBe(0.50); /* mcb 不被乘性收紧 */
+    });
+
+    it('多次连续调用 release（幂等）→ 结果稳定', () => {
+        const s = { clearGuarantee: 0, multiClearBonus: 0, sizePreference: 0 };
+        const pbCurve = { pbRelease: 1, pbBrake: 0 };
+        _applySpawnHintsPbCurveRulesRef(s, pbCurve);
+        _applySpawnHintsPbCurveRulesRef(s, pbCurve);
+        _applySpawnHintsPbCurveRulesRef(s, pbCurve);
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.multiClearBonus).toBe(0.35);
+        expect(s.sizePreference).toBe(-0.12);
+    });
+
+    it('反 idempotent 验证（anti-pattern）：多次 brake 会持续收紧 mcb', () => {
+        const s = { clearGuarantee: 2, multiClearBonus: 0.50, sizePreference: 0 };
+        const pbCurve = { pbRelease: 0, pbBrake: 0.80 };
+        _applySpawnHintsPbCurveRulesRef(s, pbCurve);
+        const after1 = s.multiClearBonus;
+        _applySpawnHintsPbCurveRulesRef(s, pbCurve);
+        const after2 = s.multiClearBonus;
+        expect(after2).toBeLessThan(after1); /* 第二次更小 → 文档化为何不能重复调 */
+    });
+});
+
 /* ============ W4: _applySpawnHintsComboWinbackRules ============ */
 function _applySpawnHintsComboWinbackRulesRef(s) {
     let { clearGuarantee, sizePreference } = s;

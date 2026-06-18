@@ -438,6 +438,40 @@ function _applySpawnHintsD4Tighten(s, cfgOh) {
     };
 }
 
+/**
+ * PB 双 S 曲线 spawnHints 规则（v1.71 Y5 抽出 L2661-2673）。
+ *
+ * 两段独立分支（pbRelease / pbBrake），各自语义：
+ *   - pbRelease > 0：刚破 PB 释放窗口 → 提保消 + 多消 + 偏小块（idempotent floors）
+ *   - pbBrake > 0.35 且非释放窗口 → 减 payoff + 减保消（**非 idempotent，乘法**）
+ *
+ * 互斥保护契约：pbBrake 分支仅在 !(pbRelease > 0) 时触发——
+ * 避免释放窗口期与刹车段语义冲突（见 §4.9 测试）。
+ *
+ * **不能 DSL 化**：pbBrake 含 `mcb * (1 - pbBrake * 0.22)` 乘法（非幂等）。
+ *
+ * 调用约定：原地修改 s（含 clearGuarantee / multiClearBonus / sizePreference）。
+ *
+ * @returns {{ clearGuarantee: number, multiClearBonus: number, sizePreference: number }}
+ */
+function _applySpawnHintsPbCurveRules(s, pbCurve) {
+    if (pbCurve.pbRelease > 0) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.35);
+        s.sizePreference = Math.min(s.sizePreference, -0.12);
+    }
+    if (pbCurve.pbBrake > 0.35 && !(pbCurve.pbRelease > 0)) {
+        s.multiClearBonus = Math.max(0, s.multiClearBonus * (1 - pbCurve.pbBrake * 0.22));
+        s.clearGuarantee = Math.max(0, s.clearGuarantee - (pbCurve.pbBrake > 0.75 ? 1 : 0));
+        s.sizePreference = Math.max(s.sizePreference, pbCurve.pbBrake * 0.10);
+    }
+    return {
+        clearGuarantee: s.clearGuarantee,
+        multiClearBonus: s.multiClearBonus,
+        sizePreference: s.sizePreference,
+    };
+}
+
 function _applySpawnHintsComboWinbackRules(s) {
     let { clearGuarantee, sizePreference } = s;
     const { comboChain, winbackPreset, ctx } = s;
@@ -2658,18 +2692,16 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
      * - PB 后刹车：抑制 payoff、降低白送消行
      * - 突破释放：短暂提高生存与奖励，避免"刚破纪录就被针对"
      * 这里只做小幅连续调节，原有 pbOvershoot / farFromPB / postPbRelease 规则仍保留。 */
-    if (pbCurve.pbRelease > 0) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        multiClearBonus = Math.max(multiClearBonus, 0.35);
-        sizePreference = Math.min(sizePreference, -0.12);
-    }
-    /* 释放窗口期内（pbRelease > 0）不应用 brake：postPbReleaseActive 期望"刚破 PB 还能轻盈"，
-     * brake 段会反向把 clearGuarantee 拉回 1，与释放窗口语义冲突（见 §4.9 测试）。
-     * brake 仍作用于"超 PB 后释放窗口已耗尽 + 持续在超 PB 区"的情况。 */
-    if (pbCurve.pbBrake > 0.35 && !(pbCurve.pbRelease > 0)) {
-        multiClearBonus = Math.max(0, multiClearBonus * (1 - pbCurve.pbBrake * 0.22));
-        clearGuarantee = Math.max(0, clearGuarantee - (pbCurve.pbBrake > 0.75 ? 1 : 0));
-        sizePreference = Math.max(sizePreference, pbCurve.pbBrake * 0.10);
+    /* v1.71 Y5：pbCurve 双 S 段抽至 _applySpawnHintsPbCurveRules
+     * （pbBrake 含乘法非 idempotent，互斥保护语义见 helper 文档） */
+    {
+        const _pbc = _applySpawnHintsPbCurveRules(
+            { clearGuarantee, multiClearBonus, sizePreference },
+            pbCurve,
+        );
+        clearGuarantee = _pbc.clearGuarantee;
+        multiClearBonus = _pbc.multiClearBonus;
+        sizePreference = _pbc.sizePreference;
     }
 
     /* ================================================================ */
