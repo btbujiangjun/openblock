@@ -965,6 +965,78 @@ describe('adaptiveSpawn._applySpawnHintsTopoOpportunityRules (CC1)', () => {
     });
 });
 
+/* ============ DD1: _applySpawnHintsFriendlyBoostRules ============ */
+function _applySpawnHintsFriendlyBoostRulesRef(s, signals) {
+    const { scoreMilestoneHit, sessionArc } = signals;
+    if (scoreMilestoneHit) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.2);
+    }
+    if (sessionArc === 'warmup') {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.2);
+    }
+    return s;
+}
+const friendlyState = () => ({ clearGuarantee: 0, sizePreference: 0 });
+
+describe('adaptiveSpawn._applySpawnHintsFriendlyBoostRules (DD1)', () => {
+    it('两段都不触发 → 不动', () => {
+        const s = friendlyState();
+        _applySpawnHintsFriendlyBoostRulesRef(s, { scoreMilestoneHit: false, sessionArc: 'peak' });
+        expect(s).toEqual(friendlyState());
+    });
+
+    it('仅 scoreMilestone hit → cg≥2 / sp≤-0.2', () => {
+        const s = friendlyState();
+        _applySpawnHintsFriendlyBoostRulesRef(s, { scoreMilestoneHit: true, sessionArc: 'peak' });
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.sizePreference).toBe(-0.2);
+    });
+
+    it('仅 sessionArc=warmup → cg≥2 / sp≤-0.2', () => {
+        const s = friendlyState();
+        _applySpawnHintsFriendlyBoostRulesRef(s, { scoreMilestoneHit: false, sessionArc: 'warmup' });
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.sizePreference).toBe(-0.2);
+    });
+
+    it('两段同时触发 → max/min 不"双倍补偿"', () => {
+        const s = friendlyState();
+        _applySpawnHintsFriendlyBoostRulesRef(s, { scoreMilestoneHit: true, sessionArc: 'warmup' });
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.sizePreference).toBe(-0.2);
+    });
+
+    it('已有更高 cg → 不下降（max）', () => {
+        const s = friendlyState(); s.clearGuarantee = 3;
+        _applySpawnHintsFriendlyBoostRulesRef(s, { scoreMilestoneHit: true, sessionArc: 'peak' });
+        expect(s.clearGuarantee).toBe(3);
+    });
+
+    it('已有更低 sp → 不被抬升（min）', () => {
+        const s = friendlyState(); s.sizePreference = -0.5;
+        _applySpawnHintsFriendlyBoostRulesRef(s, { scoreMilestoneHit: false, sessionArc: 'warmup' });
+        expect(s.sizePreference).toBe(-0.5);
+    });
+
+    it('sessionArc 未知值 → 不触发', () => {
+        const s = friendlyState();
+        _applySpawnHintsFriendlyBoostRulesRef(s, { scoreMilestoneHit: false, sessionArc: 'unknown' });
+        expect(s).toEqual(friendlyState());
+    });
+
+    it('幂等：连续调两次结果一致', () => {
+        const s1 = friendlyState();
+        const s2 = friendlyState();
+        const sig = { scoreMilestoneHit: true, sessionArc: 'warmup' };
+        _applySpawnHintsFriendlyBoostRulesRef(s1, sig);
+        _applySpawnHintsFriendlyBoostRulesRef(s2, sig);
+        _applySpawnHintsFriendlyBoostRulesRef(s2, sig);
+        expect(s1).toEqual(s2);
+    });
+});
+
 /* ============ W4: _applySpawnHintsComboWinbackRules ============ */
 function _applySpawnHintsComboWinbackRulesRef(s) {
     let { clearGuarantee, sizePreference } = s;

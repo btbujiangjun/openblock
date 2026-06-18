@@ -653,6 +653,34 @@ function _applySpawnHintsTopoOpportunityRules(s, signals) {
     return s;
 }
 
+/**
+ * Layer 3 友好化补偿 spawnHints（v1.71 DD1 抽出 L2716-2726）。
+ *
+ * 两段语义同类（"庆祝 / 暖场用偏小友好块"），互不依赖，可同时触发；
+ * 两段的调制完全一致：cg≥2 / sp≤-0.2。抽出后即使未来差异化也不影响阅读。
+ *
+ *   1. scoreMilestone hit：玩家刚到分数里程碑 → 庆祝期送更确定的清屏
+ *   2. sessionArc='warmup'：本局前几轮 → 暖场避免开局压力
+ *
+ * 设计原则：max/min 幂等；两段同效果时不会"双倍补偿"（仍是 max/min）。
+ *
+ * @param {object} s state（含 clearGuarantee / sizePreference）
+ * @param {{ scoreMilestoneHit: boolean, sessionArc: string }} signals
+ * @returns {object} 修改后的 s（同引用）
+ */
+function _applySpawnHintsFriendlyBoostRules(s, signals) {
+    const { scoreMilestoneHit, sessionArc } = signals;
+    if (scoreMilestoneHit) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.2);
+    }
+    if (sessionArc === 'warmup') {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.2);
+    }
+    return s;
+}
+
 function _applySpawnHintsComboWinbackRules(s) {
     let { clearGuarantee, sizePreference } = s;
     const { comboChain, winbackPreset, ctx } = s;
@@ -2713,16 +2741,15 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         rhythmPhase = _d.rhythmPhase;
     }
 
-    /* --- Layer 3: 分数里程碑庆祝 — 出块友好化（v1.49 字段更名 milestoneCheck → scoreMilestoneCheck） --- */
-    if (scoreMilestoneCheck.hit) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, -0.2);
-    }
-
-    /* --- Layer 3: warmup 阶段友好化 --- */
-    if (sessionArc === 'warmup') {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, -0.2);
+    /* --- v1.71 DD1：Layer 3 友好化补偿（scoreMilestone + warmup）抽至
+     *               _applySpawnHintsFriendlyBoostRules --- */
+    {
+        const _f = _applySpawnHintsFriendlyBoostRules(
+            { clearGuarantee, sizePreference },
+            { scoreMilestoneHit: scoreMilestoneCheck.hit, sessionArc },
+        );
+        clearGuarantee = _f.clearGuarantee;
+        sizePreference = _f.sizePreference;
     }
 
     /* --- v1.56 §2.1：farFromPBBoost 远征送爽 spawnHints 加成 ---
