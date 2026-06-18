@@ -41,6 +41,12 @@ const FILES = [
     /* V2 V5：新增的轻量纯工具，cocos 端 adaptiveSpawn / analytics 都依赖 */
     'lib/analyticsStore.js',
     'lib/loggerBatchSink.js',
+    /* NN-F1 / OO3：跨端 trace 上下文（ID 生成 + 嵌套 span），三端共享同源闭包，
+     * 便于把 placeShape/spawn/网络上报关联成一条 trace。零依赖、典型大小 < 2KB。 */
+    'lib/traceContext.js',
+    /* OO6 / NN-F4.1：bitmap ops 抽象层（JS fallback + WASM-ready）。
+     * 当前 grid.js 仍内联 popcount32；本模块为后续平滑替换准备。 */
+    'lib/bitmapOps.js',
     'grid.js',
     'shapes.js',
     'gameRules.js',
@@ -125,6 +131,7 @@ const FILES = [
   'evaluation/evaluationHost.js',
   'clearScoring.js',
   'onboarding/newbieVillageCore.js',
+  'onboarding/newbieVillageStrings.js',
   'effects/skinPremiumCore.js',
   'effects/appearanceModeCore.js',
 ];

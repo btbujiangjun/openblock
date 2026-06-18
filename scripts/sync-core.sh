@@ -57,6 +57,10 @@ FILES=(
   "lib/decisionTable.js"
   "lib/userBucketing.js"
   "lib/beaconSender.js"
+  # NN-F1 / OO3：跨端 trace 上下文，三端共享同源
+  "lib/traceContext.js"
+  # OO6 / NN-F4.1：bitmap ops 抽象层（JS fallback + WASM-ready）
+  "lib/bitmapOps.js"
   "grid.js"
   "shapes.js"
   "gameRules.js"
@@ -96,6 +100,7 @@ FILES=(
   "evaluation/evaluationHost.js"
   "clearScoring.js"
   "onboarding/newbieVillageCore.js"
+  "onboarding/newbieVillageStrings.js"
   "effects/skinPremiumCore.js"
   "effects/appearanceModeCore.js"
 )

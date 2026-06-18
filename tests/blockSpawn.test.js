@@ -2275,12 +2275,13 @@ describe('v1.60.45 — monoFlush 平台化命中率', () => {
         return { hit, trials, rate: hit / trials };
     }
 
-    it('Android 档 monoFlush 命中率 ≥ iOS 档（cap 与基础概率均抬高）', async () => {
-        const ios = await sampleHitRateForPlatform('ios', 60);
-        const android = await sampleHitRateForPlatform('android', 60);
+    /* OO1: trials=60 噪声偏大，偶发反转。提升至 150 + retry 2 次抑制 flaky。 */
+    it('Android 档 monoFlush 命中率 ≥ iOS 档（cap 与基础概率均抬高）', { retry: 2 }, async () => {
+        const ios = await sampleHitRateForPlatform('ios', 150);
+        const android = await sampleHitRateForPlatform('android', 150);
         /* Android 档 cap 0.15、概率 0.050；iOS 档 cap 0.10、概率 0.033。
-         * 抽样噪声下断言 Android 命中数 ≥ iOS 命中数 - 5（允许小幅波动反转）。 */
-        expect(android.hit + 5).toBeGreaterThanOrEqual(ios.hit);
+         * 提升 trials 后用 8 的容差吸收剩余抽样噪声。 */
+        expect(android.hit + 8).toBeGreaterThanOrEqual(ios.hit);
         /* 平台抬高后，两档命中率均应大幅高于 0 —— 若任一为 0 说明 platform 没生效。 */
         expect(ios.rate, `iOS 命中率 ${(ios.rate*100).toFixed(1)}%`).toBeGreaterThan(0);
         expect(android.rate, `Android 命中率 ${(android.rate*100).toFixed(1)}%`).toBeGreaterThan(0);

@@ -69,9 +69,9 @@ describe('NN-A1 _iterateBitsUntil 等价性', () => {
         for (let i = 0; i < 3; i++) for (const g of grids) for (const s of shapes) g.countGapFills(s);
         const t1 = performance.now();
         const ms = t1 - t0;
-        /* eslint-disable no-console */
+         
         console.log(`[NN-A1 perf] 3 × 300 grids × 4 shapes = ${ms.toFixed(2)} ms`);
-        /* eslint-enable no-console */
+         
         expect(ms).toBeLessThan(500); /* 宽松上限，主要防 10× 退化 */
     });
 });
