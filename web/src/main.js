@@ -66,14 +66,48 @@ configureLoggerFromConfig(GAME_RULES);
  * - createBatchSink：满 20 条 / 5s 任一触发 flush；pagehide/beforeunload/visibility=hidden 强 flush
  * - tracker 未就绪 / 上报失败由本模块兜住，零阻塞主路径 */
 import('./monetization/analyticsTracker.js').then(({ getAnalyticsTracker }) => {
-    import('./lib/loggerBatchSink.js').then(({ createBatchSink }) => {
+    import('./lib/loggerBatchSink.js').then(async ({ createBatchSink }) => {
+        /* CC4：可选 beacon 通道。配置 logging.remoteUrl 非空且按灰度命中则启用，
+         * 与 analyticsTracker 走并行通道（互不阻塞、互不依赖）：
+         *   - tracker 失败：beacon 仍尝试
+         *   - beacon 失败：tracker 仍尝试
+         *   - 两者都失败：batchSink 已兜住主线程
+         * 灰度用 game_rules.logging.remoteRolloutPercent + lib/userBucketing。 */
+        let beaconSender = null;
+        try {
+            const loggingCfg = GAME_RULES?.logging || {};
+            const remoteUrl = String(loggingCfg.remoteUrl || '').trim();
+            if (remoteUrl) {
+                const rolloutOk = resolveRolloutFeature(peekUserId?.() || '', {
+                    enabled: true,
+                    percent: Number(loggingCfg.remoteRolloutPercent) || 0,
+                    salt: String(loggingCfg.remoteRolloutSalt || 'beacon-v1'),
+                });
+                if (rolloutOk) {
+                    const { createBeaconSender } = await import('./lib/beaconSender.js');
+                    beaconSender = createBeaconSender(remoteUrl);
+                    if (typeof globalThis !== 'undefined') {
+                        globalThis.__OPENBLOCK_BEACON__ = beaconSender; /* 调试/观测可访问 getStats */
+                    }
+                }
+            }
+        } catch { /* beacon 初始化失败：保持 tracker-only 通道 */ }
+
         const batchSink = createBatchSink((batch) => {
-            const tracker = getAnalyticsTracker?.();
-            if (!tracker || typeof tracker.trackEvent !== 'function') return;
-            tracker.trackEvent('client_error_batch', {
-                count: batch.length,
-                items: batch,
-            });
+            /* 通道 1：analyticsTracker（原有） */
+            try {
+                const tracker = getAnalyticsTracker?.();
+                if (tracker && typeof tracker.trackEvent === 'function') {
+                    tracker.trackEvent('client_error_batch', {
+                        count: batch.length,
+                        items: batch,
+                    });
+                }
+            } catch { /* 不影响下一个通道 */ }
+            /* 通道 2：beacon（CC4 新增；启用时与 tracker 并行） */
+            try {
+                if (beaconSender) beaconSender.send(batch);
+            } catch { /* 自吞 */ }
         }, { maxBatch: 20, maxDelayMs: 5000 });
         setRemoteSink(batchSink.sink);
     }).catch(() => { /* batch sink 加载失败回退到原 sink */ });
