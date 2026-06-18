@@ -1496,7 +1496,25 @@ export class Grid {
         return newHoles;
     }
 
+    /* FF3: 8×8 主流盘走 bitmap 行 popcount，N² 比较 + 计数变成 N 次 popcount。
+     * 每行 32 bit 内可塞下（n ≤ 30），用 _popcount32 一次性 popcount 整行。
+     * dynamicLeafCap 入口每次 DFS triplet eval 都要算一次，是热点。
+     * n > 30 走原 N² 慢路径（向后兼容大盘面）。 */
     getFillRatio() {
+        const n = this.size;
+        if (n > 30) return this._getFillRatioSlow();
+        const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
+        let filled = 0;
+        for (let y = 0; y < n; y++) {
+            const row = this.cells[y];
+            let m = 0;
+            for (let x = 0; x < n; x++) if (row[x] !== null) m |= (1 << x);
+            filled += _popcount32(m & fullMask);
+        }
+        return filled / (n * n);
+    }
+
+    _getFillRatioSlow() {
         let filled = 0;
         for (let y = 0; y < this.size; y++) {
             for (let x = 0; x < this.size; x++) {
