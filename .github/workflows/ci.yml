@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  # perf-check 需要在 PR 上评论
+  pull-requests: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -42,6 +44,53 @@ jobs:
         with:
           name: web-coverage
           path: coverage/
+          if-no-files-found: ignore
+
+  perf-check:
+    # 性能基线"软警告"。GitHub Actions runner 与开发本机硬件不同，绝对值
+    # 不可比；但「相对于 baseline 的退化幅度」在同一个 runner 池里仍是
+    # 稳定信号，可以发现"一个 commit 让某个热点 +50%"这种回归。
+    #
+    # 策略：
+    #  - 仅 PR 触发（push 到 main 不再跑，避免噪声）
+    #  - continue-on-error: true 永不阻塞合并；只把 markdown 报告评论到 PR
+    #  - 评论用 sticky comment，每次更新同一个评论而非追加
+    name: Perf check (soft, PR comment)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Run perf-check and generate markdown report
+        # 失败也继续（perf:check 在 fail 阈值会 exit 1），让评论步骤照常发
+        run: npm run perf:check:report || true
+      - name: Verify report exists
+        run: |
+          if [ ! -f tests/perf-report.md ]; then
+            echo "perf-report.md not generated; skipping comment"
+            exit 0
+          fi
+          echo "::group::Perf report preview"
+          head -50 tests/perf-report.md
+          echo "::endgroup::"
+      - name: Sticky comment on PR
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: perf-check
+          path: tests/perf-report.md
+      - name: Upload perf report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-report
+          path: tests/perf-report.md
           if-no-files-found: ignore
 
   npm-audit:

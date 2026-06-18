@@ -224,8 +224,17 @@ if (REPORT_PATH) {
         for (const r of removed) lines.push(`- \`${r.name}\` (baseline p50=${fmt(r.p50Ms)})`);
     }
     lines.push('');
+    /* CI 友好 summary：在表格之上多一行明显状态，便于 PR 阅读 */
+    const overallStatus = failCount > 0
+        ? `❌ ${failCount} 项性能退化 ≥ fail 阈值`
+        : warnCount > 0
+            ? `⚠️ ${warnCount} 项 ≥ warn 阈值（未达 fail）`
+            : '✅ 所有场景在阈值内';
+    lines.splice(7, 0, `- **Overall**: ${overallStatus}`); // 紧跟 Summary 后
     lines.push(`> 阈值: 微秒级 (p50<${FAST_THRESHOLD_MS}ms) warn ${FAST_WARN_PCT}%/fail ${FAST_FAIL_PCT}%；其他 warn ${SLOW_WARN_PCT}%/fail ${SLOW_FAIL_PCT}%`);
     lines.push(`> 如果是有意优化，跑 \`npm run perf:baseline\` 更新基线`);
+    lines.push('');
+    lines.push(`<!-- sticky-comment: perf-check; do not edit by hand -->`);
     const target = resolve(process.cwd(), REPORT_PATH);
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, lines.join('\n') + '\n', 'utf8');
