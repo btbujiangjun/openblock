@@ -95,15 +95,6 @@ fi
 # 会让 Creator 以纯 Node 模式启动 → 报 "bad option: --project"。
 echo "==> 构建中…"
 OUT="$COCOS_PROJ/build/${PLATFORM}"
-BUILD_LOG="$(mktemp -t cocos-build-XXXX.log)"
-set +e
-env -u ELECTRON_RUN_AS_NODE "$CREATOR" --project "$COCOS_PROJ" --build "$BUILD_ARGS" 2>&1 | tee "$BUILD_LOG"
-CREATOR_EXIT=${PIPESTATUS[0]}
-set -e
-
-# 无头 Creator 退出时常因 Electron teardown（mach_port_rendezvous 等）返回非零码，
-# 但产物已生成。以「成功日志行 + 平台主产物存在」为准判定，规避该误报。
-CREATOR_EXIT="${CREATOR_EXIT:-1}"
 case "$PLATFORM" in
   web-mobile|web-desktop) ARTIFACT="$OUT/index.html" ;;
   ios)                    ARTIFACT="$OUT/proj/openblock-cocos.xcodeproj" ;;
@@ -111,14 +102,79 @@ case "$PLATFORM" in
   wechatgame)             ARTIFACT="$OUT/application.js" ;;
   *)                      ARTIFACT="$OUT/data" ;;
 esac
-if grep -qE "build task\(${PLATFORM}\) in [0-9]+" "$BUILD_LOG" && [ -e "$ARTIFACT" ]; then
-  if [ "$CREATOR_EXIT" -ne 0 ]; then
-    echo "  (忽略 Creator 退出码 ${CREATOR_EXIT} : 仅为无头进程退出噪声，产物已生成)"
-  fi
-else
+
+# 跑一次无头构建到 $1（日志文件）。无头 Creator 退出时常因 Electron teardown
+# （mach_port_rendezvous 等）返回非零码，但产物已生成 —— 退出码仅作参考。
+run_creator_build() {
+  set +e
+  env -u ELECTRON_RUN_AS_NODE "$CREATOR" --project "$COCOS_PROJ" --build "$BUILD_ARGS" 2>&1 | tee "$1"
+  CREATOR_EXIT=${PIPESTATUS[0]}
+  set -e
+  CREATOR_EXIT="${CREATOR_EXIT:-1}"
+}
+
+# 以「成功日志行 + 平台主产物存在」判定构建是否完成（规避退出码误报）。
+build_ok() { grep -qE "build task\(${PLATFORM}\) in [0-9]+" "$1" && [ -e "$ARTIFACT" ]; }
+
+# 方案B 黑屏防护网：无头构建在 `Asset DB is paused` 后用当前 asset-db 索引打包，
+# 若 asset-db 尚未导入项目资源（尤其场景），main bundle 会被打成空壳（builder 日志
+# `Number of all scenes: 0`），运行时找不到启动场景 → 黑屏。
+# 这里扫描产物里所有 bundle 的 cc.config.json，只要有一个 scenes 非空即视为「场景已进包」。
+scene_packed() {
+  node -e '
+    const fs = require("fs"), path = require("path");
+    const out = process.argv[1];
+    const stack = [out];
+    while (stack.length) {
+      const dir = stack.pop();
+      let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+      for (const e of ents) {
+        const p = path.join(dir, e.name);
+        // 跳过原生 gradle/xcode 中间产物里的副本，只看 Creator 直出的 bundle。
+        if (e.isDirectory()) { if (!p.includes("/proj/build/")) stack.push(p); }
+        else if (e.name === "cc.config.json") {
+          try { const c = JSON.parse(fs.readFileSync(p, "utf8"));
+            if (c.scenes && Object.keys(c.scenes).length > 0) process.exit(0);
+          } catch {}
+        }
+      }
+    }
+    process.exit(1);
+  ' "$OUT"
+}
+
+BUILD_LOG="$(mktemp -t cocos-build-XXXX.log)"
+run_creator_build "$BUILD_LOG"
+if ! build_ok "$BUILD_LOG"; then
   echo "✗ 构建失败 (exit=${CREATOR_EXIT}) 。完整日志: ${BUILD_LOG}"
   exit "$CREATOR_EXIT"
 fi
+
+# 校验启动场景是否真的进了 bundle；为空说明首次构建只完成了资源导入
+# （已落盘 library/ + temp/asset-db），自动重跑一次即可命中已就绪的 asset-db。
+if ! scene_packed; then
+  echo "⚠ 启动场景未进 bundle（asset-db 首次导入未就绪）→ 自动重试构建一次…"
+  rm -f "$BUILD_LOG"; BUILD_LOG="$(mktemp -t cocos-build-XXXX.log)"
+  run_creator_build "$BUILD_LOG"
+  if ! build_ok "$BUILD_LOG"; then
+    echo "✗ 重试构建失败 (exit=${CREATOR_EXIT}) 。完整日志: ${BUILD_LOG}"
+    exit "$CREATOR_EXIT"
+  fi
+  if ! scene_packed; then
+    cat >&2 <<EOF
+✗ 启动场景仍未进包（所有 bundle 的 scenes 都为空）→ 安装后必定黑屏，已中止。
+  本机 asset-db 没能在无头构建里导入项目资源。请先用 Cocos Creator GUI 打开：
+      $COCOS_PROJ
+  等右下角资源导入进度条彻底跑完（会落盘 library/ 与 temp/asset-db），再重跑本脚本。
+EOF
+    exit 1
+  fi
+fi
+
+if [ "$CREATOR_EXIT" -ne 0 ]; then
+  echo "  (忽略 Creator 退出码 ${CREATOR_EXIT} : 仅为无头进程退出噪声，产物已生成)"
+fi
+echo "  ✓ 启动场景已确认打进 bundle（无空包黑屏风险）"
 rm -f "$BUILD_LOG"
 
 # iOS / Android 原生工程在 Xcode / Android Studio 中编译前，需先修补 Creator 内置引擎。
@@ -128,6 +184,43 @@ if [[ "$PLATFORM" == "ios" || "$PLATFORM" == "android" ]]; then
         echo "==> 修补 Cocos native 引擎（Xcode/clang 兼容）"
         "$PATCH_SCRIPT" || { echo "✗ patch-native-engine.sh 失败" >&2; exit 1; }
     fi
+fi
+
+# 关闭 Cocos 内置 splash 水印 —— 原始 Creator 3.8 默认 splashScreen.logo.type='default'，
+# 触发 splash-screen.ts 的 initWaterMark()，而该方法在我们这个没装默认 render-pipeline
+# settings asset 的项目里会 `Cannot read properties of undefined (reading 'getBinding')`，
+# 整个 cc 引擎 init 抛错 → Bootstrap.onLoad 永不触发 → APK 黑屏。
+# 修复方式：build 产物里的 settings.json 把 splashScreen.logo.type 改成 'none'，
+# 让 splash-screen.ts L150 早返回（totalTime=0 + logo undefined 二选一）。
+# 注意：构建配置文件里直接放 splashScreen 字段 Creator CLI 会忽略，必须 patch 产物。
+patch_splash_settings() {
+    local settings_file="$1"
+    [[ -f "$settings_file" ]] || return 0
+    node -e "
+const fs = require('fs');
+const p = process.argv[1];
+const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+if (j.splashScreen) {
+    j.splashScreen.totalTime = 0;
+    j.splashScreen.logo = { type: 'none' };
+    j.splashScreen.background = { type: 'none' };
+    j.splashScreen.watermarkLocation = 'none';
+    fs.writeFileSync(p, JSON.stringify(j));
+    console.log('[patch-splash] disabled default watermark in ' + p);
+}
+" "$settings_file"
+}
+if [[ "$PLATFORM" == "android" || "$PLATFORM" == "ios" ]]; then
+    # Creator 出包后落点 1：build/{platform}/data/src/settings.json
+    # 这是 gradle 后续 mergeDebugAssets 任务的真正源 → patch 这里能让 APK 里的 assets 也是关闭的。
+    patch_splash_settings "$OUT/data/src/settings.json"
+    # 落点 2：已 merge 到 intermediates 的产物（如果 gradle 已跑过一次但仍用旧 cache，确保被覆盖）
+    while IFS= read -r f; do patch_splash_settings "$f"; done < <(
+        find "$OUT/proj" -name "settings.json" -path "*/assets/*" 2>/dev/null
+    )
+fi
+if [[ "$PLATFORM" == "web-mobile" || "$PLATFORM" == "web-desktop" || "$PLATFORM" == "wechatgame" ]]; then
+    patch_splash_settings "$OUT/src/settings.json"
 fi
 
 echo "✓ 完成。产物目录: $OUT"

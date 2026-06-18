@@ -581,7 +581,7 @@ class NewbieVillageSession {
     }
     const step = SCENARIO[this._stepIndex];
     if (step?.reveal) this._showReveal(step.reveal, this._lastScored);
-    const delay = step?.reveal ? 2700 : 700;
+    const delay = step?.reveal ? 1800 : 450;
     if (this._revealTimer) clearTimeout(this._revealTimer);
     this._revealTimer = setTimeout(() => {
       this._revealTimer = null;

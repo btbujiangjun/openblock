@@ -556,7 +556,7 @@ class NewbieVillage {
         }
         const step = SCENARIO[this._stepIndex];
         if (step?.reveal) this._showReveal(step.reveal, this._lastScored);
-        setTimeout(() => this._advance(), step?.reveal ? 2700 : 700);
+        setTimeout(() => this._advance(), step?.reveal ? 1800 : 450);
     }
 
     _advance() {
