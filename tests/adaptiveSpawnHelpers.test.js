@@ -1037,6 +1037,122 @@ describe('adaptiveSpawn._applySpawnHintsFriendlyBoostRules (DD1)', () => {
     });
 });
 
+/* ============ HH1: _applySpawnHintsFarFromPBBoostBody ============ */
+function _applySpawnHintsFarFromPBBoostBodyRef(s, signals) {
+    const { pctOfBest, farCfg, farRampCfg, modelFarTheta } = signals;
+    const cgBoost = Math.max(0, Math.min(2, Number(farCfg.clearGuaranteeBoost) || 1));
+    const _mcbFloorRaw = modelFarTheta !== null ? modelFarTheta : (Number(farCfg.multiClearBonusFloor) || 0.45);
+    let mcbFloor = Math.max(0, Math.min(1, _mcbFloorRaw));
+    let iconFloor = Math.max(0, Math.min(1, Number(farCfg.iconBonusTargetFloor) || 0.30));
+    let sizeShift = Number(farCfg.sizePreferenceShift) || -0.12;
+    const extremeThreshold = Number.isFinite(farRampCfg.extremeThreshold) ? farRampCfg.extremeThreshold : 0.15;
+    const isExtremeFar = farRampCfg.enabled !== false && pctOfBest < extremeThreshold;
+    if (isExtremeFar) {
+        mcbFloor = Math.max(mcbFloor, Number(farRampCfg.extremeMultiClearBonusFloor) || 0.55);
+        iconFloor = Math.max(iconFloor, Number(farRampCfg.extremeIconBonusTargetFloor) || 0.40);
+        sizeShift = Math.min(sizeShift, Number(farRampCfg.extremeSizePreferenceShift) || -0.18);
+    }
+    return {
+        clearGuarantee: Math.min(3, s.clearGuarantee + cgBoost),
+        multiClearBonus: Math.max(s.multiClearBonus, mcbFloor),
+        iconBonusTarget: Math.max(s.iconBonusTarget, iconFloor),
+        sizePreference: Math.min(s.sizePreference, sizeShift),
+        isExtremeFar,
+    };
+}
+
+describe('adaptiveSpawn._applySpawnHintsFarFromPBBoostBody (HH1)', () => {
+    const baseS = (over = {}) => ({ clearGuarantee: 0, multiClearBonus: 0, iconBonusTarget: 0, sizePreference: 0, ...over });
+    const baseSig = (over = {}) => ({
+        pctOfBest: 0.25, /* 边缘档（0.15-0.30）*/
+        farCfg: {},
+        farRampCfg: {},
+        modelFarTheta: null,
+        ...over,
+    });
+
+    it('默认配置 + 边缘档 → cg+1 / mcb=0.45 / icon=0.30 / sp=-0.12', () => {
+        const r = _applySpawnHintsFarFromPBBoostBodyRef(baseS(), baseSig());
+        expect(r.clearGuarantee).toBe(1);
+        expect(r.multiClearBonus).toBe(0.45);
+        expect(r.iconBonusTarget).toBe(0.30);
+        expect(r.sizePreference).toBe(-0.12);
+        expect(r.isExtremeFar).toBe(false);
+    });
+
+    it('极远档 (pctOfBest<0.15) → mcb=0.55 / icon=0.40 / sp=-0.18 / isExtremeFar=true', () => {
+        const r = _applySpawnHintsFarFromPBBoostBodyRef(baseS(), baseSig({ pctOfBest: 0.10 }));
+        expect(r.isExtremeFar).toBe(true);
+        expect(r.multiClearBonus).toBe(0.55);
+        expect(r.iconBonusTarget).toBe(0.40);
+        expect(r.sizePreference).toBe(-0.18);
+    });
+
+    it('farRamp.enabled=false → 不进极远档（即使 pctOfBest<0.15）', () => {
+        const r = _applySpawnHintsFarFromPBBoostBodyRef(baseS(),
+            baseSig({ pctOfBest: 0.10, farRampCfg: { enabled: false } }));
+        expect(r.isExtremeFar).toBe(false);
+        expect(r.multiClearBonus).toBe(0.45); /* 边缘档值 */
+    });
+
+    it('cgBoost=3 clamp 到 2（hint clamp 上限）', () => {
+        const r = _applySpawnHintsFarFromPBBoostBodyRef(baseS(),
+            baseSig({ farCfg: { clearGuaranteeBoost: 3 } }));
+        expect(r.clearGuarantee).toBe(2); /* 0 + clamp(3, 0, 2) = 2 */
+    });
+
+    it('clearGuarantee 已 3 → clamp 不超 3', () => {
+        const r = _applySpawnHintsFarFromPBBoostBodyRef(baseS({ clearGuarantee: 3 }), baseSig());
+        expect(r.clearGuarantee).toBe(3);
+    });
+
+    it('modelConfig.farFromPBBoost 覆盖 farCfg.multiClearBonusFloor', () => {
+        const r = _applySpawnHintsFarFromPBBoostBodyRef(baseS(),
+            baseSig({ modelFarTheta: 0.7, farCfg: { multiClearBonusFloor: 0.45 } }));
+        expect(r.multiClearBonus).toBe(0.7);
+    });
+
+    it('已有更高 multiClearBonus / iconBonusTarget → 不下降（max 幂等）', () => {
+        const r = _applySpawnHintsFarFromPBBoostBodyRef(
+            baseS({ multiClearBonus: 0.8, iconBonusTarget: 0.6 }),
+            baseSig({ pctOfBest: 0.10 }), /* 极远档 */
+        );
+        expect(r.multiClearBonus).toBe(0.8);
+        expect(r.iconBonusTarget).toBe(0.6);
+    });
+
+    it('已有更负 sizePreference → 不回退（min 幂等）', () => {
+        const r = _applySpawnHintsFarFromPBBoostBodyRef(
+            baseS({ sizePreference: -0.5 }),
+            baseSig({ pctOfBest: 0.10 }),
+        );
+        expect(r.sizePreference).toBe(-0.5);
+    });
+
+    it('非幂等性守护：clearGuarantee 连续两次累加', () => {
+        const s1 = baseS();
+        const s2 = _applySpawnHintsFarFromPBBoostBodyRef(s1, baseSig());
+        const s3 = _applySpawnHintsFarFromPBBoostBodyRef(s2, baseSig());
+        expect(s2.clearGuarantee).toBe(1);
+        expect(s3.clearGuarantee).toBe(2); /* +1 again */
+    });
+
+    it('cgBoost=0 fallback 到默认 1（`||` 短路语义）— 历史契约', () => {
+        /* `Number(0) || 1` → 1（0 是 falsy）。这是历史代码的语义：
+         * 任何 falsy（含 0 / null / NaN）都走默认 1。本测试守护该契约，
+         * 防有人改成 ?? 时静默改变行为。 */
+        const r = _applySpawnHintsFarFromPBBoostBodyRef(baseS({ clearGuarantee: 1 }),
+            baseSig({ farCfg: { clearGuaranteeBoost: 0 } }));
+        expect(r.clearGuarantee).toBe(2); /* 1 + 1（fallback） */
+    });
+
+    it('extremeThreshold 配置覆盖：默认 0.15，配 0.20 时 pctOfBest=0.18 也算极远', () => {
+        const r = _applySpawnHintsFarFromPBBoostBodyRef(baseS(),
+            baseSig({ pctOfBest: 0.18, farRampCfg: { extremeThreshold: 0.20 } }));
+        expect(r.isExtremeFar).toBe(true);
+    });
+});
+
 /* ============ GG1: _applySpawnHintsPostPbReleaseRules ============ */
 function _applySpawnHintsPostPbReleaseRulesRef(s, ctx) {
     if (ctx?.postPbReleaseActive !== true) return s;

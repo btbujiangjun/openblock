@@ -699,6 +699,60 @@ function _applySpawnHintsFriendlyBoostRules(s, signals) {
  *           lowClearGuaranteeAt: number }} signals
  * @returns {object} 修改后的 s（同引用）
  */
+/**
+ * farFromPBBoost 主体加力段（v1.71 HH1 抽出 L2843-2868 26 行）。
+ *
+ * 调用上下文：bypass ladder 通过 _resolveFarFromPBBoostBypass 已判
+ * "应当激活"后，本 helper 负责把"远征送爽"四向 spawnHints 加力落地。
+ *
+ * 输入语义：
+ *   - pctOfBest：score/bestScore（已由调用方算好，避免重复除法）
+ *   - farCfg：game_rules.json adaptiveSpawn.engagement.farFromPBBoost
+ *   - farRampCfg：cfg.pbChase.farRamp（极远档配置）
+ *   - modelFarTheta：θ-E modelConfig 优先值（null 则用 cfg.multiClearBonusFloor）
+ *
+ * 输出语义：
+ *   - clearGuarantee += cgBoost，clamp 到 3（**加法**，非幂等）
+ *   - multiClearBonus = max(current, mcbFloor)（幂等）
+ *   - iconBonusTarget = max(current, iconFloor)（幂等）
+ *   - sizePreference = min(current, sizeShift)（幂等）
+ *   - isExtremeFar：是否进入"极远档"（pctOfBest < extremeThreshold）
+ *
+ * 设计契约：极远档（pctOfBest < 0.15）追加一档放大，让畏难期更易兑现奖励；
+ * 边缘档（[0.15, 0.30)）沿用 v1.56 原参数，避免"即将进 D1"时还在大幅送爽
+ * 导致 PB 加速膨胀。
+ *
+ * **非幂等**：clearGuarantee 是加法；不可被同次主路径重复调用。
+ *
+ * @param {{clearGuarantee:number,multiClearBonus:number,iconBonusTarget:number,sizePreference:number}} s
+ * @param {{pctOfBest:number,farCfg:object,farRampCfg:object,modelFarTheta:number|null}} signals
+ * @returns {{clearGuarantee:number,multiClearBonus:number,iconBonusTarget:number,sizePreference:number,isExtremeFar:boolean}}
+ */
+function _applySpawnHintsFarFromPBBoostBody(s, signals) {
+    const { pctOfBest, farCfg, farRampCfg, modelFarTheta } = signals;
+    const cgBoost = Math.max(0, Math.min(2, Number(farCfg.clearGuaranteeBoost) || 1));
+    const _mcbFloorRaw = modelFarTheta !== null ? modelFarTheta : (Number(farCfg.multiClearBonusFloor) || 0.45);
+    let mcbFloor = Math.max(0, Math.min(1, _mcbFloorRaw));
+    let iconFloor = Math.max(0, Math.min(1, Number(farCfg.iconBonusTargetFloor) || 0.30));
+    let sizeShift = Number(farCfg.sizePreferenceShift) || -0.12;
+
+    const extremeThreshold = Number.isFinite(farRampCfg.extremeThreshold) ? farRampCfg.extremeThreshold : 0.15;
+    const isExtremeFar = farRampCfg.enabled !== false && pctOfBest < extremeThreshold;
+    if (isExtremeFar) {
+        mcbFloor = Math.max(mcbFloor, Number(farRampCfg.extremeMultiClearBonusFloor) || 0.55);
+        iconFloor = Math.max(iconFloor, Number(farRampCfg.extremeIconBonusTargetFloor) || 0.40);
+        sizeShift = Math.min(sizeShift, Number(farRampCfg.extremeSizePreferenceShift) || -0.18);
+    }
+
+    return {
+        clearGuarantee: Math.min(3, s.clearGuarantee + cgBoost),
+        multiClearBonus: Math.max(s.multiClearBonus, mcbFloor),
+        iconBonusTarget: Math.max(s.iconBonusTarget, iconFloor),
+        sizePreference: Math.min(s.sizePreference, sizeShift),
+        isExtremeFar,
+    };
+}
+
 function _applySpawnHintsLowPhaseRules(s, signals) {
     const { lowPhase, pcSetup, nearFullLines, lowClearGuaranteeAt } = signals;
     if (!lowPhase) return s;
@@ -2842,30 +2896,21 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         });
         if (farFromPBBoostBypass === null) {
             farFromPBBoostActive = true;
-            const cgBoost = Math.max(0, Math.min(2, Number(farCfg.clearGuaranteeBoost) || 1));
-            // θ-E: farFromPBBoost (modelConfig 优先) - 控制 multiClearBonus floor 总强度
-            const _farTheta = Number.isFinite(ctx.modelConfig?.farFromPBBoost) ? ctx.modelConfig.farFromPBBoost : null;
-            const _mcbFloorRaw = _farTheta !== null ? _farTheta : (Number(farCfg.multiClearBonusFloor) || 0.45);
-            let mcbFloor = Math.max(0, Math.min(1, _mcbFloorRaw));
-            let iconFloor = Math.max(0, Math.min(1, Number(farCfg.iconBonusTargetFloor) || 0.30));
-            let sizeShift = Number(farCfg.sizePreferenceShift) || -0.12;
-            /* v1.56.4 §5.α.8 远段分级：pct<extremeThreshold（默认 0.15）为"极远档"，
-             * 玩家畏难情绪最强、最需要"敢挑战"信号；额外抬高 multiClearBonus / iconBonusTarget
-             * floor，并下压 sizePreference，让初期更易兑现奖励。边缘档（[0.15, 0.30)）
-             * 沿用 v1.56 原参数，避免"即将进 D1"时还在大幅送爽导致 PB 加速膨胀。 */
-            const farRampCfg = (cfg.pbChase?.farRamp) ?? {};
-            const extremeThreshold = Number.isFinite(farRampCfg.extremeThreshold) ? farRampCfg.extremeThreshold : 0.15;
-            const isExtremeFar = farRampCfg.enabled !== false && pctOfBest < extremeThreshold;
-            if (isExtremeFar) {
-                mcbFloor = Math.max(mcbFloor, Number(farRampCfg.extremeMultiClearBonusFloor) || 0.55);
-                iconFloor = Math.max(iconFloor, Number(farRampCfg.extremeIconBonusTargetFloor) || 0.40);
-                sizeShift = Math.min(sizeShift, Number(farRampCfg.extremeSizePreferenceShift) || -0.18);
-            }
-            clearGuarantee = Math.min(3, clearGuarantee + cgBoost);
-            multiClearBonus = Math.max(multiClearBonus, mcbFloor);
-            iconBonusTarget = Math.max(iconBonusTarget, iconFloor);
-            sizePreference = Math.min(sizePreference, sizeShift);
-            stressBreakdown.farExtremeBoostActive = isExtremeFar;
+            /* v1.71 HH1：farFromPBBoost 主体计算抽至 _applySpawnHintsFarFromPBBoostBody */
+            const _ff = _applySpawnHintsFarFromPBBoostBody(
+                { clearGuarantee, multiClearBonus, iconBonusTarget, sizePreference },
+                {
+                    pctOfBest,
+                    farCfg,
+                    farRampCfg: cfg.pbChase?.farRamp ?? {},
+                    modelFarTheta: Number.isFinite(ctx.modelConfig?.farFromPBBoost) ? ctx.modelConfig.farFromPBBoost : null,
+                },
+            );
+            clearGuarantee = _ff.clearGuarantee;
+            multiClearBonus = _ff.multiClearBonus;
+            iconBonusTarget = _ff.iconBonusTarget;
+            sizePreference = _ff.sizePreference;
+            stressBreakdown.farExtremeBoostActive = _ff.isExtremeFar;
         }
     } else if (farCfg && farCfg.enabled === false) {
         farFromPBBoostBypass = 'config_disabled';
