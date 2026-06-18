@@ -262,6 +262,149 @@ function _applySpawnHintsBaseRulesRef(s) {
     return { clearGuarantee, sizePreference, diversityBoost };
 }
 
+/* ============ V1: _applySpawnHintsRiskReliefRules ============ */
+function _applySpawnHintsRiskReliefRulesRef(s) {
+    let { clearGuarantee, sizePreference, multiClearBonus, diversityBoost, rhythmPhase } = s;
+    const { ability, preFrustrationRelief, boardFrustrationRelief, decisionLoadReliefActive, nearFullLines } = s;
+    const riskLevel = ability.riskLevel ?? 0;
+    if (ability.confidence >= 0.25 && riskLevel >= 0.62) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.22);
+        multiClearBonus = Math.max(multiClearBonus, 0.45);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    } else if (ability.confidence >= 0.45 && ability.skillScore >= 0.72 && riskLevel <= 0.38) {
+        diversityBoost = Math.max(diversityBoost, 0.12);
+        multiClearBonus = Math.max(multiClearBonus, 0.5);
+        if (rhythmPhase === 'neutral' && nearFullLines >= 1) rhythmPhase = 'payoff';
+    }
+    if (preFrustrationRelief < 0) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.18);
+        multiClearBonus = Math.max(multiClearBonus, 0.42);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    }
+    if (boardFrustrationRelief < 0) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.28);
+        multiClearBonus = Math.max(multiClearBonus, 0.55);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    }
+    if (decisionLoadReliefActive) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.22);
+        diversityBoost = Math.max(diversityBoost, 0.08);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    }
+    return { clearGuarantee, sizePreference, multiClearBonus, diversityBoost, rhythmPhase };
+}
+
+describe('adaptiveSpawn._applySpawnHintsRiskReliefRules — 5 条 ability/relief 规则', () => {
+    const baseInput = (over = {}) => ({
+        clearGuarantee: 1, sizePreference: 0, multiClearBonus: 0, diversityBoost: 0, rhythmPhase: 'neutral',
+        ability: { riskLevel: 0, confidence: 0, skillScore: 0 },
+        preFrustrationRelief: 0, boardFrustrationRelief: 0, decisionLoadReliefActive: false,
+        nearFullLines: 0,
+        ...over,
+    });
+
+    it('零信号 → 原值', () => {
+        expect(_applySpawnHintsRiskReliefRulesRef(baseInput())).toEqual({
+            clearGuarantee: 1, sizePreference: 0, multiClearBonus: 0, diversityBoost: 0, rhythmPhase: 'neutral',
+        });
+    });
+
+    it('高风险高 confidence → 全面收紧 + setup→neutral', () => {
+        const r = _applySpawnHintsRiskReliefRulesRef(baseInput({
+            ability: { riskLevel: 0.7, confidence: 0.3, skillScore: 0.5 },
+            rhythmPhase: 'setup',
+        }));
+        expect(r.clearGuarantee).toBe(2);
+        expect(r.sizePreference).toBe(-0.22);
+        expect(r.multiClearBonus).toBe(0.45);
+        expect(r.rhythmPhase).toBe('neutral');
+    });
+
+    it('低 confidence 不触发护栏', () => {
+        const r = _applySpawnHintsRiskReliefRulesRef(baseInput({
+            ability: { riskLevel: 0.7, confidence: 0.1, skillScore: 0.5 },
+        }));
+        expect(r.clearGuarantee).toBe(1);
+    });
+
+    it('高手低风险 + nearFullLines≥1 + neutral → payoff', () => {
+        const r = _applySpawnHintsRiskReliefRulesRef(baseInput({
+            ability: { riskLevel: 0.3, confidence: 0.5, skillScore: 0.75 },
+            nearFullLines: 2,
+        }));
+        expect(r.diversityBoost).toBe(0.12);
+        expect(r.multiClearBonus).toBe(0.5);
+        expect(r.rhythmPhase).toBe('payoff');
+    });
+
+    it('高手低风险 + nearFullLines=0 → rhythm 保持 neutral', () => {
+        const r = _applySpawnHintsRiskReliefRulesRef(baseInput({
+            ability: { riskLevel: 0.3, confidence: 0.5, skillScore: 0.75 },
+            nearFullLines: 0,
+        }));
+        expect(r.rhythmPhase).toBe('neutral');
+    });
+
+    it('preFrustrationRelief<0 → 救济档（-0.18, mcb=0.42）', () => {
+        const r = _applySpawnHintsRiskReliefRulesRef(baseInput({ preFrustrationRelief: -0.3 }));
+        expect(r.sizePreference).toBe(-0.18);
+        expect(r.multiClearBonus).toBe(0.42);
+    });
+
+    it('boardFrustrationRelief<0 → 重救济档（-0.28, mcb=0.55）', () => {
+        const r = _applySpawnHintsRiskReliefRulesRef(baseInput({ boardFrustrationRelief: -0.4 }));
+        expect(r.sizePreference).toBe(-0.28);
+        expect(r.multiClearBonus).toBe(0.55);
+    });
+
+    it('boardFrustration + preFrustration 多触发 → 取 Math.min/max（无顺序陷阱）', () => {
+        const r = _applySpawnHintsRiskReliefRulesRef(baseInput({
+            preFrustrationRelief: -0.3, boardFrustrationRelief: -0.4,
+        }));
+        expect(r.sizePreference).toBe(-0.28);  /* min(-0.18, -0.28) */
+        expect(r.multiClearBonus).toBe(0.55);  /* max(0.42, 0.55) */
+    });
+
+    it('decisionLoad + 高风险 → diversity 0.08 不被高风险覆盖（max 叠加）', () => {
+        const r = _applySpawnHintsRiskReliefRulesRef(baseInput({
+            ability: { riskLevel: 0.7, confidence: 0.3, skillScore: 0.5 },
+            decisionLoadReliefActive: true,
+        }));
+        expect(r.diversityBoost).toBe(0.08);
+        expect(r.sizePreference).toBe(-0.22);
+    });
+
+    it('全部触发 → 多 if 叠加最终值正确（min/max 幂等性证明）', () => {
+        const r = _applySpawnHintsRiskReliefRulesRef(baseInput({
+            ability: { riskLevel: 0.7, confidence: 0.3, skillScore: 0.5 },
+            preFrustrationRelief: -0.2,
+            boardFrustrationRelief: -0.5,
+            decisionLoadReliefActive: true,
+            rhythmPhase: 'setup',
+        }));
+        expect(r.clearGuarantee).toBe(2);
+        expect(r.sizePreference).toBe(-0.28);
+        expect(r.multiClearBonus).toBe(0.55);
+        expect(r.diversityBoost).toBe(0.08);
+        expect(r.rhythmPhase).toBe('neutral');
+    });
+
+    it('ability 高手分支与 boardRelief 同时触发：boardRelief 强 → 反向覆盖 diversity', () => {
+        const r = _applySpawnHintsRiskReliefRulesRef(baseInput({
+            ability: { riskLevel: 0.3, confidence: 0.5, skillScore: 0.75 },
+            boardFrustrationRelief: -0.4,
+            nearFullLines: 2,
+        }));
+        expect(r.multiClearBonus).toBe(0.55); /* max(0.5, 0.55) */
+        expect(r.diversityBoost).toBe(0.12);
+        expect(r.rhythmPhase).toBe('payoff'); /* 高手分支先升 payoff，boardRelief 只动 setup→neutral */
+    });
+});
+
 describe('adaptiveSpawn._applySpawnHintsBaseRules — 9 条规则的顺序赋值语义', () => {
     const baseInput = (over = {}) => ({
         clearGuarantee: 1, sizePreference: 0, diversityBoost: 0,

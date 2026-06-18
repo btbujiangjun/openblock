@@ -291,6 +291,62 @@ function _applyPbOvershootBoost(s) {
  * @param {object} s 输入状态
  * @returns {{ clearGuarantee:number, sizePreference:number, diversityBoost:number }}
  */
+/**
+ * spawnHints 第 2 段：能力风险护栏 + 实时状态救济（v1.71 V1 抽出 L2247-2280）。
+ *
+ * 与 _applySpawnHintsBaseRules 的关系：base 跑完后再叠加这段。
+ *
+ * 这段 5 条规则的共性：
+ *   1. ability 高风险（risk≥0.62 + confidence≥0.25）→ 全面收紧
+ *   2. ability 高手低风险（skill≥0.72 + risk≤0.38 + confidence≥0.45）→ 解放多消
+ *   3. preFrustrationRelief < 0（认知负荷过载）→ 救济
+ *   4. boardFrustrationRelief < 0（盘面恶化）→ 重救济
+ *   5. decisionLoadReliefActive → 关闭顺序压迫
+ *
+ * 都是 Math.max（clearGuarantee/multiClearBonus/diversityBoost）/ Math.min（sizePreference）
+ * 单调叠加，**无顺序依赖陷阱**（与 base 段不同——这里全是幂等 min/max）。
+ * rhythmPhase 转换有条件（'setup' → 'neutral'），多触发时一旦变 neutral 后续判断自然短路。
+ *
+ * @param {object} s 输入状态
+ * @returns {{ clearGuarantee, sizePreference, multiClearBonus, diversityBoost, rhythmPhase }}
+ */
+function _applySpawnHintsRiskReliefRules(s) {
+    let { clearGuarantee, sizePreference, multiClearBonus, diversityBoost, rhythmPhase } = s;
+    const { ability, preFrustrationRelief, boardFrustrationRelief, decisionLoadReliefActive, nearFullLines } = s;
+    const riskLevel = ability.riskLevel ?? 0;
+
+    if (ability.confidence >= 0.25 && riskLevel >= 0.62) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.22);
+        multiClearBonus = Math.max(multiClearBonus, 0.45);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    } else if (ability.confidence >= 0.45 && ability.skillScore >= 0.72 && riskLevel <= 0.38) {
+        diversityBoost = Math.max(diversityBoost, 0.12);
+        multiClearBonus = Math.max(multiClearBonus, 0.5);
+        if (rhythmPhase === 'neutral' && nearFullLines >= 1) rhythmPhase = 'payoff';
+    }
+
+    if (preFrustrationRelief < 0) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.18);
+        multiClearBonus = Math.max(multiClearBonus, 0.42);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    }
+    if (boardFrustrationRelief < 0) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.28);
+        multiClearBonus = Math.max(multiClearBonus, 0.55);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    }
+    if (decisionLoadReliefActive) {
+        clearGuarantee = Math.max(clearGuarantee, 2);
+        sizePreference = Math.min(sizePreference, -0.22);
+        diversityBoost = Math.max(diversityBoost, 0.08);
+        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    }
+    return { clearGuarantee, sizePreference, multiClearBonus, diversityBoost, rhythmPhase };
+}
+
 function _applySpawnHintsBaseRules(s) {
     let clearGuarantee = s.clearGuarantee;
     let sizePreference = s.sizePreference;
@@ -2247,39 +2303,19 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         sizePreference = Math.min(sizePreference, -0.15);
     }
 
-    /* --- Ability 风险护栏：高风险时优先保活，低风险高手允许更强挑战/多消兑现 --- */
-    const riskLevel = ability.riskLevel ?? 0;
-    if (ability.confidence >= 0.25 && riskLevel >= 0.62) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, -0.22);
-        multiClearBonus = Math.max(multiClearBonus, 0.45);
-        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
-    } else if (ability.confidence >= 0.45 && ability.skillScore >= 0.72 && riskLevel <= 0.38) {
-        diversityBoost = Math.max(diversityBoost, 0.12);
-        multiClearBonus = Math.max(multiClearBonus, 0.5);
-        if (rhythmPhase === 'neutral' && (ctx.nearFullLines ?? 0) >= 1) rhythmPhase = 'payoff';
-    }
-
-    /* --- 历史实时状态优化：把复合早期救济落到可感知的 spawnHints ---
-     * stress 只会改变插值档位；真正让玩家感到"变容易"还需要提高消行机会、
-     * 降低块型尺寸/复杂度，并在高认知负荷时关闭顺序/解空间压迫。 */
-    if (preFrustrationRelief < 0) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, -0.18);
-        multiClearBonus = Math.max(multiClearBonus, 0.42);
-        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
-    }
-    if (boardFrustrationRelief < 0) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, -0.28);
-        multiClearBonus = Math.max(multiClearBonus, 0.55);
-        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
-    }
-    if (decisionLoadReliefActive) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, -0.22);
-        diversityBoost = Math.max(diversityBoost, 0.08);
-        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
+    /* --- Ability 风险护栏 + 实时状态救济：v1.71 V1 抽至 _applySpawnHintsRiskReliefRules
+     * （高风险 / 高手低风险 / preFrustration / boardFrustration / decisionLoad 5 条规则） */
+    {
+        const _rr = _applySpawnHintsRiskReliefRules({
+            clearGuarantee, sizePreference, multiClearBonus, diversityBoost, rhythmPhase,
+            ability, preFrustrationRelief, boardFrustrationRelief, decisionLoadReliefActive,
+            nearFullLines: ctx.nearFullLines ?? 0,
+        });
+        clearGuarantee = _rr.clearGuarantee;
+        sizePreference = _rr.sizePreference;
+        multiClearBonus = _rr.multiClearBonus;
+        diversityBoost = _rr.diversityBoost;
+        rhythmPhase = _rr.rhythmPhase;
     }
 
     /* --- 拓扑机会：临消线/清屏准备对规则轨和生成式上下文保持同一口径 --- */
