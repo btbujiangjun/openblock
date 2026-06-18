@@ -1298,14 +1298,43 @@ export class Grid {
         if (shapeCells.length === 0) return 0;
 
         /* v1.55.11 perf：同 bestMonoFlushPotential 优化——
-         * Uint8Array 标记受影响行列，shape 占用通过坐标算术回查 shapeData。 */
+         * Uint8Array 标记受影响行列，shape 占用通过坐标算术回查 shapeData。
+         *
+         * JJ1：移植 II1 阶段 2 优化——canPlace 用 row bitmap AND 替代
+         * O(shapeCells) 检查。buildup 与 potential 不同：buildup 不
+         * 要求 emptyCount === shapeFill（接受空格未填），所以这里**仅**
+         * 移植 canPlace bitmap，不引入 emptyCount 剪枝。 */
+        const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
+        const rowOccBitmap = new Int32Array(n);
+        for (let y = 0; y < n; y++) {
+            const row = this.cells[y];
+            let occ = 0;
+            for (let x = 0; x < n; x++) if (row[x] !== null) occ |= (1 << x);
+            rowOccBitmap[y] = occ;
+        }
+        const shapeRowBits = new Int32Array(sh);
+        for (let k = 0; k < shapeCells.length; k++) {
+            shapeRowBits[shapeCells[k][1]] |= (1 << shapeCells[k][0]);
+        }
+        /* fullMask 仅用于守 n 边界（>=31 时禁用 bit 优化，走老路径） */
+        const useBitmap = n < 31 && fullMask !== 0;
         const rowMask = new Uint8Array(n);
         const colMask = new Uint8Array(n);
 
         let best = 0;
         for (let oy = 0; oy <= n - sh; oy++) {
             for (let ox = 0; ox <= n - sw; ox++) {
-                if (!this.canPlace(shapeData, ox, oy)) continue;
+                if (useBitmap) {
+                    let collide = false;
+                    for (let dy = 0; dy < sh; dy++) {
+                        const bits = shapeRowBits[dy];
+                        if (bits === 0) continue;
+                        if ((rowOccBitmap[oy + dy] & (bits << ox)) !== 0) { collide = true; break; }
+                    }
+                    if (collide) continue;
+                } else if (!this.canPlace(shapeData, ox, oy)) {
+                    continue;
+                }
 
                 rowMask.fill(0);
                 colMask.fill(0);
