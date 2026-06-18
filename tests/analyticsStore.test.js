@@ -194,4 +194,117 @@ describe('analyticsStore — IDB 路径', () => {
         /* LS 总是同步落地，与 IDB 是否可用无关 */
         expect(JSON.parse(lsStub.getItem('openblock_analytics_v1')).events).toEqual([{ x: 9 }]);
     });
+
+    /* ─── W2: 真实 IDB 路径覆盖（fake-indexeddb 风格的更严格 stub） ─── */
+    it('W2: 多次写 → 后写覆盖前写（IDB single-key snapshot 语义）', async () => {
+        mod.queueAnalyticsSave({ events: [{ v: 1 }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        mod.queueAnalyticsSave({ events: [{ v: 2 }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        const data = await mod.loadAnalyticsSnapshot();
+        expect(data?.events).toEqual([{ v: 2 }]);
+    });
+
+    it('W2: load 优先 IDB（IDB 有数据时不读 LS）', async () => {
+        /* LS 里塞旧数据；IDB 里塞新数据；load 应返回 IDB 的 */
+        lsStub.setItem('openblock_analytics_v1', JSON.stringify({ events: [{ src: 'ls' }] }));
+        mod.queueAnalyticsSave({ events: [{ src: 'idb' }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        const data = await mod.loadAnalyticsSnapshot();
+        expect(data?.events).toEqual([{ src: 'idb' }]);
+    });
+
+    it('W2: IDB 中无数据 → fallback LS', async () => {
+        lsStub.setItem('openblock_analytics_v1', JSON.stringify({ events: [{ src: 'ls-only' }] }));
+        /* 不写 IDB */
+        const data = await mod.loadAnalyticsSnapshot();
+        expect(data?.events).toEqual([{ src: 'ls-only' }]);
+    });
+
+    it('W2: queueAnalyticsSave debounce 期间多次 → 只触发 1 次 IDB put', async () => {
+        let putCount = 0;
+        const origIDB = globalThis.indexedDB;
+        globalThis.indexedDB = {
+            open(_name) {
+                const req = { onsuccess: null, result: null };
+                queueMicrotask(() => {
+                    const db = {
+                        objectStoreNames: { contains: () => true },
+                        transaction() {
+                            return {
+                                objectStore() {
+                                    return { put() { putCount++; return { onsuccess: null, onerror: null }; } };
+                                },
+                                oncomplete: null, onerror: null, onabort: null,
+                            };
+                        },
+                    };
+                    req.result = db;
+                    req.onsuccess && req.onsuccess();
+                    /* 模拟 tx.oncomplete 立刻触发 */
+                    queueMicrotask(() => {
+                        /* 由 _doFlush 持有 tx，oncomplete 在那里触发，这里仅计 put */
+                    });
+                });
+                return req;
+            },
+        };
+        for (let i = 0; i < 10; i++) {
+            mod.queueAnalyticsSave({ events: [{ i }], funnels: {} });
+            vi.advanceTimersByTime(100);
+        }
+        vi.advanceTimersByTime(900);
+        await vi.runAllTimersAsync();
+        expect(putCount).toBeLessThanOrEqual(2); /* debounce + 可能的 hard flush */
+        globalThis.indexedDB = origIDB;
+    });
+
+    it('W2: IDB open 失败 → 自动降级 LS', async () => {
+        globalThis.indexedDB = {
+            open: () => {
+                const req = { onsuccess: null, onerror: null, onblocked: null };
+                queueMicrotask(() => req.onerror && req.onerror());
+                return req;
+            },
+        };
+        mod._resetAnalyticsStoreForTests(); /* 清 _dbPromise 缓存 */
+        mod.queueAnalyticsSave({ events: [{ fallback: 'ls' }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        expect(JSON.parse(lsStub.getItem('openblock_analytics_v1')).events).toEqual([{ fallback: 'ls' }]);
+    });
+
+    it('W2: IDB put 失败（onerror）→ 自动降级 LS（与 onerror 兜底语义一致）', async () => {
+        globalThis.indexedDB = {
+            open: () => {
+                const req = { onsuccess: null, result: null };
+                queueMicrotask(() => {
+                    req.result = {
+                        objectStoreNames: { contains: () => true },
+                        transaction() {
+                            const tx = {
+                                objectStore() {
+                                    return { put() { return { onsuccess: null, onerror: null }; } };
+                                },
+                                oncomplete: null, onerror: null, onabort: null,
+                            };
+                            queueMicrotask(() => tx.onerror && tx.onerror());
+                            return tx;
+                        },
+                    };
+                    req.onsuccess && req.onsuccess();
+                });
+                return req;
+            },
+        };
+        mod._resetAnalyticsStoreForTests();
+        mod.queueAnalyticsSave({ events: [{ recovered: 'ls' }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        /* IDB 失败后 _doFlush 落到 _lsPut */
+        expect(JSON.parse(lsStub.getItem('openblock_analytics_v1') || '{}').events).toEqual([{ recovered: 'ls' }]);
+    });
 });
