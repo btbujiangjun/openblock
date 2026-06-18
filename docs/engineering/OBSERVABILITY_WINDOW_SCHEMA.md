@@ -88,11 +88,14 @@
 | `totalCircuitTrips` | int | 累计熔断触发次数 | **P0**；> 0 告警 |
 | `circuitOpenCount` | int | 当前正熔断 handler 数（live） | 健康度 |
 | `eventsFailed` | object | eventType → 失败次数 | 定位坏模块 |
+| `circuitTripsByType` | object<string,int> | **FF4 新增**：eventType → 熔断次数；`totalCircuitTrips` 只能告诉总数，本字段定位具体业务模块（`ad_show` / `iap_pay` / `ftue_step`） | **P0**；> 0 时直接定位坏模块 |
 | `eventTypes` | int | 当前订阅事件类型数 | 拓扑健康 |
 | `totalHandlers` | int | 当前订阅 handler 总数 | 拓扑健康 |
 | `windowMs` | int | 60000 | – |
 
-**P0 告警**：`totalCircuitTrips > 0` —— 商业化模块挂了。
+**P0 告警**：`totalCircuitTrips > 0` —— 商业化模块挂了；按 `circuitTripsByType` 主导类型路由值班人。
+
+**FF4 守恒律**：`sum(circuitTripsByType.*) === totalCircuitTrips` —— 契约测试守护。
 
 ## 服务端聚合建议
 

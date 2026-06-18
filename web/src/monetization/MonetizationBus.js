@@ -45,6 +45,11 @@ const _busStats = {
     totalHandlerFails: 0,        // 累计 handler 失败次数
     totalCircuitTrips: 0,        // 累计触发熔断次数
     eventCountsFailed: new Map(),// eventType → 失败次数（与 _eventCounts 同 key 对照）
+    /* FF4: circuit trip 按 eventType 拆分（与 EE4 idbFailReasons 同思路）。
+     * totalCircuitTrips 只能告诉"出了几次熔断"，无法回答"哪类 event 在炸"。
+     * 运维侧最需要的是定位到具体业务模块（ad_show / iap_pay / ftue_step），
+     * 而不是知道总数 5 vs 3。 */
+    circuitTripsByType: new Map(),
 };
 
 /**
@@ -98,6 +103,9 @@ export function emit(eventType, data = {}) {
             if (consecFails >= HANDLER_CIRCUIT_THRESHOLD) {
                 _circuitOpenHandlers.add(h);
                 _busStats.totalCircuitTrips++; /* Y4 */
+                /* FF4: 按 eventType 拆分 trip count */
+                _busStats.circuitTripsByType.set(eventType,
+                    (_busStats.circuitTripsByType.get(eventType) || 0) + 1);
                 log.warn('handler circuit OPEN', { eventType, consecFails });
             }
         }
@@ -129,6 +137,8 @@ export function getStats() {
         totalEmits,
         circuitOpenCount,                /* 当前正熔断的 handler 数（live） */
         totalCircuitTrips: _busStats.totalCircuitTrips, /* 累计熔断次数（含历史已恢复） */
+        /* FF4: 按 eventType 拆分的 trip 计数（live state 的浅拷贝） */
+        circuitTripsByType: Object.fromEntries(_busStats.circuitTripsByType),
         totalHandlerFails: _busStats.totalHandlerFails,
         handlerFailRate: totalEmits > 0 ? _busStats.totalHandlerFails / totalEmits : 0,
     };
@@ -143,6 +153,7 @@ export function resetStats() {
     _busStats.totalHandlerFails = 0;
     _busStats.totalCircuitTrips = 0;
     _busStats.eventCountsFailed.clear();
+    _busStats.circuitTripsByType.clear(); /* FF4 */
     _eventCounts.clear();
 }
 
@@ -206,6 +217,7 @@ export function _clearAllHandlers() {
     _busStats.totalHandlerFails = 0;
     _busStats.totalCircuitTrips = 0;
     _busStats.eventCountsFailed.clear();
+    _busStats.circuitTripsByType.clear(); /* FF4 */
 }
 
 export default { on, off, emit, attach, detach, getGame, getStats, getHandlerFailCount, resetStats, _clearAllHandlers };

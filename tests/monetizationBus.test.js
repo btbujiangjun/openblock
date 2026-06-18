@@ -185,4 +185,58 @@ describe('MonetizationBus Y4 — 全局观测指标', () => {
         const s = getStats();
         expect(s.handlerFailRate).toBe(0);
     });
+
+    /* ============ FF4: circuitTripsByType ============ */
+
+    it('FF4 初始 getStats 含 circuitTripsByType={}', () => {
+        const s = getStats();
+        expect(s.circuitTripsByType).toBeDefined();
+        expect(s.circuitTripsByType).toEqual({});
+    });
+
+    it('FF4 单 eventType 熔断 → circuitTripsByType[type]=1', () => {
+        const bad = () => { throw new Error('e'); };
+        on('ad_show', bad);
+        for (let i = 0; i < 6; i++) emit('ad_show');
+        const s = getStats();
+        expect(s.circuitTripsByType).toEqual({ ad_show: 1 });
+        expect(s.totalCircuitTrips).toBe(1);
+    });
+
+    it('FF4 多 eventType 各自独立熔断 → 各自 trip 计数', () => {
+        /* 各自 handler — 同 handler 第一次 trip 后被 short-circuit，不会重复熔断 */
+        const bad1 = () => { throw new Error('ad'); };
+        const bad2 = () => { throw new Error('iap'); };
+        on('ad_show', bad1);
+        on('iap_pay', bad2);
+        for (let i = 0; i < 6; i++) emit('ad_show');
+        for (let i = 0; i < 6; i++) emit('iap_pay');
+        const s = getStats();
+        expect(s.circuitTripsByType).toEqual({ ad_show: 1, iap_pay: 1 });
+        expect(s.totalCircuitTrips).toBe(2);
+        /* 守恒律：sum(circuitTripsByType.*) === totalCircuitTrips */
+        const sum = Object.values(s.circuitTripsByType).reduce((a, b) => a + b, 0);
+        expect(sum).toBe(s.totalCircuitTrips);
+    });
+
+    it('FF4 circuitTripsByType 是副本：外部修改不污染 live state', () => {
+        const bad = () => { throw new Error('e'); };
+        on('ftue_step', bad);
+        for (let i = 0; i < 6; i++) emit('ftue_step');
+        const s1 = getStats();
+        s1.circuitTripsByType.ftue_step = 99999;
+        s1.circuitTripsByType.fake = 42;
+        const s2 = getStats();
+        expect(s2.circuitTripsByType.ftue_step).toBe(1);
+        expect(s2.circuitTripsByType.fake).toBeUndefined();
+    });
+
+    it('FF4 resetStats 清空 circuitTripsByType', () => {
+        const bad = () => { throw new Error('e'); };
+        on('ad_show', bad);
+        for (let i = 0; i < 6; i++) emit('ad_show');
+        expect(Object.keys(getStats().circuitTripsByType)).toHaveLength(1);
+        resetStats();
+        expect(getStats().circuitTripsByType).toEqual({});
+    });
 });
