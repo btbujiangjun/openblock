@@ -513,7 +513,7 @@ export const SKINS: Record<string, Skin> = {
     circuitBoard: {
         id: 'circuitBoard',
         name: '🧲 电路矩阵',
-        blockIcons: ['🧲', '📶', '🟢', '🟣', '🟡', '🟤', '🪛', '🪫'],
+        blockIcons: ['🧲', '📶', '🖥️', '⌨️', '🖱️', '📱', '🪛', '🪫'],
         blockColors: ['#2FE68A', '#48B8FF', '#D6F75A', '#A978FF', '#F5A642', '#B07848', '#6EE7C8', '#FF5E7A'],
         gridOuter: '#061A12',
         gridCell: '#0D2A1D',
@@ -613,7 +613,7 @@ export const SKINS: Record<string, Skin> = {
     mineralCave: {
         id: 'mineralCave',
         name: '💍 宝石矿洞',
-        blockIcons: ['💍', '🔦', '🧱', '🟫', '🟪', '🟨', '🔸', '🔹'],
+        blockIcons: ['💍', '🔦', '🧱', '⛏️', '🗿', '🪔', '🔨', '🧊'],
         blockColors: ['#54D3D8', '#B38AF6', '#D6A15C', '#8C6A4A', '#7A54D6', '#D8BC4C', '#E06A3A', '#4A8EE8'],
         gridOuter: '#12131C',
         gridCell: '#202132',

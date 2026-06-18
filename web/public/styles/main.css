@@ -7056,8 +7056,8 @@ body.doc-visibility-hidden #menu * {
 }
 
 /* v1.56 §4.4：连续突破徽章 ——
- * 7 天内连续 N 次破 PB 时显示在 stat-box--best 内（best-strategy-badge 下方），
- * 金色叙事强化"持续突破"成就感；与 D4 best-gap--over 文案互补：
+ * 7 天内连续 N 次破 PB 时显示在 stat-box--best 右上角（绝对定位，不占 grid 副行，
+ * 避免与 best-gap 叠出无效占位条）；与 D4 best-gap--over 文案互补：
  *   - best-gap--over 解决"我现在已经超了多少"
  *   - pb-streak-badge 解决"我已经连续突破多少次"
  * 字体尺寸与 best-strategy-badge 等齐，避免抢戏。 */
@@ -7072,6 +7072,17 @@ body.doc-visibility-hidden #menu * {
     border-radius: 8px;
     letter-spacing: .02em;
     line-height: 1.3;
+}
+.pb-streak-badge[hidden],
+.pb-streak-badge:empty {
+    display: none !important;
+}
+.score-theme-row .stat-box--best .pb-streak-badge {
+    position: absolute;
+    top: -8px;
+    right: -6px;
+    margin: 0;
+    z-index: 2;
 }
 
 /* v1.56 §3.4：终局差一口气 banner ——
@@ -7120,6 +7131,10 @@ body.doc-visibility-hidden #menu * {
     user-select: none;
     pointer-events: none;
     display: inline-block;
+}
+.best-strategy-badge[hidden],
+.best-strategy-badge:empty {
+    display: none !important;
 }
 /* v1.55.6 修复 v1.55.4 回归：
  *   旧版 grid-row:2 + justify-self:end + margin: 0 -6px -2px 0 让徽章贴 stat-value
@@ -9362,4 +9377,144 @@ html[data-ui-theme="dark"] .best-strategy-badge--easy {
 }
 /* fdp-card 需要 relative 才能定位关闭按钮 */
 .fdp-card, .wbp-card { position: relative !important; }
+
+/* ════════════════════════════════════════════════════════════════════
+ * Web 主端 S 级皮肤增强（新手村风格 · skinPremium.js 驱动 · 默认关闭）
+ * 仅 html.web-premium-skin（用户开启精致界面）生效。
+ * ════════════════════════════════════════════════════════════════════ */
+
+html.web-premium-skin #app {
+    background:
+        radial-gradient(120% 120% at 50% 0%,
+            color-mix(in srgb, var(--bg-color, #0f172a) 92%, var(--premium-accent, #38bdf8) 8%),
+            var(--bg-color, #0f172a));
+}
+
+html.web-premium-skin .play-stack {
+    gap: 6px;
+}
+
+/* HUD：整条统一玻璃栏（消除各 stat-box 独立卡片带来的割裂感） */
+html.web-premium-skin .score-theme-row {
+    background: var(--premium-glass-surface);
+    border: 1px solid var(--premium-glass-border, rgba(148, 163, 184, 0.18));
+    border-radius: 14px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.20);
+    padding: 5px 6px;
+    margin: 0 10px 6px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+html.web-premium-skin .score-theme-row .stat-box {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    padding: 3px 12px !important;
+}
+
+html.web-premium-skin .score-theme-row .stat-box + .stat-box::before {
+    opacity: 0.42;
+    background: color-mix(in srgb, var(--premium-accent, #38bdf8) 20%, transparent);
+}
+
+html.web-premium-skin .score-theme-quick-cluster {
+    border-left: 1px solid color-mix(in srgb, var(--premium-accent, #38bdf8) 16%, transparent);
+    margin-left: 4px;
+    padding-left: 8px;
+}
+
+html.web-premium-skin .header-level .header-level-val {
+    box-shadow: none;
+}
+
+/* 盘面容器：玻璃质感外框 + 深投影 */
+html.web-premium-skin #game-wrapper {
+    border-radius: 14px;
+    padding: 10px;
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--grid-bg, #0f172a) 92%, #000 8%),
+        color-mix(in srgb, var(--grid-bg, #0f172a) 98%, #000 2%));
+    border: 1px solid var(--premium-board-border, rgba(56, 189, 248, 0.28));
+    box-shadow:
+        0 14px 40px rgba(0, 0, 0, 0.48),
+        0 0 28px var(--premium-board-glow, rgba(56, 189, 248, 0.12)),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+html.web-premium-skin #game-grid,
+html.web-premium-skin #game-grid-bg,
+html.web-premium-skin #game-grid-wm {
+    border-radius: 12px !important;
+    overflow: hidden;
+}
+
+html.web-premium-skin #game-grid {
+    border: 1px solid color-mix(in srgb, var(--premium-board-border, rgba(56,189,248,.28)) 65%, transparent) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 2px 16px var(--premium-board-glow, rgba(56, 189, 248, 0.10)) !important;
+}
+
+/* 道具栏 + 候选区：底部玻璃托盘（与 HUD 同系，不抢戏） */
+html.web-premium-skin .skill-bar {
+    margin: 2px 10px 0 !important;
+    padding: 6px 8px !important;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--premium-glass-surface) 50%, transparent);
+    border: 1px solid var(--premium-glass-border, rgba(148, 163, 184, 0.14));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+html.web-premium-skin .skill-btn {
+    background: rgba(148, 163, 184, 0.08) !important;
+    border: 1px solid rgba(148, 163, 184, 0.18) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+    transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+html.web-premium-skin .skill-btn:active {
+    transform: scale(0.94);
+}
+
+html.web-premium-skin .block-dock {
+    margin: 0 8px max(6px, env(safe-area-inset-bottom, 0px)) !important;
+    padding: 8px 10px !important;
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(20, 28, 42, 0.50), rgba(10, 14, 22, 0.62));
+    border: 1px solid var(--premium-glass-border, rgba(148, 163, 184, 0.12));
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.26);
+}
+
+html[data-ui-theme="light"].web-premium-skin .block-dock {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.68), rgba(248, 250, 252, 0.80));
+}
+
+html.web-premium-skin .float-score,
+html.web-premium-skin .float-label {
+    text-shadow: 0 2px 12px rgba(251, 191, 36, 0.45);
+}
+
+/* 精致界面开关：开启态高亮（与视觉特效按钮同口径） */
+#skin-premium-toggle[aria-pressed="true"] {
+    opacity: 1;
+    border-color: color-mix(in srgb, var(--premium-accent, #38bdf8) 42%, rgba(255, 255, 255, 0.14));
+    box-shadow:
+        0 0 0 1px color-mix(in srgb, var(--premium-accent, #38bdf8) 28%, transparent),
+        0 2px 10px color-mix(in srgb, var(--premium-accent, #38bdf8) 22%, transparent);
+}
+
+html.native-client #skin-premium-toggle {
+    display: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html.web-premium-skin .skill-btn {
+        transition: none;
+    }
+}
 

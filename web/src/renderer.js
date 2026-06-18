@@ -4,6 +4,7 @@
  */
 import { CONFIG } from './config.js';
 import { getActiveSkin, getBlockColors, SKINS } from './skins.js';
+import { isSkinPremiumEnabled } from './effects/skinPremium.js';
 import { paintMahjongTileIcon } from './mahjongTileIcon.js';
 import { paintBoardTexture } from './boardTexture.js';
 
@@ -420,10 +421,53 @@ function _adaptiveBlockMetrics(skin, cellS) {
 }
 
 /**
+ * Web 主端 S 级：方块顶缘内高光 + 底缘内阴影（新手村 .nv-pcell 质感）。
+ * 在各类 blockStyle 绘制完成后叠加，不干扰 icon 图层。
+ */
+function _paintPremiumCellFinish(ctx, bx, by, size, r) {
+    const topG = ctx.createLinearGradient(bx, by, bx, by + size * 0.24);
+    topG.addColorStop(0, 'rgba(255,255,255,0.24)');
+    topG.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = topG;
+    if (r > 0) {
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
+    } else {
+        ctx.fillRect(bx, by, size, size * 0.24);
+    }
+
+    const botG = ctx.createLinearGradient(bx, by + size * 0.68, bx, by + size);
+    botG.addColorStop(0, 'rgba(0,0,0,0)');
+    botG.addColorStop(1, 'rgba(0,0,0,0.30)');
+    ctx.fillStyle = botG;
+    if (r > 0) {
+        roundRectPath(ctx, bx, by, size, size, r);
+        ctx.fill();
+    } else {
+        ctx.fillRect(bx, by + size * 0.68, size, size * 0.32);
+    }
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 0.75;
+    if (r > 0) {
+        roundRectPath(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+        ctx.stroke();
+    }
+}
+
+function _maybePaintPremiumCellFinish(ctx, cellPx, cellPy, cellS, skin) {
+    if (!isSkinPremiumEnabled()) return;
+    if (Array.isArray(skin.blockIconAssets) && skin.blockIconAssets.length) return;
+    const { inset, radius: r } = _adaptiveBlockMetrics(skin, cellS);
+    const size = Math.max(1, cellS - inset * 2);
+    _paintPremiumCellFinish(ctx, cellPx + inset, cellPy + inset, size, r);
+}
+
+/**
  * @param {CanvasRenderingContext2D} ctx
  * @param {number} cellPx 格左上角 x（整格坐标）
  */
-function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
+function _paintBlockCellCore(ctx, cellPx, cellPy, cellS, color, skin) {
     const { inset, radius: r } = _adaptiveBlockMetrics(skin, cellS);
     const size = Math.max(1, cellS - inset * 2);
     const bx = cellPx + inset;
@@ -914,6 +958,11 @@ function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
 
     // glossy 兜底样式也支持 blockIcons（未来皮肤扩展用）
     _paintIcon(ctx, bx, by, size, r, originalColor, skin);
+}
+
+function paintBlockCell(ctx, cellPx, cellPy, cellS, color, skin) {
+    _paintBlockCellCore(ctx, cellPx, cellPy, cellS, color, skin);
+    _maybePaintPremiumCellFinish(ctx, cellPx, cellPy, cellS, skin);
 }
 
 /**
@@ -1952,13 +2001,35 @@ export class Renderer {
 
         const cs = this.cellSize - 2 * g;
         ctx.fillStyle = hexToRgba(skin.gridCell, cellA);
+        const premiumCells = isSkinPremiumEnabled();
+        const cellR = premiumCells ? Math.max(2, Math.round((skin.blockRadius ?? 5) * cs / 38)) : 0;
         for (let y = 0; y < this.gridSize; y++) {
             for (let x = 0; x < this.gridSize; x++) {
-                ctx.fillRect(x * this.cellSize + g, y * this.cellSize + g, cs, cs);
+                const px = x * this.cellSize + g;
+                const py = y * this.cellSize + g;
+                if (premiumCells && cellR > 0) {
+                    roundRectPath(ctx, px, py, cs, cs, cellR);
+                    ctx.fill();
+                } else {
+                    ctx.fillRect(px, py, cs, cs);
+                }
             }
         }
 
-        if (skin.cellStyle === 'sunken' && cs > 4) {
+        if (premiumCells && cs > 4) {
+            for (let y = 0; y < this.gridSize; y++) {
+                for (let x = 0; x < this.gridSize; x++) {
+                    const px = x * this.cellSize + g;
+                    const py = y * this.cellSize + g;
+                    ctx.strokeStyle = 'rgba(148,163,184,0.10)';
+                    ctx.lineWidth = 0.75;
+                    roundRectPath(ctx, px + 0.5, py + 0.5, cs - 1, cs - 1, Math.max(0, cellR - 0.5));
+                    ctx.stroke();
+                }
+            }
+        }
+
+        if (skin.cellStyle === 'sunken' && cs > 4 && !premiumCells) {
             const ew = Math.max(1, Math.round(cs * 0.11));
             for (let y = 0; y < this.gridSize; y++) {
                 for (let x = 0; x < this.gridSize; x++) {

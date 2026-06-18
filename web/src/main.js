@@ -34,6 +34,7 @@ import { initLeaderboardScreen } from './social/leaderboardScreen.js';
 // v10.15 P0 彩蛋 / 惊喜系统
 import { createAudioFx } from './effects/audioFx.js';
 import { installSkinTransition } from './effects/skinTransition.js';
+import { initSkinPremium } from './effects/skinPremium.js';
 import { createAmbientParticles } from './effects/ambientParticles.js';
 import {
     applyAprilFoolsIfActive,
@@ -334,6 +335,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     ambient.applySkin(getActiveSkin().id);
     game.renderer.setAmbientLayer(ambient);
     window.__feedbackToggles = initFeedbackToggles({ game, audioFx, ambient });
+    /* Web 主端精致界面（默认关，HUD ◇/✨ 一键切换） */
+    initSkinPremium({ game });
 
     /* v10.16: 各类道具与系统接入 game */
     initHintEconomy({ game, audio: audioFx });

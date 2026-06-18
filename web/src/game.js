@@ -5426,7 +5426,9 @@ export class Game {
                 badgeEl.hidden = false;
                 badgeEl.className = 'best-strategy-badge best-strategy-badge--easy';
             } else {
+                badgeEl.textContent = '';
                 badgeEl.hidden = true;
+                badgeEl.className = 'best-strategy-badge';
             }
         }
         // 最高分差距提示（无尽模式 + 尚未超越时显示）
