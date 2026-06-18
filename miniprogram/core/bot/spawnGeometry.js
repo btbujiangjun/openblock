@@ -34,9 +34,18 @@ function permutations3(a, b, c) {
     return [[a, b, c], [a, c, b], [b, a, c], [b, c, a], [c, a, b], [c, b, a]];
 }
 
-/** 克隆 grid，在 (gx,gy) 放下 shape 后执行 checkLines（消行结算）；返回新 grid。 */
+/**
+ * 克隆 grid，在 (gx,gy) 放下 shape 后执行 checkLines（消行结算）；返回新 grid。
+ *
+ * v1.71 X3：DFS 内层（dfsCountSolutions / dfsPlaceOrder）调用 placeAndClear
+ * 上万次/triplet。这里走 clone({ skipMeta: true }) fast path——
+ * 跳过 cellMeta 浅拷贝（DFS 深层不读 meta），高 fill 场景显著降低 GC 与 Map 拷贝成本。
+ *
+ * 业务行为契约不变：返回的 grid 仍可正常 canPlace / checkLines / 序列化。
+ * cellMeta 在 fast path 后会是空 Map——但 DFS 不依赖 meta，业务路径也不会复用 DFS 返回的 grid。
+ */
 function placeAndClear(grid, shapeData, gx, gy) {
-    const g = grid.clone();
+    const g = grid.clone({ skipMeta: true });
     g.place(shapeData, 0, gx, gy);
     g.checkLines();
     return g;

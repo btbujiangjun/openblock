@@ -44,13 +44,19 @@ class Grid {
         else this._cellMeta = new Map();
     }
 
-    clone() {
-        /* 性能：clone 是出块 DFS（tripletSequentiallySolvable / evaluateTripletSolutions /
-         * constructiveSpawn）最内层热点——单次出块在高 fill 时可达上万次。
-         *   1. 用 Object.create 跳过 constructor 里 createEmptyGrid 的 64 次无效 null 初始化；
-         *   2. 用原生 row.slice() 整行拷贝替代逐格赋值（引擎对 slice 有专门优化）；
-         *   3. cellMeta 为空时直接给空 Map，跳过整 Map 迭代（DFS 落子不写 meta，深层状态常为空）。
-         * 行为与旧实现完全等价（cells 浅拷贝、cellMeta 浅复制 plain-object 值）。 */
+    /**
+     * 性能：clone 是出块 DFS 最内层热点。
+     *
+     * v1.71 X3：新增 `{ skipMeta: true }` fast path。
+     *   DFS 内的 placeAndClear 不需要 cellMeta（深层路径仅做 canPlace / cells 读），
+     *   每次都拷 N 个 plain-object entry 是浪费。skipMeta 直接给空 Map，
+     *   高 fill + cellMeta 较大时 DFS 整路径吞吐显著提升。
+     *
+     * 业务路径调用 `clone()` 不带参数 → 行为 100% 不变（默认浅拷 meta）。
+     *
+     * @param {{ skipMeta?: boolean }} [opts]
+     */
+    clone(opts) {
         const grid = Object.create(Grid.prototype);
         grid.size = this.size;
         const n = this.size;
@@ -58,10 +64,14 @@ class Grid {
         const cells = new Array(n);
         for (let y = 0; y < n; y++) cells[y] = src[y].slice();
         grid.cells = cells;
-        /* v1.60.1：浅复制 cellMeta — Map 元素为 immutable plain object，浅复制安全 */
-        grid._cellMeta = (this._cellMeta && this._cellMeta.size)
-            ? new Map(this._cellMeta)
-            : new Map();
+        if (opts && opts.skipMeta === true) {
+            /* DFS fast path：跳过 meta 浅拷贝（深层 grid 不写 meta，读路径也仅查 cells） */
+            grid._cellMeta = new Map();
+        } else {
+            grid._cellMeta = (this._cellMeta && this._cellMeta.size)
+                ? new Map(this._cellMeta)
+                : new Map();
+        }
         return grid;
     }
 
