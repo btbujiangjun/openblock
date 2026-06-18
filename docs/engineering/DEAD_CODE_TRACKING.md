@@ -29,7 +29,25 @@ python3 scripts/scan-unused-exports.py  # 或参考 git log b9bb200..HEAD 中的
 node scripts/scan-unused-exports.mjs           # 文本报告（LOOSE）
 node scripts/scan-unused-exports.mjs --strict  # STRICT（排除入口型，更高置信度）
 node scripts/scan-unused-exports.mjs --json    # 机器可读 JSON
+
+# X5：基线对比模式
+npm run scan:dead-code                     # 对比 docs/engineering/dead-code-baseline.json
+npm run scan:dead-code:write-baseline      # 更新基线（清理后或大重构后）
+node scripts/scan-unused-exports.mjs --strict \
+    --baseline docs/engineering/dead-code-baseline.json --fail-on-new
+                                           # CI 守门：新增即 exit 1
 ```
+
+## X5：Weekly CI Job（自动跟踪新增/解决）
+
+- 工作流：`.github/workflows/weekly-dead-code.yml`
+- 触发：每周一 UTC 02:00（北京时间周一 10:00）；可 `workflow_dispatch` 手动触发
+- 行为：扫描 → 对比基线 → 有 added/removed 时在 `dead-code` label 的 Issue 评论增量
+- 手动触发可选 `update_baseline=true`：扫描后自动提交新基线到 main
+  （供大型清理后一次性 rebaseline）
+
+**基线**：`docs/engineering/dead-code-baseline.json`（71 项 @ X5 立项时）。
+基线文件 *是* 跟踪源——只增不减意味着新代码引入死代码，须 owner 评审。
 
 ## 分类与处置建议
 

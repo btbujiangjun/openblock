@@ -1,0 +1,652 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-06-18T12:07:09.514Z",
+  "strict": true,
+  "totalExports": 1409,
+  "unusedCount": 71,
+  "items": [
+    {
+      "file": "web/src/achievements/extremeAchievements.js",
+      "name": "getUnlockedAchievements",
+      "entry": false
+    },
+    {
+      "file": "web/src/analyticsBridge.js",
+      "name": "mirrorAnalyticsEvent",
+      "entry": false
+    },
+    {
+      "file": "web/src/boardTexture.js",
+      "name": "paintXuanPaperTexture",
+      "entry": false
+    },
+    {
+      "file": "web/src/bot/pytorchBackend.js",
+      "name": "evalGreedyRemote",
+      "entry": false
+    },
+    {
+      "file": "web/src/bot/spawnEvaluation.js",
+      "name": "computeGoalSubscores",
+      "entry": false
+    },
+    {
+      "file": "web/src/bot/spawnEvaluation.js",
+      "name": "buildEvaluationInsights",
+      "entry": false
+    },
+    {
+      "file": "web/src/bot/spawnExperiments.js",
+      "name": "derivePreferenceVector",
+      "entry": false
+    },
+    {
+      "file": "web/src/bot/spawnExperiments.js",
+      "name": "deriveExperienceBudget",
+      "entry": false
+    },
+    {
+      "file": "web/src/bot/trainer.js",
+      "name": "resolveBrowserRlTrainingConfig",
+      "entry": false
+    },
+    {
+      "file": "web/src/bot/trainer.js",
+      "name": "reinforceUpdate",
+      "entry": false
+    },
+    {
+      "file": "web/src/checkin/loginStreak.js",
+      "name": "getMedals",
+      "entry": false
+    },
+    {
+      "file": "web/src/cssVariableManager.js",
+      "name": "CSSVariableManager",
+      "entry": false
+    },
+    {
+      "file": "web/src/cssVariableManager.js",
+      "name": "getCSSVariableManager",
+      "entry": false
+    },
+    {
+      "file": "web/src/decisionFlowViz.js",
+      "name": "toggleDecisionFlowViz",
+      "entry": false
+    },
+    {
+      "file": "web/src/decisionFlowViz.js",
+      "name": "getDecisionFlowViz",
+      "entry": false
+    },
+    {
+      "file": "web/src/derivation/selectors.js",
+      "name": "selectInsight",
+      "entry": false
+    },
+    {
+      "file": "web/src/effects/haptics.js",
+      "name": "impactLight",
+      "entry": false
+    },
+    {
+      "file": "web/src/effects/haptics.js",
+      "name": "impactMedium",
+      "entry": false
+    },
+    {
+      "file": "web/src/effects/haptics.js",
+      "name": "impactHeavy",
+      "entry": false
+    },
+    {
+      "file": "web/src/effects/haptics.js",
+      "name": "notificationSuccess",
+      "entry": false
+    },
+    {
+      "file": "web/src/intentLexicon.js",
+      "name": "getIntentEntry",
+      "entry": false
+    },
+    {
+      "file": "web/src/intentLexicon.js",
+      "name": "getOutOfGameTaskCopy",
+      "entry": false
+    },
+    {
+      "file": "web/src/intentLexicon.js",
+      "name": "getLexiconSnapshot",
+      "entry": false
+    },
+    {
+      "file": "web/src/moduleLazyLoader.js",
+      "name": "lazyLoadModule",
+      "entry": false
+    },
+    {
+      "file": "web/src/moduleLazyLoader.js",
+      "name": "preloadModules",
+      "entry": false
+    },
+    {
+      "file": "web/src/moduleLazyLoader.js",
+      "name": "loadModulesForScene",
+      "entry": false
+    },
+    {
+      "file": "web/src/moduleLazyLoader.js",
+      "name": "getModuleStats",
+      "entry": false
+    },
+    {
+      "file": "web/src/moduleLazyLoader.js",
+      "name": "clearModuleCache",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/adProviders.js",
+      "name": "createAppLovinProvider",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/analyticsDashboard.js",
+      "name": "getAnalyticsDashboard",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/analyticsPlatform.js",
+      "name": "getAnalyticsPlatform",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/experiment/experimentUnified.js",
+      "name": "refreshPausedExperiments",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/iapAdapter.js",
+      "name": "setIapProvider",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/iapAdapter.js",
+      "name": "canPurchaseStarterPack",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/iapAdapter.js",
+      "name": "getLimitedTimeRemaining",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/iapAdapter.js",
+      "name": "createLimitedTimeOffer",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/lifecycleAwareOffers.js",
+      "name": "isLifecycleAwareOffersAttached",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/lifecycleExperiments.js",
+      "name": "listLifecycleExperiments",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/lifecycleOutreach.js",
+      "name": "isLifecycleOutreachAttached",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/ml/contextualBandit.js",
+      "name": "flushBandit",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/monPanel.js",
+      "name": "refreshMonPanel",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/personalization.js",
+      "name": "reclassifyFromConfig",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/quality/distributionDriftMonitor.js",
+      "name": "getDriftMeta",
+      "entry": false
+    },
+    {
+      "file": "web/src/monetization/quality/distributionDriftMonitor.js",
+      "name": "flushDrift",
+      "entry": false
+    },
+    {
+      "file": "web/src/monitoring/errorTracker.js",
+      "name": "getErrorTracker",
+      "entry": false
+    },
+    {
+      "file": "web/src/monitoring/performanceMonitor.js",
+      "name": "getPerformanceMonitor",
+      "entry": false
+    },
+    {
+      "file": "web/src/offlineBehaviorQueue.js",
+      "name": "queueBehaviors",
+      "entry": false
+    },
+    {
+      "file": "web/src/offlineBehaviorQueue.js",
+      "name": "getQueueCount",
+      "entry": false
+    },
+    {
+      "file": "web/src/offlineBehaviorQueue.js",
+      "name": "clearSynced",
+      "entry": false
+    },
+    {
+      "file": "web/src/offlineManager.js",
+      "name": "onNetworkStatusChange",
+      "entry": false
+    },
+    {
+      "file": "web/src/offlineManager.js",
+      "name": "getOfflineStatus",
+      "entry": false
+    },
+    {
+      "file": "web/src/offlineManager.js",
+      "name": "forceSync",
+      "entry": false
+    },
+    {
+      "file": "web/src/offlineManager.js",
+      "name": "shutdownOfflineManager",
+      "entry": false
+    },
+    {
+      "file": "web/src/offlineStateCache.js",
+      "name": "readSpawnSignals",
+      "entry": false
+    },
+    {
+      "file": "web/src/offlineStateCache.js",
+      "name": "clearSpawnSignals",
+      "entry": false
+    },
+    {
+      "file": "web/src/offlineStateCache.js",
+      "name": "describeSpawnSignals",
+      "entry": false
+    },
+    {
+      "file": "web/src/onboarding/enhancedFTUE.js",
+      "name": "getEnhancedFTUE",
+      "entry": false
+    },
+    {
+      "file": "web/src/onboarding/ftueManager.js",
+      "name": "getFTUEManager",
+      "entry": false
+    },
+    {
+      "file": "web/src/optimizedParticles.js",
+      "name": "OptimizedParticleSystem",
+      "entry": false
+    },
+    {
+      "file": "web/src/performanceOptimizer.js",
+      "name": "PerformanceOptimizer",
+      "entry": false
+    },
+    {
+      "file": "web/src/personalizationPreferences.js",
+      "name": "loadPersonalizationPreferences",
+      "entry": false
+    },
+    {
+      "file": "web/src/personalizationPreferences.js",
+      "name": "savePersonalizationPreferences",
+      "entry": false
+    },
+    {
+      "file": "web/src/personalizationPreferences.js",
+      "name": "sanitizePersonalizationPreferences",
+      "entry": false
+    },
+    {
+      "file": "web/src/personalizationPreferences.js",
+      "name": "personalizationDataBoundary",
+      "entry": false
+    },
+    {
+      "file": "web/src/playerInsightPanel.js",
+      "name": "setInsightPanelCollapsed",
+      "entry": false
+    },
+    {
+      "file": "web/src/retention/ftueFunnel.js",
+      "name": "getFunnelProgress",
+      "entry": false
+    },
+    {
+      "file": "web/src/retention/socialIntroTrigger.js",
+      "name": "getSocialIntroData",
+      "entry": false
+    },
+    {
+      "file": "web/src/rewards/luckyWheel.js",
+      "name": "canSpin",
+      "entry": false
+    },
+    {
+      "file": "web/src/scoreAnimator.js",
+      "name": "stopScoreAnimation",
+      "entry": false
+    },
+    {
+      "file": "web/src/social/socialManager.js",
+      "name": "getSocialManager",
+      "entry": false
+    },
+    {
+      "file": "web/src/spawnModel.js",
+      "name": "proposeShapes",
+      "entry": false
+    }
+  ],
+  "byFile": [
+    {
+      "file": "web/src/achievements/extremeAchievements.js",
+      "names": [
+        "getUnlockedAchievements"
+      ]
+    },
+    {
+      "file": "web/src/analyticsBridge.js",
+      "names": [
+        "mirrorAnalyticsEvent"
+      ]
+    },
+    {
+      "file": "web/src/boardTexture.js",
+      "names": [
+        "paintXuanPaperTexture"
+      ]
+    },
+    {
+      "file": "web/src/bot/pytorchBackend.js",
+      "names": [
+        "evalGreedyRemote"
+      ]
+    },
+    {
+      "file": "web/src/bot/spawnEvaluation.js",
+      "names": [
+        "buildEvaluationInsights",
+        "computeGoalSubscores"
+      ]
+    },
+    {
+      "file": "web/src/bot/spawnExperiments.js",
+      "names": [
+        "deriveExperienceBudget",
+        "derivePreferenceVector"
+      ]
+    },
+    {
+      "file": "web/src/bot/trainer.js",
+      "names": [
+        "reinforceUpdate",
+        "resolveBrowserRlTrainingConfig"
+      ]
+    },
+    {
+      "file": "web/src/checkin/loginStreak.js",
+      "names": [
+        "getMedals"
+      ]
+    },
+    {
+      "file": "web/src/cssVariableManager.js",
+      "names": [
+        "CSSVariableManager",
+        "getCSSVariableManager"
+      ]
+    },
+    {
+      "file": "web/src/decisionFlowViz.js",
+      "names": [
+        "getDecisionFlowViz",
+        "toggleDecisionFlowViz"
+      ]
+    },
+    {
+      "file": "web/src/derivation/selectors.js",
+      "names": [
+        "selectInsight"
+      ]
+    },
+    {
+      "file": "web/src/effects/haptics.js",
+      "names": [
+        "impactHeavy",
+        "impactLight",
+        "impactMedium",
+        "notificationSuccess"
+      ]
+    },
+    {
+      "file": "web/src/intentLexicon.js",
+      "names": [
+        "getIntentEntry",
+        "getLexiconSnapshot",
+        "getOutOfGameTaskCopy"
+      ]
+    },
+    {
+      "file": "web/src/moduleLazyLoader.js",
+      "names": [
+        "clearModuleCache",
+        "getModuleStats",
+        "lazyLoadModule",
+        "loadModulesForScene",
+        "preloadModules"
+      ]
+    },
+    {
+      "file": "web/src/monetization/adProviders.js",
+      "names": [
+        "createAppLovinProvider"
+      ]
+    },
+    {
+      "file": "web/src/monetization/analyticsDashboard.js",
+      "names": [
+        "getAnalyticsDashboard"
+      ]
+    },
+    {
+      "file": "web/src/monetization/analyticsPlatform.js",
+      "names": [
+        "getAnalyticsPlatform"
+      ]
+    },
+    {
+      "file": "web/src/monetization/experiment/experimentUnified.js",
+      "names": [
+        "refreshPausedExperiments"
+      ]
+    },
+    {
+      "file": "web/src/monetization/iapAdapter.js",
+      "names": [
+        "canPurchaseStarterPack",
+        "createLimitedTimeOffer",
+        "getLimitedTimeRemaining",
+        "setIapProvider"
+      ]
+    },
+    {
+      "file": "web/src/monetization/lifecycleAwareOffers.js",
+      "names": [
+        "isLifecycleAwareOffersAttached"
+      ]
+    },
+    {
+      "file": "web/src/monetization/lifecycleExperiments.js",
+      "names": [
+        "listLifecycleExperiments"
+      ]
+    },
+    {
+      "file": "web/src/monetization/lifecycleOutreach.js",
+      "names": [
+        "isLifecycleOutreachAttached"
+      ]
+    },
+    {
+      "file": "web/src/monetization/ml/contextualBandit.js",
+      "names": [
+        "flushBandit"
+      ]
+    },
+    {
+      "file": "web/src/monetization/monPanel.js",
+      "names": [
+        "refreshMonPanel"
+      ]
+    },
+    {
+      "file": "web/src/monetization/personalization.js",
+      "names": [
+        "reclassifyFromConfig"
+      ]
+    },
+    {
+      "file": "web/src/monetization/quality/distributionDriftMonitor.js",
+      "names": [
+        "flushDrift",
+        "getDriftMeta"
+      ]
+    },
+    {
+      "file": "web/src/monitoring/errorTracker.js",
+      "names": [
+        "getErrorTracker"
+      ]
+    },
+    {
+      "file": "web/src/monitoring/performanceMonitor.js",
+      "names": [
+        "getPerformanceMonitor"
+      ]
+    },
+    {
+      "file": "web/src/offlineBehaviorQueue.js",
+      "names": [
+        "clearSynced",
+        "getQueueCount",
+        "queueBehaviors"
+      ]
+    },
+    {
+      "file": "web/src/offlineManager.js",
+      "names": [
+        "forceSync",
+        "getOfflineStatus",
+        "onNetworkStatusChange",
+        "shutdownOfflineManager"
+      ]
+    },
+    {
+      "file": "web/src/offlineStateCache.js",
+      "names": [
+        "clearSpawnSignals",
+        "describeSpawnSignals",
+        "readSpawnSignals"
+      ]
+    },
+    {
+      "file": "web/src/onboarding/enhancedFTUE.js",
+      "names": [
+        "getEnhancedFTUE"
+      ]
+    },
+    {
+      "file": "web/src/onboarding/ftueManager.js",
+      "names": [
+        "getFTUEManager"
+      ]
+    },
+    {
+      "file": "web/src/optimizedParticles.js",
+      "names": [
+        "OptimizedParticleSystem"
+      ]
+    },
+    {
+      "file": "web/src/performanceOptimizer.js",
+      "names": [
+        "PerformanceOptimizer"
+      ]
+    },
+    {
+      "file": "web/src/personalizationPreferences.js",
+      "names": [
+        "loadPersonalizationPreferences",
+        "personalizationDataBoundary",
+        "sanitizePersonalizationPreferences",
+        "savePersonalizationPreferences"
+      ]
+    },
+    {
+      "file": "web/src/playerInsightPanel.js",
+      "names": [
+        "setInsightPanelCollapsed"
+      ]
+    },
+    {
+      "file": "web/src/retention/ftueFunnel.js",
+      "names": [
+        "getFunnelProgress"
+      ]
+    },
+    {
+      "file": "web/src/retention/socialIntroTrigger.js",
+      "names": [
+        "getSocialIntroData"
+      ]
+    },
+    {
+      "file": "web/src/rewards/luckyWheel.js",
+      "names": [
+        "canSpin"
+      ]
+    },
+    {
+      "file": "web/src/scoreAnimator.js",
+      "names": [
+        "stopScoreAnimation"
+      ]
+    },
+    {
+      "file": "web/src/social/socialManager.js",
+      "names": [
+        "getSocialManager"
+      ]
+    },
+    {
+      "file": "web/src/spawnModel.js",
+      "names": [
+        "proposeShapes"
+      ]
+    }
+  ]
+}

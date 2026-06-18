@@ -21,14 +21,24 @@
  * 设计原则：保守 — 宁可漏报不可错杀。被本脚本标记"死代码"的项仍需 owner 评审才删。
  */
 
-import { readdir, readFile, stat } from 'node:fs/promises';
-import { join, relative } from 'node:path';
+import { readdir, readFile, stat, writeFile, mkdir } from 'node:fs/promises';
+import { join, relative, dirname, resolve } from 'node:path';
 
 const ROOT = process.cwd();
 const SRC_DIRS = ['web/src'];
 const SEARCH_DIRS = ['web/src', 'tests', 'cocos/assets/scripts', 'miniprogram/core', 'scripts'];
 const JSON_OUT = process.argv.includes('--json');
 const STRICT = process.argv.includes('--strict');
+
+/* X5：基线对比模式 — 写/读快照支持 weekly CI 检测新增死代码 */
+function cliArg(k, fallback) {
+    const i = process.argv.indexOf(k);
+    if (i === -1) return fallback;
+    return process.argv[i + 1] ?? fallback;
+}
+const BASELINE_PATH = cliArg('--baseline', '');
+const WRITE_BASELINE = cliArg('--write-baseline', '');
+const FAIL_ON_NEW = process.argv.includes('--fail-on-new');
 
 async function walk(dir, out = []) {
     let entries;
@@ -114,13 +124,45 @@ async function main() {
         byFile.get(u.file).push(u.name);
     }
 
+    const snapshot = {
+        schemaVersion: 1,
+        capturedAt: new Date().toISOString(),
+        strict: STRICT,
+        totalExports: exportsByName.size,
+        unusedCount: unused.length,
+        items: unused.map(u => ({ file: u.file, name: u.name, entry: u.entry })),
+        byFile: Array.from(byFile.entries()).map(([file, names]) => ({ file, names: names.slice().sort() })),
+    };
+
+    /* X5：write-baseline 模式（保存当前为新基线，weekly job 用） */
+    if (WRITE_BASELINE) {
+        const target = resolve(ROOT, WRITE_BASELINE);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, JSON.stringify(snapshot, null, 2) + '\n', 'utf8');
+        console.error(`[scan-unused-exports] 基线已写入 ${target}（${unused.length} 项）`);
+        return;
+    }
+
+    /* X5：baseline 对比模式 */
+    let diff = null;
+    if (BASELINE_PATH) {
+        try {
+            const baseTxt = await readFile(resolve(ROOT, BASELINE_PATH), 'utf8');
+            const base = JSON.parse(baseTxt);
+            const baseKeys = new Set((base.items ?? []).map(i => i.file + '::' + i.name));
+            const nowKeys = new Set(unused.map(u => u.file + '::' + u.name));
+            const added = unused.filter(u => !baseKeys.has(u.file + '::' + u.name));
+            const removed = (base.items ?? []).filter(i => !nowKeys.has(i.file + '::' + i.name));
+            diff = { added, removed, baselineCount: base.unusedCount, currentCount: unused.length };
+        } catch (e) {
+            console.error(`[scan-unused-exports] 基线 ${BASELINE_PATH} 读取失败：${e.message}`);
+            if (FAIL_ON_NEW) process.exit(1);
+        }
+    }
+
     if (JSON_OUT) {
-        console.log(JSON.stringify({
-            totalExports: exportsByName.size,
-            unusedCount: unused.length,
-            strict: STRICT,
-            byFile: Array.from(byFile.entries()).map(([file, names]) => ({ file, names })),
-        }, null, 2));
+        console.log(JSON.stringify({ ...snapshot, diff }, null, 2));
+        if (FAIL_ON_NEW && diff && diff.added.length > 0) process.exit(1);
         return;
     }
 
@@ -132,6 +174,20 @@ async function main() {
     for (const f of files) {
         console.log(f);
         for (const n of byFile.get(f).sort()) console.log(`  - ${n}`);
+    }
+
+    if (diff) {
+        console.log('');
+        console.log(`基线对比（baseline=${diff.baselineCount}, current=${diff.currentCount}）：`);
+        console.log(`  新增死代码：${diff.added.length}`);
+        for (const a of diff.added) console.log(`    + ${a.file}::${a.name}`);
+        console.log(`  已解决：${diff.removed.length}`);
+        for (const r of diff.removed) console.log(`    - ${r.file}::${r.name}`);
+        if (FAIL_ON_NEW && diff.added.length > 0) {
+            console.error('');
+            console.error(`[FAIL] --fail-on-new：检测到 ${diff.added.length} 项新增死代码`);
+            process.exit(1);
+        }
     }
 }
 

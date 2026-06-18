@@ -1,0 +1,123 @@
+name: Weekly Dead Code Scan
+
+# X5: 每周扫一次 web/src/**/*.js 的零引用 export，对比基线，
+# - 新增项 → 在 Issue 中追踪
+# - 已解决项 → 在 Issue 中确认
+# 不阻塞 PR（与 main CI 完全独立），仅作可视化跟踪用。
+
+on:
+  schedule:
+    # 每周一 UTC 02:00（北京时间周一上午 10:00）
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      update_baseline:
+        description: '把当前扫描结果写为新基线（commit 到 docs/engineering/dead-code-baseline.json）'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  scan:
+    name: Scan unused exports
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+
+      - name: Run scan + baseline diff
+        id: scan
+        run: |
+          node scripts/scan-unused-exports.mjs --strict --baseline docs/engineering/dead-code-baseline.json --json > /tmp/dead-code.json
+          ADDED=$(node -e "const d=require('/tmp/dead-code.json'); console.log(d.diff?.added?.length ?? 0)")
+          REMOVED=$(node -e "const d=require('/tmp/dead-code.json'); console.log(d.diff?.removed?.length ?? 0)")
+          CURRENT=$(node -e "const d=require('/tmp/dead-code.json'); console.log(d.unusedCount ?? 0)")
+          BASELINE=$(node -e "const d=require('/tmp/dead-code.json'); console.log(d.diff?.baselineCount ?? 0)")
+          echo "added=$ADDED" >> $GITHUB_OUTPUT
+          echo "removed=$REMOVED" >> $GITHUB_OUTPUT
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "baseline=$BASELINE" >> $GITHUB_OUTPUT
+          echo "--- Summary ---"
+          echo "baseline=$BASELINE current=$CURRENT added=$ADDED removed=$REMOVED"
+
+      - name: Build report body
+        id: report
+        if: steps.scan.outputs.added != '0' || steps.scan.outputs.removed != '0'
+        run: |
+          {
+            echo 'BODY<<EOF'
+            echo "## Weekly Dead Code Scan — $(date -u +%Y-%m-%d)"
+            echo ""
+            echo "- 基线项：${{ steps.scan.outputs.baseline }}"
+            echo "- 当前项：${{ steps.scan.outputs.current }}"
+            echo "- 新增：**${{ steps.scan.outputs.added }}**"
+            echo "- 已解决：**${{ steps.scan.outputs.removed }}**"
+            echo ""
+            echo '### 新增项'
+            node -e "
+              const d=require('/tmp/dead-code.json');
+              for (const a of (d.diff?.added ?? [])) console.log('- \`'+a.file+'\` :: \`'+a.name+'\`'+(a.entry?' (entry-shape)':''));
+            "
+            echo ""
+            echo '### 已解决项'
+            node -e "
+              const d=require('/tmp/dead-code.json');
+              for (const r of (d.diff?.removed ?? [])) console.log('- \`'+r.file+'\` :: \`'+r.name+'\`'+(r.entry?' (entry-shape)':''));
+            "
+            echo ""
+            echo '---'
+            echo '> 如果新增项都是预期（如新模块尚未接入），手动跑 `node scripts/scan-unused-exports.mjs --strict --write-baseline docs/engineering/dead-code-baseline.json` 提交更新基线。'
+            echo '> 文档见 [DEAD_CODE_TRACKING.md](../blob/main/docs/engineering/DEAD_CODE_TRACKING.md)。'
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Create or update tracking issue
+        if: steps.scan.outputs.added != '0' || steps.scan.outputs.removed != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = process.env.BODY;
+            const title = `[dead-code] weekly scan ${new Date().toISOString().slice(0,10)}`;
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'dead-code',
+              per_page: 10,
+            });
+            if (issues.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues[0].number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['dead-code'],
+              });
+            }
+        env:
+          BODY: ${{ steps.report.outputs.BODY }}
+
+      - name: Update baseline (manual dispatch only)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.update_baseline == 'true'
+        run: |
+          node scripts/scan-unused-exports.mjs --strict --write-baseline docs/engineering/dead-code-baseline.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/engineering/dead-code-baseline.json
+          git diff --cached --quiet || git commit -m "chore(dead-code): refresh baseline (weekly scan)"
+          git push

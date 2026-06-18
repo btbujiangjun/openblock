@@ -23,6 +23,8 @@
     "perf:check": "node scripts/perf-check.mjs",
     "perf:check:report": "node scripts/perf-check.mjs --report tests/perf-report.md",
     "perf:dfs-stats": "node scripts/perf-dfs-stats.mjs",
+    "scan:dead-code": "node scripts/scan-unused-exports.mjs --strict --baseline docs/engineering/dead-code-baseline.json",
+    "scan:dead-code:write-baseline": "node scripts/scan-unused-exports.mjs --strict --write-baseline docs/engineering/dead-code-baseline.json",
     "perf:check:gpu": "node scripts/perf-check-gpu.mjs",
     "lint": "eslint web/src tests",
     "sync:core": "bash scripts/sync-core.sh",
