@@ -1054,8 +1054,10 @@ function _applySpawnHintsBaseRules(s) {
  */
 function _applySpawnHintsHolesRule(s, holes, topoCfg) {
     if (!(holes >= (topoCfg?.holeClearGuaranteeAt ?? 2))) return s;
+    /* MM2：clearGuarantee 阈值从 topoCfg.holeClearGuarantee 读，默认 2（历史值） */
+    const cg = Number.isFinite(topoCfg?.holeClearGuarantee) ? topoCfg.holeClearGuarantee : 2;
     return {
-        clearGuarantee: Math.max(s.clearGuarantee, 2),
+        clearGuarantee: Math.max(s.clearGuarantee, cg),
         sizePreference: Math.min(s.sizePreference, topoCfg?.holeSizePreference ?? -0.22),
     };
 }
@@ -1075,6 +1077,8 @@ function _applySpawnHintsHolesRule(s, holes, topoCfg) {
  */
 function _applySpawnHintsBottleneckRule(s, hasBottleneckSignal, topoCfg) {
     if (!hasBottleneckSignal) return s;
+    /* MM2：cgAt 现在同时考虑 bottleneckClearGuaranteeAt（阈值，历史名）和
+     * bottleneckClearGuarantee（保底值），两者等价直接复用同一字段。 */
     const cgAt = Number.isFinite(topoCfg?.bottleneckClearGuaranteeAt)
         ? topoCfg.bottleneckClearGuaranteeAt : 2;
     const sizeDelta = Number.isFinite(topoCfg?.bottleneckSizePreferenceDelta)
