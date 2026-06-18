@@ -1,0 +1,7651 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`spawn 黄金快照（拆分安全网） > preset=empty seed=0x101010 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x2",
+      "t-right",
+      "5x1",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "j-4",
+      "1x5",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l5-c",
+      "j-4",
+      "2x2",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-up",
+      "l5-a",
+      "t-down",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-2",
+      "j-4",
+      "t-up",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-2",
+      "t-up",
+      "5x1",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l5-b",
+      "2x3",
+      "5x1",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x5",
+      "t-up",
+      "1x4",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x5",
+      "j-4",
+      "t-up",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l5-d",
+      "t-left",
+      "t-down",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-right",
+      "l-3",
+      "j-2",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h",
+      "j-3",
+      "t-left",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "l-4",
+      "z-h2",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x2",
+      "t-down",
+      "4x1",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-3",
+      "t-left",
+      "1x5",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-right",
+      "l-4",
+      "l-2",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-3",
+      "j-3",
+      "l5-a",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "t-down",
+      "1x5",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "1x4",
+      "1x5",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l5-a",
+      "1x5",
+      "1x4",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-3",
+      "l-4",
+      "l5-d",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l5-d",
+      "l5-a",
+      "z-h",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-right",
+      "1x5",
+      "j-1",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-v2",
+      "5x1",
+      "z-h",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x2",
+      "t-up",
+      "j-4",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "j-1",
+      "2x2",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-down",
+      "l5-d",
+      "z-h",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "5x1",
+      "1x4",
+      "4x1",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-v",
+      "5x1",
+      "1x4",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-2",
+      "t-down",
+      "z-v",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=empty seed=0xA11CE 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h2",
+      "l5-a",
+      "5x1",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "3x2",
+      "z-h2",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-3",
+      "1x5",
+      "j-4",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-4",
+      "4x1",
+      "j-1",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "z-h2",
+      "l5-d",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x2",
+      "5x1",
+      "2x3",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-2",
+      "j-1",
+      "t-down",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "5x1",
+      "2x3",
+      "1x4",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-2",
+      "t-left",
+      "3x2",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x2",
+      "z-h2",
+      "1x4",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-v2",
+      "l5-b",
+      "t-down",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h2",
+      "l5-d",
+      "1x4",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "5x1",
+      "l-2",
+      "1x5",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x3",
+      "1x5",
+      "t-left",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-4",
+      "2x2",
+      "z-v",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "z-h2",
+      "l-4",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-3",
+      "l5-a",
+      "z-h",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-v2",
+      "l-3",
+      "j-4",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-2",
+      "j-4",
+      "l5-a",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "j-3",
+      "j-4",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x3",
+      "l5-a",
+      "4x1",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "t-right",
+      "l5-a",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-left",
+      "4x1",
+      "j-4",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x2",
+      "l-4",
+      "j-1",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-4",
+      "j-1",
+      "3x2",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x3",
+      "4x1",
+      "l-2",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-4",
+      "1x4",
+      "j-2",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-up",
+      "z-h",
+      "z-h2",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-1",
+      "l5-c",
+      "j-2",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-1",
+      "l5-b",
+      "3x2",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=empty seed=0xB0BCAFE 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-2",
+      "4x1",
+      "t-left",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "z-h",
+      "l-1",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-left",
+      "l5-a",
+      "j-2",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "2x3",
+      "z-v2",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-2",
+      "j-4",
+      "t-right",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-v2",
+      "t-left",
+      "l-1",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-3",
+      "1x5",
+      "t-right",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-2",
+      "3x3",
+      "2x2",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-4",
+      "j-2",
+      "l5-d",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-1",
+      "l-4",
+      "j-1",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-4",
+      "1x4",
+      "z-h2",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-1",
+      "3x2",
+      "2x3",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "t-up",
+      "z-h2",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-down",
+      "1x5",
+      "l5-b",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "z-h",
+      "j-4",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-right",
+      "1x4",
+      "l-1",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x2",
+      "t-left",
+      "j-4",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "2x3",
+      "l-4",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x2",
+      "j-3",
+      "l-4",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "5x1",
+      "j-1",
+      "1x5",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-4",
+      "t-up",
+      "2x3",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "3x3",
+      "z-v2",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h",
+      "j-2",
+      "z-h2",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "1x4",
+      "z-h",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-3",
+      "1x4",
+      "l5-c",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-1",
+      "l5-b",
+      "j-3",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x3",
+      "3x3",
+      "1x4",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x3",
+      "l5-c",
+      "2x2",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h",
+      "l5-c",
+      "1x5",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "3x3",
+      "z-v",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=empty seed=0xC0DECAFE 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-2",
+      "l-1",
+      "z-h2",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h",
+      "t-up",
+      "l-2",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x3",
+      "1x5",
+      "5x1",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "l-4",
+      "l-1",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "l5-b",
+      "z-h2",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-down",
+      "l-3",
+      "z-v2",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-v",
+      "l-1",
+      "2x2",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "1x4",
+      "l-1",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x3",
+      "j-4",
+      "t-left",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-1",
+      "t-right",
+      "3x2",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h2",
+      "1x4",
+      "l5-c",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "l-3",
+      "t-up",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x5",
+      "t-left",
+      "t-right",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x3",
+      "2x3",
+      "z-v2",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-4",
+      "l5-c",
+      "t-down",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-3",
+      "l-1",
+      "z-v2",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l5-a",
+      "j-3",
+      "2x2",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x2",
+      "j-3",
+      "l-1",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-left",
+      "z-v",
+      "2x2",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l5-b",
+      "l-4",
+      "2x2",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x2",
+      "z-h2",
+      "5x1",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-2",
+      "4x1",
+      "l-1",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-right",
+      "1x4",
+      "l-1",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-4",
+      "l-3",
+      "j-3",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-2",
+      "2x2",
+      "l5-d",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l5-a",
+      "t-up",
+      "j-3",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x2",
+      "j-4",
+      "t-right",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x3",
+      "3x2",
+      "t-up",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h2",
+      "2x3",
+      "j-4",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x3",
+      "5x1",
+      "3x2",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=empty seed=0xDEC0DE 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "j-3",
+      "l5-d",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "1x4",
+      "t-up",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l5-d",
+      "1x4",
+      "l5-a",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "5x1",
+      "1x4",
+      "l-3",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "l5-c",
+      "2x2",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x2",
+      "t-left",
+      "t-down",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-4",
+      "z-h",
+      "l5-d",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-1",
+      "5x1",
+      "l5-b",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x2",
+      "5x1",
+      "4x1",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-4",
+      "2x3",
+      "j-3",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-left",
+      "3x2",
+      "2x3",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-right",
+      "l5-c",
+      "j-4",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h",
+      "l-4",
+      "t-right",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-v2",
+      "3x3",
+      "z-h",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-1",
+      "3x2",
+      "3x3",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x2",
+      "z-h",
+      "j-2",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x5",
+      "l-1",
+      "3x2",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-down",
+      "1x4",
+      "1x5",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l5-d",
+      "z-v2",
+      "3x2",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "5x1",
+      "j-1",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-3",
+      "1x5",
+      "j-1",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x3",
+      "4x1",
+      "t-right",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-left",
+      "4x1",
+      "z-h2",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-4",
+      "l-2",
+      "l5-a",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x3",
+      "z-h",
+      "t-up",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x2",
+      "2x3",
+      "4x1",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-down",
+      "j-3",
+      "l5-a",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-3",
+      "j-3",
+      "5x1",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h",
+      "l-3",
+      "z-v",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x2",
+      "j-3",
+      "l5-d",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=empty seed=0xFEEDBEE 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h",
+      "j-3",
+      "1x4",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-3",
+      "1x5",
+      "t-up",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-1",
+      "1x4",
+      "j-3",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-1",
+      "4x1",
+      "2x3",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x3",
+      "z-h",
+      "2x2",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "j-2",
+      "2x3",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-left",
+      "j-3",
+      "t-right",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h2",
+      "j-3",
+      "l5-c",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h2",
+      "t-left",
+      "l-4",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-1",
+      "j-4",
+      "l-3",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-2",
+      "l5-b",
+      "t-up",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "j-2",
+      "j-3",
+      "1x4",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h",
+      "j-3",
+      "t-up",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "t-up",
+      "l-2",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-left",
+      "l5-b",
+      "2x3",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-down",
+      "5x1",
+      "2x2",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "z-h2",
+      "j-1",
+      "5x1",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-right",
+      "l-1",
+      "j-2",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "j-1",
+      "j-2",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "t-left",
+      "l5-c",
+      "5x1",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x3",
+      "t-right",
+      "j-1",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "3x2",
+      "l-3",
+      "2x3",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "4x1",
+      "l5-a",
+      "l-1",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x4",
+      "t-right",
+      "2x3",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x5",
+      "2x2",
+      "z-v2",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "1x5",
+      "3x2",
+      "l5-a",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-2",
+      "l5-d",
+      "z-h",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x2",
+      "t-down",
+      "1x4",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "2x3",
+      "5x1",
+      "z-h2",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "mobility",
+      "mobility",
+      "mobility",
+    ],
+    "ids": [
+      "l-2",
+      "2x3",
+      "1x4",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=half seed=0x101010 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-4",
+      "j-1",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-b",
+      "t-left",
+      "l-3",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "exactFit",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "2x2",
+      "l-4",
+      "l-3",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-2",
+      "3x3",
+      "3x2",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-4",
+      "j-4",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "3x2",
+      "t-left",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "monoFlush",
+    ],
+    "ids": [
+      "l5-d",
+      "l-1",
+      "t-right",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "monoFlush",
+    ],
+    "ids": [
+      "l5-b",
+      "z-h2",
+      "t-right",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "l-4",
+      "l-2",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "1x4",
+      "j-4",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "3x2",
+      "1x5",
+      "z-v2",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "t-left",
+      "l5-c",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "monoFlush",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-right",
+      "1x5",
+      "l-2",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "l-2",
+      "l-3",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "j-4",
+      "l-3",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "t-left",
+      "1x5",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "2x3",
+      "l5-d",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "3x2",
+      "t-left",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "l5-b",
+      "t-left",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "3x2",
+      "l-3",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "3x3",
+      "t-left",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "exactFit",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "2x2",
+      "3x3",
+      "3x2",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "1x4",
+      "l-3",
+      "t-down",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-1",
+      "1x4",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "l-3",
+      "l-2",
+      "l-4",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "z-h",
+      "t-up",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-4",
+      "t-left",
+      "1x4",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-3",
+      "l5-b",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "l-3",
+      "l5-b",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "3x2",
+      "1x4",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=half seed=0xA11CE 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "3x3",
+      "l-1",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-1",
+      "1x4",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "3x2",
+      "t-left",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "2x3",
+      "l5-b",
+      "t-left",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "l-3",
+      "1x4",
+      "z-h",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "monoFlush",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "t-right",
+      "3x2",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "z-v2",
+      "l5-c",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-1",
+      "l5-b",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "3x2",
+      "t-up",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "monoFlush",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-right",
+      "1x4",
+      "l-3",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "t-left",
+      "z-h2",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "t-down",
+      "l-3",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "monoFlush",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-right",
+      "1x5",
+      "l5-b",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "l5-b",
+      "l5-c",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x3",
+      "l-3",
+      "1x4",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "3x2",
+      "3x3",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l5-d",
+      "1x4",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "3x2",
+      "1x5",
+      "2x3",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "2x3",
+      "t-left",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "gapFills",
+    ],
+    "ids": [
+      "l-3",
+      "j-2",
+      "2x3",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "exactFit",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "2x2",
+      "t-left",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "exactFit",
+    ],
+    "ids": [
+      "l-3",
+      "j-4",
+      "2x2",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "3x2",
+      "l5-b",
+      "2x3",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "t-up",
+      "t-left",
+      "t-down",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-4",
+      "t-left",
+      "t-up",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "3x2",
+      "1x5",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "t-left",
+      "l-3",
+      "j-2",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-2",
+      "3x2",
+      "1x4",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "exactFit",
+      "gapFills",
+    ],
+    "ids": [
+      "3x2",
+      "2x2",
+      "z-v2",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "exactFit",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "2x2",
+      "t-up",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=half seed=0xB0BCAFE 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-3",
+      "j-4",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-4",
+      "1x5",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "exactFit",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-c",
+      "2x2",
+      "t-left",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-b",
+      "j-1",
+      "3x2",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "l-4",
+      "3x2",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "j-4",
+      "3x2",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-2",
+      "l-3",
+      "j-4",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "3x2",
+      "t-up",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "l5-d",
+      "t-left",
+      "z-h",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "exactFit",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "2x2",
+      "t-left",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x3",
+      "l-3",
+      "1x4",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-down",
+      "t-up",
+      "l-3",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "l-2",
+      "3x2",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "exactFit",
+    ],
+    "ids": [
+      "3x2",
+      "t-left",
+      "2x2",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "l-3",
+      "1x4",
+      "2x3",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "l-3",
+      "1x5",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "l-3",
+      "l-2",
+      "l-4",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "j-1",
+      "t-left",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h2",
+      "j-2",
+      "t-left",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "l-1",
+      "z-h",
+      "l-3",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-2",
+      "j-1",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "3x2",
+      "1x5",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "z-v2",
+      "3x2",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-b",
+      "l-3",
+      "1x4",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "exactFit",
+    ],
+    "ids": [
+      "1x5",
+      "l-3",
+      "2x2",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "exactFit",
+      "gapFills",
+    ],
+    "ids": [
+      "3x2",
+      "2x2",
+      "2x3",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "z-h2",
+      "l5-b",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "exactFit",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h2",
+      "2x2",
+      "l-3",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "t-left",
+      "3x2",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "t-up",
+      "1x4",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=half seed=0xC0DECAFE 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "3x2",
+      "1x4",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-c",
+      "3x2",
+      "1x5",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-1",
+      "l-3",
+      "j-1",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-b",
+      "t-left",
+      "1x5",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "exactFit",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "2x2",
+      "1x4",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-4",
+      "t-left",
+      "1x5",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "1x5",
+      "t-up",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-3",
+      "3x2",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "t-left",
+      "j-4",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "j-4",
+      "t-up",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "l-3",
+      "t-left",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "1x5",
+      "l-2",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "3x2",
+      "j-4",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h2",
+      "l-3",
+      "1x5",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "t-down",
+      "l5-c",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "1x5",
+      "3x2",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "exactFit",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "2x2",
+      "t-left",
+      "z-h2",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "2x3",
+      "1x5",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-c",
+      "1x5",
+      "l-3",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "exactFit",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "2x2",
+      "t-left",
+      "z-h2",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-up",
+      "1x4",
+      "l-3",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "l-3",
+      "1x5",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "l-3",
+      "3x2",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "t-left",
+      "1x5",
+      "l-4",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "j-2",
+      "3x2",
+      "z-h",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "exactFit",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "2x2",
+      "l-2",
+      "t-left",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "l-4",
+      "1x4",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "t-up",
+      "l-2",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "1x4",
+      "l-3",
+      "2x3",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h2",
+      "j-1",
+      "l-3",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=half seed=0xDEC0DE 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "l-3",
+      "t-left",
+      "z-h",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "l5-b",
+      "l-2",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "exactFit",
+    ],
+    "ids": [
+      "t-left",
+      "l-3",
+      "2x2",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "3x2",
+      "1x5",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "exactFit",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-b",
+      "2x2",
+      "l-3",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "3x2",
+      "j-4",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x3",
+      "1x4",
+      "t-left",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "exactFit",
+    ],
+    "ids": [
+      "t-left",
+      "3x2",
+      "2x2",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "l-1",
+      "t-left",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "t-left",
+      "j-1",
+      "2x3",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "j-1",
+      "l-1",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "j-4",
+      "t-left",
+      "l-4",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-4",
+      "1x5",
+      "3x2",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "3x2",
+      "j-4",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "l-3",
+      "t-up",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "t-up",
+      "3x2",
+      "z-v2",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "3x2",
+      "t-up",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-2",
+      "l-3",
+      "3x2",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-down",
+      "1x5",
+      "l-3",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "3x2",
+      "l-3",
+      "z-h",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "j-2",
+      "l-3",
+      "t-down",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-1",
+      "l5-b",
+      "3x2",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-2",
+      "l-3",
+      "1x4",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "2x3",
+      "3x2",
+      "3x3",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "3x2",
+      "l-2",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "t-up",
+      "t-left",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "exactFit",
+    ],
+    "ids": [
+      "l-2",
+      "t-left",
+      "2x2",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "2x3",
+      "l-3",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-4",
+      "1x5",
+      "3x2",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "t-up",
+      "t-left",
+      "z-h",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=half seed=0xFEEDBEE 1`] = `
+[
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "j-4",
+      "j-2",
+      "l-3",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-2",
+      "l-3",
+      "z-h2",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "l-3",
+      "t-left",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "gapFills",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "l-3",
+      "l-1",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "1x4",
+      "t-up",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-b",
+      "j-2",
+      "l-3",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-4",
+      "t-left",
+      "1x4",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "2x3",
+      "t-left",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "j-4",
+      "l5-d",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-4",
+      "1x5",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "t-left",
+      "l-2",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "j-2",
+      "l-3",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "gapFills",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "2x3",
+      "3x2",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "z-h2",
+      "1x5",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "exactFit",
+      "multiClear",
+    ],
+    "ids": [
+      "j-4",
+      "2x2",
+      "l-3",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-2",
+      "l-1",
+      "3x2",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x4",
+      "t-left",
+      "j-1",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "3x2",
+      "1x5",
+      "j-2",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "l-3",
+      "t-left",
+      "j-2",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-4",
+      "t-left",
+      "l-1",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "gapFills",
+    ],
+    "ids": [
+      "3x2",
+      "j-4",
+      "z-h",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "1x5",
+      "l-3",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-b",
+      "3x3",
+      "3x2",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-b",
+      "j-4",
+      "l-3",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "t-up",
+      "1x5",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-1",
+      "3x3",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "t-left",
+      "1x4",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-up",
+      "l-2",
+      "l-3",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-1",
+      "l-3",
+      "1x4",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "1x5",
+      "l-3",
+      "l5-b",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=high seed=0x101010 1`] = `
+[
+  {
+    "attempt": 5,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "l-3",
+      "4x1",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "3x2",
+      "4x1",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "j-1",
+      "l-3",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "l-3",
+      "z-h",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-3",
+      "4x1",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "t-right",
+      "z-h",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "4x1",
+      "2x2",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-1",
+      "3x2",
+      "5x1",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 12,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "4x1",
+      "t-left",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 11,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "4x1",
+      "5x1",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "l-3",
+      "t-up",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 14,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-3",
+      "4x1",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 2,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "5x1",
+      "4x1",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 9,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "l-3",
+      "4x1",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "5x1",
+      "3x2",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 1,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "4x1",
+      "5x1",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "t-left",
+      "z-v2",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "3x2",
+      "5x1",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 9,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "5x1",
+      "l-3",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 11,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "2x2",
+      "l-3",
+      "t-left",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "l-3",
+      "5x1",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "j-1",
+      "4x1",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 12,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "2x2",
+      "l-3",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-1",
+      "2x2",
+      "l-3",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "3x2",
+      "2x2",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "l-3",
+      "j-3",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "t-right",
+      "z-h",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 14,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "4x1",
+      "l-3",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "l5-b",
+      "3x2",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 11,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "5x1",
+      "2x2",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=high seed=0xA11CE 1`] = `
+[
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-right",
+      "3x2",
+      "t-left",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 11,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-3",
+      "5x1",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 12,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "5x1",
+      "z-v2",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-right",
+      "z-h",
+      "5x1",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "t-up",
+      "l5-b",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 14,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "4x1",
+      "l-3",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "l-3",
+      "2x2",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-4",
+      "5x1",
+      "3x2",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-3",
+      "z-h",
+      "4x1",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 12,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "t-left",
+      "l-3",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "l-1",
+      "z-h",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "z-h",
+      "t-right",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "z-h",
+      "3x2",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 12,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-3",
+      "4x1",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 1,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "5x1",
+      "l-3",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "j-3",
+      "z-h",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "t-left",
+      "t-right",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 12,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "z-v2",
+      "4x1",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 1,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "5x1",
+      "4x1",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 6,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "5x1",
+      "l-3",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "l-3",
+      "t-left",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "j-1",
+      "l-3",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 3,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "5x1",
+      "4x1",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-up",
+      "3x2",
+      "l-3",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "l5-b",
+      "3x2",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "l-3",
+      "3x2",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "l-3",
+      "z-v2",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 11,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "2x2",
+      "4x1",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "4x1",
+      "j-1",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "l-3",
+      "j-1",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=high seed=0xB0BCAFE 1`] = `
+[
+  {
+    "attempt": 9,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "l-3",
+      "4x1",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "l-3",
+      "z-v2",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "t-left",
+      "4x1",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 13,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "4x1",
+      "5x1",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "j-1",
+      "l-3",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "l-3",
+      "t-left",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "4x1",
+      "5x1",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 6,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "5x1",
+      "4x1",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v",
+      "3x2",
+      "z-h",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "z-v2",
+      "j-1",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 11,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "4x1",
+      "l-3",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 7,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "4x1",
+      "5x1",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "t-right",
+      "z-h",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-up",
+      "z-h",
+      "2x2",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 11,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "4x1",
+      "j-1",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "z-h",
+      "5x1",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "4x1",
+      "l-3",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-up",
+      "3x2",
+      "l-3",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 9,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "l-3",
+      "4x1",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "2x2",
+      "l-3",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-3",
+      "z-v2",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 14,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "l-3",
+      "5x1",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "4x1",
+      "l-3",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 13,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "4x1",
+      "5x1",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 13,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "t-left",
+      "l-3",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "5x1",
+      "l-3",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "3x2",
+      "2x2",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "3x2",
+      "l-1",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 12,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "2x2",
+      "l-3",
+      "j-1",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 13,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "j-1",
+      "l-3",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=high seed=0xC0DECAFE 1`] = `
+[
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-up",
+      "l-3",
+      "4x1",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 14,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "l-3",
+      "4x1",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 8,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "5x1",
+      "l-3",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "3x2",
+      "l-3",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "4x1",
+      "j-4",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "l-3",
+      "3x2",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-1",
+      "3x2",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-3",
+      "j-4",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "2x2",
+      "5x1",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v",
+      "z-h",
+      "4x1",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 13,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "4x1",
+      "l-3",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 4,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "5x1",
+      "l-3",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-1",
+      "5x1",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-up",
+      "z-h",
+      "t-right",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "t-up",
+      "l-1",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 1,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "l-3",
+      "4x1",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 14,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "l-3",
+      "4x1",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-right",
+      "4x1",
+      "l-3",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-3",
+      "z-h",
+      "l-3",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "5x1",
+      "2x2",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "3x2",
+      "z-v",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 14,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "2x2",
+      "5x1",
+      "l-3",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "l-3",
+      "4x1",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 12,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "4x1",
+      "l-3",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "l-3",
+      "t-left",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 8,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "l-3",
+      "5x1",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-1",
+      "z-v2",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "t-right",
+      "4x1",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "t-up",
+      "l-1",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-4",
+      "3x2",
+      "l-3",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=high seed=0xDEC0DE 1`] = `
+[
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "2x2",
+      "l-1",
+      "3x2",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 11,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "2x2",
+      "l-3",
+      "4x1",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 14,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "l-3",
+      "5x1",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "4x1",
+      "l-3",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 11,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "z-v2",
+      "4x1",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "l-3",
+      "5x1",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-1",
+      "3x2",
+      "z-h",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 1,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "5x1",
+      "4x1",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "z-v2",
+      "3x2",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 6,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "4x1",
+      "l-3",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-1",
+      "5x1",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 6,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "5x1",
+      "l-3",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 14,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "4x1",
+      "l-3",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "z-h",
+      "l-3",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "4x1",
+      "3x2",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "t-left",
+      "l-1",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "l-3",
+      "l5-b",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 2,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "4x1",
+      "l-3",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "t-right",
+      "j-4",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "l-3",
+      "5x1",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "l-3",
+      "2x2",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 13,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "2x2",
+      "l-3",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 12,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "5x1",
+      "4x1",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-3",
+      "4x1",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "4x1",
+      "j-4",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 8,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "l-3",
+      "4x1",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "z-h",
+      "t-right",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 14,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "t-left",
+      "j-1",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 13,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "2x2",
+      "j-1",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 0,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "5x1",
+      "l-3",
+    ],
+    "r": 29,
+  },
+]
+`;
+
+exports[`spawn 黄金快照（拆分安全网） > preset=high seed=0xFEEDBEE 1`] = `
+[
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "t-up",
+      "4x1",
+    ],
+    "r": 0,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "3x2",
+      "z-h",
+    ],
+    "r": 1,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "t-left",
+      "z-v",
+      "3x2",
+    ],
+    "r": 2,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "4x1",
+      "z-h",
+    ],
+    "r": 3,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "z-v2",
+      "3x2",
+    ],
+    "r": 4,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "z-h",
+      "l-3",
+    ],
+    "r": 5,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-1",
+      "l-3",
+      "5x1",
+    ],
+    "r": 6,
+  },
+  {
+    "attempt": 1,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "l-3",
+      "5x1",
+    ],
+    "r": 7,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "3x2",
+      "l-3",
+    ],
+    "r": 8,
+  },
+  {
+    "attempt": 12,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "l-3",
+      "4x1",
+    ],
+    "r": 9,
+  },
+  {
+    "attempt": 13,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "l-3",
+      "5x1",
+    ],
+    "r": 10,
+  },
+  {
+    "attempt": 13,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "l-3",
+      "z-v2",
+    ],
+    "r": 11,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "z-h",
+      "3x2",
+    ],
+    "r": 12,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-1",
+      "5x1",
+    ],
+    "r": 13,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "j-3",
+      "4x1",
+    ],
+    "r": 14,
+  },
+  {
+    "attempt": 14,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "z-v2",
+      "l-3",
+    ],
+    "r": 15,
+  },
+  {
+    "attempt": 13,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "j-1",
+      "5x1",
+    ],
+    "r": 16,
+  },
+  {
+    "attempt": 10,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-v2",
+      "5x1",
+      "l-3",
+    ],
+    "r": 17,
+  },
+  {
+    "attempt": 12,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "2x2",
+      "l-3",
+    ],
+    "r": 18,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "4x1",
+      "t-left",
+    ],
+    "r": 19,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "j-1",
+      "l5-b",
+    ],
+    "r": 20,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "j-3",
+      "l-3",
+    ],
+    "r": 21,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "t-up",
+      "5x1",
+    ],
+    "r": 22,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "z-h",
+      "z-v2",
+      "j-3",
+    ],
+    "r": 23,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l-3",
+      "3x2",
+      "z-h",
+    ],
+    "r": 24,
+  },
+  {
+    "attempt": 7,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "4x1",
+      "5x1",
+      "l-3",
+    ],
+    "r": 25,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "5x1",
+      "l-3",
+      "4x1",
+    ],
+    "r": 26,
+  },
+  {
+    "attempt": 13,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "j-1",
+      "l-3",
+      "t-left",
+    ],
+    "r": 27,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "l5-b",
+      "t-left",
+      "l-3",
+    ],
+    "r": 28,
+  },
+  {
+    "attempt": 15,
+    "drivers": [
+      "multiClear",
+      "multiClear",
+      "multiClear",
+    ],
+    "ids": [
+      "3x2",
+      "z-h",
+      "4x1",
+    ],
+    "r": 29,
+  },
+]
+`;

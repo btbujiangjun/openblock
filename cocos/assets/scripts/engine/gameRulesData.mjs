@@ -275,6 +275,19 @@ export default {
       "psSnapshotVersionMin": 4
     }
   },
+  "spawnBudget": {
+    "comment": "出块算法运行时预算（v1.70 抽取自 web/src/bot/blockSpawn.js 顶部常量）。无需改源码即可调参；缺省/未声明字段会自动回落到源码硬默认（保持向后兼容）。",
+    "maxSpawnAttempts": 22,
+    "fillSurvivabilityOn": 0.52,
+    "surviveSearchBudget": 14000,
+    "criticalFill": 0.68,
+    "solutionLeafCapDefault": 64,
+    "solutionBudgetDefault": 8000,
+    "solutionFilterAttemptRatio": 0.6,
+    "reliefFillFloorUrgent": 0.25,
+    "reliefFillFloorMild": 0.35,
+    "reliefHoleFillMin": 2
+  },
   "adaptiveSpawn": {
     "comment": "自适应出块系统：综合玩家实时能力画像（技能水平、心流状态、节奏相位、挫败感、差一点效应、新手标识）动态选择出块权重档位 + spawnHints，维持心流体验、延长停留时间。",
     "enabled": true,
