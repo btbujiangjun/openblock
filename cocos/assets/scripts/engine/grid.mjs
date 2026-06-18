@@ -524,7 +524,57 @@ export class Grid {
         return count;
     }
 
+    /* ── v1.71 BB3：wouldClear 复用 bitmap 路径（避免 O(n²) 数组分配 + every） ──
+     * 原实现 8x8 每次约 64 + 8×8 + 8×8 ≈ 192 ops 含 GC 压力；
+     * bitmap 路径仅 8 (shape mask shift) + 8 (row check) + ≤8 (col check) ≈ 24 ops，
+     * 0 GC（栈上 Int32 局部）。位运算保持 1:1 行为：
+     *   - rowFull: (occRows[y] | shapeRow) === fullMask
+     *   - colFull: 所有 y 的 (occRows[y] | shapeRow) 对应位 = 1
+     * 慢路径回退覆盖 n > 30 / shape 无效 / canPlace 失败等边界。 */
     wouldClear(shapeData, gx, gy) {
+        const n = this.size;
+        /* 无效输入 / 大盘 fallback */
+        if (n > 30 || !Array.isArray(shapeData) || shapeData.length === 0) {
+            return this._wouldClearSlow(shapeData, gx, gy);
+        }
+        const sh = shapeData.length;
+        if (gy < 0 || gx < 0 || gy + sh > n) return false; /* 越界视为 false（与原实现行为一致：访问越界 cell 抛错 → 视为不会消） */
+        /* 构建 shape rowMasks（按 gx 平移） */
+        const shifted = new Int32Array(n);
+        const cells = this.cells;
+        const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
+        for (let sy = 0; sy < sh; sy++) {
+            const row = shapeData[sy];
+            if (!row) continue;
+            let m = 0;
+            for (let x = 0; x < row.length; x++) if (row[x]) m |= (1 << x);
+            if (m === 0) continue;
+            const shiftedMask = m << gx;
+            if ((shiftedMask & ~fullMask) !== 0) return false; /* shape 列越界 → 与原 temp[..][gx+x] 访问越界等价 */
+            shifted[gy + sy] = shiftedMask;
+        }
+        /* 行检查：(occRow | shifted) === fullMask 即整行满 */
+        for (let y = 0; y < n; y++) {
+            const row = cells[y];
+            let occRow = 0;
+            for (let x = 0; x < n; x++) if (row[x] !== null) occRow |= (1 << x);
+            if (((occRow | shifted[y]) & fullMask) === fullMask) return true;
+        }
+        /* 列检查：每列 x 上，所有 y 的 (occRow | shifted) 都包含 (1<<x) */
+        for (let x = 0; x < n; x++) {
+            const bit = 1 << x;
+            let colFull = true;
+            for (let y = 0; y < n; y++) {
+                const row = cells[y];
+                const occBit = (row[x] !== null) ? bit : 0;
+                if (((occBit | (shifted[y] & bit))) === 0) { colFull = false; break; }
+            }
+            if (colFull) return true;
+        }
+        return false;
+    }
+
+    _wouldClearSlow(shapeData, gx, gy) {
         const temp = this.cells.map(row => [...row]);
         for (let y = 0; y < shapeData.length; y++) {
             for (let x = 0; x < shapeData[y].length; x++) {
@@ -533,13 +583,11 @@ export class Grid {
                 }
             }
         }
-
         for (let y = 0; y < this.size; y++) {
             if (temp[y].every(c => c !== null)) {
                 return true;
             }
         }
-
         for (let x = 0; x < this.size; x++) {
             let colFull = true;
             for (let y = 0; y < this.size; y++) {
@@ -550,7 +598,6 @@ export class Grid {
             }
             if (colFull) return true;
         }
-
         return false;
     }
 
