@@ -115,6 +115,9 @@ export class LevelManager {
                 grid.cells[y][x] = (val !== undefined && val !== null) ? val : null;
             }
         }
+        /* NN-A3: 直接改写 grid.cells 后 invalidate _monoBitmapCache */
+        grid._mutGen = (grid._mutGen | 0) + 1;
+        grid._monoBitmapCache = null;
     }
 
     /**

@@ -74,21 +74,53 @@ function _buildMonoFlushBitmaps(grid, shapeCells, sh, sw) {
     const n = grid.size;
     const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
     const useBitmap = n < 31 && fullMask !== 0;
-    const rowOccBitmap = new Int32Array(n);
-    const rowEmptyCount = new Int32Array(n);
-    const colEmptyCount = new Int32Array(n);
-    for (let y = 0; y < n; y++) {
-        const row = grid.cells[y];
-        let occ = 0;
-        for (let x = 0; x < n; x++) if (row[x] !== null) occ |= (1 << x);
-        rowOccBitmap[y] = occ;
-        rowEmptyCount[y] = _popcount32((~occ) & fullMask);
+
+    /* NN-A3: grid 部分（与 shape 无关）按 _mutGen invalidate cache。
+     * 热点：blockSpawn 同帧 bestMonoFlushPotential + bestMonoFlushBuildup 连调，
+     * grid 完全不变，第二次的 grid 投影浪费。
+     *
+     * Cache invalidation：所有 cells mutation 入口（clear / placeShape /
+     * clearLines / fromJSON）++ this._mutGen，cache key 用 _mutGen + cells
+     * reference 双保险（reference 防 fromJSON 替换数组；_mutGen 防原地改写）。
+     *
+     * shape 部分不缓存（与 shape 强耦合，cache key 复杂度不值），仅 cache grid 部分。 */
+    let rowOccBitmap, rowEmptyCount, colEmptyCount;
+    const mutGen = grid._mutGen | 0;
+    const cache = grid._monoBitmapCache;
+    if (cache
+        && cache.cells === grid.cells
+        && cache.mutGen === mutGen
+        && cache.size === n
+        && cache.fullMask === fullMask
+    ) {
+        rowOccBitmap = cache.rowOccBitmap;
+        rowEmptyCount = cache.rowEmptyCount;
+        colEmptyCount = cache.colEmptyCount;
+    } else {
+        rowOccBitmap = new Int32Array(n);
+        rowEmptyCount = new Int32Array(n);
+        colEmptyCount = new Int32Array(n);
+        for (let y = 0; y < n; y++) {
+            const row = grid.cells[y];
+            let occ = 0;
+            for (let x = 0; x < n; x++) if (row[x] !== null) occ |= (1 << x);
+            rowOccBitmap[y] = occ;
+            rowEmptyCount[y] = _popcount32((~occ) & fullMask);
+        }
+        for (let x = 0; x < n; x++) {
+            let occCol = 0;
+            for (let y = 0; y < n; y++) if (grid.cells[y][x] !== null) occCol |= (1 << y);
+            colEmptyCount[x] = _popcount32((~occCol) & fullMask);
+        }
+        grid._monoBitmapCache = {
+            cells: grid.cells,
+            mutGen,
+            size: n,
+            fullMask,
+            rowOccBitmap, rowEmptyCount, colEmptyCount,
+        };
     }
-    for (let x = 0; x < n; x++) {
-        let occCol = 0;
-        for (let y = 0; y < n; y++) if (grid.cells[y][x] !== null) occCol |= (1 << y);
-        colEmptyCount[x] = _popcount32((~occCol) & fullMask);
-    }
+
     const shapeRowFill = new Int32Array(sh);
     const shapeColFill = new Int32Array(sw);
     const shapeRowBits = new Int32Array(sh);
@@ -127,6 +159,11 @@ class Grid {
          *     有意的语义弱化：跨 session 我们不追究历史块的特殊性，只保证当局 distress 正确
          */
         this._cellMeta = new Map();
+        /* NN-A3: grid mutation generation counter（仅 _monoBitmapCache 用，单调递增）。
+         * 所有 cells 原地改写入口（placeShape / clearLines）必须 ++。
+         * cells reference 替换（clear / fromJSON / clone）自然命中"cells !== cache.cells" 判定。 */
+        this._mutGen = 0;
+        this._monoBitmapCache = null;
     }
 
     createEmptyGrid() {
@@ -144,6 +181,8 @@ class Grid {
         this.cells = this.createEmptyGrid();
         if (this._cellMeta) this._cellMeta.clear();
         else this._cellMeta = new Map();
+        this._mutGen = (this._mutGen | 0) + 1; /* NN-A3 */
+        this._monoBitmapCache = null;
     }
 
     /**
@@ -174,6 +213,9 @@ class Grid {
                 ? new Map(this._cellMeta)
                 : new Map();
         }
+        /* NN-A3: clone 独立 cache（mutGen 重 0；新 cells 引用自然不命中原 cache） */
+        grid._mutGen = 0;
+        grid._monoBitmapCache = null;
         return grid;
     }
 
@@ -395,6 +437,7 @@ class Grid {
                 }
             }
         }
+        this._mutGen = (this._mutGen | 0) + 1; /* NN-A3 invalidate _monoBitmapCache */
     }
 
     /**
@@ -507,6 +550,9 @@ class Grid {
                 this.cells[y][x] = null;
                 if (this._cellMeta) this._cellMeta.delete(this._metaKey(x, y));
             }
+        }
+        if (fullRows.length || fullCols.length) {
+            this._mutGen = (this._mutGen | 0) + 1; /* NN-A3 invalidate _monoBitmapCache */
         }
     }
 
@@ -1722,6 +1768,9 @@ class Grid {
          * 跨 session 我们不追究历史块特殊性，只保证当局 distress 信号正确。 */
         if (this._cellMeta) this._cellMeta.clear();
         else this._cellMeta = new Map();
+        /* NN-A3 invalidate _monoBitmapCache（cells 引用已变，但显式 reset 更安全） */
+        this._mutGen = (this._mutGen | 0) + 1;
+        this._monoBitmapCache = null;
     }
 }
 

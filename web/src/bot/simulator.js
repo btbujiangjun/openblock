@@ -422,6 +422,9 @@ export class OpenBlockSimulator {
         for (let y = 0; y < n; y++)
             for (let x = 0; x < n; x++)
                 this.grid.cells[y][x] = s.cells[y][x];
+        /* NN-A3: 直接改写 cells 后 invalidate _monoBitmapCache */
+        this.grid._mutGen = (this.grid._mutGen | 0) + 1;
+        this.grid._monoBitmapCache = null;
         this.dock = s.dock.map(b => ({ ...b, shape: b.shape.map(r => [...r]) }));
         this.score = s.score;
         this.totalClears = s.totalClears;
