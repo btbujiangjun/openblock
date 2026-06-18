@@ -58,11 +58,43 @@ const FAST_FAIL_PCT = 80;
 const SLOW_WARN_PCT = 15;
 const SLOW_FAIL_PCT = 30;
 
-/* MM5: perf-baseline.json 兼容性 schema 版本（对称 LL5 trend-history）
- * v1：初版（已存档）。
+/* MM5 + NN-C1: perf-baseline.json schema 演进 + 自动迁移（对称 LL5 trend-history）
+ * v1：初版（meta + results[]）。
  * v2：预留——若未来加新 meta 字段或 results 结构变化时 bump。
- * 守护：未知 schemaVersion 直接 fail，避免静默误解读 */
+ *
+ * 与 LL5 同模式：
+ *   - 未来版本 → fail（拒绝误解读）
+ *   - 旧版本 → 自动 _migrateBaseline 升级到当前
+ *   - 无 schemaVersion 字段 → 视作 v1 → 走 v1→v2 迁移路径 */
 const PERF_BASELINE_SCHEMA_VERSION = 1;
+
+/**
+ * NN-C1: 把任意 v<current 的 baseline 迁移到当前 schema 版本。
+ * 当 v2 出现时在此扩展（添加 v1→v2 转换分支）。
+ *
+ * @param {object} baseline 已 JSON.parse 的 raw baseline
+ * @returns {{ migrated: object, fromVersion: number, didMigrate: boolean }}
+ */
+function _migrateBaseline(baseline) {
+    const fromVersion = baseline?.meta?.schemaVersion ?? 1;
+    if (fromVersion === PERF_BASELINE_SCHEMA_VERSION) {
+        return { migrated: baseline, fromVersion, didMigrate: false };
+    }
+    let current = baseline;
+    /* v1 → v2 占位（未来添加：results 加 p999 字段 / meta 加 gpu 字段等）
+     * 示例迁移代码：
+     *   if (fromVersion < 2) {
+     *     current = { ...current, meta: { ...current.meta, schemaVersion: 2 },
+     *       results: current.results.map(r => ({ ...r, p999Ms: r.p99Ms })) };
+     *   }
+     */
+    /* 兜底：仅 bump schemaVersion 字段（无字段补字段） */
+    current = {
+        ...current,
+        meta: { ...(current.meta || {}), schemaVersion: PERF_BASELINE_SCHEMA_VERSION },
+    };
+    return { migrated: current, fromVersion, didMigrate: true };
+}
 
 /* 从命令行读基线 */
 let baseline;
@@ -82,6 +114,12 @@ try {
     if (baseVer < 1) {
         console.error(`[perf-check] baseline schemaVersion=${baseVer} 不合法（应 >=1）`);
         process.exit(3);
+    }
+    /* NN-C1: 自动迁移旧 baseline 到当前 schema */
+    const { migrated, fromVersion, didMigrate } = _migrateBaseline(baseline);
+    if (didMigrate) {
+        console.error(`[perf-check] baseline v${fromVersion} → v${PERF_BASELINE_SCHEMA_VERSION} 自动迁移（内存，不写回文件）`);
+        baseline = migrated;
     }
 } catch (e) {
     console.error(`[perf-check] failed to load baseline ${BASELINE_PATH}: ${e.message}`);

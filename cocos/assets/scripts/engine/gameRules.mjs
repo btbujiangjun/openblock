@@ -10,7 +10,55 @@
  */
 import rawRules from './gameRulesData.mjs';
 
-export const GAME_RULES = rawRules;
+/* NN-C3: game_rules.json schema 演进 + 自动迁移（与 LL5 trend-history /
+ * NN-C1 perf-baseline 同模式）。
+ *
+ * 当前 schemaVersion=1（初版）。未来 bump 时在 _migrateRules 加分支。
+ *
+ * 设计：
+ *   - 启动时立即检查 schemaVersion
+ *   - 旧版自动 _migrateRules 升级（运行时内存中，不写回 JSON）
+ *   - 未来未知版本 → throw（拒绝静默错读，让 mini-program / cocos 端
+ *     在 release-train 滞后时立刻可见，而非数据错乱后才发现）
+ *   - 无 schemaVersion 字段 → 视作 v1（向后兼容首版无字段的 baseline） */
+const RULES_SCHEMA_VERSION = 1;
+
+function _migrateRules(rules) {
+    const fromVersion = rules?.schemaVersion ?? 1;
+    if (fromVersion === RULES_SCHEMA_VERSION) {
+        return { migrated: rules, fromVersion, didMigrate: false };
+    }
+    if (fromVersion > RULES_SCHEMA_VERSION) {
+        /* mini-program / cocos 客户端版本滞后场景：服务端推了 v2 rules
+         * 但客户端二进制还是 v1。throw 让 caller 走 fallback 路径
+         * （例如：用打包内置 rules，等 binary 升级再用 remote rules）。 */
+        throw new Error(
+            `game_rules.json schemaVersion=${fromVersion} > 客户端支持的 ${RULES_SCHEMA_VERSION}。`
+            + ` 升级客户端后再用此 rules（防字段误解读）。`,
+        );
+    }
+    /* fromVersion < current：v1→v2 时在此添加迁移分支
+     * if (fromVersion < 2) {
+     *   rules = { ...rules, schemaVersion: 2, newField: defaultValue };
+     * }
+     */
+    return {
+        migrated: { ...rules, schemaVersion: RULES_SCHEMA_VERSION },
+        fromVersion,
+        didMigrate: true,
+    };
+}
+
+const { migrated: _migratedRules, didMigrate: _did, fromVersion: _from } = _migrateRules(rawRules);
+if (_did && typeof console !== 'undefined') {
+    /* eslint-disable no-console */
+    console.warn(`[gameRules] schema v${_from} → v${RULES_SCHEMA_VERSION} 自动迁移（内存）`);
+    /* eslint-enable no-console */
+}
+
+export const GAME_RULES = _migratedRules;
+export const _RULES_SCHEMA_VERSION = RULES_SCHEMA_VERSION; /* 供 test 检查 */
+export { _migrateRules };
 export const WIN_SCORE_THRESHOLD = rawRules.winScoreThreshold;
 export const FEATURE_ENCODING = rawRules.featureEncoding;
 export const RL_TRAINING_STRATEGY_ID =

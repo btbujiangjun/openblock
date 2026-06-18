@@ -34,6 +34,7 @@
     "lint": "eslint web/src tests",
     "lint:strict": "eslint web/src tests --max-warnings 0",
     "lint:workflows": "node scripts/lint-workflows.mjs",
+    "lint:dashboards": "node scripts/lint-dashboards.mjs",
     "audit:artifacts": "node scripts/audit-artifacts.mjs",
     "sync:core": "bash scripts/sync-core.sh",
     "sync:cocos-core": "node scripts/sync-cocos-core.mjs && node scripts/sync-cocos-engine.mjs",
