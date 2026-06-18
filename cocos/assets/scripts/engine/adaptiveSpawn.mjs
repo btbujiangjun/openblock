@@ -833,6 +833,87 @@ function _applySpawnHintsPostPbReleaseRules(s, ctx) {
  * @param {{sessionPhase?:string, momentum?:number}} profile
  * @returns {{clearGuarantee:number,sizePreference:number}}
  */
+/**
+ * Near-miss spawnHints（v1.71 JJ2 抽出 baseRules L884-886）。
+ * profile.hadRecentNearMiss → cg ≥ eng.nearMissClearGuarantee ?? 2。
+ * 幂等 max；其他字段不动。
+ *
+ * @param {{clearGuarantee:number}} s
+ * @param {{hadRecentNearMiss?:boolean}} profile
+ * @param {{nearMissClearGuarantee?:number}} eng
+ * @returns {{clearGuarantee:number}}
+ */
+function _applySpawnHintsNearMissRule(s, profile, eng) {
+    if (!profile?.hadRecentNearMiss) return s;
+    return { clearGuarantee: Math.max(s.clearGuarantee, eng?.nearMissClearGuarantee ?? 2) };
+}
+
+/**
+ * Frustration spawnHints（v1.71 JJ2 抽出 baseRules L887-890）。
+ * profile.frustrationLevel ≥ frustThreshold → cg ≥ 2 + sp **直接赋值** -0.3。
+ *
+ * 非幂等 sp（每次都重置为 -0.3），但与原代码一致——
+ * 后续段（needsRecovery/onboarding/lateMomentum/…）用 min 覆盖会保留更负值。
+ *
+ * @param {{clearGuarantee:number,sizePreference:number}} s
+ * @param {{frustrationLevel?:number}} profile
+ * @param {number} frustThreshold
+ * @returns {{clearGuarantee:number,sizePreference:number}}
+ */
+function _applySpawnHintsFrustrationRule(s, profile, frustThreshold) {
+    if (!(profile?.frustrationLevel >= frustThreshold)) return s;
+    return {
+        clearGuarantee: Math.max(s.clearGuarantee, 2),
+        sizePreference: -0.3,
+    };
+}
+
+/**
+ * NeedsRecovery spawnHints（v1.71 JJ2 抽出 baseRules L891-894）。
+ * cg ≥ 2 + sp **直接赋值** -0.5（覆盖任何之前更负值——历史语义）。
+ *
+ * @param {{clearGuarantee:number,sizePreference:number}} s
+ * @param {{needsRecovery?:boolean}} profile
+ * @returns {{clearGuarantee:number,sizePreference:number}}
+ */
+function _applySpawnHintsNeedsRecoveryRule(s, profile) {
+    if (!profile?.needsRecovery) return s;
+    return {
+        clearGuarantee: Math.max(s.clearGuarantee, 2),
+        sizePreference: -0.5,
+    };
+}
+
+/**
+ * Bored spawnHints（v1.71 JJ2 抽出 baseRules L895-897）。
+ * flow === 'bored' → diversityBoost **直接赋值** eng.noveltyDiversityBoost ?? 0.15。
+ *
+ * @param {{diversityBoost:number}} s
+ * @param {string} flow
+ * @param {{noveltyDiversityBoost?:number}} eng
+ * @returns {{diversityBoost:number}}
+ */
+function _applySpawnHintsBoredRule(s, flow, eng) {
+    if (flow !== 'bored') return s;
+    return { diversityBoost: eng?.noveltyDiversityBoost ?? 0.15 };
+}
+
+/**
+ * Onboarding spawnHints（v1.71 JJ2 抽出 baseRules L898-901）。
+ * isInOnboarding → cg ≥ 2 + sp **直接赋值** -0.4。
+ *
+ * @param {{clearGuarantee:number,sizePreference:number}} s
+ * @param {{isInOnboarding?:boolean}} profile
+ * @returns {{clearGuarantee:number,sizePreference:number}}
+ */
+function _applySpawnHintsOnboardingRule(s, profile) {
+    if (!profile?.isInOnboarding) return s;
+    return {
+        clearGuarantee: Math.max(s.clearGuarantee, 2),
+        sizePreference: -0.4,
+    };
+}
+
 function _applySpawnHintsLateMomentumRules(s, profile) {
     if (!(profile?.sessionPhase === 'late' && profile.momentum < -0.3)) return s;
     return {
@@ -884,24 +965,21 @@ function _applySpawnHintsBaseRules(s) {
     let diversityBoost = s.diversityBoost;
     const { profile, frustThreshold, flow, eng, ctx, holes, topoCfg, hasBottleneckSignal } = s;
 
-    if (profile.hadRecentNearMiss) {
-        clearGuarantee = Math.max(clearGuarantee, eng.nearMissClearGuarantee ?? 2);
-    }
-    if (profile.frustrationLevel >= frustThreshold) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = -0.3;            /* 直接赋值（与原版一致，会被后续覆盖） */
-    }
-    if (profile.needsRecovery) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = -0.5;
-    }
-    if (flow === 'bored') {
-        diversityBoost = eng.noveltyDiversityBoost ?? 0.15;
-    }
-    if (profile.isInOnboarding) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = -0.4;
-    }
+    /* v1.71 JJ2：5 段独立 helper 抽出。注意 frustration/needsRecovery/
+     * onboarding 用**直接赋值** sp（非 min/max），保留原历史语义——
+     * 后续段会用 min 覆盖，不能改成 min 否则破坏链式优先级。
+     * helper 顺序与原代码一致；不能调换。 */
+    ({ clearGuarantee } = _applySpawnHintsNearMissRule({ clearGuarantee }, profile, eng));
+    ({ clearGuarantee, sizePreference } = _applySpawnHintsFrustrationRule(
+        { clearGuarantee, sizePreference }, profile, frustThreshold,
+    ));
+    ({ clearGuarantee, sizePreference } = _applySpawnHintsNeedsRecoveryRule(
+        { clearGuarantee, sizePreference }, profile,
+    ));
+    ({ diversityBoost } = _applySpawnHintsBoredRule({ diversityBoost }, flow, eng));
+    ({ clearGuarantee, sizePreference } = _applySpawnHintsOnboardingRule(
+        { clearGuarantee, sizePreference }, profile,
+    ));
     /* v1.71 II2：晚期颓势 + 连消断档救援抽至独立 helper（纯幂等 max/min）。
      * 设计契约：两段都是"防进一步坏"的兜底——sp 用 min（已激进不回退）、
      * cg 用 max（已 ≥ 阈值不下推）。不可被同次主路径重复调用语义不变。 */

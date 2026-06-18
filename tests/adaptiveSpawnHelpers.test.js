@@ -1037,6 +1037,86 @@ describe('adaptiveSpawn._applySpawnHintsFriendlyBoostRules (DD1)', () => {
     });
 });
 
+/* ============ JJ2: 5 base helpers ============ */
+function _nearMissRef(s, p, e) {
+    if (!p?.hadRecentNearMiss) return s;
+    return { clearGuarantee: Math.max(s.clearGuarantee, e?.nearMissClearGuarantee ?? 2) };
+}
+function _frustRef(s, p, t) {
+    if (!(p?.frustrationLevel >= t)) return s;
+    return { clearGuarantee: Math.max(s.clearGuarantee, 2), sizePreference: -0.3 };
+}
+function _recoveryRef(s, p) {
+    if (!p?.needsRecovery) return s;
+    return { clearGuarantee: Math.max(s.clearGuarantee, 2), sizePreference: -0.5 };
+}
+function _boredRef(s, f, e) {
+    if (f !== 'bored') return s;
+    return { diversityBoost: e?.noveltyDiversityBoost ?? 0.15 };
+}
+function _onboardRef(s, p) {
+    if (!p?.isInOnboarding) return s;
+    return { clearGuarantee: Math.max(s.clearGuarantee, 2), sizePreference: -0.4 };
+}
+
+describe('adaptiveSpawn JJ2 base helpers', () => {
+    it('nearMiss: false → 不动', () => {
+        expect(_nearMissRef({ clearGuarantee: 0 }, { hadRecentNearMiss: false }, {})).toEqual({ clearGuarantee: 0 });
+    });
+    it('nearMiss: true 默认 fallback=2', () => {
+        expect(_nearMissRef({ clearGuarantee: 0 }, { hadRecentNearMiss: true }, {})).toEqual({ clearGuarantee: 2 });
+    });
+    it('nearMiss: eng.nearMissClearGuarantee 覆盖', () => {
+        expect(_nearMissRef({ clearGuarantee: 0 }, { hadRecentNearMiss: true }, { nearMissClearGuarantee: 4 })).toEqual({ clearGuarantee: 4 });
+    });
+    it('nearMiss: 已更高 → 不回退', () => {
+        expect(_nearMissRef({ clearGuarantee: 5 }, { hadRecentNearMiss: true }, {})).toEqual({ clearGuarantee: 5 });
+    });
+
+    it('frust: <阈值 → 不动', () => {
+        expect(_frustRef({ clearGuarantee: 0, sizePreference: 0 }, { frustrationLevel: 1 }, 2)).toEqual({ clearGuarantee: 0, sizePreference: 0 });
+    });
+    it('frust: ≥阈值 → cg≥2 + sp=-0.3 直接赋值', () => {
+        const r = _frustRef({ clearGuarantee: 0, sizePreference: -0.9 }, { frustrationLevel: 5 }, 2);
+        expect(r).toEqual({ clearGuarantee: 2, sizePreference: -0.3 });
+    });
+    it('frust: sp 直接赋值会**覆盖**已更负值（保留历史语义）', () => {
+        /* 这是历史 anti-pattern，明确测以防被改成 min */
+        const r = _frustRef({ clearGuarantee: 0, sizePreference: -0.8 }, { frustrationLevel: 99 }, 2);
+        expect(r.sizePreference).toBe(-0.3); /* 不是 -0.8 */
+    });
+
+    it('recovery: false → 不动', () => {
+        expect(_recoveryRef({ clearGuarantee: 0, sizePreference: 0 }, { needsRecovery: false })).toEqual({ clearGuarantee: 0, sizePreference: 0 });
+    });
+    it('recovery: true → cg≥2 + sp=-0.5 直接赋值', () => {
+        expect(_recoveryRef({ clearGuarantee: 0, sizePreference: 0 }, { needsRecovery: true })).toEqual({ clearGuarantee: 2, sizePreference: -0.5 });
+    });
+
+    it('bored: flow≠bored → 不动', () => {
+        expect(_boredRef({ diversityBoost: 0 }, 'flow', {})).toEqual({ diversityBoost: 0 });
+    });
+    it('bored: bored 默认 0.15', () => {
+        expect(_boredRef({ diversityBoost: 0 }, 'bored', {})).toEqual({ diversityBoost: 0.15 });
+    });
+    it('bored: eng.noveltyDiversityBoost 覆盖', () => {
+        expect(_boredRef({ diversityBoost: 0 }, 'bored', { noveltyDiversityBoost: 0.3 })).toEqual({ diversityBoost: 0.3 });
+    });
+    it('bored: 直接赋值覆盖已更高值（历史语义）', () => {
+        expect(_boredRef({ diversityBoost: 0.99 }, 'bored', {})).toEqual({ diversityBoost: 0.15 });
+    });
+
+    it('onboarding: false → 不动', () => {
+        expect(_onboardRef({ clearGuarantee: 0, sizePreference: 0 }, { isInOnboarding: false })).toEqual({ clearGuarantee: 0, sizePreference: 0 });
+    });
+    it('onboarding: true → cg≥2 + sp=-0.4 直接赋值', () => {
+        expect(_onboardRef({ clearGuarantee: 0, sizePreference: 0 }, { isInOnboarding: true })).toEqual({ clearGuarantee: 2, sizePreference: -0.4 });
+    });
+    it('onboarding: cg 用 max 不回退', () => {
+        expect(_onboardRef({ clearGuarantee: 5, sizePreference: 0 }, { isInOnboarding: true })).toEqual({ clearGuarantee: 5, sizePreference: -0.4 });
+    });
+});
+
 /* ============ II2: _applySpawnHintsLateMomentumRules ============ */
 function _applySpawnHintsLateMomentumRulesRef(s, profile) {
     if (!(profile?.sessionPhase === 'late' && profile.momentum < -0.3)) return s;
