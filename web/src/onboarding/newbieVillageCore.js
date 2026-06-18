@@ -116,6 +116,73 @@ export function isPlacementValid(board, piece, origin) {
     return true;
 }
 
+/**
+ * 不校验 target 锁定 —— 用于自由步骤 smart-snap 候选枚举（仅判越界/重叠）。
+ * @param {(number|null)[][]} board
+ * @param {{ cells: [number, number][] }} piece
+ * @param {[number, number]} origin
+ */
+function _pieceFitsGeom(board, piece, origin) {
+    const [ox, oy] = origin;
+    for (const [dx, dy] of piece.cells) {
+        const c = ox + dx;
+        const r = oy + dy;
+        if (c < 0 || c >= NV_COLS || r < 0 || r >= NV_ROWS) return false;
+        if (board[r][c] !== null) return false;
+    }
+    return true;
+}
+
+/**
+ * 新手村智能吸附（multi-platform 三端共享）。语义对齐主局 `pickSmartHoverPlacement`：
+ *  - 有 `piece.target`（教学步骤锁定目标格）：当 aim 与 target 的曼哈顿距离 ≤ snapRadius 且 target
+ *    可落子时，直接吸到 target —— 这就是"教学半径放宽"，玩家拖到附近即可落子，免去新手对像素精度的负担。
+ *  - 无 target（自由步骤 / 多块连续课）：在 aim 周围 snapRadius 邻域枚举合法 origin，按 (曼哈顿距离, y, x)
+ *    取最近，与主局 hover 选最近落点同思路（新手村不引入"消行加成 / 粘滞"，避免遮蔽教学焦点）。
+ *  - aim 不合法且无候选 → 返回 null（调用方按"非法落子，回弹"处理）。
+ *
+ * snapRadius 缺省 1：1 格容差已足够覆盖"差半格"的常见误差；放到 2 会让边角靠近的多块连续课吸到错的格子。
+ *
+ * @param {(number|null)[][]} board
+ * @param {{ cells:[number,number][], target?:[number,number] }} piece
+ * @param {[number, number]} aim 玩家光标推算的 origin（col, row）
+ * @param {number} [snapRadius=1]
+ * @returns {[number, number] | null}
+ */
+export function pickSmartSnap(board, piece, aim, snapRadius = 1) {
+    if (!aim) return null;
+    const [ax, ay] = aim;
+    const r = Math.max(0, Math.floor(snapRadius));
+
+    if (piece.target) {
+        const [tx, ty] = piece.target;
+        const dist = Math.abs(ax - tx) + Math.abs(ay - ty);
+        if (dist <= r && _pieceFitsGeom(board, piece, piece.target)) {
+            return [tx, ty];
+        }
+        // 教学步骤：超出半径不强行吸附（保留"放错了"的反馈，引导玩家拖向高亮格）。
+        return isPlacementValid(board, piece, aim) ? aim : null;
+    }
+
+    // 自由步骤：邻域枚举，按 (曼哈顿距离, y, x) 取最近。
+    let best = null;
+    let bestKey = null;
+    for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+            const gx = ax + dx;
+            const gy = ay + dy;
+            if (!_pieceFitsGeom(board, piece, [gx, gy])) continue;
+            const md = Math.abs(dx) + Math.abs(dy);
+            const key = md * 10000 + gy * 100 + gx;
+            if (bestKey === null || key < bestKey) {
+                best = [gx, gy];
+                bestKey = key;
+            }
+        }
+    }
+    return best;
+}
+
 export function scorePlacement(filledBoard, comboCount) {
     const clears = computeClears(filledBoard);
     const c = clears.lines;

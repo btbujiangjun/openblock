@@ -25,6 +25,7 @@ const {
     NEWBIE_VILLAGE_STORAGE_KEY,
     __resetForTest,
 } = await import('../web/src/onboarding/newbieVillage.js');
+const { pickSmartSnap, emptyNvBoard } = await import('../web/src/onboarding/newbieVillageCore.js');
 const { deriveNextComboCount } = await import('../web/src/clearScoring.js');
 const { getShapeById } = await import('../web/src/shapes.js');
 
@@ -122,6 +123,53 @@ describe('预铺盘不得出现孤立单格（须由多格形状拼搭）', () =
             expect(singles, `孤立单格: ${JSON.stringify(singles)}`).toEqual([]);
         });
     }
+});
+
+describe('pickSmartSnap 智能吸附（教学半径放宽）', () => {
+    const piece2x2 = { shapeId: '2x2', cells: [[0, 0], [1, 0], [0, 1], [1, 1]], colorIdx: 3, target: [6, 6] };
+    const pieceFree = { shapeId: '2x2', cells: [[0, 0], [1, 0], [0, 1], [1, 1]], colorIdx: 3 };
+
+    it('aim 命中 target → 直接吸到 target', () => {
+        const b = emptyNvBoard();
+        expect(pickSmartSnap(b, piece2x2, [6, 6], 1)).toEqual([6, 6]);
+    });
+
+    it('aim 在 target 1 格邻域 → 吸到 target', () => {
+        const b = emptyNvBoard();
+        expect(pickSmartSnap(b, piece2x2, [5, 6], 1)).toEqual([6, 6]);
+        expect(pickSmartSnap(b, piece2x2, [6, 7], 1)).toEqual([6, 6]);
+    });
+
+    it('aim 超出 target 邻域 → 返回 aim（保留"放错了"反馈）', () => {
+        const b = emptyNvBoard();
+        expect(pickSmartSnap(b, piece2x2, [3, 3], 1)).toEqual(null);
+    });
+
+    it('自由步骤：邻域内枚举最近合法格', () => {
+        const b = emptyNvBoard();
+        // aim 落在 (3,3)，本身合法 → 取自身
+        expect(pickSmartSnap(b, pieceFree, [3, 3], 1)).toEqual([3, 3]);
+    });
+
+    it('自由步骤：aim 越界但邻近合法 → 吸到邻近合法格', () => {
+        const b = emptyNvBoard();
+        // aim (-1, 3) 自身越界；邻域内 (0, 3) 合法 → 吸到 (0, 3)
+        expect(pickSmartSnap(b, pieceFree, [-1, 3], 1)).toEqual([0, 3]);
+    });
+
+    it('自由步骤：邻域全被占满 → 返回 null', () => {
+        const b = emptyNvBoard();
+        // 整个 (2..5) × (2..5) 都填满，邻域无合法位
+        for (let r = 2; r <= 5; r++) for (let c = 2; c <= 5; c++) b[r][c] = 1;
+        expect(pickSmartSnap(b, pieceFree, [3, 3], 1)).toEqual(null);
+    });
+
+    it('target 已被占据 → 不吸（即便 aim 命中 target）', () => {
+        const b = emptyNvBoard();
+        b[6][6] = 0; // 占住 target 的 (0,0) 格
+        // target 已不可落子 → snap 不应强制吸到 target，回退到 aim 自身（也非法）→ null
+        expect(pickSmartSnap(b, piece2x2, [6, 6], 1)).toEqual(null);
+    });
 });
 
 describe('SCENARIO 五课覆盖 + 真实计分一致', () => {
