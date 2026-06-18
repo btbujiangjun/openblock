@@ -83,6 +83,34 @@
         }
       ],
       "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } }
+    },
+    {
+      "id": 5,
+      "title": "IDB 失败 reason 拆分（EE4）",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "EE4：按 reason group_by 的 IDB 写失败 stack。主导 reason → 推荐动作：no_db(隐私模式)/tx_error(浏览器 bug)/tx_abort(quota 满)/exception(IDB 实现 bug)。详见 docs/engineering/OBSERVABILITY_WINDOW_SCHEMA.md FF4 决策表。",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 12 },
+      "targets": [
+        { "expr": "sum by (reason) (rate(openblock_analytics_store_idb_fail_reasons{env=\"$env\"}[5m]))", "legendFormat": "{{reason}}" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "stacking": { "mode": "normal", "group": "A" } } }
+      }
+    },
+    {
+      "id": 6,
+      "title": "IDB 失败主导 reason 占比（百分比 stack）",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "GG5：100% stack 视图，看哪个 reason 在'故障期'真正占主导。例：tx_abort 突然冲到 80% → quota 全面触顶，需主动清旧数据。",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 12 },
+      "targets": [
+        { "expr": "sum by (reason) (rate(openblock_analytics_store_idb_fail_reasons{env=\"$env\"}[5m])) / ignoring(reason) group_left sum(rate(openblock_analytics_store_idb_fail_reasons{env=\"$env\"}[5m]))", "legendFormat": "{{reason}}" }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "stacking": { "mode": "percent", "group": "B" } } }
+      }
     }
   ]
 }

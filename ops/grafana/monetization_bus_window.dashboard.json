@@ -96,6 +96,23 @@
           "legendFormat": "emits/min"
         }
       ]
+    },
+    {
+      "id": 5,
+      "title": "FF4：circuit trip 按 eventType 拆分",
+      "type": "timeseries",
+      "datasource": "${DS_PROMETHEUS}",
+      "description": "FF4：totalCircuitTrips 只告诉总数，本面板按 event_type 定位坏模块。值班路由表：ad_show→广告组 / iap_pay→支付组 / ftue_step→新手引导组。守恒律：sum(circuit_trips_by_type) === totalCircuitTrips。",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (event_type)(rate(openblock_monetization_bus_circuit_trips_by_type{env=\"$env\"}[5m])))",
+          "legendFormat": "{{ event_type }}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "stacking": { "mode": "normal", "group": "C" } } }
+      }
     }
   ]
 }
