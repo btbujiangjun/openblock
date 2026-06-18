@@ -1308,6 +1308,12 @@ export default {
       "activationFill": 0.45,
       "leafCap": 64,
       "budget": 8000,
+      "dynamicLeafCapComment": "AA5：基于 X4 双峰发现 + Y1 dynamic leafCap 能力。默认 false（保持 64 静态）。启用后按 fill 三档 (32/64/96)。上线策略见 docs/engineering/DYNAMIC_LEAFCAP_AB_PLAN.md。",
+      "dynamicLeafCap": false,
+      "leafCapLowFillThreshold": 0.45,
+      "leafCapHighFillThreshold": 0.65,
+      "leafCapLowFill": 32,
+      "leafCapHighFill": 96,
       "ranges": [
         {
           "minStress": -1,
