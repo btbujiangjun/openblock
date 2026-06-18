@@ -51,9 +51,39 @@ for (const f of files) {
             });
         }
     }
-    /* 警告（不 fail）：actions/checkout 应固定 major 版本 */
-    if (/uses:\s*actions\/checkout\s*$/m.test(txt)) {
-        warnings.push({ file: f, rule: 'pin-action-version', msg: 'actions/checkout 未固定版本' });
+    /* LL4: action 版本 pinning 检查
+     * 规则分级：
+     *   - @<40-hex SHA>           → 最佳（不可变）
+     *   - @vN（N 为数字）         → 官方/可信第三方可接受（warning 不 fail）
+     *   - 无 @  /  @main / @latest / @master  → 危险（hard fail，可变 tag 任意变更代码）
+     *   - 第三方 action @vN       → 强制 SHA（hard fail）
+     * 官方 actions/* 与白名单第三方 (github/*, docker/*) 走 @vN 宽容。 */
+    const TRUSTED_ORGS = new Set(['actions', 'github', 'docker', 'codecov']);
+    const usesMatches = txt.matchAll(/uses:\s*([^\s@#]+)(?:@([^\s#]+))?/g);
+    for (const m of usesMatches) {
+        const repo = m[1]; const ref = m[2];
+        if (repo.startsWith('./') || repo.startsWith('docker://')) continue; /* 本地 / docker 镜像跳 */
+        const lineNum = txt.substring(0, m.index).split('\n').length;
+        const org = repo.split('/')[0];
+        const trusted = TRUSTED_ORGS.has(org);
+        if (!ref) {
+            violations.push({ file: f, line: lineNum, rule: 'pin-action-version',
+                msg: `${repo} 未指定版本（@vN 或 @<SHA>）` });
+        } else if (/^(main|master|latest|HEAD)$/i.test(ref)) {
+            violations.push({ file: f, line: lineNum, rule: 'pin-action-version',
+                msg: `${repo}@${ref} 使用可变 tag，危险（攻击者改 tag 即注入代码）` });
+        } else if (/^[0-9a-f]{40}$/i.test(ref)) {
+            /* 最佳 SHA pin，无问题 */
+        } else if (/^v?\d+(\.\d+)*$/.test(ref)) {
+            /* @vN / @vN.N / @vN.N.N — 可信组织接受，第三方警告 */
+            if (!trusted) {
+                warnings.push({ file: f, rule: 'pin-action-sha',
+                    msg: `${repo}@${ref}（第三方）建议改 @<40-hex SHA>，避免 supply chain 风险` });
+            }
+        } else {
+            warnings.push({ file: f, rule: 'pin-action-format',
+                msg: `${repo}@${ref} 版本格式可疑（既非 @vN 也非 @<SHA>）` });
+        }
     }
 
     /* KK5: secret 引用规范检查
