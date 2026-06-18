@@ -63,7 +63,7 @@ const server = await createServer({
 });
 const ssrLoad = (rel) => server.ssrLoadModule(rel);
 
-const { resolveAdaptiveStrategy, derivePbCurve } = await ssrLoad('/web/src/adaptiveSpawn.js');
+const { resolveAdaptiveStrategy, derivePbCurve, snapshotInsightGeometry } = await ssrLoad('/web/src/adaptiveSpawn.js');
 const { generateDockShapes } = await ssrLoad('/web/src/bot/blockSpawn.js');
 const { Grid } = await ssrLoad('/web/src/grid.js');
 const { getStressAmbience } = await ssrLoad('/web/src/stressAmbience.js');
@@ -161,6 +161,21 @@ const results = [];
     results.push(runBench('adaptiveSpawn.derivePbCurve(release-window)', () => {
         derivePbCurve(1600, 1500, true);
     }));
+    /* v1.71 U4 新增：覆盖 D4 段 / 远 PB / near PB 等更多 resolveAdaptiveStrategy 分支，
+     * 让 perf-check 在 spawnHints 三层构建的不同热路径上都能侦测回归。 */
+    results.push(runBench('adaptiveSpawn.resolveAdaptiveStrategy(D4-segment)', () => {
+        resolveAdaptiveStrategy('hard',
+            { ...profile, smoothSkill: 0.88, lifetimeGames: 40 },
+            2400, 0, 0.82, { ...ctx, totalRounds: 80, bestScore: 2200, roundsSinceClear: 0 });
+    }));
+    results.push(runBench('adaptiveSpawn.resolveAdaptiveStrategy(far-from-PB)', () => {
+        resolveAdaptiveStrategy('normal', profile, 100, 0, 0.20, { ...ctx, bestScore: 3000, roundsSinceClear: 0 });
+    }));
+    results.push(runBench('adaptiveSpawn.resolveAdaptiveStrategy(near-PB-pre-release)', () => {
+        resolveAdaptiveStrategy('normal',
+            { ...profile, smoothSkill: 0.7, comboChain: 0.55 },
+            1450, 0, 0.55, { ...ctx, bestScore: 1500, roundsSinceClear: 0 });
+    }));
 }
 
 /* ── 2. blockSpawn 主路径 ─────────────────────────────────────────────── */
@@ -197,6 +212,13 @@ const results = [];
     results.push(runBench('boardTopology.countUnfillableCells(grid55)', () => countUnfillableCells(grid55)));
     results.push(runBench('boardTopology.computeCoverableCells(grid55)', () => computeCoverableCells(grid55)));
     results.push(runBench('boardTopology.detectNearClears(grid55)', () => detectNearClears(grid55)));
+    /* v1.71 U4：snapshotInsightGeometry 是每帧 HUD insight 主路径
+     * （analyzeBoardTopology + 多消候选数 + perfectClearSetup 组合），
+     * 是 D4 段 / 难度自适应的最重读盘动作，加入 bench 以监控回归。 */
+    const dockSample = getAllShapes().slice(0, 3);
+    results.push(runBench('adaptiveSpawn.snapshotInsightGeometry(grid55,dock3)', () => {
+        snapshotInsightGeometry(grid55, dockSample);
+    }));
 }
 
 /* ── 5. stress + profile（每帧 HUD 推送 / 每步记录） ───────────────────── */
