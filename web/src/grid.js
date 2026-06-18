@@ -18,6 +18,24 @@ function _ctz32(v) {
 }
 
 /**
+ * v1.71 MM1：bitmap 位迭代工具，统一替代 `while(m){ x=_ctz32(m); m &= m-1 }` 模式。
+ *
+ * @param {number} mask 32-bit int 位掩码
+ * @param {(bitIdx: number) => void} fn 每个置位 bit 索引（0..31）的回调
+ *
+ * 性能：与原 while 循环等价（V8 会内联 _ctz32 + `m &= m-1`），
+ * 但减少 6 处重复样板，命名也更直观。
+ */
+function _iterateBits(mask, fn) {
+    let m = mask;
+    while (m !== 0) {
+        const idx = 31 - Math.clz32(m & -m);
+        fn(idx);
+        m &= m - 1;
+    }
+}
+
+/**
  * v1.71 LL1：mono flush 共享 bitmap 预计算工具（potential + buildup 共用）。
  *
  * 同时返回：
@@ -854,24 +872,15 @@ export class Grid {
             if (empty >= 1 && empty <= 4) {
                 const positions = new Array(empty);
                 let i = 0;
-                let mm = emptyMask;
-                while (mm !== 0) {
-                    const x = _ctz32(mm);
-                    positions[i++] = { x, y };
-                    mm &= mm - 1; /* 清最低位 */
-                }
+                /* MM1：_iterateBits 替代 while-ctz 模式 */
+                _iterateBits(emptyMask, (x) => { positions[i++] = { x, y }; });
                 gaps.push({ type: 'row', y, empty, positions });
             }
         }
         /* 列扫描：构造列方向投影一次 */
         const colOcc = new Int32Array(n); /* colOcc[x] = 占位位掩码（位 y） */
         for (let y = 0; y < n; y++) {
-            let occ = occRows[y];
-            while (occ !== 0) {
-                const x = _ctz32(occ);
-                colOcc[x] |= (1 << y);
-                occ &= occ - 1;
-            }
+            _iterateBits(occRows[y], (x) => { colOcc[x] |= (1 << y); });
         }
         for (let x = 0; x < n; x++) {
             const emptyMask = (~colOcc[x]) & fullMask;
@@ -879,12 +888,8 @@ export class Grid {
             if (empty >= 1 && empty <= 4) {
                 const positions = new Array(empty);
                 let i = 0;
-                let mm = emptyMask;
-                while (mm !== 0) {
-                    const y = _ctz32(mm);
-                    positions[i++] = { x, y };
-                    mm &= mm - 1;
-                }
+                /* MM1：_iterateBits 替代 while-ctz 模式 */
+                _iterateBits(emptyMask, (y) => { positions[i++] = { x, y }; });
                 gaps.push({ type: 'col', x, empty, positions });
             }
         }
@@ -959,15 +964,10 @@ export class Grid {
                 mm &= mm - 1;
             }
         }
-        /* 列扫描：构 colOcc */
+        /* 列扫描：构 colOcc（MM1：_iterateBits 替代） */
         const colOcc = new Int32Array(n);
         for (let y = 0; y < n; y++) {
-            let occ = occRows[y];
-            while (occ !== 0) {
-                const x = _ctz32(occ);
-                colOcc[x] |= (1 << y);
-                occ &= occ - 1;
-            }
+            _iterateBits(occRows[y], (x) => { colOcc[x] |= (1 << y); });
         }
         for (let x = 0; x < n; x++) {
             const emptyMask = (~colOcc[x]) & fullMask;
