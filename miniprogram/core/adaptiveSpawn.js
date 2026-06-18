@@ -166,6 +166,113 @@ const STRESS_NORM_SCALE = 1.2;
  * @param {object} s.ctx               spawnContext（postPbReleaseActive 等）
  * @returns {string|null}
  */
+/**
+ * 计算 fill 锚点 + occupancyDamping 调制结果（v1.71 抽出自 resolveAdaptiveStrategy）。
+ *
+ * 空盘上 scoreStress/runStreakStress 等"分数驱动"信号会把综合 stress 推到 0.8+，
+ * 与玩家"空盘=轻松"体感不符。本函数对正向 stress 按 fill 锚点缩放 [0.4, 1.0]：
+ *   - fill=0   → ×0.4    - fill=0.25 → ×0.5
+ *   - fill=0.39 → ×0.78  - fill≥0.5 → ×1.0
+ *
+ * D4 段（pbOvershootActive=true，且配置未禁用 bypassOccupancyDamping）豁免本调制，
+ * 让"超 PB 加压"不被空盘衰减吃掉。
+ *
+ * 锚点跨 spawn 缓降（×0.86 衰减系数）：消行瞬时变空盘时，仍短暂保持高 fill 锚点，
+ * 避免 stress 因 damping 撤除而单帧跳升。
+ *
+ * 纯函数，不修改输入；返回需要写回的字段供调用方更新 ctx 与 breakdown。
+ *
+ * @param {object} s
+ * @param {number} s.stress              当前 stress（clamp 后、smoothing 前）
+ * @param {number} s.boardFill           本帧原始 fill
+ * @param {number|undefined} s.prevAnchor 上次保留的 _occupancyFillAnchor（或 undefined）
+ * @param {boolean} s.pbOvershootActive  D4 段超 PB 加压是否激活
+ * @param {object} s.cfg                 GAME_RULES 配置块
+ * @returns {{
+ *   newStress: number,           // 调制后的 stress
+ *   nextAnchor: number,          // 应写回 ctx._occupancyFillAnchor 的新锚点
+ *   damping: number,             // 本次调制带来的 stress 增量（≤0；用于 breakdown.occupancyDamping）
+ *   bypassed: boolean,           // 是否因 D4 豁免而跳过
+ * }}
+ */
+function _applyOccupancyDamping(s) {
+    const rawFillOcc = s.boardFill ?? 0;
+    let occAnchor = Number(s.prevAnchor);
+    if (!Number.isFinite(occAnchor)) occAnchor = rawFillOcc;
+    if (rawFillOcc >= occAnchor) occAnchor = rawFillOcc;
+    else occAnchor = Math.max(rawFillOcc, occAnchor * 0.86 + rawFillOcc * 0.14);
+
+    const ohBypassOcc = (s.cfg?.pbChase?.overshoot?.bypassOccupancyDamping) !== false;
+    const bypassed = !!(s.pbOvershootActive && ohBypassOcc);
+
+    let newStress = s.stress;
+    let damping = 0;
+    if (s.stress > 0 && !bypassed) {
+        const occupancyScale = Math.max(0.4, Math.min(1, occAnchor / 0.5));
+        if (occupancyScale < 1) {
+            const damped = s.stress * occupancyScale;
+            damping = damped - s.stress;
+            newStress = damped;
+        }
+    }
+    return { newStress, nextAnchor: occAnchor, damping, bypassed };
+}
+
+/**
+ * 计算 D4 超 PB 加压（pbOvershootBoost，v1.71 抽出自 resolveAdaptiveStrategy）。
+ *
+ * 当 score > bestScore 时，按 log10(1 + slope · overshoot) 给 stress 加压，
+ * 上限 maxBoost（默认 0.16），并将顺序约束 pbExtremeOrderBoost 设为 orderBoostInD4
+ * (默认 0.08)。同时给 stress 设置 capStress (默认 0.90)。
+ *
+ * 同源 bypass：调用方负责传 commonOrderGates=false 来跳过（minBestScoreForIntenseFeedback /
+ * postPbRelease / recovery / bottleneck / warmup / onboarding 等）。
+ *
+ * 纯函数。
+ *
+ * @param {object} s
+ * @param {number} s.stress
+ * @param {number} s.score
+ * @param {number} s.bestScore
+ * @param {boolean} s.commonOrderGates  上层闸门（任一不通过则不加压）
+ * @param {object} s.cfg
+ * @param {object} s.modelConfig       ctx.modelConfig（可空）
+ * @param {number} s.currentOrderBoost 当前 pbExtremeOrderBoost 值（取 max）
+ * @returns {{
+ *   newStress: number,
+ *   boost: number,                // 实际加压量（写 breakdown.pbOvershootBoost）
+ *   active: boolean,
+ *   newOrderBoost: number,        // 写回 pbExtremeOrderBoost 的值
+ * }}
+ */
+function _applyPbOvershootBoost(s) {
+    const cfg = s.cfg || {};
+    const mc = s.modelConfig || {};
+    const overshootCfg = cfg.pbChase?.overshoot ?? {};
+    let boost = 0;
+    let active = false;
+    let newStress = s.stress;
+    let newOrderBoost = s.currentOrderBoost;
+    if (overshootCfg.enabled !== false && s.commonOrderGates && s.score > s.bestScore) {
+        const overshoot = (s.score / s.bestScore) - 1.0;
+        const maxBoost = Number.isFinite(mc.pbOvershootMax)
+            ? mc.pbOvershootMax
+            : (Number.isFinite(overshootCfg.maxBoost) ? overshootCfg.maxBoost : 0.16);
+        const slope = Number.isFinite(overshootCfg.slope) ? overshootCfg.slope : 5.0;
+        const capStress = Number.isFinite(overshootCfg.capStress) ? overshootCfg.capStress : 0.90;
+        boost = Math.min(maxBoost, maxBoost * Math.log10(1 + slope * overshoot) / Math.log10(1 + slope));
+        if (boost > 0) {
+            newStress = Math.min(capStress, s.stress + boost);
+            active = true;
+        }
+        const orderBoostInD4 = Number.isFinite(overshootCfg.orderBoostInD4) ? overshootCfg.orderBoostInD4 : 0.08;
+        if (orderBoostInD4 > 0) {
+            newOrderBoost = Math.max(s.currentOrderBoost, orderBoostInD4);
+        }
+    }
+    return { newStress, boost, active, newOrderBoost };
+}
+
 function _resolveChallengeBoostBypass(s) {
     if (!s.pbDistanceClose) return 'pb_distance_far';
     if (!(s.segment5 === 'B' || s.sessionTrend !== 'declining')) return 'segment_declining';
@@ -1589,30 +1696,19 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
      *
      * 同源 bypass 链：minBestScoreForIntenseFeedback / postPbRelease / recovery /
      * bottleneck / warmup / onboarding 全部直接跳过，与 pbExtremeOrderBoost 同口径。 */
-    const _overshootCfg = (cfg.pbChase?.overshoot) ?? {};
-    let pbOvershootBoost = 0;
-    let pbOvershootActive = false;
-    if (_overshootCfg.enabled !== false
-        && _commonOrderGates
-        && score > ctx.bestScore) {
-        const overshoot = (score / ctx.bestScore) - 1.0;
-        // θ-E: pbOvershootMax (modelConfig 优先)
-        const maxBoost = Number.isFinite(_mc.pbOvershootMax)
-            ? _mc.pbOvershootMax
-            : (Number.isFinite(_overshootCfg.maxBoost) ? _overshootCfg.maxBoost : 0.16);
-        const slope = Number.isFinite(_overshootCfg.slope) ? _overshootCfg.slope : 5.0;
-        const capStress = Number.isFinite(_overshootCfg.capStress) ? _overshootCfg.capStress : 0.90;
-        pbOvershootBoost = Math.min(maxBoost, maxBoost * Math.log10(1 + slope * overshoot) / Math.log10(1 + slope));
-        if (pbOvershootBoost > 0) {
-            stress = Math.min(capStress, stress + pbOvershootBoost);
-            pbOvershootActive = true;
-        }
-        // D4 段弱顺序约束扩展：与 D3 同机制但强度更弱，让"超 PB 后越来越紧"连续可感
-        const orderBoostInD4 = Number.isFinite(_overshootCfg.orderBoostInD4) ? _overshootCfg.orderBoostInD4 : 0.08;
-        if (orderBoostInD4 > 0) {
-            pbExtremeOrderBoost = Math.max(pbExtremeOrderBoost, orderBoostInD4);
-            stressBreakdown.pbExtremeOrderBoost = pbExtremeOrderBoost;
-        }
+    /* v1.71：抽至 _applyPbOvershootBoost 纯函数；breakdown 字段口径与 v1.56.4 一致。 */
+    const _pbOh = _applyPbOvershootBoost({
+        stress, score, bestScore: ctx.bestScore,
+        commonOrderGates: _commonOrderGates,
+        cfg, modelConfig: _mc,
+        currentOrderBoost: pbExtremeOrderBoost,
+    });
+    stress = _pbOh.newStress;
+    const pbOvershootBoost = _pbOh.boost;
+    const pbOvershootActive = _pbOh.active;
+    if (_pbOh.newOrderBoost > pbExtremeOrderBoost) {
+        pbExtremeOrderBoost = _pbOh.newOrderBoost;
+        stressBreakdown.pbExtremeOrderBoost = pbExtremeOrderBoost;
     }
     stressBreakdown.pbOvershootBoost = pbOvershootBoost;
     stressBreakdown.pbOvershootActive = pbOvershootActive;
@@ -1634,29 +1730,19 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
      *
      * v1.29：对衰减用 `_occupancyFillAnchor`（跨 spawn 缓降）—— 消行后瞬时变空盘时，
      * 仍短暂沿用较高占用锚点，避免正向 stress 因 damping 撤除而单帧跳升。 */
-    const rawFillOcc = _boardFill ?? 0;
-    let occAnchor = Number(ctx._occupancyFillAnchor);
-    if (!Number.isFinite(occAnchor)) occAnchor = rawFillOcc;
-    if (rawFillOcc >= occAnchor) occAnchor = rawFillOcc;
-    else occAnchor = Math.max(rawFillOcc, occAnchor * 0.86 + rawFillOcc * 0.14);
-    let occupancyDamping = 0;
-    /* v1.56.6 §5.α.9 P0-C2：D4 段豁免 occupancyDamping ——
-     * 玩家破 PB 后通常伴随 perfect clear / 多消大消（盘面骤空 → fill 极低），
-     * 旧 damping 公式 ×0.4~×0.5 会把 pbOvershootBoost 的加压全部消解，与"超 PB 高强度
-     * 加压防分数膨胀"原则直接冲突。本豁免让 D4 段保留完整的加压量。
-     * 受 pbChase.overshoot.bypassOccupancyDamping 配置开关控制。 */
-    const _ohBypassOcc = (cfg.pbChase?.overshoot?.bypassOccupancyDamping) !== false;
-    const _ohActiveBypassOcc = pbOvershootActive && _ohBypassOcc;
-    if (stress > 0 && !_ohActiveBypassOcc) {
-        const occupancyScale = Math.max(0.4, Math.min(1, occAnchor / 0.5));
-        if (occupancyScale < 1) {
-            const damped = stress * occupancyScale;
-            occupancyDamping = damped - stress;
-            stress = damped;
-        }
-    }
-    stressBreakdown.occupancyDamping = occupancyDamping;
-    stressBreakdown.occupancyDampingBypassed = _ohActiveBypassOcc;
+    /* v1.71：抽至 _applyOccupancyDamping 纯函数。breakdown 字段 / 锚点写回口径一致。
+     * 注：原版没有显式回写 ctx._occupancyFillAnchor，而是直接读取 + 局部计算（锚点的"跨 spawn 缓降"
+     * 实际依赖外层 ctx 持久化）。这里保持一致：只更新 breakdown，不写回 ctx（与 v1.70 行为一致）。
+     * 如果需要写回锚点，调用方应自行 ctx._occupancyFillAnchor = nextAnchor。 */
+    const _occDamping = _applyOccupancyDamping({
+        stress, boardFill: _boardFill, prevAnchor: ctx._occupancyFillAnchor,
+        pbOvershootActive, cfg,
+    });
+    stress = _occDamping.newStress;
+    /* 保留 occAnchor 变量名，下方 return 对象会引用 _occupancyFillAnchor: occAnchor */
+    const occAnchor = _occDamping.nextAnchor;
+    stressBreakdown.occupancyDamping = _occDamping.damping;
+    stressBreakdown.occupancyDampingBypassed = _occDamping.bypassed;
     stressBreakdown.afterOccupancy = stress;
     const immediateRelief = profile.needsRecovery
         || profile.hadRecentNearMiss

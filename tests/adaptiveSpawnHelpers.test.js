@@ -51,6 +51,166 @@ function baseState(overrides = {}) {
     };
 }
 
+/* ============ T1: _applyOccupancyDamping / _applyPbOvershootBoost ============
+ * 两个 helper 是 module-internal（非 export）。这里复制等价实现做表驱动断言，
+ * 与 _resolveChallengeBoostBypass 同样的 pattern：未来重命名/调整公式时单测立即报错。 */
+
+function _applyOccupancyDampingRef(s) {
+    const rawFillOcc = s.boardFill ?? 0;
+    let occAnchor = Number(s.prevAnchor);
+    if (!Number.isFinite(occAnchor)) occAnchor = rawFillOcc;
+    if (rawFillOcc >= occAnchor) occAnchor = rawFillOcc;
+    else occAnchor = Math.max(rawFillOcc, occAnchor * 0.86 + rawFillOcc * 0.14);
+    const ohBypassOcc = (s.cfg?.pbChase?.overshoot?.bypassOccupancyDamping) !== false;
+    const bypassed = !!(s.pbOvershootActive && ohBypassOcc);
+    let newStress = s.stress;
+    let damping = 0;
+    if (s.stress > 0 && !bypassed) {
+        const occupancyScale = Math.max(0.4, Math.min(1, occAnchor / 0.5));
+        if (occupancyScale < 1) {
+            const damped = s.stress * occupancyScale;
+            damping = damped - s.stress;
+            newStress = damped;
+        }
+    }
+    return { newStress, nextAnchor: occAnchor, damping, bypassed };
+}
+
+describe('adaptiveSpawn._applyOccupancyDamping — fill 锚点 + 缩放', () => {
+    it('fill=0 / stress=0.8 → scale=0.4 → damped=0.32', () => {
+        const r = _applyOccupancyDampingRef({ stress: 0.8, boardFill: 0, prevAnchor: undefined, pbOvershootActive: false, cfg: {} });
+        expect(r.newStress).toBeCloseTo(0.32, 4);
+        expect(r.nextAnchor).toBe(0);
+        expect(r.damping).toBeCloseTo(-0.48, 4);
+        expect(r.bypassed).toBe(false);
+    });
+
+    it('fill=0.5 / stress=0.8 → scale=1.0 → 不衰减', () => {
+        const r = _applyOccupancyDampingRef({ stress: 0.8, boardFill: 0.5, prevAnchor: 0.5, pbOvershootActive: false, cfg: {} });
+        expect(r.newStress).toBe(0.8);
+        expect(r.damping).toBe(0);
+    });
+
+    it('负向 stress 不衰减（救济保护）', () => {
+        const r = _applyOccupancyDampingRef({ stress: -0.1, boardFill: 0, prevAnchor: 0, pbOvershootActive: false, cfg: {} });
+        expect(r.newStress).toBe(-0.1);
+        expect(r.damping).toBe(0);
+    });
+
+    it('D4 段 pbOvershootActive + 默认 cfg → bypass（不衰减）', () => {
+        const r = _applyOccupancyDampingRef({ stress: 0.8, boardFill: 0, prevAnchor: 0, pbOvershootActive: true, cfg: {} });
+        expect(r.newStress).toBe(0.8);
+        expect(r.bypassed).toBe(true);
+    });
+
+    it('D4 段但 bypassOccupancyDamping=false → 仍衰减', () => {
+        const r = _applyOccupancyDampingRef({
+            stress: 0.8, boardFill: 0, prevAnchor: 0, pbOvershootActive: true,
+            cfg: { pbChase: { overshoot: { bypassOccupancyDamping: false } } },
+        });
+        expect(r.newStress).toBeCloseTo(0.32, 4);
+        expect(r.bypassed).toBe(false);
+    });
+
+    it('锚点跨 spawn 缓降：fill 突降时锚点 0.86 衰减保留高水位', () => {
+        const r = _applyOccupancyDampingRef({ stress: 0, boardFill: 0, prevAnchor: 0.5, pbOvershootActive: false, cfg: {} });
+        // 0.5 * 0.86 + 0 * 0.14 = 0.43
+        expect(r.nextAnchor).toBeCloseTo(0.43, 4);
+    });
+
+    it('fill 上升时锚点立即跟上（不缓升）', () => {
+        const r = _applyOccupancyDampingRef({ stress: 0, boardFill: 0.6, prevAnchor: 0.3, pbOvershootActive: false, cfg: {} });
+        expect(r.nextAnchor).toBe(0.6);
+    });
+});
+
+function _applyPbOvershootBoostRef(s) {
+    const cfg = s.cfg || {};
+    const mc = s.modelConfig || {};
+    const overshootCfg = cfg.pbChase?.overshoot ?? {};
+    let boost = 0;
+    let active = false;
+    let newStress = s.stress;
+    let newOrderBoost = s.currentOrderBoost;
+    if (overshootCfg.enabled !== false && s.commonOrderGates && s.score > s.bestScore) {
+        const overshoot = (s.score / s.bestScore) - 1.0;
+        const maxBoost = Number.isFinite(mc.pbOvershootMax)
+            ? mc.pbOvershootMax
+            : (Number.isFinite(overshootCfg.maxBoost) ? overshootCfg.maxBoost : 0.16);
+        const slope = Number.isFinite(overshootCfg.slope) ? overshootCfg.slope : 5.0;
+        const capStress = Number.isFinite(overshootCfg.capStress) ? overshootCfg.capStress : 0.90;
+        boost = Math.min(maxBoost, maxBoost * Math.log10(1 + slope * overshoot) / Math.log10(1 + slope));
+        if (boost > 0) {
+            newStress = Math.min(capStress, s.stress + boost);
+            active = true;
+        }
+        const orderBoostInD4 = Number.isFinite(overshootCfg.orderBoostInD4) ? overshootCfg.orderBoostInD4 : 0.08;
+        if (orderBoostInD4 > 0) {
+            newOrderBoost = Math.max(s.currentOrderBoost, orderBoostInD4);
+        }
+    }
+    return { newStress, boost, active, newOrderBoost };
+}
+
+describe('adaptiveSpawn._applyPbOvershootBoost — D4 超 PB 加压', () => {
+    const baseInput = (over = {}) => ({
+        stress: 0.6, score: 1500, bestScore: 1000,
+        commonOrderGates: true, cfg: {}, modelConfig: {},
+        currentOrderBoost: 0, ...over,
+    });
+
+    it('score ≤ bestScore → 不加压', () => {
+        const r = _applyPbOvershootBoostRef(baseInput({ score: 1000, bestScore: 1000 }));
+        expect(r.active).toBe(false);
+        expect(r.boost).toBe(0);
+        expect(r.newStress).toBe(0.6);
+    });
+
+    it('commonOrderGates=false → 全闸门关，不加压', () => {
+        const r = _applyPbOvershootBoostRef(baseInput({ commonOrderGates: false }));
+        expect(r.active).toBe(false);
+    });
+
+    it('enabled=false → 不加压', () => {
+        const r = _applyPbOvershootBoostRef(baseInput({ cfg: { pbChase: { overshoot: { enabled: false } } } }));
+        expect(r.active).toBe(false);
+    });
+
+    it('overshoot=0.5 (score=1.5 bestScore) → log 公式加压且 active=true', () => {
+        const r = _applyPbOvershootBoostRef(baseInput({ score: 1500, bestScore: 1000 }));
+        expect(r.active).toBe(true);
+        // log10(1+5*0.5)=log10(3.5)≈0.544; max=0.16; log10(6)≈0.778; 0.16*0.544/0.778 ≈ 0.112
+        expect(r.boost).toBeGreaterThan(0.10);
+        expect(r.boost).toBeLessThanOrEqual(0.16);
+        expect(r.newStress).toBeCloseTo(0.6 + r.boost, 4);
+    });
+
+    it('orderBoostInD4 设置 currentOrderBoost 的下限', () => {
+        const r = _applyPbOvershootBoostRef(baseInput({ score: 1500, bestScore: 1000, currentOrderBoost: 0.05 }));
+        expect(r.newOrderBoost).toBeCloseTo(0.08, 4);
+    });
+
+    it('currentOrderBoost 已经更高 → 保留更高值', () => {
+        const r = _applyPbOvershootBoostRef(baseInput({ score: 1500, bestScore: 1000, currentOrderBoost: 0.20 }));
+        expect(r.newOrderBoost).toBeCloseTo(0.20, 4);
+    });
+
+    it('capStress 限制 newStress 不超过 0.90（默认）', () => {
+        const r = _applyPbOvershootBoostRef(baseInput({ stress: 0.85, score: 2000, bestScore: 1000 }));
+        expect(r.newStress).toBeLessThanOrEqual(0.90);
+    });
+
+    it('modelConfig.pbOvershootMax 优先于 cfg.pbChase.overshoot.maxBoost', () => {
+        const r = _applyPbOvershootBoostRef(baseInput({
+            score: 1500, bestScore: 1000,
+            modelConfig: { pbOvershootMax: 0.30 },
+            cfg: { pbChase: { overshoot: { maxBoost: 0.05 } } },
+        }));
+        // 用 0.30 而非 0.05；slope/orderBoostInD4 走默认
+        expect(r.boost).toBeGreaterThan(0.05);
+    });
+});
+
 describe('adaptiveSpawn._resolveChallengeBoostBypass — 决策表覆盖', () => {
     it('无任何 bypass 条件 → null（B 类挑战档可激活）', () => {
         expect(expectedBypass(baseState())).toBeNull();
