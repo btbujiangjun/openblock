@@ -3073,6 +3073,14 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
     const _relLambda = Number(strategyConfig._relativityLambda) || 0;
     const _alignActive = !!(_relCfg && _relCfg.enabled === true && _bStar && _relBypass == null);
     const _alignK = Math.max(1, Math.min(8, Number(_relCfg && _relCfg.candidateK) || 4));
+    /* §改进：等体感选块的"软化 + 爽点预算"旋钮（恢复体感波动性 / 爽感）。
+     *   burstReleaseProb：以该概率直接放行缓冲里"最偏离 b*"的候选（align 最低=被等体感
+     *     压制的爆点三连），主动制造爽点节奏，打破"难度钉在线上"的单调。
+     *   alignTemperature：>0 时按 softmax(align/温度) 采样而非 argmax，保留次优候选入选概率，
+     *     让难度在 b* 附近"有方差地起伏"。两者都用 ctx.rng 保证确定性可回放；无 rng 时退回
+     *     argmax（行为=现状），保证离线/无种子路径不漂移。 */
+    const _burstProb = Math.max(0, Math.min(1, Number(_relCfg && _relCfg.burstReleaseProb) || 0));
+    const _alignTemp = Number(_relCfg && _relCfg.alignTemperature) > 0 ? Number(_relCfg.alignTemperature) : 0;
     const _alignBuf = [];
     const _alignBoardDifficulty = Math.max(0, Math.min(1, fill + Math.max(0, Math.min(1, (topo.holes ?? 0) / 8)) * 0.8));
     const _alignSpatialFeatures = _alignActive ? spatialPlanningFeatures(grid) : null;
@@ -3090,7 +3098,35 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
             return sd && sd.difficultyVec ? sd.difficultyVec : null;
         } catch { return null; }
     };
-    const _pickBestAligned = (buf) => buf.reduce((a, b) => (b.align > a.align ? b : a), buf[0]);
+    const _argmaxAlign = (buf) => buf.reduce((a, b) => (b.align > a.align ? b : a), buf[0]);
+    const _argminAlign = (buf) => buf.reduce((a, b) => (b.align < a.align ? b : a), buf[0]);
+    const _pickBestAligned = (buf) => {
+        if (!Array.isArray(buf) || buf.length === 0) return buf && buf[0];
+        if (buf.length === 1) return buf[0];
+        const rng = (typeof ctx?.rng === 'function') ? ctx.rng : null;
+        /* 无 rng（确定性回放缺省）→ 退回 argmax（行为=现状）。 */
+        if (!rng) return _argmaxAlign(buf);
+        /* 爽点预算：放行最偏离 b* 的候选（被等体感对齐压制的最大爆点）。 */
+        if (_burstProb > 0 && rng() < _burstProb) return _argminAlign(buf);
+        /* softmax(align / 温度) 采样，保留次优候选入选概率、恢复难度方差。 */
+        if (_alignTemp > 0) {
+            let max = -Infinity;
+            for (const b of buf) { if (b.align > max) max = b.align; }
+            const w = new Array(buf.length);
+            let total = 0;
+            for (let i = 0; i < buf.length; i++) {
+                const e = Math.exp((buf[i].align - max) / _alignTemp);
+                w[i] = e;
+                total += e;
+            }
+            if (total > 0) {
+                let r = rng() * total;
+                for (let i = 0; i < buf.length; i++) { r -= w[i]; if (r <= 0) return buf[i]; }
+                return buf[buf.length - 1];
+            }
+        }
+        return _argmaxAlign(buf);
+    };
 
     for (let attempt = 0; attempt < MAX_SPAWN_ATTEMPTS; attempt++) {
         const blocks = [];

@@ -1495,13 +1495,15 @@ dock 颜色改为轻偏置随机：盘面存在近满且已同 icon/同色的行
 
 除了启发式规则，还提供基于 Transformer 的生成式模型架构（§9.1 - §9.9）。详见 本手册 §13。
 
-#### 2.10 难度相对论：等体感选块接入点（θ⃗ × b⃗ × b*）（P-research，✅ 已落地·默认关）
+#### 2.10 难度相对论：等体感选块接入点（θ⃗ × b⃗ × b*）（P-research，✅ 已落地·默认开 rollout 100%）
 
 > **本节是算法侧实现清单**，对应策划契约 [`BEST_SCORE_CHASE_STRATEGY.md §4.17`](../player/BEST_SCORE_CHASE_STRATEGY.md)（难度相对论：体感难度不变量 × 客观难度个性化）。
 >
 > **不可动摇前提**：**S 形 stress 曲线仍是调控主线**，§2.3 五阶段流水线结构不变。本方案只在「体感目标 → 客观题目」之间插一层按玩家能力的标定，**不改 stress 计算链、不改硬约束、不改纪录线**。
 
-> **🟢 落地状态（v-research P0~P4 + 激活链已实现，`adaptiveSpawn.difficultyRelativity.enabled` 默认 `false` ⇒ 行为=现状）**
+> **🟢 落地状态（v-research P0~P5 + 激活链已实现并默认启用，`adaptiveSpawn.difficultyRelativity.enabled = true` / `rolloutPercent = 100`；`enabled=false` 时全链路恒等=现状）**
+>
+> ⚠️ **v-research §改进（恢复体感波动性）**：上线后实测「难度被钉在线上、爽块被等体感对齐确定性剔除、波动性/趣味下降」。已把等体感选块从**确定性 argmax** 改为**softmax 采样 + 爽点预算**，并把对齐锐度/个性化强度降为「温和偏置」。详见本节末「选块软化」小节与 [`BEST_SCORE_CHASE_STRATEGY.md §4.17`](../player/BEST_SCORE_CHASE_STRATEGY.md)。
 >
 > | 模块 | 文件 | 职责 |
 > |---|---|---|
@@ -1509,17 +1511,26 @@ dock 颜色改为轻偏置随机：盘面存在近满且已同 icon/同色的行
 > | b⃗ 投影 | `web/src/spawnStepDifficulty.js`（`projectDifficultyVector` / `difficultyVec`）| 把 6 项 terms 确定性投影成 6 维考点向量；标量分与 5 档桶口径不变 |
 > | b* 反解 + 对齐乘子 | `web/src/difficultyRelativity.js`（`solveObjectiveTarget` / `alignmentMultiplier`）| λ=0 恒等于 stress；12 路 bypass；弱项加权对齐 |
 > | 影子反解 | `web/src/adaptiveSpawn.js`（`resolveAdaptiveStrategy`）| finalStress 确定后追加 `_objectiveTarget`/`_relativityBypass`/`relativityDStar`，不回写 stress |
-> | 等体感选块 | `web/src/bot/blockSpawn.js`（`generateDockShapes`）| 硬过滤通过后 best-of-K 缓冲，按 `alignmentMultiplier(difficultyVec, b*)` 选最贴近者，`diagnostics.relativity` 落字段 |
+> | 等体感选块 | `web/src/bot/blockSpawn.js`（`generateDockShapes`）| 硬过滤通过后 best-of-K 缓冲；**`burstReleaseProb` 概率放行最偏离 b\* 的爆点、否则按 `softmax(align/alignTemperature)` 采样**（有 `ctx.rng` 时；无 rng 退回 argmax），`diagnostics.relativity` 落字段 |
+> | 形状先验（阶段5） | `web/src/adaptiveSpawn.js`（`applyRelativityShapePrior`）| 按 `gap=b*−θ⃗` × `shapePrior.dimAffinity` 对 7 类形状权重做乘性偏置（distressed/救济帧禁用），与选块互补 |
 > | 激活链 | `web/src/playerProfile.js` + `web/src/game.js` | θ⃗ 跨局持久化（`recordSessionEnd` 更新 / `toJSON·fromJSON`）+ spawnContext 注入 `latentCalibration` |
-> | 配置 | `shared/game_rules.json`（`adaptiveSpawn.difficultyRelativity` + `spawnStepDifficulty.vectorWeights`）| `enabled/rolloutPercent/personalizationStrength/deltaCurriculumK/noiseAmp/minConfidence/candidateK/dimWeights/weaknessBoost/latentAbility` |
+> | 配置 | `shared/game_rules.json`（`adaptiveSpawn.difficultyRelativity` + `spawnStepDifficulty.vectorWeights`）| `enabled/rolloutPercent/personalizationStrength/deltaCurriculumK/noiseAmp/minConfidence/candidateK/dimWeights/weaknessBoost/`**`alignSharpness/alignTemperature/burstReleaseProb`**`/shapePrior/latentAbility` |
 >
 > **验证清单（已通过）**：
 > - 单元：`tests/playerLatentAbility.test.js`(8)、`tests/difficultyRelativity.test.js`(10)、`tests/spawnStepDifficulty.test.js`(18，含 difficultyVec)、`tests/difficultyRelativityShadow.test.js`(4)、`tests/difficultyRelativitySpawn.test.js`(4)、`tests/playerProfileLatent.test.js`(4)。
 > - 退化保证：λ=0 → b* 各维=stress；`enabled=false`/低置信 θ⃗/救济·濒死·瓶颈·破纪录释放·warmup → bypass，`b*=null`，`generateDockShapes` 无 `diagnostics.relativity`，finalStress 开/关逐位一致。
-> - 全量回归：`npx vitest run` 182 文件 / 3158 通过；`tests/test_spawn_step_difficulty.py`·`test_spawn_construction.py`(35) 通过（标量跨语言不变）。
+> - 全量回归：`npx vitest run` 185 文件 / 3201 通过 + 1 skipped；`tests/test_spawn_step_difficulty.py`·`test_spawn_construction.py`(35) 通过（标量跨语言不变）。
 > - 跨端同源：`npm run sync:core` + `npm run verify:cocos-core` 通过（新模块已加入 `scripts/sync-core.sh` 与 `scripts/sync-cocos-engine.mjs` 名单）。
 >
-> **未落地（增强/观测，后续切片）**：阶段5 构造算子 target-aware + `applySpawnPrior` 结构偏置；阶段6a 玩家面板 θ⃗ 展示；6c 决策数据流派生；6d 出块信号透视仪；6e RL state / `bot/features.js` / 训练样本落 b⃗。
+> **已落地（增强）**：阶段5 构造算子 target-aware 形状先验（`applyRelativityShapePrior`，gap × dimAffinity 乘性偏置）。
+> **未落地（观测，后续切片）**：阶段6a 玩家面板 θ⃗ 展示；6c 决策数据流派生；6d 出块信号透视仪；6e RL state / `bot/features.js` / 训练样本落 b⃗。
+
+> **选块软化（v-research §改进，恢复爽感/波动性）**——`web/src/bot/blockSpawn.js generateDockShapes` 的 best-of-K 定稿：
+> - **旧版**：`_pickBestAligned = argmax(align)`，确定性挑对齐度最高（=最贴 b\*）者 → 高 combo/perfectClear 爆点 `align` 最低 → 被系统性剔除 → 难度钉在线上、无爽点。
+> - **新版**（有 `ctx.rng` 时）：① 以 `burstReleaseProb`(0.2) 概率直接放行**最偏离 b\* 的爆点**（`argmin(align)`，制造爽点节奏）；② 否则按 `softmax(align / alignTemperature(0.15))` **采样**而非取最大（保留次优候选、恢复难度方差）。无 `ctx.rng`（离线/无种子）退回 argmax，行为=现状、零漂移。
+> - **对齐锐度配置化**：`alignmentMultiplier` 的 `exp(−λ·sharpness·dist)` 中 `sharpness` 由硬编码 `3` 改为读 `cfg.alignSharpness`（生产 `2.0`，更软）。
+> - **参数温和化**：`personalizationStrength` 0.3→0.18、`weaknessBoost` 1.5→1.15、`candidateK` 4→3、`shapePrior.strength/cap` 0.6/0.30→0.4/0.20——把「等体感钳制」降为「温和偏置」，避免弱项被全程定向施压。
+> - **不变量**：硬约束/救济/PEOG 仍全部先行；`enabled=false`/无 b\*/bypass 时整链恒等。回归 `tests/difficultyRelativitySpawn.test.js`(4)、`tests/difficultyRelativity.test.js`(10) 全绿。
 
 **一句话接入**：S 曲线产出目标体感 `d* = stress`（不变）→ 按能力 θ⃗ 反解客观目标 `b* = θ⃗ ⊕ d* (+Δ⃗ 课程, +噪声)` → **阶段 1/3 候选评分新增对齐项 `−w·‖difficultyVec(候选) − b*‖`**（弱项维加大 w）→ 阶段 4 硬约束照旧兜底。同一 `d*` 对资深落到客观更难、对新手落到客观更易的题目（详见 §4.17 公式 `d_perceived≈b⊖θ`）。
 
@@ -3243,19 +3254,27 @@ adaptiveSpawn.resolveAdaptiveStrategy
   │    │     MULTI_CLEAR_NOW → SETUP_FOR_MULTI    // PEOG active 时降级
   │    └─ guaranteedDelights 由 buildWarmBudget 在 peogIntensity 注入时
   │          重新配比（perfectClear:0）
-  └─ applyPeogSpawnHintsCap(hints, peogState)     // ★ v1.71 新增
-       multiClearBonus ≤ 0.45 (mild) / ≤ 0.30 (strong)
-       perfectClearBoost ≤ 0.15 (mild) / 0.0 (strong)
-       sizePreference ≤ 0.45 (mild) / ≤ 0.40 (strong)
-       iconBonusTarget ≥ 0.55 / clearGuarantee ≥ 1
+  └─ applyPeogSpawnHintsCap(hints, peogState)     // ★ v1.71 新增；v-research §改进=按 headroom 门控
+       /* 仅当 nearCeiling（remaining < PB × hintsCapHeadroomRatio=0.25）才封顶机会面，
+        * 额度充裕（局初）时透传 multiClear/perfectClear/sizePreference（恢复爽块）。 */
+       remaining = PB × pbApproachCeiling − consumedYield
+       nearCeiling 时：
+         multiClearBonus ≤ 0.60 (mild) / ≤ 0.45 (strong)
+         perfectClearBoost ≤ 0.35 (mild) / ≤ 0.15 (strong)
+         sizePreference ≤ 0.60 (mild) / ≤ 0.50 (strong)
+       iconBonusTarget ≥ 0.55 / clearGuarantee ≥ 1（始终）
 
 blockSpawn.generateDockShapes
   └─ 构造算子返回后 applyPeogYieldCap()
-       单帧 yield ≤ PB × maxYieldPerSpawnRatio
-       (mild=0.08 / strong=0.05)
+       /* v-research §改进：逐帧限速 → 累计不超越 ceiling 的预算。 */
+       单帧 cap = max( PB × maxYieldPerSpawnRatio[单帧下限],
+                       PB × pbApproachCeiling − consumedYield[剩余额度] )
+       maxYieldPerSpawnRatio 下限：mild=0.16 / strong=0.10
 ```
 
 **约束**：PEOG **不修改** warmBudget 本身（`spawnsUsed` / `consumedDelights` / `hintIgnoreStreak` 等），只钳制每帧机会面。§17.4 的退出条件（`perfectClearExitCount` / `multiClearExitCount` 等）仍按温暖局原意工作；PEOG 只让"达成退出"的速度更慢，让温暖期与冲分期之间多一个平滑过渡段。
+
+> **v-research §改进（恢复高 PB 局初得分率）**：旧版 PEOG 是「逐帧限速」（单帧 yield ≤ PB×0.08 恒成立），导致高 PB 玩家**局初得分率被钉死、爆块（多消/清屏/大块）几乎被抽干 → 冲 PB 过慢**。改进后 PEOG 改用「累计不超越 `pbApproachCeiling` 的预算」：`applyPeogYieldCap` 单帧 cap 取 `max(PB×maxYieldPerSpawnRatio[下限], remaining)`，局初 `remaining` 充裕 → 爆点照常放行，仅累计逼近 ceiling 才收紧到下限；`applyPeogSpawnHintsCap` 同步改为「仅 `remaining < PB×hintsCapHeadroomRatio` 才封顶机会面」。守卫的硬下线仍由 `evaluatePeogActive` 的 `approach_handoff(pct≥ceiling)` 兜底（不会越权推过纪录线）。配置见 `shared/game_rules.json adaptiveSpawn.pbChase.earlyOvershootGuard`（`hintsCapHeadroomRatio` / 放宽后的 `maxYieldPerSpawnRatio` 与各 `spawnHints` cap）。回归：`tests/peog.test.js`(47) 全绿。
 
 **12 路 bypass 优先级**：与 §4.2 challengeBoostBypass 同纪律，详见 `docs/player/BEST_SCORE_CHASE_STRATEGY.md §4.16`。
 

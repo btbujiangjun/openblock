@@ -21,7 +21,9 @@ import { DIFFICULTY_VECTOR_DIMS } from './spawnStepDifficulty.mjs';
 
 const clamp01 = (x) => (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
 
-/** 对齐乘子的锐度基准（personalizationStrength 的放大系数）。 */
+/** 对齐乘子的锐度基准（personalizationStrength 的放大系数）。
+ *  可被 cfg.alignSharpness 覆盖：锐度越低，对齐越"软"（保留次优候选/难度方差），
+ *  锐度越高，越接近"硬钉在 b*"。降默认锐度是恢复体感波动性的一档主控旋钮。 */
 const ALIGN_SHARPNESS = 3;
 
 function num(x, d) { return Number.isFinite(x) ? x : d; }
@@ -117,5 +119,6 @@ export function alignmentMultiplier(candidateVec, bStar, cfg, calibration) {
         wsum += w;
     }
     const dist = wsum > 0 ? Math.sqrt(acc / wsum) : 0;
-    return Math.exp(-lambda * ALIGN_SHARPNESS * dist);
+    const sharpness = num(cfg && cfg.alignSharpness, ALIGN_SHARPNESS);
+    return Math.exp(-lambda * sharpness * dist);
 }

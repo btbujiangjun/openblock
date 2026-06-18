@@ -259,13 +259,27 @@ describe('PEOG · estimateConstructiveYield 公式（与 CLEAR_SCORING 同源）
     });
 });
 
-describe('PEOG · applyPeogYieldCap 过滤候选', () => {
-    it('peog_mild cap = PB × 0.08 = 120：240(2 线)被拒、80(2 线 PB=1000)放行', () => {
+describe('PEOG · applyPeogYieldCap 累计预算（局初放行 / 临近 ceiling 收紧）', () => {
+    it('局初额度充裕 → 大爆点照常放行（不再逐帧限速）', () => {
+        /* 累计预算：consumedYield=0 → remaining = 1500×0.85 = 1275 ≫ floor(1500×0.16=240)；
+         * cap = max(240, 1275) = 1275，180/320 两个爆点全部放行（恢复高 PB 局初得分率）。 */
         const s = buildPeogState(makeProfile(), midHighCtx({ bestScoreAtRunStart: 1500 }), null);
-        /* cap = 1500 × 0.08 = 120 */
         const cands = [
-            { clears: 2, lineKeys: ['r0', 'c0'] },          // yield=80 ✅
-            { clears: 3, lineKeys: ['r0', 'c0', 'r1'] },    // yield=180 ❌
+            { clears: 3, lineKeys: ['r0', 'c0', 'r1'] },        // yield=180 ✅
+            { clears: 4, lineKeys: ['r0', 'c0', 'r1', 'c1'] },  // yield=320 ✅
+        ];
+        const out = applyPeogYieldCap(cands, s);
+        expect(out).toHaveLength(2);
+        expect(out.every(c => c._peogPassed)).toBe(true);
+        expect(s.yieldCapHits).toBe(0);
+    });
+
+    it('临近 ceiling（consumedYield 高）→ 单帧 cap 收紧到 floor=PB×0.16=240，超出者被拒', () => {
+        const s = buildPeogState(makeProfile(), midHighCtx({ bestScoreAtRunStart: 1500 }), null);
+        s.consumedYield = 1275; // remaining=0 → cap = max(240, 0) = 240
+        const cands = [
+            { clears: 2, lineKeys: ['r0', 'c0'] },              // yield=80  ≤240 ✅
+            { clears: 4, lineKeys: ['r0', 'c0', 'r1', 'c1'] },  // yield=320 >240 ❌
         ];
         const out = applyPeogYieldCap(cands, s);
         expect(out).toHaveLength(1);
@@ -274,16 +288,17 @@ describe('PEOG · applyPeogYieldCap 过滤候选', () => {
         expect(s.yieldCapHits).toBe(1);
     });
 
-    it('全部超 cap 时降级为最低 yield 的一个（避免空 dock）', () => {
+    it('临近 ceiling 且全部超 floor 时降级为最低 yield 的一个（避免空 dock）', () => {
         const s = buildPeogState(makeProfile(), midHighCtx({ bestScoreAtRunStart: 1500 }), null);
+        s.consumedYield = 1275; // cap = floor = 240
         const cands = [
-            { clears: 3, lineKeys: ['r0', 'c0', 'r1'] },    // yield=180
-            { clears: 4, lineKeys: ['r0', 'c0', 'r1', 'c1'] }, // yield=320
+            { clears: 4, lineKeys: ['r0', 'c0', 'r1', 'c1'] },       // yield=320
+            { clears: 5, lineKeys: ['r0', 'c0', 'r1', 'c1', 'r2'] }, // yield=500
         ];
         const out = applyPeogYieldCap(cands, s);
         expect(out).toHaveLength(1);
         expect(out[0]._peogDowngraded).toBe(true);
-        expect(out[0].clears).toBe(3); // 最小 yield 优先
+        expect(out[0].clears).toBe(4); // 最小 yield 优先
     });
 
     it('inactive 时直接透传（含 bypass 状态）', () => {
@@ -294,27 +309,44 @@ describe('PEOG · applyPeogYieldCap 过滤候选', () => {
     });
 });
 
-describe('PEOG · applyPeogSpawnHintsCap（min(cap) / max(floor)）', () => {
-    it('mild：multiClearBonus 取 min(原值=0.6, cap=0.45)=0.45；iconBonusTarget 取 max(原值=0, floor=0.55)', () => {
-        const s = buildPeogState(makeProfile(), midHighCtx(), null);
+describe('PEOG · applyPeogSpawnHintsCap（仅临近 ceiling 才封顶机会面）', () => {
+    it('局初额度充裕 → 透传 multiClear/perfectClear/sizePreference（不封顶）；温暖 floor 仍生效', () => {
+        const s = buildPeogState(makeProfile(), midHighCtx({ bestScoreAtRunStart: 1500 }), null);
+        /* consumedYield=0 → remaining=1275 ≥ PB×hintsCapHeadroomRatio(0.25)=375 → 非临近 → 透传。 */
         const inCfg = {
             spawnHints: { multiClearBonus: 0.6, perfectClearBoost: 0.4, iconBonusTarget: 0, sizePreference: 0.7 },
         };
         const out = applyPeogSpawnHintsCap(inCfg, s);
-        expect(out.spawnHints.multiClearBonus).toBeCloseTo(0.45);
-        expect(out.spawnHints.perfectClearBoost).toBeCloseTo(0.15);
-        expect(out.spawnHints.iconBonusTarget).toBeCloseTo(0.55);
-        expect(out.spawnHints.sizePreference).toBeCloseTo(0.45);
+        expect(out.spawnHints.multiClearBonus).toBeCloseTo(0.6);
+        expect(out.spawnHints.perfectClearBoost).toBeCloseTo(0.4);
+        expect(out.spawnHints.sizePreference).toBeCloseTo(0.7);
+        expect(out.spawnHints.iconBonusTarget).toBeCloseTo(0.55); // max(0, floor=0.55)
         expect(out.spawnHints.peog.active).toBe(true);
+        expect(out.spawnHints.peog.nearCeiling).toBe(false);
+    });
+
+    it('临近 ceiling → mild 封顶：multiClearBonus min(0.8,0.60)、perfectClearBoost min(0.5,0.35)、sizePreference min(0.7,0.60)', () => {
+        const s = buildPeogState(makeProfile(), midHighCtx({ bestScoreAtRunStart: 1500 }), null);
+        s.consumedYield = 1275; // remaining=0 < 375 → 临近 ceiling
+        const inCfg = {
+            spawnHints: { multiClearBonus: 0.8, perfectClearBoost: 0.5, iconBonusTarget: 0, sizePreference: 0.7 },
+        };
+        const out = applyPeogSpawnHintsCap(inCfg, s);
+        expect(out.spawnHints.multiClearBonus).toBeCloseTo(0.60);
+        expect(out.spawnHints.perfectClearBoost).toBeCloseTo(0.35);
+        expect(out.spawnHints.sizePreference).toBeCloseTo(0.60);
+        expect(out.spawnHints.iconBonusTarget).toBeCloseTo(0.55);
+        expect(out.spawnHints.peog.nearCeiling).toBe(true);
         expect(out.spawnHints.peog.intensity).toBe('peog_mild');
     });
 
-    it('strong：perfectClearBoost 被钳为 0（禁清屏）', () => {
-        const s = buildPeogState(makeProfile(), midHighCtx(), null);
+    it('strong + 临近 ceiling：perfectClearBoost 被钳为 0.15', () => {
+        const s = buildPeogState(makeProfile(), midHighCtx({ bestScoreAtRunStart: 1500 }), null);
         s.intensity = 'peog_strong';
+        s.consumedYield = 1275;
         const inCfg = { spawnHints: { perfectClearBoost: 0.8 } };
         const out = applyPeogSpawnHintsCap(inCfg, s);
-        expect(out.spawnHints.perfectClearBoost).toBe(0);
+        expect(out.spawnHints.perfectClearBoost).toBeCloseTo(0.15);
     });
 
     it('inactive 时直接透传输入', () => {
@@ -324,13 +356,15 @@ describe('PEOG · applyPeogSpawnHintsCap（min(cap) / max(floor)）', () => {
         expect(applyPeogSpawnHintsCap(inCfg, s)).toBe(inCfg);
     });
 
-    it('与 expertEarlyBoost 冲突：expertEarlyBoost floor=0.5 被 PEOG cap=0.45 收紧', () => {
-        const s = buildPeogState(makeProfile(), midHighCtx(), null);
-        /* 模拟 expertEarlyBoost 已写入 multiClearBonus=0.5 */
+    it('临近 ceiling 时与 expertEarlyBoost 冲突：perfectClearBoost floor=0.5 被 PEOG cap=0.35 收紧', () => {
+        const s = buildPeogState(makeProfile(), midHighCtx({ bestScoreAtRunStart: 1500 }), null);
+        s.consumedYield = 1275; // 临近 ceiling 才施加封顶
+        /* 模拟 expertEarlyBoost 已写入 floor=0.5；mild multiClearBonusCap(0.60) 不咬 0.5，
+         * 但 perfectClearBoostCap(0.35) 会把 0.5 收到 0.35（PEOG cap 优先）。 */
         const inCfg = { spawnHints: { multiClearBonus: 0.5, perfectClearBoost: 0.5 } };
         const out = applyPeogSpawnHintsCap(inCfg, s);
-        expect(out.spawnHints.multiClearBonus).toBe(0.45);   // min(0.5, 0.45)
-        expect(out.spawnHints.perfectClearBoost).toBe(0.15); // min(0.5, 0.15)
+        expect(out.spawnHints.multiClearBonus).toBe(0.5);          // min(0.5, 0.60) 未收紧
+        expect(out.spawnHints.perfectClearBoost).toBeCloseTo(0.35); // min(0.5, 0.35)
     });
 });
 

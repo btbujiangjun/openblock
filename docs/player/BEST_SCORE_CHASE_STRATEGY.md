@@ -729,9 +729,9 @@ PEOG bypass 12 路任一触发（详见 §4.16）时本节 floor 自动恢复完
 
 1. ✅ `web/src/spawn/peog.js` 新增 PEOG 模块：`buildPeogState` / `evaluatePeogActive` / `consumePeogOnPlace` / `applyPeogSpawnHintsCap` / `applyPeogYieldCap` / `estimateConstructiveYield`；
 2. ✅ 工具：构造算子候选的 `estimateConstructiveYield`（与 `CLEAR_SCORING.md` `baseScore = baseUnit × c²` 公式同源）+ 单帧 `maxYieldPerSpawnRatio` cap；
-3. ✅ **强度二档**：
-   - `peog_mild`（默认）：cap = PB × 0.08；`spawnHints.multiClearBonus ≤ 0.45 / perfectClearBoost ≤ 0.15 / iconBonusTarget ≥ 0.55`；保留 perfectClearTriplet 但 yield 必受 cap；
-   - `peog_strong`：cap = PB × 0.05；`spawnHints.perfectClearBoost = 0`；连续 3 次 pct 触达 `0.85 × 0.95 = 0.8075` 时自动升级（不可降级）；
+3. ✅ **强度二档**（cap 语义见下「v-research §改进」——已由逐帧限速改为累计预算，下列比率现为**单帧下限**）：
+   - `peog_mild`（默认）：单帧下限 = PB × 0.16；`spawnHints.multiClearBonus ≤ 0.60 / perfectClearBoost ≤ 0.35 / sizePreference ≤ 0.60 / iconBonusTarget ≥ 0.55`（机会面 cap 仅在临近 ceiling 才施加）；保留 perfectClearTriplet 但 yield 受累计预算约束；
+   - `peog_strong`：单帧下限 = PB × 0.10；`spawnHints.perfectClearBoost ≤ 0.15`、`perfectClearAllowed=false`；连续 3 次 pct 触达 `0.85 × 0.95 = 0.8075` 时自动升级（不可降级）；
 4. ✅ **温暖局协同**：`pickWarmTarget` 在 PEOG active 时映射 `PERFECT_CLEAR → MULTI_CLEAR_NOW` 与 `MULTI_CLEAR_NOW → SETUP_FOR_MULTI`；`buildWarmBudget` 在 `peogIntensity` 注入时改写 `guaranteedDelights` 为 `{multiClear:1, monoFlush:2, perfectClear:0}`（mild）或 `{multiClear:1, monoFlush:1, perfectClear:0}`（strong）；
 5. ✅ **不动**真实 PB / 计分公式 / `_maybeCelebrateNewBest` / `bestScore.gap.*` 叙事——仅改"机会面"（spawnHints + 构造算子候选过滤）；
 6. ✅ **12 路 bypass 优先级链**（与 §4.2 `challengeBoostBypass` / §4.15 同纪律）：
@@ -758,17 +758,25 @@ PEOG bypass 12 路任一触发（详见 §4.16）时本节 floor 自动恢复完
    {
      "enabled": true,
      "rolloutPercent": 100,
-     "midHighFloor": 1200,            
+     "midHighFloor": 1200,
      "pbApproachCeiling": 0.85,
      "earlyOvershootGuardSpawns": 8,
      "escalateAfterApproachCount": 3,
+     "hintsCapHeadroomRatio": 0.25,
      "intensities": {
-       "peog_mild":   { "maxYieldPerSpawnRatio": 0.08, ... },
-       "peog_strong": { "maxYieldPerSpawnRatio": 0.05, "perfectClearAllowed": false, ... }
+       "peog_mild":   { "maxYieldPerSpawnRatio": 0.16, ... },
+       "peog_strong": { "maxYieldPerSpawnRatio": 0.10, "perfectClearAllowed": false, ... }
      }
    }
    ```
    `midHighFloor` 与 `dynamicDifficulty.pbProgress.expertSoftCap` 同值对齐——压缩从哪开始，守卫也从哪开始。
+
+> **v-research §改进（恢复高 PB 局初得分率）**：旧版 PEOG 是「逐帧限速」（单帧 yield ≤ PB×0.08 恒成立），上线后实测**高 PB 局初得分率被钉死、爆块（多消/清屏/大块）几乎被抽干 → 冲 PB 过慢、前期兴趣下降**。改进后：
+> - `applyPeogYieldCap` 单帧 cap = `max(PB×maxYieldPerSpawnRatio[下限], PB×pbApproachCeiling − consumedYield[剩余额度])`——局初 `remaining` 充裕 → 爆点照常放行，仅累计逼近 ceiling 才收紧到下限；
+> - `applyPeogSpawnHintsCap` 改为「仅当 `remaining < PB×hintsCapHeadroomRatio`(0.25) 即临近 ceiling 才封顶机会面」，否则透传 `multiClearBonus/perfectClearBoost/sizePreference`；
+> - 各 `spawnHints` cap 与 `maxYieldPerSpawnRatio` 同步放宽（见上）；
+> - 守卫的硬下线仍由 `approach_handoff(pct≥ceiling)` 兜底，故累计预算不会越权推过纪录线。
+> 语义：PEOG 回归其**唯一职责——「防开局提前破纪录」**，不再承担「压制得分率」。回归 `tests/peog.test.js`(47) 全绿。
 9. ✅ **可观测**：`stressBreakdown.peogActive / peogIntensity / peogBypass`（DFV 面板 / 单测可见）；MonetizationBus emit `lifecycle:peog_engaged`（守卫激活时）+ `lifecycle:peog_overshoot_prevented`（late_phase / approach_handoff 自然到期且全程守住 ceiling 时，每局一次）；
 10. ✅ **跨端同源**：`bash scripts/sync-core.sh` 同步到 `miniprogram/core/spawn/peog.js` + `cocos/assets/scripts/engine/spawn/peog.mjs`。
 
@@ -786,11 +794,17 @@ PEOG bypass 12 路任一触发（详见 §4.16）时本节 floor 自动恢复完
 - 中高 PB 段单局得分下降 > 8%（机会被压得太狠）；
 - overshoot_prevented:new_pb > 5（守卫过头）。
 
-**单测**：`tests/peog.test.js` 45 条覆盖 12 路 bypass + 升级单向性 + yield 估算（5 种算子）+ cap min/floor max + warm target 映射 + guaranteedDelights override + 跨端镜像同源（mini）；`tests/warmRun.test.js` 30 条无回归；`tests/adaptiveSpawn.test.js` 90 条无回归。
+**单测**：`tests/peog.test.js` 47 条覆盖 12 路 bypass + 升级单向性 + yield 估算（5 种算子）+ **累计预算（局初放行 / 临近 ceiling 收紧 / 降级）** + spawnHints headroom 门控 + warm target 映射 + guaranteedDelights override + 跨端镜像同源（mini）；`tests/warmRun.test.js` 30 条无回归；`tests/adaptiveSpawn.test.js` 90 条无回归。
 
-### 4.17 难度相对论：体感难度不变量 × 客观难度个性化（S 曲线主线下的 θ⃗ × b⃗ × EDPCG）（P-research，✅ 已落地·默认关）
+### 4.17 难度相对论：体感难度不变量 × 客观难度个性化（S 曲线主线下的 θ⃗ × b⃗ × EDPCG）（P-research，✅ 已落地·默认开 rollout 100%）
 
-> **状态**：核心闭环（θ⃗ 标定器 → b⃗ 投影 → b* 反解 → 等体感选块 → 跨局持久化激活链）**已实现并通过单元 + 全量回归 + 跨端同源校验**，由 `adaptiveSpawn.difficultyRelativity.enabled`（默认 `false`）+ `rolloutPercent` 灰度控制；默认关时全链路恒等（行为=现状）。本节是**策划契约**；**算法侧实现清单 + 落地状态表 + 验证清单见 [`ALGORITHMS_SPAWN.md §2.10`](../algorithms/ALGORITHMS_SPAWN.md)**。另在 [`ALGORITHMS_PLAYER_MODEL.md §16.2`](../algorithms/ALGORITHMS_PLAYER_MODEL.md) 与 [`DOMAIN_KNOWLEDGE.md §13`](../domain/DOMAIN_KNOWLEDGE.md) 留有交叉引用。增强/观测切片（构造算子 target-aware、面板 θ⃗ 展示、透视仪、RL state 落 b⃗）仍待后续。
+> **状态**：核心闭环（θ⃗ 标定器 → b⃗ 投影 → b* 反解 → 等体感选块 → 阶段5 形状先验 → 跨局持久化激活链）**已实现并默认启用**（`adaptiveSpawn.difficultyRelativity.enabled=true` / `rolloutPercent=100`），通过单元 + 全量回归 + 跨端同源校验；`enabled=false` 时全链路恒等（行为=现状）。本节是**策划契约**；**算法侧实现清单 + 落地状态表 + 验证清单见 [`ALGORITHMS_SPAWN.md §2.10`](../algorithms/ALGORITHMS_SPAWN.md)**。另在 [`ALGORITHMS_PLAYER_MODEL.md §16.2`](../algorithms/ALGORITHMS_PLAYER_MODEL.md) 与 [`DOMAIN_KNOWLEDGE.md §13`](../domain/DOMAIN_KNOWLEDGE.md) 留有交叉引用。
+>
+> ⚠️ **v-research §改进（恢复体感波动性/爽感）**：默认启用后实测「**难度被钉在线上、爽块被等体感对齐确定性剔除、波动性与趣味下降**」。根因：等体感选块用**确定性 argmax** 取对齐度最高（=最贴 b\*）者，把高 combo/perfectClear 爆点（`align` 最低）系统性剔除。已修复为 **softmax 采样 + 爽点预算**，并把个性化强度/对齐锐度降为「温和偏置」：
+> - 选块：`burstReleaseProb`(0.2) 概率放行最偏离 b\* 的爆点 + 否则 `softmax(align/alignTemperature(0.15))` 采样（有 `ctx.rng` 时；无则退回 argmax）；
+> - 锐度：`alignmentMultiplier` 的 `sharpness` 由 3 → 可配 `alignSharpness`(2.0)；
+> - 参数：`personalizationStrength` 0.3→0.18、`weaknessBoost` 1.5→1.15、`candidateK` 4→3、`shapePrior.strength/cap` 0.6/0.30→0.4/0.20。
+> 详见 [`ALGORITHMS_SPAWN.md §2.10`「选块软化」](../algorithms/ALGORITHMS_SPAWN.md)。后续观测切片（面板 θ⃗ 展示、透视仪、RL state 落 b⃗）仍待。
 >
 > **核心设定（不可动摇的前提）**：**难度 + S 形 stress 曲线仍是游戏调控主线**。本方案不替换、不旁路 S 曲线；它精确化 S 曲线控制的语义为「**目标体感难度**」，并在「体感 → 客观题目」之间插入一层**按玩家能力个性化的标定**——因为「难」是相对能力的主观量。
 

@@ -360,6 +360,7 @@ export default {
       },
       "earlyOvershootGuard": {
         "comment": "v1.71 PEOG（PB 早期超越守卫）—— 对 bestScore ≥ midHighFloor 的中高分段玩家，在开局前 earlyOvershootGuardSpawns 个 spawn 内压制构造算法/温暖局的高分爆点（multiClear/perfectClear/大块），守住 pct=score/bestScoreAtRunStart < pbApproachCeiling，避免开局阶段就触发 _maybeCelebrateNewBest + pbOvershootBoost 把整局推入高压硬挺导致用户生命透支。只动机会面（spawnHints + 构造算子 yield cap），不动纪录线（bestScore / derivePbCurve / challengeBoost / _maybeCelebrateNewBest 不变）。bypass 12 路按优先级短路：disabled / rollout_out / low_pb / t1_newbie / winback_first_run / manual_remote_force / recovery / near_miss / bottleneck / post_pb_release / late_phase / approach_handoff。与 expertEarlyBoost 冲突时 PEOG cap 优先（min(floor, cap)）。详见 docs/player/BEST_SCORE_CHASE_STRATEGY.md §4.16 / docs/algorithms/ALGORITHMS_SPAWN.md §十七.X。",
+        "tuningComment": "v-research §改进（恢复高 PB 局初得分率）：PEOG 由『逐帧限速』改为『累计不超越 ceiling 的预算』。applyPeogYieldCap 的单帧 cap = max(PB×maxYieldPerSpawnRatio[下限], PB×ceiling−consumedYield[剩余额度])，局初额度充裕时爆点照常放行；maxYieldPerSpawnRatio 由 0.08/0.05 上调到 0.16/0.10 仅作单帧下限。applyPeogSpawnHintsCap 改为『仅当 remaining < PB×hintsCapHeadroomRatio（临近 ceiling）才封顶机会面』，否则透传 multiClear/perfectClear/sizePreference。spawnHints 各 cap 同步放宽。硬下线仍由 approach_handoff(pct≥ceiling) 兜底。",
         "enabled": true,
         "rolloutPercent": 100,
         "midHighFloor": 1200,
@@ -367,9 +368,10 @@ export default {
         "earlyOvershootGuardSpawns": 8,
         "escalateAfterApproachCount": 3,
         "scorePerSpawnSoftCap": 0.06,
+        "hintsCapHeadroomRatio": 0.25,
         "intensities": {
           "peog_mild": {
-            "maxYieldPerSpawnRatio": 0.08,
+            "maxYieldPerSpawnRatio": 0.16,
             "multiClearMin": 2,
             "perfectClearAllowed": true,
             "largeBlockMinSize": 3,
@@ -379,15 +381,15 @@ export default {
               "perfectClear": 0
             },
             "spawnHints": {
-              "multiClearBonusCap": 0.45,
-              "perfectClearBoostCap": 0.15,
+              "multiClearBonusCap": 0.6,
+              "perfectClearBoostCap": 0.35,
               "iconBonusTargetFloor": 0.55,
-              "sizePreferenceCap": 0.45,
+              "sizePreferenceCap": 0.6,
               "clearGuaranteeFloor": 1
             }
           },
           "peog_strong": {
-            "maxYieldPerSpawnRatio": 0.05,
+            "maxYieldPerSpawnRatio": 0.1,
             "multiClearMin": 2,
             "perfectClearAllowed": false,
             "largeBlockMinSize": 3,
@@ -397,10 +399,10 @@ export default {
               "perfectClear": 0
             },
             "spawnHints": {
-              "multiClearBonusCap": 0.3,
-              "perfectClearBoostCap": 0,
+              "multiClearBonusCap": 0.45,
+              "perfectClearBoostCap": 0.15,
               "iconBonusTargetFloor": 0.55,
-              "sizePreferenceCap": 0.4,
+              "sizePreferenceCap": 0.5,
               "clearGuaranteeFloor": 1
             }
           }
@@ -1104,11 +1106,15 @@ export default {
       "enabled": true,
       "rolloutPercent": 100,
       "minConfidence": 0.45,
-      "personalizationStrength": 0.3,
+      "personalizationStrength": 0.18,
       "deltaCurriculumK": 0.15,
       "noiseAmp": 0.05,
       "lowConfFallback": true,
-      "candidateK": 4,
+      "candidateK": 3,
+      "tuningComment": "v-research §改进（恢复体感波动性）：personalizationStrength 0.3→0.18、weaknessBoost 1.5→1.15、candidateK 4→3 把『等体感钳制』降为『温和偏置』，避免难度被钉在线上、弱项被全程定向施压。alignSharpness（对齐锐度，默认 3）→2.0 软化对齐；alignTemperature>0 时 best-of-K 由 argmax 改为 softmax 采样（保留次优候选/难度方差）；burstReleaseProb 以该概率主动放行最偏离 b* 的爆点三连，制造爽点节奏。三者均在 ctx.rng 存在时确定性生效，无 rng 退回 argmax。",
+      "alignSharpness": 2,
+      "alignTemperature": 0.15,
+      "burstReleaseProb": 0.2,
       "dims": [
         "spatial",
         "combo",
@@ -1125,12 +1131,12 @@ export default {
         "tempo": 1,
         "clearEff": 1
       },
-      "weaknessBoost": 1.5,
+      "weaknessBoost": 1.15,
       "shapePrior": {
-        "comment": "阶段5『构造算子 target-aware』：把客观目标 b* 与玩家能力 θ⃗ 的逐维缺口 gap=b*−θ⃗ 经 dimAffinity 映射成 7 类形状权重的乘性偏置，提升候选池里贴近 b* 的三块密度（与 best-of-K 选块互补；选块仍是硬约束后的事，本偏置只改池分布不绕约束）。enabled=false → 不偏置。lambda 实际强度=relativityLambda×strength；cap 限幅；distressed/救济帧禁用（顺玩家优先）。dimAffinity[dim][cat]∈[-1,1]：正=该类形状抬高此考点客观难度。",
+        "comment": "阶段5『构造算子 target-aware』：把客观目标 b* 与玩家能力 θ⃗ 的逐维缺口 gap=b*−θ⃗ 经 dimAffinity 映射成 7 类形状权重的乘性偏置，提升候选池里贴近 b* 的三块密度（与 best-of-K 选块互补；选块仍是硬约束后的事，本偏置只改池分布不绕约束）。enabled=false → 不偏置。lambda 实际强度=relativityLambda×strength；cap 限幅；distressed/救济帧禁用（顺玩家优先）。dimAffinity[dim][cat]∈[-1,1]：正=该类形状抬高此考点客观难度。strength 0.6→0.4 / cap 0.30→0.20：降低形状池偏置强度，避免与等体感对齐叠加后过度收窄候选分布。",
         "enabled": true,
-        "strength": 0.6,
-        "cap": 0.3,
+        "strength": 0.4,
+        "cap": 0.2,
         "dimAffinity": {
           "spatial": {
             "lines": -0.2,

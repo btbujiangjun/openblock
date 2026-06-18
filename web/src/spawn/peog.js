@@ -318,13 +318,25 @@ export function applyPeogSpawnHintsCap(enhancedConfig, peogState) {
     const spCap = Number.isFinite(sh.sizePreferenceCap) ? sh.sizePreferenceCap : 0.45;
     const cgFloor = Number.isFinite(sh.clearGuaranteeFloor) ? sh.clearGuaranteeFloor : 1;
 
+    /* §改进：从"全程封顶机会面"改为"仅临近 ceiling 才封顶"。
+     * PEOG 的目的只是守住 pct<pbApproachCeiling（不提前破纪录），并非压制局初得分率。
+     * 用累计剩余额度 remaining = PB×ceiling − consumedYield 判定是否临近 ceiling：
+     * 额度充裕（remaining ≥ PB×hintsCapHeadroomRatio）时透传爆点机会面（multiClearBonus/
+     * perfectClearBoost/sizePreference 不封顶），恢复"高 PB 局初也有爽块"；仅在逼近 ceiling
+     * 时才收手，避免一帧打穿纪录线。iconBonusTarget/clearGuarantee 的温暖 floor 始终保留。 */
+    const PB = Number(peogState.bestScoreAtRunStart) || 0;
+    const ceiling = Number(peogState.pbApproachCeiling) || 0.85;
+    const headroomRatio = Number.isFinite(cfg?.hintsCapHeadroomRatio) ? cfg.hintsCapHeadroomRatio : 0.25;
+    const remaining = Math.max(0, PB * ceiling - (Number(peogState.consumedYield) || 0));
+    const nearCeiling = PB > 0 && remaining < PB * headroomRatio;
+
     const peogHints = {
         ...baseHints,
-        /* multiClearBonus / perfectClearBoost / sizePreference 取 min（封顶）：
-         * 即便 expertEarlyBoost 抬了 floor=0.5，PEOG mild cap=0.45 仍把它压下来。 */
-        multiClearBonus: Math.min(baseHints.multiClearBonus ?? 0, mcbCap),
-        perfectClearBoost: Math.min(baseHints.perfectClearBoost ?? 0, pcbCap),
-        sizePreference: Math.min(baseHints.sizePreference ?? 0, spCap),
+        /* multiClearBonus / perfectClearBoost / sizePreference 仅在临近 ceiling 时取 min（封顶）；
+         * 额度充裕时透传原值（让 expertEarlyBoost / warmRun 的爽块机会面在局初照常生效）。 */
+        multiClearBonus: nearCeiling ? Math.min(baseHints.multiClearBonus ?? 0, mcbCap) : (baseHints.multiClearBonus ?? 0),
+        perfectClearBoost: nearCeiling ? Math.min(baseHints.perfectClearBoost ?? 0, pcbCap) : (baseHints.perfectClearBoost ?? 0),
+        sizePreference: nearCeiling ? Math.min(baseHints.sizePreference ?? 0, spCap) : (baseHints.sizePreference ?? 0),
         /* iconBonusTarget / clearGuarantee 取 max（保留温暖契约 + 让玩家走颜色清晰路线）。 */
         iconBonusTarget: Math.max(baseHints.iconBonusTarget ?? 0, iconFloor),
         clearGuarantee: Math.max(baseHints.clearGuarantee ?? 0, cgFloor),
@@ -334,6 +346,8 @@ export function applyPeogSpawnHintsCap(enhancedConfig, peogState) {
             consumedYield: peogState.consumedYield,
             approachCount: peogState.approachCount,
             yieldCapHits: peogState.yieldCapHits,
+            nearCeiling,
+            remainingHeadroom: remaining,
             maxYieldPerSpawn: peogState.bestScoreAtRunStart
                 * (Number(intens.maxYieldPerSpawnRatio) || 0.08),
             perfectClearAllowed: intens.perfectClearAllowed !== false,
@@ -363,8 +377,17 @@ export function applyPeogYieldCap(candidates, peogState) {
 
     const cfg = readPeogConfig();
     const intens = cfg?.intensities?.[peogState.intensity] ?? cfg?.intensities?.peog_mild ?? {};
-    const ratio = Number(intens.maxYieldPerSpawnRatio) || 0.08;
-    const yieldCap = peogState.bestScoreAtRunStart * ratio;
+    const minRatio = Number(intens.maxYieldPerSpawnRatio) || 0.08;
+    const PB = Number(peogState.bestScoreAtRunStart) || 0;
+    /* §改进：单帧 cap 从"恒为 PB×ratio 的逐帧限速"改为"累计不超越 ceiling 的预算"。
+     *   remaining = PB×ceiling − consumedYield 是距 ceiling 的累计剩余额度；
+     *   PB×minRatio 作为单帧下限（floor），避免 remaining→0 时 dock 变琐碎（保留可玩性）。
+     * 局初 remaining 充裕 → cap 很高 → 爆点候选照常放行（恢复高 PB 局初得分率）；
+     * 仅当累计逼近 ceiling 时 cap 才收紧到 floor。PEOG 的硬下线仍由 evaluatePeogActive
+     * 的 approach_handoff(pct≥ceiling) 兜底，故本累计预算不会把玩家越权推过纪录线。 */
+    const ceiling = Number(peogState.pbApproachCeiling) || 0.85;
+    const remaining = Math.max(0, PB * ceiling - (Number(peogState.consumedYield) || 0));
+    const yieldCap = Math.max(PB * minRatio, remaining);
     if (!(yieldCap > 0)) return candidates;
 
     const accepted = [];
