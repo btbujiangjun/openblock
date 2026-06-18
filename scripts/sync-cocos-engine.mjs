@@ -36,6 +36,7 @@ const FILES = [
     'lib/dateUtils.js',
     'lib/storageAdapter.js',
     'lib/decisionTable.js',
+    'lib/userBucketing.js',
     /* V2 V5：新增的轻量纯工具，cocos 端 adaptiveSpawn / analytics 都依赖 */
     'lib/analyticsStore.js',
     'lib/loggerBatchSink.js',
