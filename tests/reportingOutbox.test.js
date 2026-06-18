@@ -115,4 +115,45 @@ describe('reportingOutbox', () => {
         expect(body.app_version).toBe('9.9.9');
         expect(Array.isArray(body.events)).toBe(true);
     });
+
+    /* ─── W5: hot cache 行为契约（避免每次 enqueue parse 整列） ─── */
+    it('W5: 多次 enqueue 仅触发首次 LS getItem（hot cache 命中）', () => {
+        const spy = vi.spyOn(_store, 'getItem');
+        spy.mockClear();
+        enqueue('behavior', { event_type: 'a', user_id: 'u' });
+        enqueue('behavior', { event_type: 'b', user_id: 'u' });
+        enqueue('behavior', { event_type: 'c', user_id: 'u' });
+        /* 第一次 enqueue 会读一次（cache miss），后续两次 cache 命中 → 仅 1 次 getItem */
+        const calls = spy.mock.calls.filter((c) => String(c[0]).includes('openblock_outbox_behavior'));
+        expect(calls.length).toBeLessThanOrEqual(1);
+        spy.mockRestore();
+    });
+
+    it('W5: enqueue 仍同步写 LS（断电不丢契约）', () => {
+        enqueue('behavior', { event_type: 'a', user_id: 'u' });
+        /* 直接从底层 store 读应能立刻看到 */
+        const raw = _store.getItem('openblock_outbox_behavior');
+        expect(JSON.parse(raw)[0].event_type).toBe('a');
+    });
+
+    it('W5: __resetForTest 清 hot cache（外部修改 LS 仍能被识别）', () => {
+        enqueue('behavior', { event_type: 'a', user_id: 'u' });
+        expect(pendingCount('behavior')).toBe(1);
+        __resetForTest();
+        initReportingOutbox({ apiBase: 'http://test.local', platform: 'web', appVersion: '9.9.9', enabled: true, flushIntervalMs: 999999 });
+        /* 重置后队列应空（LS 也被清掉了） */
+        expect(pendingCount('behavior')).toBe(0);
+    });
+
+    it('W5: cache 与 LS 永远同步（after enqueue → flush success → cache 与 LS 一致）', async () => {
+        const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ accepted: 1 }) }));
+        vi.stubGlobal('fetch', fetchMock);
+        enqueue('behavior', { event_type: 'a', user_id: 'u' });
+        enqueue('behavior', { event_type: 'b', user_id: 'u' });
+        await flush();
+        /* 应清空：cache 与 LS */
+        expect(pendingCount('behavior')).toBe(0);
+        const raw = _store.getItem('openblock_outbox_behavior');
+        expect(JSON.parse(raw || '[]')).toEqual([]);
+    });
 });

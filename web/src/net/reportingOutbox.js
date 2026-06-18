@@ -31,16 +31,40 @@ let _backoffUntil = 0;
 
 function _key(channel) { return KEY_PREFIX + channel; }
 
-function _load(channel) {
+/* v1.71 W5：channel hot cache —— 避免 enqueue 时每次都 JSON.parse 整个队列。
+ *
+ * 契约：`断电/刷新不丢`（模块顶注释）→ 必须同步写 LS，**不可节流**。
+ * 但同步**读** LS（JSON.parse 整 list）可以省掉：只要 enqueue/pop 路径
+ * 都通过本 cache 做单一真理源，cache 与 LS 永远同步。
+ *
+ * cache miss 时（首次访问 / __resetForTest 后）回退到 _loadFromLS。
+ * cache 与 LS 强一致：所有写操作（enqueue / _flushChannel 移除）都走
+ * _writeChannel(list) 同步更新两端。 */
+const _channelCache = new Map();
+
+function _loadFromLS(channel) {
     try {
         const raw = localStorage.getItem(_key(channel));
         return raw ? JSON.parse(raw) : [];
     } catch { return []; }
 }
 
-function _save(channel, list) {
+function _load(channel) {
+    let list = _channelCache.get(channel);
+    if (list === undefined) {
+        list = _loadFromLS(channel);
+        _channelCache.set(channel, list);
+    }
+    return list;
+}
+
+function _writeChannel(channel, list) {
+    _channelCache.set(channel, list);
     try { localStorage.setItem(_key(channel), JSON.stringify(list)); } catch { /* ignore */ }
 }
+
+/* 旧 _save 保留为薄包装供已有调用方使用（语义不变） */
+function _save(channel, list) { _writeChannel(channel, list); }
 
 function _genId(channel) {
     return `${channel}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
@@ -165,4 +189,6 @@ export function __resetForTest() {
     try {
         Object.keys(channels).forEach((c) => localStorage.removeItem(_key(c)));
     } catch { /* ignore */ }
+    /* v1.71 W5：清 hot cache，下次 _load 会重读 LS（已清） */
+    _channelCache.clear();
 }
