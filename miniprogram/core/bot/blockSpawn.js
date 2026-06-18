@@ -752,8 +752,44 @@ function getSolutionDifficultyCfg() {
         enabled: cfg?.enabled ?? false,
         activationFill: cfg?.activationFill ?? SOLUTION_EVAL_FILL_MIN_DEFAULT,
         leafCap: cfg?.leafCap ?? SOLUTION_LEAF_CAP_DEFAULT,
-        budget: cfg?.budget ?? SOLUTION_BUDGET_DEFAULT
+        budget: cfg?.budget ?? SOLUTION_BUDGET_DEFAULT,
+        /* Y1：dynamic leafCap 跟随 fill 自适应（默认 false → 行为不变）。
+         * 启用时按 fill 分档（lowFill→小 cap、highFill→大 cap），
+         * 解决 X4 发现的双峰分布问题——单一 cap=64 既浪费简单盘面、又截断复杂盘面。 */
+        dynamicLeafCap: cfg?.dynamicLeafCap === true,
+        /* 分档阈值（可配置；默认贴合 X4 双峰：低 fill < 0.45 / 高 fill ≥ 0.65） */
+        leafCapLowFillThreshold: cfg?.leafCapLowFillThreshold ?? 0.45,
+        leafCapHighFillThreshold: cfg?.leafCapHighFillThreshold ?? 0.65,
+        /* 分档值（默认基于 X4 双峰建议：32 / 64 / 96） */
+        leafCapLowFill: cfg?.leafCapLowFill ?? Math.max(8, Math.floor((cfg?.leafCap ?? SOLUTION_LEAF_CAP_DEFAULT) / 2)),
+        leafCapHighFill: cfg?.leafCapHighFill ?? Math.floor((cfg?.leafCap ?? SOLUTION_LEAF_CAP_DEFAULT) * 1.5),
     };
+}
+
+/**
+ * Y1：按 fill 分三档解析实际 leafCap。
+ *
+ * 不启用 dynamicLeafCap 时退化为静态 baseCap（100% 行为不变）。
+ *
+ * 分档语义（与 X4 双峰决策一致）：
+ *   - fill < lowFillThreshold (0.45)  → leafCapLowFill (默认 baseCap/2=32)
+ *   - fill ≥ highFillThreshold (0.65) → leafCapHighFill (默认 baseCap×1.5=96)
+ *   - 其余                            → baseCap (64)
+ *
+ * 与 cache key 的关系：
+ *   _solnKey 已包含 `#${leafCap}#${budget}`，动态 cap 仍能正确分桶缓存
+ *   （同 triplet 不同 fill 触发不同 cap → 不同 key → 各自独立缓存项）。
+ *
+ * @param {number} fill 当前 grid 占用率 ∈ [0, 1]
+ * @param {ReturnType<typeof getSolutionDifficultyCfg>} cfg
+ * @returns {number} 实际 leafCap
+ */
+function resolveDynamicLeafCap(fill, cfg) {
+    if (!cfg.dynamicLeafCap) return cfg.leafCap;
+    if (!Number.isFinite(fill)) return cfg.leafCap;
+    if (fill < cfg.leafCapLowFillThreshold) return cfg.leafCapLowFill;
+    if (fill >= cfg.leafCapHighFillThreshold) return cfg.leafCapHighFill;
+    return cfg.leafCap;
 }
 
 function getStepDifficultyCfg() {
@@ -3030,11 +3066,13 @@ function generateDockShapes(grid, strategyConfig, spawnContext) {
         if (solutionCfg.enabled && fill >= solutionCfg.activationFill) {
             const datas = triplet.map((s) => s.data);
             const _solnBudget = orderSolutionBudget != null ? Math.max(solutionCfg.budget ?? 0, orderSolutionBudget) : solutionCfg.budget;
-            const _solnKey = _tripletSig(triplet) + '#' + solutionCfg.leafCap + '#' + _solnBudget;
+            /* Y1：按 fill 动态解析 leafCap（cfg.dynamicLeafCap=false 时退化为 solutionCfg.leafCap） */
+            const _solnLeafCap = resolveDynamicLeafCap(fill, solutionCfg);
+            const _solnKey = _tripletSig(triplet) + '#' + _solnLeafCap + '#' + _solnBudget;
             solutionMetrics = _solnMemo.get(_solnKey);
             if (solutionMetrics === undefined) {
                 solutionMetrics = evaluateTripletSolutions(grid, datas, {
-                    leafCap: solutionCfg.leafCap,
+                    leafCap: _solnLeafCap,
                     /* v1.66：高压阶段透传更大 budget（orderSolutionBudget），降低高 fill 下三连解
                      * 评估被预算截断（truncated）的概率——截断会让下方 orderRigor 顺序过滤静默跳过。 */
                     budget: _solnBudget
