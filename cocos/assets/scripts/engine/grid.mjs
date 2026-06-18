@@ -7,6 +7,19 @@
  */
 import { pickShapeByCategoryWeights } from './shapes.mjs';
 
+/* ── v1.71 DD3：bitmap helpers（popcount / count-trailing-zeros）──
+ * 用于 8×8 棋盘 Int32 mask 的位操作（findGapPositions 等热点）。
+ * 不依赖 Math.clz32 fallback（V8/JSC 都已支持 ≥ 5 年）。 */
+function _popcount32(v) {
+    v = v - ((v >>> 1) & 0x55555555);
+    v = (v & 0x33333333) + ((v >>> 2) & 0x33333333);
+    return (((v + (v >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
+}
+function _ctz32(v) {
+    if (v === 0) return 32;
+    return 31 - Math.clz32(v & -v);
+}
+
 export class Grid {
     constructor(size = 8) {
         this.size = size;
@@ -762,9 +775,75 @@ export class Grid {
         return lines;
     }
 
+    /* ── v1.71 DD3：findGapPositions bitmap 路径 ──
+     * 原实现 8×8×2 嵌套循环每帧多次分配空数组（绝大多数被丢弃，>4 空格的行/列不入结果）。
+     * Bitmap 路径：
+     *   1. 一次扫描构 occRows[n]（每行 bitmap）
+     *   2. 行空格数 = n - popcount(occRows[y])，只在 1..4 范围内才提取位置
+     *   3. 列空格数 = n - popcount(列方向投影)，同样过滤后提取
+     *   4. 跳过 >4 空的"绝大多数行/列"→ 数组分配少 >70%
+     * 慢路径回退 _findGapPositionsSlow 覆盖 n>30。 */
     findGapPositions() {
+        const n = this.size;
+        if (n > 30) return this._findGapPositionsSlow();
+        const cells = this.cells;
+        const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
+        const occRows = new Int32Array(n);
+        for (let y = 0; y < n; y++) {
+            const row = cells[y];
+            let m = 0;
+            for (let x = 0; x < n; x++) if (row[x] !== null) m |= (1 << x);
+            occRows[y] = m;
+        }
         const gaps = [];
+        /* 行扫描 */
+        for (let y = 0; y < n; y++) {
+            const occ = occRows[y];
+            const emptyMask = (~occ) & fullMask;
+            const empty = _popcount32(emptyMask);
+            if (empty >= 1 && empty <= 4) {
+                const positions = new Array(empty);
+                let i = 0;
+                let mm = emptyMask;
+                while (mm !== 0) {
+                    const x = _ctz32(mm);
+                    positions[i++] = { x, y };
+                    mm &= mm - 1; /* 清最低位 */
+                }
+                gaps.push({ type: 'row', y, empty, positions });
+            }
+        }
+        /* 列扫描：构造列方向投影一次 */
+        const colOcc = new Int32Array(n); /* colOcc[x] = 占位位掩码（位 y） */
+        for (let y = 0; y < n; y++) {
+            let occ = occRows[y];
+            while (occ !== 0) {
+                const x = _ctz32(occ);
+                colOcc[x] |= (1 << y);
+                occ &= occ - 1;
+            }
+        }
+        for (let x = 0; x < n; x++) {
+            const emptyMask = (~colOcc[x]) & fullMask;
+            const empty = _popcount32(emptyMask);
+            if (empty >= 1 && empty <= 4) {
+                const positions = new Array(empty);
+                let i = 0;
+                let mm = emptyMask;
+                while (mm !== 0) {
+                    const y = _ctz32(mm);
+                    positions[i++] = { x, y };
+                    mm &= mm - 1;
+                }
+                gaps.push({ type: 'col', x, empty, positions });
+            }
+        }
+        gaps.sort((a, b) => a.empty - b.empty);
+        return gaps;
+    }
 
+    _findGapPositionsSlow() {
+        const gaps = [];
         for (let y = 0; y < this.size; y++) {
             let empty = 0;
             const positions = [];
@@ -774,12 +853,10 @@ export class Grid {
                     positions.push({ x, y });
                 }
             }
-            /* v10.34：含「差 4 格满行」— 旧版仅 1~3 空，大块面临满行时 gapFills 常为 0，消行/清屏候选被低估 */
             if (empty >= 1 && empty <= 4) {
                 gaps.push({ type: 'row', y, empty, positions });
             }
         }
-
         for (let x = 0; x < this.size; x++) {
             let empty = 0;
             const positions = [];
@@ -793,7 +870,6 @@ export class Grid {
                 gaps.push({ type: 'col', x, empty, positions });
             }
         }
-
         gaps.sort((a, b) => a.empty - b.empty);
         return gaps;
     }
