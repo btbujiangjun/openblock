@@ -749,6 +749,117 @@ describe('adaptiveSpawn._applySpawnHintsPersonalizationRules (AA1)', () => {
     });
 });
 
+/* ============ BB1: _applySpawnHintsDelightRules ============ */
+function _applySpawnHintsDelightRulesRef(s, delight, canPromoteToPayoff) {
+    if (s.rhythmPhase === 'payoff') {
+        s.diversityBoost = Math.max(s.diversityBoost, 0.1);
+    }
+    if (delight.mode === 'challenge_payoff') {
+        s.diversityBoost = Math.max(s.diversityBoost, 0.12);
+        if (s.rhythmPhase === 'neutral' && canPromoteToPayoff) s.rhythmPhase = 'payoff';
+        s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+    } else if (delight.mode === 'flow_payoff') {
+        if (s.rhythmPhase === 'neutral' && canPromoteToPayoff) s.rhythmPhase = 'payoff';
+        s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+    } else if (delight.mode === 'relief') {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.25);
+    }
+    if (delight.perfectClearBoost >= 0.75) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.multiLineTarget = Math.max(s.multiLineTarget, 2);
+    }
+    return s;
+}
+const delightState = () => ({
+    diversityBoost: 0, multiLineTarget: 0, clearGuarantee: 0,
+    sizePreference: 0, rhythmPhase: 'neutral',
+});
+
+describe('adaptiveSpawn._applySpawnHintsDelightRules (BB1)', () => {
+    it('rhythmPhase=payoff → diversityBoost ≥ 0.10', () => {
+        const s = delightState(); s.rhythmPhase = 'payoff';
+        _applySpawnHintsDelightRulesRef(s, { mode: '', perfectClearBoost: 0 }, false);
+        expect(s.diversityBoost).toBe(0.1);
+    });
+
+    it('mode=challenge_payoff + canPromoteToPayoff=true → diversity 0.12 / payoff 提升 / mlt 1', () => {
+        const s = delightState();
+        _applySpawnHintsDelightRulesRef(s, { mode: 'challenge_payoff', perfectClearBoost: 0 }, true);
+        expect(s.diversityBoost).toBe(0.12);
+        expect(s.rhythmPhase).toBe('payoff');
+        expect(s.multiLineTarget).toBe(1);
+    });
+
+    it('mode=challenge_payoff + canPromoteToPayoff=false → payoff 不提升（几何门控）', () => {
+        const s = delightState();
+        _applySpawnHintsDelightRulesRef(s, { mode: 'challenge_payoff', perfectClearBoost: 0 }, false);
+        expect(s.rhythmPhase).toBe('neutral');
+        expect(s.diversityBoost).toBe(0.12);
+        expect(s.multiLineTarget).toBe(1);
+    });
+
+    it('mode=flow_payoff + canPromoteToPayoff=true → payoff 提升 / mlt 1（无 diversity 调）', () => {
+        const s = delightState();
+        _applySpawnHintsDelightRulesRef(s, { mode: 'flow_payoff', perfectClearBoost: 0 }, true);
+        expect(s.rhythmPhase).toBe('payoff');
+        expect(s.multiLineTarget).toBe(1);
+        expect(s.diversityBoost).toBe(0); /* flow 不动 diversity */
+    });
+
+    it('mode=relief → cg ≥ 2 / sp ≤ -0.25（无 payoff 提升）', () => {
+        const s = delightState();
+        _applySpawnHintsDelightRulesRef(s, { mode: 'relief', perfectClearBoost: 0 }, true);
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.sizePreference).toBe(-0.25);
+        expect(s.rhythmPhase).toBe('neutral'); /* relief 不提 payoff */
+    });
+
+    it('未知 mode → 不动 enum 字段', () => {
+        const s = delightState();
+        _applySpawnHintsDelightRulesRef(s, { mode: 'unknown', perfectClearBoost: 0 }, true);
+        expect(s).toEqual(delightState());
+    });
+
+    it('perfectClearBoost ≥ 0.75 → cg ≥ 2 / mlt ≥ 2', () => {
+        const s = delightState();
+        _applySpawnHintsDelightRulesRef(s, { mode: '', perfectClearBoost: 0.75 }, false);
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.multiLineTarget).toBe(2);
+    });
+
+    it('perfectClearBoost = 0.74 → 不触发', () => {
+        const s = delightState();
+        _applySpawnHintsDelightRulesRef(s, { mode: '', perfectClearBoost: 0.74 }, false);
+        expect(s.clearGuarantee).toBe(0);
+        expect(s.multiLineTarget).toBe(0);
+    });
+
+    it('challenge_payoff + perfectClearBoost ≥ 0.75 → mlt 取 max(1, 2)=2', () => {
+        const s = delightState();
+        _applySpawnHintsDelightRulesRef(s, { mode: 'challenge_payoff', perfectClearBoost: 0.8 }, true);
+        expect(s.multiLineTarget).toBe(2);
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.diversityBoost).toBe(0.12);
+    });
+
+    it('rhythmPhase=setup → 不被 payoff 第一段触发；challenge_payoff 也不应提升（仅 neutral→payoff）', () => {
+        const s = delightState(); s.rhythmPhase = 'setup';
+        _applySpawnHintsDelightRulesRef(s, { mode: 'challenge_payoff', perfectClearBoost: 0 }, true);
+        expect(s.rhythmPhase).toBe('setup'); /* setup 不被 challenge_payoff 提升（仅 neutral→payoff） */
+        expect(s.diversityBoost).toBe(0.12);
+    });
+
+    it('幂等：同一输入连续两次结果一致', () => {
+        const s1 = delightState();
+        const s2 = delightState();
+        _applySpawnHintsDelightRulesRef(s1, { mode: 'challenge_payoff', perfectClearBoost: 0.8 }, true);
+        _applySpawnHintsDelightRulesRef(s2, { mode: 'challenge_payoff', perfectClearBoost: 0.8 }, true);
+        _applySpawnHintsDelightRulesRef(s2, { mode: 'challenge_payoff', perfectClearBoost: 0.8 }, true);
+        expect(s1).toEqual(s2);
+    });
+});
+
 /* ============ W4: _applySpawnHintsComboWinbackRules ============ */
 function _applySpawnHintsComboWinbackRulesRef(s) {
     let { clearGuarantee, sizePreference } = s;

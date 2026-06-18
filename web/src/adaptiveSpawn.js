@@ -574,6 +574,47 @@ function _applySpawnHintsPersonalizationRules(s, signals) {
     return s;
 }
 
+/**
+ * delight 调度 spawnHints（v1.71 BB1 抽出 L2626-2646）。
+ *
+ * 处理 4 段独立调制（顺序敏感性 = 0：4 段互斥/幂等）：
+ *   1. rhythmPhase=payoff           → diversityBoost ≥ 0.10
+ *   2. delight.mode 4 分支 enum：
+ *        - challenge_payoff         → diversity ≥ 0.12 / payoff 提升 / multiLineTarget ≥ 1
+ *        - flow_payoff              → payoff 提升 / multiLineTarget ≥ 1
+ *        - relief                   → clearGuarantee ≥ 2 / sizePreference ≤ -0.25
+ *   3. delight.perfectClearBoost ≥ 0.75 → clearGuarantee ≥ 2 / multiLineTarget ≥ 2
+ *
+ * rhythmPhase 提升均带 canPromoteToPayoff 几何门控（避免空盘面"撒谎"）。
+ *
+ * @param {object} s state object（含 diversityBoost / multiLineTarget /
+ *                                 clearGuarantee / sizePreference / rhythmPhase）
+ * @param {{ mode: string, perfectClearBoost: number }} delight
+ * @param {boolean} canPromoteToPayoff
+ * @returns {object} 修改后的 s（同引用）
+ */
+function _applySpawnHintsDelightRules(s, delight, canPromoteToPayoff) {
+    if (s.rhythmPhase === 'payoff') {
+        s.diversityBoost = Math.max(s.diversityBoost, 0.1);
+    }
+    if (delight.mode === 'challenge_payoff') {
+        s.diversityBoost = Math.max(s.diversityBoost, 0.12);
+        if (s.rhythmPhase === 'neutral' && canPromoteToPayoff) s.rhythmPhase = 'payoff';
+        s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+    } else if (delight.mode === 'flow_payoff') {
+        if (s.rhythmPhase === 'neutral' && canPromoteToPayoff) s.rhythmPhase = 'payoff';
+        s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+    } else if (delight.mode === 'relief') {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.sizePreference = Math.min(s.sizePreference, -0.25);
+    }
+    if (delight.perfectClearBoost >= 0.75) {
+        s.clearGuarantee = Math.max(s.clearGuarantee, 2);
+        s.multiLineTarget = Math.max(s.multiLineTarget, 2);
+    }
+    return s;
+}
+
 function _applySpawnHintsComboWinbackRules(s) {
     let { clearGuarantee, sizePreference } = s;
     const { comboChain, winbackPreset, ctx } = s;
@@ -2623,26 +2664,17 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
         multiClearBonus = Math.max(multiClearBonus, 0.6);
     }
 
-    /* --- Layer 2: payoff 节奏期提高多样性 --- */
-    if (rhythmPhase === 'payoff') {
-        diversityBoost = Math.max(diversityBoost, 0.1);
-    }
-    if (delight.mode === 'challenge_payoff') {
-        diversityBoost = Math.max(diversityBoost, 0.12);
-        /* v1.17：仅当盘面真的有 harvest 几何时才升 payoff —— 否则
-         * "心流挑战"叙事会在空盘面上仍说"收获期"，与 UI 现实不符。 */
-        if (rhythmPhase === 'neutral' && canPromoteToPayoff) rhythmPhase = 'payoff';
-        multiLineTarget = Math.max(multiLineTarget, 1);
-    } else if (delight.mode === 'flow_payoff') {
-        if (rhythmPhase === 'neutral' && canPromoteToPayoff) rhythmPhase = 'payoff';
-        multiLineTarget = Math.max(multiLineTarget, 1);
-    } else if (delight.mode === 'relief') {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, -0.25);
-    }
-    if (delight.perfectClearBoost >= 0.75) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        multiLineTarget = Math.max(multiLineTarget, 2);
+    /* --- v1.71 BB1：delight 调度段抽至 _applySpawnHintsDelightRules --- */
+    {
+        const _d = _applySpawnHintsDelightRules(
+            { diversityBoost, multiLineTarget, clearGuarantee, sizePreference, rhythmPhase },
+            delight, canPromoteToPayoff,
+        );
+        diversityBoost = _d.diversityBoost;
+        multiLineTarget = _d.multiLineTarget;
+        clearGuarantee = _d.clearGuarantee;
+        sizePreference = _d.sizePreference;
+        rhythmPhase = _d.rhythmPhase;
     }
 
     /* --- Layer 3: 分数里程碑庆祝 — 出块友好化（v1.49 字段更名 milestoneCheck → scoreMilestoneCheck） --- */
