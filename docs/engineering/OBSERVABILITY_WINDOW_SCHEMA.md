@@ -62,9 +62,19 @@
 | `idbMaxLatencyMs` | float | 单次写延时峰值 | 长尾 P99 监控 |
 | `lsPutFallback` | int | IDB 失败但 LS 兜底成功 | 数据未丢 |
 | `lsPutFailCount` | int | LS 也失败次数（quota） | **P0**；> 0 立即告警 |
+| `idbFailReasons` | object<string,int> | **EE4 新增**：按 reason 拆分的失败计数（`no_db` / `tx_error` / `tx_abort` / `exception`）；服务端 `group_by reason` 用于定位瓶颈类型 | **P1**；reason 分布异常时联动业务侧（如 `tx_abort` 高 = quota 满，`no_db` 高 = 隐私模式渗透） |
 | `windowMs` | int | 60000 | – |
 
 **P0 告警**：`idbWriteSuccessRate < 0.95` 或 `lsPutFailCount > 0`。
+
+**EE4 reason 决策表**（写失败时 `idbFailReasons` 主导因素）：
+
+| 主导 reason | 含义 | 推荐动作 |
+|---|---|---|
+| `no_db` | SSR / 隐私模式 / 极旧浏览器（IDB 完全不可用） | 提升 LS 兜底质量；不视为浏览器侧告警 |
+| `tx_error` | 事务出错（罕见，多为浏览器 bug 或 IDB 版本冲突） | 检查是否需要 IDB version bump |
+| `tx_abort` | 事务被中止（最常见为 quota 满 / 浏览器策略） | 触发主动清理过期 events；通知用户清缓存 |
+| `exception` | 同步异常兜底（理论上不应发生） | 必查；定位是否触发了某个 IDB 实现 bug |
 
 ### `monetization_bus_window` (Y4)
 

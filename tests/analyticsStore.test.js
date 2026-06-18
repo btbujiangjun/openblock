@@ -398,4 +398,55 @@ describe('analyticsStore Y3 — IDB 健康观测', () => {
         s.idbPutOk = 99999;
         expect(mod.getAnalyticsStoreStats().idbPutOk).toBe(0);
     });
+
+    /* ============ EE4：idbFailReasons reason tag ============ */
+
+    it('EE4 初始快照包含 idbFailReasons={}', () => {
+        const s = mod.getAnalyticsStoreStats();
+        expect(s.idbFailReasons).toBeDefined();
+        expect(typeof s.idbFailReasons).toBe('object');
+        expect(Object.keys(s.idbFailReasons)).toHaveLength(0);
+    });
+
+    it('EE4 IDB 不可用 → idbFailReasons.no_db 累加', async () => {
+        /* 不设 indexedDB → _hasIDB false → _idbPut 走 no_db 分支 */
+        mod.queueAnalyticsSave({ events: [{ v: 1 }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        const s = mod.getAnalyticsStoreStats();
+        expect(s.idbFailReasons.no_db).toBeGreaterThanOrEqual(1);
+        expect(s.idbPutFail).toBe(s.idbFailReasons.no_db);
+    });
+
+    it('EE4 reason 桶为 live state 副本：修改不污染', async () => {
+        mod.queueAnalyticsSave({ events: [{ v: 1 }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        const s1 = mod.getAnalyticsStoreStats();
+        s1.idbFailReasons.no_db = 99999;
+        s1.idbFailReasons.fake_reason = 42;
+        const s2 = mod.getAnalyticsStoreStats();
+        expect(s2.idbFailReasons.no_db).toBeLessThan(99999);
+        expect(s2.idbFailReasons.fake_reason).toBeUndefined();
+    });
+
+    it('EE4 reset 后 reason 桶清空', async () => {
+        mod.queueAnalyticsSave({ events: [{ v: 1 }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        expect(mod.getAnalyticsStoreStats().idbFailReasons.no_db).toBeGreaterThan(0);
+        mod.resetAnalyticsStoreStats();
+        expect(Object.keys(mod.getAnalyticsStoreStats().idbFailReasons)).toHaveLength(0);
+    });
+
+    it('EE4 idbFailReasons 累加等于 idbPutFail 总数（守恒）', async () => {
+        for (let i = 0; i < 3; i++) {
+            mod.queueAnalyticsSave({ events: [{ v: i }], funnels: {} });
+            vi.advanceTimersByTime(801);
+            await vi.runAllTimersAsync();
+        }
+        const s = mod.getAnalyticsStoreStats();
+        const reasonSum = Object.values(s.idbFailReasons).reduce((a, b) => a + b, 0);
+        expect(reasonSum).toBe(s.idbPutFail);
+    });
 });
