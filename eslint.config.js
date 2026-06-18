@@ -6,7 +6,9 @@ export default [
   {
     files: ['web/src/**/*.js'],
     languageOptions: {
-      ecmaVersion: 2022,
+      /* FF1: ecmaVersion 'latest' 解锁 ES2025 import attributes（`with { type: 'json' }`）
+       * 用于 tests 文件直接 import shared/game_rules.json，无需绕开。 */
+      ecmaVersion: 'latest',
       sourceType: 'module',
       globals: {
         ...globals.browser
@@ -23,7 +25,8 @@ export default [
   {
     files: ['tests/**/*.js'],
     languageOptions: {
-      ecmaVersion: 2022,
+      /* FF1: 同 web/src — 解锁 import attributes 让 with { type: 'json' } 通过 */
+      ecmaVersion: 'latest',
       sourceType: 'module',
       globals: {
         ...globals.browser,
@@ -32,7 +35,9 @@ export default [
         describe: 'readonly',
         it: 'readonly',
         expect: 'readonly',
-        beforeEach: 'readonly'
+        beforeEach: 'readonly',
+        afterEach: 'readonly',
+        vi: 'readonly'
       }
     },
     rules: {

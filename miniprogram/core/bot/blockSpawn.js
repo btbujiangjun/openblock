@@ -48,8 +48,8 @@ const {
     countOccupied,
     countOccupiedCells,
     countNearFullLinesCheap,
-    columnHeightVariance,
-    countDangerColumns,
+    /* Z3 后 columnHeightVariance / countDangerColumns 改由 computeColumnHeightSummary 一次扫描产出，
+     * 本文件不再直接调用；保留 export（供其他模块复用）。 */
     computeColumnHeightSummary,
     countColorBoundaries,
 } = require('./spawnGeometry');
