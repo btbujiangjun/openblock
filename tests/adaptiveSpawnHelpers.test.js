@@ -347,6 +347,67 @@ describe('adaptiveSpawn._resolveExpertEarlyBoostBypass — priorityLadder 6 条'
     });
 });
 
+/* ============ Y2: _applySpawnHintsD4Tighten ============ */
+function _applySpawnHintsD4TightenRef(s, cfgOh) {
+    const mcbCap = Number.isFinite(cfgOh.multiClearBonusCap) ? cfgOh.multiClearBonusCap : 0.18;
+    const spShift = Number.isFinite(cfgOh.sizePreferenceShift) ? cfgOh.sizePreferenceShift : 0.12;
+    const cgShift = Number.isFinite(cfgOh.clearGuaranteeShift) ? cfgOh.clearGuaranteeShift : -1;
+    s.multiClearBonus = Math.min(s.multiClearBonus, mcbCap);
+    s.sizePreference = Math.max(s.sizePreference, s.sizePreference + spShift);
+    s.clearGuarantee = Math.max(0, s.clearGuarantee + cgShift);
+    return {
+        multiClearBonus: s.multiClearBonus,
+        sizePreference: s.sizePreference,
+        clearGuarantee: s.clearGuarantee,
+    };
+}
+
+describe('adaptiveSpawn._applySpawnHintsD4Tighten — D4 收紧 (Y2)', () => {
+    it('multiClearBonus 被 cap 钳制（取 min）', () => {
+        const s = { multiClearBonus: 0.50, sizePreference: 0, clearGuarantee: 3 };
+        _applySpawnHintsD4TightenRef(s, {});
+        expect(s.multiClearBonus).toBe(0.18); /* default cap */
+    });
+
+    it('multiClearBonus 已经低于 cap 时不上抬', () => {
+        const s = { multiClearBonus: 0.05, sizePreference: 0, clearGuarantee: 3 };
+        _applySpawnHintsD4TightenRef(s, {});
+        expect(s.multiClearBonus).toBe(0.05);
+    });
+
+    it('正 sizePreferenceShift → sizePreference 增加（Math.max(sp, sp+shift)）', () => {
+        const s = { multiClearBonus: 0, sizePreference: 0.10, clearGuarantee: 3 };
+        _applySpawnHintsD4TightenRef(s, {}); /* default shift = +0.12 */
+        expect(s.sizePreference).toBeCloseTo(0.22);
+    });
+
+    it('历史半语义：负 sizePreferenceShift 不下压（保留抽出前行为）', () => {
+        const s = { multiClearBonus: 0, sizePreference: 0.10, clearGuarantee: 3 };
+        _applySpawnHintsD4TightenRef(s, { sizePreferenceShift: -0.30 });
+        /* Math.max(0.10, 0.10 + -0.30) = Math.max(0.10, -0.20) = 0.10 → 不变 */
+        expect(s.sizePreference).toBe(0.10);
+    });
+
+    it('clearGuarantee 被钳制为 ≥ 0', () => {
+        const s = { multiClearBonus: 0, sizePreference: 0, clearGuarantee: 1 };
+        _applySpawnHintsD4TightenRef(s, {}); /* default shift = -1 */
+        expect(s.clearGuarantee).toBe(0);
+        const s2 = { multiClearBonus: 0, sizePreference: 0, clearGuarantee: 0 };
+        _applySpawnHintsD4TightenRef(s2, {});
+        expect(s2.clearGuarantee).toBe(0); /* Math.max(0, 0+(-1)) = 0 */
+    });
+
+    it('自定义 cfg 完全可覆盖（mcb 0.30 / sp +0.05 / cg -2）', () => {
+        const s = { multiClearBonus: 0.40, sizePreference: 0.10, clearGuarantee: 3 };
+        _applySpawnHintsD4TightenRef(s, {
+            multiClearBonusCap: 0.30, sizePreferenceShift: 0.05, clearGuaranteeShift: -2,
+        });
+        expect(s.multiClearBonus).toBe(0.30);
+        expect(s.sizePreference).toBeCloseTo(0.15);
+        expect(s.clearGuarantee).toBe(1);
+    });
+});
+
 /* ============ W4: _applySpawnHintsComboWinbackRules ============ */
 function _applySpawnHintsComboWinbackRulesRef(s) {
     let { clearGuarantee, sizePreference } = s;

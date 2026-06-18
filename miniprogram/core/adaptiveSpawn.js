@@ -409,6 +409,35 @@ function _resolveExpertEarlyBoostBypass(s) {
     ], s, null);
 }
 
+/**
+ * D4 spawnHints 收紧（v1.71 Y2 抽出 v1.56.4 §5.α.8 L2616-2624）。
+ *
+ * pbOvershootActive 阶段（玩家"超 PB 后还在加分"）的反向调制——
+ * 与 farFromPBBoost / expertEarlyBoost 处于同一段但语义相反（一减压、一加压）。
+ *
+ * 调用约定：原地修改 s（含 multiClearBonus / sizePreference / clearGuarantee 字段）。
+ * 调用方负责传入 cfgOh = cfg.pbChase?.overshoot ?? {}。
+ *
+ * **行为契约**：与抽出前严格一致，含 L2622 历史保留语义
+ *   `sizePreference = Math.max(sizePreference, sizePreference + spShift)`
+ *   （正 spShift 等价于加；负 spShift 等价于不变 —— 是 D4 仅"上压"的设计原意）。
+ *
+ * @returns {{ multiClearBonus: number, sizePreference: number, clearGuarantee: number }}
+ */
+function _applySpawnHintsD4Tighten(s, cfgOh) {
+    const mcbCap = Number.isFinite(cfgOh.multiClearBonusCap) ? cfgOh.multiClearBonusCap : 0.18;
+    const spShift = Number.isFinite(cfgOh.sizePreferenceShift) ? cfgOh.sizePreferenceShift : 0.12;
+    const cgShift = Number.isFinite(cfgOh.clearGuaranteeShift) ? cfgOh.clearGuaranteeShift : -1;
+    s.multiClearBonus = Math.min(s.multiClearBonus, mcbCap);
+    s.sizePreference = Math.max(s.sizePreference, s.sizePreference + spShift);
+    s.clearGuarantee = Math.max(0, s.clearGuarantee + cgShift);
+    return {
+        multiClearBonus: s.multiClearBonus,
+        sizePreference: s.sizePreference,
+        clearGuarantee: s.clearGuarantee,
+    };
+}
+
 function _applySpawnHintsComboWinbackRules(s) {
     let { clearGuarantee, sizePreference } = s;
     const { comboChain, winbackPreset, ctx } = s;
@@ -2614,13 +2643,14 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
      * 与 farFromPBBoost 处于同一 spawnHints 段，但语义对称（一减压一加压）。
      * 同源 bypass 链同 pbOvershootBoost。 */
     if (pbOvershootActive) {
-        const _ohCfg = (cfg.pbChase?.overshoot) ?? {};
-        const mcbCap = Number.isFinite(_ohCfg.multiClearBonusCap) ? _ohCfg.multiClearBonusCap : 0.18;
-        const spShift = Number.isFinite(_ohCfg.sizePreferenceShift) ? _ohCfg.sizePreferenceShift : 0.12;
-        const cgShift = Number.isFinite(_ohCfg.clearGuaranteeShift) ? _ohCfg.clearGuaranteeShift : -1;
-        multiClearBonus = Math.min(multiClearBonus, mcbCap);
-        sizePreference = Math.max(sizePreference, sizePreference + spShift);
-        clearGuarantee = Math.max(0, clearGuarantee + cgShift);
+        /* v1.71 Y2：D4 收紧抽至 _applySpawnHintsD4Tighten（保留 sizePreference 历史半语义） */
+        const _d4 = _applySpawnHintsD4Tighten(
+            { multiClearBonus, sizePreference, clearGuarantee },
+            (cfg.pbChase?.overshoot) ?? {},
+        );
+        multiClearBonus = _d4.multiClearBonus;
+        sizePreference = _d4.sizePreference;
+        clearGuarantee = _d4.clearGuarantee;
     }
 
     /* v1.62：PB 双 S 曲线直接进入主规则轨 spawnHints。
