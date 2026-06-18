@@ -672,8 +672,57 @@ class Grid {
      * 阶段对 40 形状 × 64 落点反复调用——省去每次 64 格 temp 数组分配，显著降低出块期 GC 压力。
      * 行为完全等价：与 previewClearOutcome 同样全量扫描所有行/列（不依赖"盘面无预存满线"假设）。
      */
+    /* ── v1.71 CC3：countClearLines bitmap 路径（与 BB3 wouldClear 同理） ──
+     * 原实现 8×8×2 嵌套循环 + 多次跳过判断 ≈ 256+ ops，热路径每帧调几百次。
+     * Bitmap 实现：构建 occ ∪ shifted 后，行检查 = (combined[y] === fullMask)，
+     * 列检查 = "所有 y 的该位都为 1"，整体 ≈ 32-40 ops，0 GC。
+     * 慢路径回退 _countClearLinesSlow 覆盖 n > 30 / 越界等场景。 */
     countClearLines(shapeData, gx, gy) {
         if (!this.canPlace(shapeData, gx, gy)) return 0;
+        const n = this.size;
+        if (n > 30 || !Array.isArray(shapeData) || shapeData.length === 0) {
+            return this._countClearLinesSlow(shapeData, gx, gy);
+        }
+        const sh = shapeData.length;
+        const cells = this.cells;
+        const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
+        /* 构建 occ ∪ shifted shape，得到放置后的盘面 bitmap */
+        const combined = new Int32Array(n);
+        for (let y = 0; y < n; y++) {
+            const row = cells[y];
+            let m = 0;
+            for (let x = 0; x < n; x++) if (row[x] !== null) m |= (1 << x);
+            combined[y] = m;
+        }
+        for (let sy = 0; sy < sh; sy++) {
+            const row = shapeData[sy];
+            if (!row) continue;
+            let m = 0;
+            for (let x = 0; x < row.length; x++) if (row[x]) m |= (1 << x);
+            if (m === 0) continue;
+            const shifted = m << gx;
+            const ty = gy + sy;
+            if (ty < 0 || ty >= n) continue;
+            combined[ty] |= shifted;
+        }
+        let lines = 0;
+        /* 行检查 */
+        for (let y = 0; y < n; y++) {
+            if ((combined[y] & fullMask) === fullMask) lines++;
+        }
+        /* 列检查 */
+        for (let x = 0; x < n; x++) {
+            const bit = 1 << x;
+            let full = true;
+            for (let y = 0; y < n; y++) {
+                if ((combined[y] & bit) === 0) { full = false; break; }
+            }
+            if (full) lines++;
+        }
+        return lines;
+    }
+
+    _countClearLinesSlow(shapeData, gx, gy) {
         const n = this.size;
         const sh = shapeData.length;
         const cells = this.cells;
