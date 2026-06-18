@@ -37,6 +37,24 @@ jobs:
           cache: npm
       - run: npm ci
 
+      # HH4: lint:strict 在 weekly 流程也跑一次，提供"周报告 lint 健康度"维度。
+      # 不阻塞流程（continue-on-error: true）—— 主 CI 已守住基线，这里只是
+      # 给 owner 多一个观察窗口，并产出 issue 嵌入信号（exit code 进 step output）。
+      - name: Run lint:strict (advisory)
+        id: lint
+        continue-on-error: true
+        run: |
+          if npm run lint:strict > /tmp/lint-output.txt 2>&1; then
+            echo "lint_status=ok" >> $GITHUB_OUTPUT
+            echo "lint_problem_count=0" >> $GITHUB_OUTPUT
+          else
+            echo "lint_status=fail" >> $GITHUB_OUTPUT
+            COUNT=$(grep -oE '[0-9]+ problems?' /tmp/lint-output.txt | head -1 || echo "?")
+            echo "lint_problem_count=$COUNT" >> $GITHUB_OUTPUT
+          fi
+          echo "--- lint:strict summary ---"
+          tail -n 20 /tmp/lint-output.txt || true
+
       - name: Run scan + baseline diff
         id: scan
         run: |
@@ -76,7 +94,8 @@ jobs:
 
       - name: Build report body
         id: report
-        if: steps.scan.outputs.added != '0' || steps.scan.outputs.removed != '0'
+        # HH4: lint:strict fail 也触发 issue 报告（即使无 dead-code 新增）
+        if: steps.scan.outputs.added != '0' || steps.scan.outputs.removed != '0' || steps.lint.outputs.lint_status == 'fail'
         run: |
           {
             echo 'BODY<<EOF'
@@ -98,6 +117,27 @@ jobs:
               const d=require('/tmp/dead-code.json');
               for (const r of (d.diff?.removed ?? [])) console.log('- \`'+r.file+'\` :: \`'+r.name+'\`'+(r.entry?' (entry-shape)':''));
             "
+            echo ""
+            echo '---'
+            echo ""
+            echo '## Lint:strict 健康度（HH4 新增）'
+            echo ""
+            echo "- 状态：**${{ steps.lint.outputs.lint_status }}**"
+            echo "- 问题数：${{ steps.lint.outputs.lint_problem_count }}"
+            echo ""
+            if [ "${{ steps.lint.outputs.lint_status }}" = "fail" ]; then
+              echo '<details><summary>展开 lint 输出尾段</summary>'
+              echo ""
+              echo '```'
+              if [ -f /tmp/lint-output.txt ]; then tail -n 30 /tmp/lint-output.txt; fi
+              echo '```'
+              echo ""
+              echo '</details>'
+              echo ""
+              echo '> ⚠️ lint:strict 未通过 — 主 CI 也会失败，需立即修复或加 // eslint-disable-next-line。'
+            else
+              echo '> ✅ 0 problems，basecline 守住。'
+            fi
             echo ""
             echo '---'
             echo ""
@@ -124,7 +164,7 @@ jobs:
           } >> $GITHUB_OUTPUT
 
       - name: Create or update tracking issue
-        if: steps.scan.outputs.added != '0' || steps.scan.outputs.removed != '0'
+        if: steps.scan.outputs.added != '0' || steps.scan.outputs.removed != '0' || steps.lint.outputs.lint_status == 'fail'
         uses: actions/github-script@v7
         with:
           script: |
