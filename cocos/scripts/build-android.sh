@@ -256,6 +256,48 @@ restore_corrupted_metas() {
 }
 restore_corrupted_metas
 
+# ── 预热 asset-db：library 缺失/过期时无头 --build 认不出场景（Number of all scenes: 0）──
+# 先不带 --build 打开项目让 Creator 导入资源并写入 library，再执行正式构建。
+android_start_scene_uuid() {
+    grep -E '"startScene"[[:space:]]*:' "$CONFIG" 2>/dev/null \
+        | sed -E 's/.*"startScene"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' | head -1
+}
+
+ensure_asset_db_ready() {
+    local start_uuid="" scene_lib="" import_log="" import_pid="" ok=0
+    start_uuid="$(android_start_scene_uuid || true)"
+    if [[ -z "${start_uuid}" ]]; then
+        return 0
+    fi
+
+    scene_lib="$(find "$COCOS_DIR/library" -name "${start_uuid}.json" 2>/dev/null | head -1 || true)"
+    if [[ -n "${scene_lib}" ]] && grep -q "${start_uuid}" "$COCOS_DIR/library/.assets-data.json" 2>/dev/null; then
+        return 0
+    fi
+
+    # 必须用 ${start_uuid}：macOS bash 3.2 下 "$start_uuid，" 会把全角逗号吃进变量名 → set -u 报错。
+    echo "▶ library 未登记初始场景 ${start_uuid}, 预热 asset-db 导入 (约 10-30s)..."
+    import_log="$(mktemp -t cocos-import-assets)"
+    "$CREATOR" --project "$COCOS_DIR" >"${import_log}" 2>&1 &
+    import_pid=$!
+    for _ in $(seq 1 45); do
+        scene_lib="$(find "$COCOS_DIR/library" -name "${start_uuid}.json" 2>/dev/null | head -1 || true)"
+        if [[ -n "${scene_lib}" ]]; then ok=1; break; fi
+        sleep 2
+    done
+    kill "${import_pid}" 2>/dev/null || true
+    wait "${import_pid}" 2>/dev/null || true
+    rm -f "${import_log}"
+
+    if [[ "${ok}" -eq 1 ]]; then
+        echo "  ✔ asset-db 已导入初始场景"
+        restore_corrupted_metas
+    else
+        echo "  ⚠ asset-db 预热超时，若构建仍报「初始场景不存在」请用 Creator GUI 打开项目一次" >&2
+    fi
+}
+ensure_asset_db_ready
+
 LOG="$(mktemp -t cocos-build-android)"
 
 # ⚠️ ELECTRON_RUN_AS_NODE 必须 unset：某些开发环境（如 Cursor agent shell、部分 IDE
