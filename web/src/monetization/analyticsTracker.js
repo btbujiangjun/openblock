@@ -1,5 +1,6 @@
 import { DAY_MS } from '../lib/dateUtils.js';
 import { createLogger } from '../lib/logger.js';
+import { loadAnalyticsSnapshotSync, queueAnalyticsSave } from '../lib/analyticsStore.js';
 const log = createLogger('analyticsTracker');
 
 /**
@@ -11,7 +12,9 @@ const log = createLogger('analyticsTracker');
  * 3. 转化分析
  * 4. 用户旅程追踪
  */
-const ANALYTICS_STORAGE_KEY = 'openblock_analytics_v1';
+/* v1.71 V2：原 ANALYTICS_STORAGE_KEY 常量已迁至 lib/analyticsStore.js (LS_KEY)。
+ * 这里删除避免双源真相；analyticsStore 保留同样的 'openblock_analytics_v1' 兼容
+ * 历史数据无缝读取。 */
 
 /**
  * 预定义事件类型
@@ -146,34 +149,33 @@ class AnalyticsTracker {
     }
 
     /**
-     * 加载事件
+     * 加载事件（v1.71 V2：走 analyticsStore，与旧 localStorage 路径无缝兼容）
      */
     _loadEvents() {
         try {
-            const stored = localStorage.getItem(ANALYTICS_STORAGE_KEY);
-            if (stored) {
-                const data = JSON.parse(stored);
+            const data = loadAnalyticsSnapshotSync();
+            if (data) {
                 this._events = data.events || [];
                 this._funnelData = data.funnels || {};
-                
-                // 只保留最近 1000 条事件
                 if (this._events.length > 1000) {
                     this._events = this._events.slice(-1000);
                 }
             }
-        } catch {}
+        } catch { /* persistence failure must never break analytics consumer */ }
     }
 
     /**
      * 保存事件
+     *
+     * v1.71 V2：原版每条 event 都 stringify + localStorage.setItem，
+     * 高频游戏事件（place_block 每局上百次）下会写穿主线程；
+     * 现在走 analyticsStore.queueAnalyticsSave —— 节流到 800ms（IDB 异步）
+     * + 5s 强 flush + pagehide 同步 flush。
      */
     _saveEvents() {
         try {
-            localStorage.setItem(ANALYTICS_STORAGE_KEY, JSON.stringify({
-                events: this._events,
-                funnels: this._funnelData
-            }));
-        } catch {}
+            queueAnalyticsSave({ events: this._events, funnels: this._funnelData });
+        } catch { /* persistence failure must never break analytics consumer */ }
     }
 
     /**

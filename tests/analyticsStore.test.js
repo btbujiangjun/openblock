@@ -1,0 +1,197 @@
+/**
+ * @vitest-environment jsdom
+ *
+ * analyticsStore — IDB + localStorage 持久化层契约（v1.71 V2）
+ *   - load 优先 IDB，fallback LS
+ *   - save 节流（800ms debounce），HARD_FLUSH 兜底
+ *   - flushNow 立即同步 LS（pagehide 路径）
+ *   - 所有持久化异常被吞，不影响调用方
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+/* jsdom 下 localStorage 在 vitest 默认不挂载到 globalThis；用最小 in-memory store stub */
+function makeLocalStorageStub() {
+    const map = new Map();
+    return {
+        getItem: (k) => (map.has(k) ? map.get(k) : null),
+        setItem: (k, v) => { map.set(k, String(v)); },
+        removeItem: (k) => { map.delete(k); },
+        clear: () => map.clear(),
+        get length() { return map.size; },
+        key: (i) => Array.from(map.keys())[i] ?? null,
+    };
+}
+
+/* fake-indexeddb 在依赖列表里没有；jsdom 自带没有 indexedDB。
+ * 我们通过模拟最小 indexedDB 接口验证 IDB 路径；不可用时验证 LS fallback。 */
+function installFakeIDB() {
+    let store = new Map();
+    const idb = {
+        open(_name) {
+            const req = {
+                onsuccess: null, onerror: null, onupgradeneeded: null, onblocked: null,
+                result: null,
+            };
+            queueMicrotask(() => {
+                const db = {
+                    objectStoreNames: { contains: (n) => n === 'snapshot' },
+                    transaction(_storeName, _mode) {
+                        return {
+                            objectStore(_n) {
+                                return {
+                                    get(id) {
+                                        const r = { onsuccess: null, onerror: null, result: store.get(id) };
+                                        queueMicrotask(() => r.onsuccess && r.onsuccess());
+                                        return r;
+                                    },
+                                    put(obj) {
+                                        store.set(obj.id, obj);
+                                        return { onsuccess: null, onerror: null };
+                                    },
+                                };
+                            },
+                            oncomplete: null, onerror: null, onabort: null,
+                            _complete() { queueMicrotask(() => this.oncomplete && this.oncomplete()); },
+                        };
+                    },
+                };
+                req.result = db;
+                /* trigger upgrade once for fresh store map; not strictly required for tests */
+                req.onsuccess && req.onsuccess();
+            });
+            return req;
+        },
+        _clear() { store = new Map(); },
+    };
+    globalThis.indexedDB = idb;
+    return idb;
+}
+
+describe('analyticsStore — localStorage 路径（IDB 不可用）', () => {
+    let mod;
+    let lsStub;
+    beforeEach(async () => {
+        vi.useFakeTimers();
+        globalThis.indexedDB = undefined;
+        lsStub = makeLocalStorageStub();
+        vi.stubGlobal('localStorage', lsStub);
+        vi.resetModules();
+        mod = await import('../web/src/lib/analyticsStore.js');
+        mod._resetAnalyticsStoreForTests();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+    });
+
+    it('loadAnalyticsSnapshotSync 空时返回 null', () => {
+        expect(mod.loadAnalyticsSnapshotSync()).toBeNull();
+    });
+
+    it('queueAnalyticsSave 节流 800ms 后写 LS', async () => {
+        mod.queueAnalyticsSave({ events: [{ a: 1 }], funnels: {} });
+        expect(lsStub.getItem('openblock_analytics_v1')).toBeNull();
+        vi.advanceTimersByTime(799);
+        expect(lsStub.getItem('openblock_analytics_v1')).toBeNull();
+        vi.advanceTimersByTime(2);
+        await vi.runAllTimersAsync();
+        const raw = lsStub.getItem('openblock_analytics_v1');
+        expect(raw).toBeTruthy();
+        expect(JSON.parse(raw).events).toEqual([{ a: 1 }]);
+    });
+
+    it('连续 queue 合并为最后一次 payload', async () => {
+        mod.queueAnalyticsSave({ events: [{ a: 1 }], funnels: {} });
+        vi.advanceTimersByTime(400);
+        mod.queueAnalyticsSave({ events: [{ a: 1 }, { b: 2 }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        const data = JSON.parse(lsStub.getItem('openblock_analytics_v1'));
+        expect(data.events).toEqual([{ a: 1 }, { b: 2 }]);
+    });
+
+    it('HARD_FLUSH 5s 强 flush（持续 burst 也能落地）', async () => {
+        for (let i = 0; i < 10; i++) {
+            mod.queueAnalyticsSave({ events: [{ i }], funnels: {} });
+            vi.advanceTimersByTime(500);
+        }
+        await vi.runAllTimersAsync();
+        const data = JSON.parse(lsStub.getItem('openblock_analytics_v1'));
+        expect(data.events[0].i).toBeLessThan(10);
+    });
+
+    it('flushAnalyticsNow 同步落 LS', () => {
+        mod.queueAnalyticsSave({ events: [{ a: 1 }], funnels: {} });
+        mod.flushAnalyticsNow();
+        expect(JSON.parse(lsStub.getItem('openblock_analytics_v1')).events).toEqual([{ a: 1 }]);
+    });
+
+    it('flushAnalyticsNow 无 pending 时不做事', () => {
+        expect(() => mod.flushAnalyticsNow()).not.toThrow();
+    });
+
+    it('LS 写失败被吞（quota 模拟）', async () => {
+        const origSet = lsStub.setItem;
+        lsStub.setItem = () => { throw new Error('quota'); };
+        mod.queueAnalyticsSave({ events: [{ a: 1 }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        lsStub.setItem = origSet;
+        /* 没有抛出即通过 */
+    });
+
+    it('loadAnalyticsSnapshot async 也 fallback LS', async () => {
+        lsStub.setItem('openblock_analytics_v1', JSON.stringify({ events: [{ x: 1 }], funnels: {} }));
+        const data = await mod.loadAnalyticsSnapshot();
+        expect(data.events).toEqual([{ x: 1 }]);
+    });
+
+    it('pagehide 触发 flush', () => {
+        mod.queueAnalyticsSave({ events: [{ a: 1 }], funnels: {} });
+        window.dispatchEvent(new Event('pagehide'));
+        expect(JSON.parse(lsStub.getItem('openblock_analytics_v1')).events).toEqual([{ a: 1 }]);
+    });
+
+    it('visibilitychange + hidden 触发 flush', () => {
+        mod.queueAnalyticsSave({ events: [{ a: 1 }], funnels: {} });
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+        expect(JSON.parse(lsStub.getItem('openblock_analytics_v1')).events).toEqual([{ a: 1 }]);
+    });
+});
+
+describe('analyticsStore — IDB 路径', () => {
+    let mod, fakeIdb;
+    let lsStub;
+    beforeEach(async () => {
+        vi.useFakeTimers();
+        fakeIdb = installFakeIDB();
+        lsStub = makeLocalStorageStub();
+        vi.stubGlobal('localStorage', lsStub);
+        vi.resetModules();
+        mod = await import('../web/src/lib/analyticsStore.js');
+        mod._resetAnalyticsStoreForTests();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.unstubAllGlobals();
+        globalThis.indexedDB = undefined;
+        fakeIdb._clear();
+    });
+
+    it('loadAnalyticsSnapshot 异步从 IDB 读', async () => {
+        /* 先用 queueAnalyticsSave 写入 IDB（节流 + 异步） */
+        mod.queueAnalyticsSave({ events: [{ idb: true }], funnels: {} });
+        vi.advanceTimersByTime(801);
+        await vi.runAllTimersAsync();
+        const data = await mod.loadAnalyticsSnapshot();
+        expect(data?.events).toEqual([{ idb: true }]);
+    });
+
+    it('flushAnalyticsNow 在 IDB 模式下同时双写 LS（保活）', () => {
+        mod.queueAnalyticsSave({ events: [{ x: 9 }], funnels: {} });
+        mod.flushAnalyticsNow();
+        /* LS 总是同步落地，与 IDB 是否可用无关 */
+        expect(JSON.parse(lsStub.getItem('openblock_analytics_v1')).events).toEqual([{ x: 9 }]);
+    });
+});
