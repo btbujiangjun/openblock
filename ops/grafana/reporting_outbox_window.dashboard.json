@@ -8,6 +8,10 @@
   "timezone": "browser",
   "refresh": "30s",
   "time": { "from": "now-24h", "to": "now" },
+  "links": [
+    { "title": "II3 所有 outbox 告警", "url": "/alerting/list?queryString=Outbox", "type": "link", "icon": "bolt", "targetBlank": true },
+    { "title": "GG3 outbox quota 设计文档", "url": "https://github.com/btbujiangjun/openblock/blob/main/docs/engineering/OBSERVABILITY_WINDOW_SCHEMA.md", "type": "link", "icon": "doc", "targetBlank": true }
+  ],
   "templating": {
     "list": [
       { "name": "DS_PROMETHEUS", "type": "datasource", "label": "Prometheus", "query": "prometheus" },
@@ -26,7 +30,10 @@
       "targets": [
         { "expr": "avg(openblock_reporting_outbox_total_queued{env=\"$env\"})", "legendFormat": "queued" }
       ],
-      "fieldConfig": { "defaults": { "unit": "short" } }
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "links": [
+        { "title": "P2 OpenBlockOutboxQueueHighP2 告警", "url": "/alerting/list?queryString=OpenBlockOutboxQueueHighP2", "targetBlank": true }
+      ]
     },
     {
       "id": 2,
@@ -50,7 +57,11 @@
             ]
           }
         }
-      }
+      },
+      "links": [
+        { "title": "P0 OpenBlockOutboxQuotaTripsP0 告警", "url": "/alerting/list?queryString=OpenBlockOutboxQuotaTripsP0", "targetBlank": true },
+        { "title": "P1 OpenBlockOutboxQuotaTripsP1 告警", "url": "/alerting/list?queryString=OpenBlockOutboxQuotaTripsP1", "targetBlank": true }
+      ]
     },
     {
       "id": 3,
@@ -62,7 +73,10 @@
       "targets": [
         { "expr": "sum(rate(openblock_reporting_outbox_quota_shed_records{env=\"$env\"}[5m]))", "legendFormat": "shed/s" }
       ],
-      "fieldConfig": { "defaults": { "unit": "rps" } }
+      "fieldConfig": { "defaults": { "unit": "rps" } },
+      "links": [
+        { "title": "P2 OpenBlockOutboxShedSurgeP2 告警", "url": "/alerting/list?queryString=OpenBlockOutboxShedSurgeP2", "targetBlank": true }
+      ]
     },
     {
       "id": 4,
