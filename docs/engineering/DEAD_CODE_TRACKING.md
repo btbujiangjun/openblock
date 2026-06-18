@@ -1,0 +1,117 @@
+# Dead Code Tracking — Unused Export 扫描台账
+
+> 自动化扫描结果，**不等于真正死代码**：仍需 case-by-case 评审。
+> 入口型函数（`init*` / `open*` / `start*` / `get*Instance`）可能被 HTML 模板 /
+> 主入口 main.js / 动态 `import()` / 字符串拼接的 module 名引用，搜索抓不到。
+
+## 扫描方法（可复现）
+
+```bash
+# 全仓 export 提取 + 反向查找
+python3 scripts/scan-unused-exports.py  # 或参考 git log b9bb200..HEAD 中的命令
+```
+
+规则：
+- 遍历 `web/src/**/*.js` 中每个 `export function|const|class X`
+- 在 `web/src + tests + cocos/assets/scripts + miniprogram/core + scripts` 全文搜 `\bX\b`
+- 排除自身定义文件
+- 排除 `__*` / `^[A-Z_]+$` / 含 `VERSION|SCHEMA|DEFAULT` 的常量（多为公开 schema）
+
+## 当前快照（2026-06-18，HEAD ≈ inc8）
+
+- 总 export：**1470**
+- 全仓零引用：**149**
+- 排除"公开 API 候选"后：**102 项 / 58 文件**
+
+## 分类与处置建议
+
+### A. 高置信度可删（本会话遗留 / 明确无人用）
+
+| 文件 | export | 备注 | 处置 |
+|---|---|---|---|
+| `web/src/lib/storageAdapter.js` | `safeRemoveKey` | 本会话新增但未被任何调用点使用 | **已删除**（见 commit `5c69d4f`） |
+
+### B. 中置信度（需人工确认是否为对外/调试入口）
+
+按目录归类（共 58 文件 / 101 项）：
+
+#### bot / spawn 决策
+- `bot/spawnEvaluation.js`: `scoreEvaluationRow`, `computeGoalSubscores`, `buildEvaluationInsights`
+- `bot/spawnExperiments.js`: `SPAWN_POLICY_RULES_P1`, `SPAWN_POLICY_RULES_P2`, `derivePreferenceVector`, `deriveExperienceBudget`
+- `bot/trainer.js`: `resolveBrowserRlTrainingConfig`, `reinforceUpdate`
+- `bot/pytorchBackend.js`: `evalGreedyRemote`
+- `spawnModel.js`: `startPersonalize`, `proposeShapes`
+
+#### monetization / 商业化
+- `monetization/adProviders.js`: `createAppLovinProvider`
+- `monetization/analyticsDashboard.js`: `getAnalyticsDashboard`, `initAnalyticsDashboard`
+- `monetization/analyticsPlatform.js`: `getAnalyticsPlatform`, `initAnalyticsPlatform`
+- `monetization/commercialInsight.js`: `initCommercialInsight`
+- `monetization/commercialModel.js`: `_resetCommercialModelCacheForTests`
+- `monetization/experiment/experimentUnified.js`: `refreshPausedExperiments`
+- `monetization/iapAdapter.js`: `setIapProvider`, `canPurchaseStarterPack`, `getLimitedTimeRemaining`, `createLimitedTimeOffer`
+- `monetization/index.js`: `shutdownMonetization`
+- `monetization/lifecycleAwareOffers.js`: `isLifecycleAwareOffersAttached`
+- `monetization/lifecycleExperiments.js`: `listLifecycleExperiments`
+- `monetization/lifecycleOutreach.js`: `isLifecycleOutreachAttached`
+- `monetization/ml/contextualBandit.js`: `flushBandit`
+- `monetization/monPanel.js`: `refreshMonPanel`
+- `monetization/personalization.js`: `reclassifyFromConfig`
+- `monetization/quality/distributionDriftMonitor.js`: `getDriftMeta`, `flushDrift`
+
+#### onboarding / 引导
+- `onboarding/enhancedFTUE.js`: `FTUE_STEPS_V2`, `getEnhancedFTUE`, `initEnhancedFTUE`
+- `onboarding/ftueManager.js`: `getFTUEManager`, `initFTUE`
+- `onboarding/newbieVillage.js`: `startNewbieVillage`
+- `retention/ftueFunnel.js`: `getFunnelProgress`
+
+#### social / 社交
+- `social/asyncPkStub.js`: `initAsyncPkStub`
+- `social/friendSystem.js`: `getFriendSystemInstance`
+- `social/guildSystem.js`: `getGuildSystemInstance`
+- `social/leaderboardScreen.js`: `openLeaderboardScreen`
+- `social/multiplayerGame.js`: `getMultiplayerGameInstance`
+- `social/replayAlbum.js`: `openAlbum`
+- `social/replayAlbumStub.js`: `initReplayAlbumStub`
+- `social/socialManager.js`: `initSocialManager`, `getSocialManager`, `getSocialManagerInstance`
+
+#### 工具 / 调试 / UI
+- `achievements/extremeAchievements.js`: `getUnlockedAchievements`
+- `analyticsBridge.js`: `mirrorAnalyticsEvent`
+- `audit/profileAuditMath.js`: `finiteNumbers`
+- `boardTexture.js`: `paintXuanPaperTexture`
+- `checkin/loginStreak.js`: `getMedals`
+- `coordination/unifiedSignals.js`: `invalidateUnifiedSignalsCache`
+- `cssVariableManager.js`: `CSSVariableManager`, `getCSSVariableManager`
+- `decisionFlowViz.js`: `toggleDecisionFlowViz`, `getDecisionFlowViz`
+- `derivation/selectors.js`: `selectInsight`
+- `effects/haptics.js`: `impactLight`, `impactMedium`, `impactHeavy`, `notificationSuccess`
+- `intentLexicon.js`: `getIntentEntry`, `getOutOfGameTaskCopy`, `getLexiconSnapshot`
+- `moduleLazyLoader.js`: `lazyLoadModule`, `preloadModules`, `loadModulesForScene`, `getModuleStats`, `clearModuleCache`
+- `monitoring/errorTracker.js`: `getErrorTracker`, `getErrorTrackerInstance`
+- `monitoring/performanceMonitor.js`: `getPerformanceMonitor`, `getPerformanceMonitorInstance`
+- `offlineBehaviorQueue.js`: `queueBehaviors`, `getQueueCount`, `clearSynced`
+- `offlineManager.js`: `initOfflineManager`, `onNetworkStatusChange`, `getOfflineStatus`, `forceSync`, `shutdownOfflineManager`, `initPWAInstall`
+- `offlineStateCache.js`: `readSpawnSignals`, `clearSpawnSignals`, `describeSpawnSignals`
+- `optimizedParticles.js`: `OptimizedParticleSystem`
+- `performanceOptimizer.js`: `PerformanceOptimizer`
+- `personalizationPreferences.js`: `loadPersonalizationPreferences`, `savePersonalizationPreferences`, `sanitizePersonalizationPreferences`, `personalizationDataBoundary`
+- `playerAnalyticsApp.js`: `initPlayerAnalyticsApp`
+- `playerInsightPanel.js`: `setInsightPanelCollapsed`
+- `privacy/consentManager.js`: `showConsentBanner`
+- `profileAuditApp.js`: `initProfileAuditApp`
+- `retention/socialIntroTrigger.js`: `getSocialIntroData`, `invalidateSocialIntroCache`
+- `scoreAnimator.js`: `stopScoreAnimation`
+
+## 处置流程建议
+
+逐目录由该业务 owner 评审：
+1. **真死代码** → 单文件级 PR 删除（注意删除时同步检查 sync manifest）
+2. **对外 API / 调试 hook** → 文件头加 `// PUBLIC API: 用于 <场景>` 注释，永久豁免
+3. **Lazy load 入口** → 加 `// LAZY ENTRY: 由 moduleLazyLoader 动态拉起` 注释豁免
+4. **HTML 模板用** → 全仓搜 `'<name>'` / `"<name>"` 字符串验证后注释豁免
+
+## 自动化追踪
+
+> 目标：维持 unused export 数量不增长。
+> 将扫描脚本作为 CI 软警告（不阻塞），每周一次产出 diff 报告。

@@ -69,19 +69,5 @@ export function safeWriteJson(key, value) {
     }
 }
 
-/**
- * 安全删除 localStorage 中的 key。失败 silently swallow。
- *
- * @param {string} key
- * @returns {boolean}  true=删除成功；false=未删除（被 swallow）
- */
-export function safeRemoveKey(key) {
-    const ls = _ls();
-    if (!ls) return false;
-    try {
-        ls.removeItem(key);
-        return true;
-    } catch {
-        return false;
-    }
-}
+/* safeRemoveKey 已删（2026-06-18 死代码清理）：本会话引入但全仓零引用。
+ * 如未来需要 removeItem 包装，请在此重新导出并同步 docs/engineering/DEAD_CODE_TRACKING.md。 */
