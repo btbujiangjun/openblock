@@ -472,6 +472,53 @@ function _applySpawnHintsPbCurveRules(s, pbCurve) {
     };
 }
 
+/**
+ * playstyle → spawnHints 风格对齐层（v1.71 Z2 抽出 L2711-2737）。
+ *
+ * 5 个互斥分支（perfect_hunter / multi_clear / combo / survival / balanced），
+ * 在所有条件规则之后执行，作为"最终风格对齐层"。
+ *
+ * 所有调制都是 Math.max/min 幂等操作 —— 已存在更高的 floor 时不下压。
+ *
+ * 调用约定：原地修改 s（含 multiClearBonus / clearGuarantee / multiLineTarget /
+ * perfectClearBoost / iconBonusTarget / sizePreference / rhythmPhase 字段）。
+ *
+ * @param {object} s state object
+ * @param {string} playstyle 玩家风格（perfect_hunter / multi_clear / combo / survival / balanced）
+ * @param {{ pcSetup: number, nearFullLines: number, canPromoteToPayoff: boolean }} ctx
+ * @returns {object} 修改后的 s（同引用）
+ */
+function _applySpawnHintsPlaystyleRules(s, playstyle, ctx) {
+    if (playstyle === 'perfect_hunter') {
+        /* 清屏猎人：大幅提升多消潜力块权重 + 保障消行供给 */
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.85);
+        s.clearGuarantee  = Math.max(s.clearGuarantee, 2);
+        s.multiLineTarget = Math.max(s.multiLineTarget, 2);
+        if (ctx.pcSetup >= 1 || ctx.nearFullLines >= 2) {
+            s.perfectClearBoost = Math.max(s.perfectClearBoost, 0.82);
+        }
+        s.iconBonusTarget = Math.max(s.iconBonusTarget, 0.55);
+    } else if (playstyle === 'multi_clear') {
+        /* 多消玩家：提升多消鼓励，顺势切入 payoff 节奏 */
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.65);
+        s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+        s.iconBonusTarget = Math.max(s.iconBonusTarget, 0.38);
+        /* v1.17：多消玩家偏好不能凭空把节奏拉到 payoff，需要几何兜底 */
+        if (s.rhythmPhase === 'neutral' && ctx.canPromoteToPayoff) s.rhythmPhase = 'payoff';
+    } else if (playstyle === 'combo') {
+        /* 连消玩家：保障至少 2 个消行槽位供续链 */
+        s.clearGuarantee  = Math.max(s.clearGuarantee, 2);
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.52);
+        s.iconBonusTarget = Math.max(s.iconBonusTarget, 0.28);
+    } else if (playstyle === 'survival') {
+        /* 生存型：减压 + 偏小块，降低卡死风险 */
+        s.sizePreference = Math.min(s.sizePreference, -0.25);
+        s.clearGuarantee = Math.max(s.clearGuarantee, 1);
+    }
+    /* 'balanced'：不做调整，沿用上方规则结果 */
+    return s;
+}
+
 function _applySpawnHintsComboWinbackRules(s) {
     let { clearGuarantee, sizePreference } = s;
     const { comboChain, winbackPreset, ctx } = s;
@@ -2708,34 +2755,25 @@ export function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStrea
     /*  玩法偏好联动（playstyle → spawnHints 精细调控）                  */
     /*  在所有条件规则之后执行，作为最终风格对齐层                        */
     /* ================================================================ */
+    /* v1.71 Z2：playstyle 风格对齐层抽至 _applySpawnHintsPlaystyleRules */
     const playstyle = profile.playstyle ?? 'balanced';
-    if (playstyle === 'perfect_hunter') {
-        // 清屏猎人：大幅提升多消潜力块权重 + 保障消行供给
-        // 该玩家主动追求清空棋盘，需要提供更多能触发多行消除的方块组合
-        multiClearBonus = Math.max(multiClearBonus, 0.85);
-        clearGuarantee  = Math.max(clearGuarantee, 2);
-        multiLineTarget = Math.max(multiLineTarget, 2);
-        if (pcSetup >= 1 || nearFullLines >= 2) perfectClearBoost = Math.max(perfectClearBoost, 0.82);
-        iconBonusTarget = Math.max(iconBonusTarget, 0.55);
-    } else if (playstyle === 'multi_clear') {
-        // 多消玩家：提升多消鼓励，顺势切入 payoff 节奏
-        multiClearBonus = Math.max(multiClearBonus, 0.65);
-        multiLineTarget = Math.max(multiLineTarget, 1);
-        iconBonusTarget = Math.max(iconBonusTarget, 0.38);
-        /* v1.17：与上同——多消玩家偏好不能凭空把节奏拉到 payoff，需要几何兜底 */
-        if (rhythmPhase === 'neutral' && canPromoteToPayoff) rhythmPhase = 'payoff';
-    } else if (playstyle === 'combo') {
-        // 连消玩家：comboChain 信号已由 recentComboStreak 自动拉高，
-        // 这里额外保障至少有 2 个消行槽位供续链
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        multiClearBonus = Math.max(multiClearBonus, 0.52);
-        iconBonusTarget = Math.max(iconBonusTarget, 0.28);
-    } else if (playstyle === 'survival') {
-        // 生存型：减压 + 偏小块，降低卡死风险，保障最低可放置性
-        sizePreference = Math.min(sizePreference, -0.25);
-        clearGuarantee = Math.max(clearGuarantee, 1);
+    {
+        const _ps = _applySpawnHintsPlaystyleRules(
+            {
+                multiClearBonus, clearGuarantee, multiLineTarget,
+                perfectClearBoost, iconBonusTarget, sizePreference, rhythmPhase,
+            },
+            playstyle,
+            { pcSetup, nearFullLines, canPromoteToPayoff },
+        );
+        multiClearBonus = _ps.multiClearBonus;
+        clearGuarantee = _ps.clearGuarantee;
+        multiLineTarget = _ps.multiLineTarget;
+        perfectClearBoost = _ps.perfectClearBoost;
+        iconBonusTarget = _ps.iconBonusTarget;
+        sizePreference = _ps.sizePreference;
+        rhythmPhase = _ps.rhythmPhase;
     }
-    // 'balanced'：不做额外调整，沿用上方所有条件规则的结果
 
     /* --- 最新用户行为特征 → 奖励概率目标 -----------------------------
      * AbilityVector / 窗口统计用于判断玩家是否正在追求高价值反馈：

@@ -497,6 +497,112 @@ describe('adaptiveSpawn._applySpawnHintsPbCurveRules — PB 双 S 段 (Y5)', () 
     });
 });
 
+/* ============ Z2: _applySpawnHintsPlaystyleRules ============ */
+function _applySpawnHintsPlaystyleRulesRef(s, playstyle, ctx) {
+    if (playstyle === 'perfect_hunter') {
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.85);
+        s.clearGuarantee  = Math.max(s.clearGuarantee, 2);
+        s.multiLineTarget = Math.max(s.multiLineTarget, 2);
+        if (ctx.pcSetup >= 1 || ctx.nearFullLines >= 2) {
+            s.perfectClearBoost = Math.max(s.perfectClearBoost, 0.82);
+        }
+        s.iconBonusTarget = Math.max(s.iconBonusTarget, 0.55);
+    } else if (playstyle === 'multi_clear') {
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.65);
+        s.multiLineTarget = Math.max(s.multiLineTarget, 1);
+        s.iconBonusTarget = Math.max(s.iconBonusTarget, 0.38);
+        if (s.rhythmPhase === 'neutral' && ctx.canPromoteToPayoff) s.rhythmPhase = 'payoff';
+    } else if (playstyle === 'combo') {
+        s.clearGuarantee  = Math.max(s.clearGuarantee, 2);
+        s.multiClearBonus = Math.max(s.multiClearBonus, 0.52);
+        s.iconBonusTarget = Math.max(s.iconBonusTarget, 0.28);
+    } else if (playstyle === 'survival') {
+        s.sizePreference = Math.min(s.sizePreference, -0.25);
+        s.clearGuarantee = Math.max(s.clearGuarantee, 1);
+    }
+    return s;
+}
+
+const emptyState = () => ({
+    multiClearBonus: 0, clearGuarantee: 0, multiLineTarget: 0,
+    perfectClearBoost: 0, iconBonusTarget: 0, sizePreference: 0, rhythmPhase: 'neutral',
+});
+
+describe('adaptiveSpawn._applySpawnHintsPlaystyleRules — 风格对齐 (Z2)', () => {
+    it('perfect_hunter：含 pcSetup ≥1 → 完整四字段抬升', () => {
+        const s = emptyState();
+        _applySpawnHintsPlaystyleRulesRef(s, 'perfect_hunter', { pcSetup: 1, nearFullLines: 0, canPromoteToPayoff: false });
+        expect(s.multiClearBonus).toBe(0.85);
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.multiLineTarget).toBe(2);
+        expect(s.perfectClearBoost).toBe(0.82);
+        expect(s.iconBonusTarget).toBe(0.55);
+    });
+
+    it('perfect_hunter：pcSetup=0 且 nearFullLines<2 → perfectClearBoost 不抬', () => {
+        const s = emptyState();
+        _applySpawnHintsPlaystyleRulesRef(s, 'perfect_hunter', { pcSetup: 0, nearFullLines: 1, canPromoteToPayoff: false });
+        expect(s.perfectClearBoost).toBe(0); /* 几何不满足 */
+    });
+
+    it('multi_clear + rhythmPhase=neutral + canPromoteToPayoff → 切 payoff', () => {
+        const s = emptyState();
+        _applySpawnHintsPlaystyleRulesRef(s, 'multi_clear', { pcSetup: 0, nearFullLines: 0, canPromoteToPayoff: true });
+        expect(s.rhythmPhase).toBe('payoff');
+        expect(s.multiClearBonus).toBe(0.65);
+    });
+
+    it('multi_clear：canPromoteToPayoff=false → rhythmPhase 保留 neutral', () => {
+        const s = emptyState();
+        _applySpawnHintsPlaystyleRulesRef(s, 'multi_clear', { pcSetup: 0, nearFullLines: 0, canPromoteToPayoff: false });
+        expect(s.rhythmPhase).toBe('neutral');
+    });
+
+    it('multi_clear：rhythmPhase=setup → 不被覆盖（仅 neutral 升级）', () => {
+        const s = emptyState(); s.rhythmPhase = 'setup';
+        _applySpawnHintsPlaystyleRulesRef(s, 'multi_clear', { pcSetup: 0, nearFullLines: 0, canPromoteToPayoff: true });
+        expect(s.rhythmPhase).toBe('setup');
+    });
+
+    it('combo：三字段抬升', () => {
+        const s = emptyState();
+        _applySpawnHintsPlaystyleRulesRef(s, 'combo', { pcSetup: 0, nearFullLines: 0, canPromoteToPayoff: false });
+        expect(s.clearGuarantee).toBe(2);
+        expect(s.multiClearBonus).toBe(0.52);
+        expect(s.iconBonusTarget).toBe(0.28);
+    });
+
+    it('survival：sp 下压 + cg ≥ 1', () => {
+        const s = emptyState(); s.sizePreference = 0.10;
+        _applySpawnHintsPlaystyleRulesRef(s, 'survival', { pcSetup: 0, nearFullLines: 0, canPromoteToPayoff: false });
+        expect(s.sizePreference).toBe(-0.25);
+        expect(s.clearGuarantee).toBe(1);
+    });
+
+    it('balanced：完全不改动', () => {
+        const s = emptyState(); s.multiClearBonus = 0.20; s.iconBonusTarget = 0.10;
+        const snap = { ...s };
+        _applySpawnHintsPlaystyleRulesRef(s, 'balanced', { pcSetup: 0, nearFullLines: 0, canPromoteToPayoff: false });
+        expect(s).toEqual(snap);
+    });
+
+    it('幂等性：已达 floor 时再调不下压', () => {
+        const s = emptyState();
+        s.multiClearBonus = 0.95; s.clearGuarantee = 3; s.iconBonusTarget = 0.99;
+        _applySpawnHintsPlaystyleRulesRef(s, 'perfect_hunter', { pcSetup: 1, nearFullLines: 0, canPromoteToPayoff: false });
+        expect(s.multiClearBonus).toBe(0.95);
+        expect(s.clearGuarantee).toBe(3);
+        expect(s.iconBonusTarget).toBe(0.99);
+    });
+
+    it('未知 playstyle → 等价 balanced（不改动）', () => {
+        const s = emptyState(); s.multiClearBonus = 0.30;
+        const snap = { ...s };
+        _applySpawnHintsPlaystyleRulesRef(s, 'unknown_style', { pcSetup: 0, nearFullLines: 0, canPromoteToPayoff: false });
+        expect(s).toEqual(snap);
+    });
+});
+
 /* ============ W4: _applySpawnHintsComboWinbackRules ============ */
 function _applySpawnHintsComboWinbackRulesRef(s) {
     let { clearGuarantee, sizePreference } = s;
