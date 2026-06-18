@@ -21,7 +21,7 @@ import { GameController } from './GameController';
 import { SkillBar } from './skills/SkillBar';
 import { MetaPanel } from './ui/MetaPanel';
 import { MainMenu } from './ui/MainMenu';
-import { Tutorial } from './ui/Tutorial';
+import { runIfFirstLogin } from './ui/NewbieVillage';
 import { Modal, TapBus, button, PillButton } from './ui/uiKit';
 import { Toast } from './ui/Toast';
 import { DailyMaster } from './social/DailyMaster';
@@ -36,6 +36,13 @@ import { CloudSync } from './platform/CloudSync';
 import { ReportingOutbox } from './platform/ReportingOutbox';
 import { Motion, initMotion } from './platform/Motion';
 import { VisualFx, initVisualFx } from './platform/VisualFx';
+import { initSkinPremium, isSkinPremiumEnabled, refreshPremiumSkin, getPremiumVars } from './platform/SkinPremium';
+import {
+    initAppearanceMode,
+    cycleAppearanceMode,
+    getAppearanceIcon,
+    getAppearanceFloatText,
+} from './platform/AppearanceMode';
 import { FrameRate } from './platform/FrameRate';
 import { bgColor } from './skin/palette';
 import { seasonalSkinId } from './skin/seasonalSkin';
@@ -68,6 +75,10 @@ export class Bootstrap extends Component {
     private _overlayFx: OverlayFx | null = null;
     private _seasonalBorder: SeasonalBorder | null = null;
     private _ctrl: GameController | null = null;
+    // 首登快照：profile 在 boot 预备牌局时即 recordNewGame() 把 lifetimeGames 推到 1，
+    // 若 maybeShowNewbieVillage 读 live 值会永远 >0 → 新手村永不触发。这里在任何开局前
+    // （profile 刚反序列化）抓 lifetimeGames，作为「是否真的玩过」的权威快照。
+    private _lifetimeGamesAtBoot = 0;
     /** 上次实际应用的分辨率/窗口尺寸键，用于跳过冗余的 setDesignResolutionSize/canvas-resize。 */
     private _lastViewKey = '';
     // 首帧布局稳定后置 true：之后任何 relayout 都只在 JS 重排节点，绝不再
@@ -100,6 +111,7 @@ export class Bootstrap extends Component {
         // 一次性读 Storage + 系统 prefers-reduced-motion 偏好；后续 UI/FX 在执行动效前查 Motion.reduced。
         initMotion();
         initVisualFx();
+        initSkinPremium();
         Analytics.useSink(makeAnalyticsSink());
         // 节日彩蛋（对齐 web）：4/1 把所有皮肤 blockIcons 换成表情 emoji。必须在建模/渲染前执行。
         applyAprilFoolsIfActive({ optOut: Storage.get(STORAGE_KEYS.aprilFoolsOptout, '0') === '1' });
@@ -131,6 +143,8 @@ export class Bootstrap extends Component {
         // 真实玩家画像（与 web/小程序同源）：喂给 resolveAdaptiveStrategy 使寻参 θ 生效，
         // 并由 GameController 在落子/消行处驱动（recordPlace/recordMiss…）。
         const profile = createPlayerProfile();
+        // 在任何 startGame/recordNewGame 之前抓首登快照（全新安装为 0）。
+        this._lifetimeGamesAtBoot = Number(profile.lifetimeGames) || 0;
         const userId = getConfig().cloudHttp?.userId || '';
 
         // 接入与 web 完全同源的真实出块闭包；引擎异常时 GameModel 自动回退内置自适应。
@@ -256,8 +270,19 @@ export class Bootstrap extends Component {
                     const wb = this._wheelBtn.getComponent(PillButton);
                     if (wb) wb.setSkinTheme(accent, light);
                 }
+                refreshPremiumSkin(model.skin);
+                this._hudComp?.setPremiumGlass(isSkinPremiumEnabled(), getPremiumVars());
             },
         });
+        initSkinPremium({
+            getSkin: () => model.skin,
+            onRefresh: () => {
+                ctrl.redrawBoard();
+                this._hudComp?.setPremiumGlass(isSkinPremiumEnabled(), getPremiumVars());
+            },
+        });
+        initAppearanceMode();
+        this._hudComp?.setPremiumGlass(isSkinPremiumEnabled(), getPremiumVars());
         // 结束结算卡「菜单」链接 → 回主菜单（对齐 web `.game-over-links` 菜单项）。
         ctrl.onRequestMenu = () => this.showMainMenu(ctrl, model, model.mode, 0);
         this._ctrl = ctrl;
@@ -272,7 +297,7 @@ export class Bootstrap extends Component {
         // 按启用项数量自适应排布（居中铺满），保证每个图标按钮有足够触摸区且不超出屏宽。
         const soundOn = Storage.get(STORAGE_KEYS.sound, '1') !== '0';
         const hapticOn = Storage.get(STORAGE_KEYS.haptics, '1') !== '0';
-        type ButtonKind = 'locale' | 'sound' | 'haptic' | 'motion' | 'difficulty';
+        type ButtonKind = 'locale' | 'sound' | 'haptic' | 'appearance' | 'difficulty';
         const defs: Array<{ name: string; icon: string; onClick: () => void; kind?: ButtonKind }> = [];
         defs.push({ name: 'LocaleBtn', icon: this.localeIcon(), onClick: () => { /* 占位，下方注入 */ }, kind: 'locale' });
         defs.push({ name: 'SkinBtn', icon: '🎨', onClick: () => ctrl.openSkinPanel() });
@@ -283,9 +308,12 @@ export class Bootstrap extends Component {
         if (flag('share')) defs.push({ name: 'ShareBtn', icon: '📤', onClick: () => ctrl.doShare() });
         defs.push({ name: 'SoundBtn', icon: soundOn ? '🔊' : '🔇', onClick: () => { /* 占位，下方注入 */ }, kind: 'sound' });
         defs.push({ name: 'HapticBtn', icon: hapticOn ? '📳' : '🚫', onClick: () => { /* 占位，下方注入 */ }, kind: 'haptic' });
-        // 视觉/动效切换：严格对齐 web 主端 feedbackToggles —— ✨ 开启 / ✦ 关闭。
-        // 不再使用 🐢，避免误读成“慢速模式/性能卡顿”。
-        defs.push({ name: 'MotionBtn', icon: VisualFx.enabled ? '✨' : '✦', onClick: () => { /* 占位，下方注入 */ }, kind: 'motion' });
+        defs.push({
+            name: 'AppearanceBtn',
+            icon: getAppearanceIcon(),
+            onClick: () => { /* 占位，下方注入 */ },
+            kind: 'appearance',
+        });
 
         this._buttons = [];
         const n = defs.length;
@@ -317,23 +345,22 @@ export class Bootstrap extends Component {
                     pb.setText(on ? '📳' : '🚫');
                 });
                 this._buttons.push(pb.node);
+            } else if (d.kind === 'appearance') {
+                const pb = this.iconButton(d.name, x, buttonsY, d.icon, btnW, () => {
+                    cycleAppearanceMode(model.skin);
+                    pb.setText(getAppearanceIcon());
+                    this._hudComp?.setPremiumGlass(isSkinPremiumEnabled(), getPremiumVars());
+                    const { text, color } = getAppearanceFloatText();
+                    ctrl.fx.floatText(text, color, 80);
+                    try { AudioManager.sfxTick(); } catch { /* ignore */ }
+                }, 22);
+                this._buttons.push(pb.node);
             } else if (d.kind === 'difficulty') {
                 const pb = this.iconButton(d.name, x, buttonsY, d.icon, btnW, () => {
                     ctrl.selectDifficulty((newId: string) => {
                         pb.setText(this.difficultyIcon(newId));
                     });
                 }, 20);
-                this._buttons.push(pb.node);
-            } else if (d.kind === 'motion') {
-                const pb = this.iconButton(d.name, x, buttonsY, d.icon, btnW, () => {
-                    const enabled = VisualFx.toggle();
-                    pb.setText(enabled ? '✨' : '✦');
-                    ctrl.fx.floatText(
-                        enabled ? t('visualfx.on') : t('visualfx.off'),
-                        enabled ? new Color(255, 220, 130, 255) : new Color(180, 200, 220, 255),
-                        80,
-                    );
-                }, 22);
                 this._buttons.push(pb.node);
             } else {
                 this._buttons.push(this.iconButton(d.name, x, buttonsY, d.icon, btnW, d.onClick).node);
@@ -353,7 +380,11 @@ export class Bootstrap extends Component {
 
         this.detectPlatform();
         this.showSplash();
-        // 移动套壳端冷启动直达对局。不要自动弹礼包/FTUE，避免启动时进入不可关闭模态导致“卡住”。
+        // 移动套壳端冷启动直达对局，不走主菜单（web 的新手村挂在菜单「开始」回调上，cocos 这条路径
+        // 永不触发）。因此首登新手村必须在冷启动、splash 淡出 + 布局稳定后直接拉起一次；
+        // shouldShowNewbieVillage 内部用「首登快照 + 引导未完成」守卫，老玩家/已完成者不会被打扰。
+        // 注意：新手村是可交互的全屏引导（非不可关闭的礼包模态），不在被禁止的「自动弹礼包」之列。
+        this.scheduleOnce(() => this.maybeShowNewbieVillage(), 1.8);
 
         // 多次重排：onLoad / 首帧阶段原生视图尺寸常处于过渡态（getVisibleSize 与父节点世界变换暂不一致），
         // 在视图稳定后再重排，让候选区等子节点的最终位置收敛到正确值。
@@ -822,12 +853,19 @@ export class Bootstrap extends Component {
         }
     }
 
-    private maybeShowTutorial(): void {
-        if (!Tutorial.shouldShow()) return;
-        const n = new Node('Tutorial');
-        n.parent = this.node;
-        n.setSiblingIndex(this.node.children.length - 1);
-        n.addComponent(Tutorial).setup();
+    private maybeShowNewbieVillage(): void {
+        if (!this._ctrl?.node?.isValid) {
+            console.log('[NewbieVillage] maybeShow skipped: ctrl not ready');
+            return;
+        }
+        console.log(`[NewbieVillage] maybeShow trigger, lifetimeGamesAtBoot=${this._lifetimeGamesAtBoot}`);
+        void runIfFirstLogin({
+            parent: this.node,
+            // 用 boot 时抓的快照而非 live profile：开局已把 lifetimeGames 推到 1，
+            // 直接读 live 值会让首登判定永远落空（全新安装也不弹新手村）。
+            game: { playerProfile: { lifetimeGames: this._lifetimeGamesAtBoot } },
+            wallet: this._ctrl.model.wallet,
+        });
     }
 
     /**
@@ -876,7 +914,7 @@ export class Bootstrap extends Component {
             onPlay: (m: GameMode) => {
                 this.raiseHudButtons();
                 // 入场礼包弹窗关闭后再出首次引导，避免引导全屏 TapBus 盖住弹窗按钮。
-                ctrl.enterFromMenu(m, () => this.maybeShowTutorial());
+                ctrl.enterFromMenu(m, () => this.maybeShowNewbieVillage());
             },
             onSkin: () => ctrl.openSkinPanel(),
             onLore: () => ctrl.openLore(),

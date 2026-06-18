@@ -35,289 +35,55 @@
  */
 
 import { getWallet } from '../skills/wallet.js';
-import { getShapeById } from '../shapes.js';
 import {
-    computeClearScore,
-    detectBonusLines,
+    NEWBIE_VILLAGE_STORAGE_KEY,
+    NV_COLS as COLS,
+    NV_ROWS as ROWS,
+    NV_PALETTE as PALETTE,
+    SCENARIO,
+    computeClears,
+    scorePlacement,
+    breakdownText,
     deriveNextComboCount,
     ICON_BONUS_LINE_MULT,
     PERFECT_CLEAR_MULT,
-} from '../clearScoring.js';
+    loadVillageState,
+    saveVillageState,
+    shouldShowNewbieVillageCore,
+    emptyNvBoard,
+    isPlacementValid,
+} from './newbieVillageCore.js';
 
-export const NEWBIE_VILLAGE_STORAGE_KEY = 'openblock_newbie_village_v1';
-
-const COLS = 8;
-const ROWS = 8;
-/** 与主局默认策略一致（shared/game_rules.json → defaultStrategyId = 'normal'） */
-const STRATEGY_ID = 'normal';
-
-/* 调色板：索引即 colorIdx（0~7），渲染时映射为 CSS 颜色；同花判定按 colorIdx 相等。 */
-const PALETTE = [
-    '#38bdf8', '#a78bfa', '#34d399', '#fbbf24',
-    '#fb7185', '#f472b6', '#60a5fa', '#f59e0b',
-];
+export {
+    NEWBIE_VILLAGE_STORAGE_KEY,
+    SCENARIO,
+    applyPiece,
+    computeClears,
+    scorePlacement,
+    shapeCells,
+    toGridLike,
+} from './newbieVillageCore.js';
 
 function _loadState() {
-    try {
-        const raw = localStorage.getItem(NEWBIE_VILLAGE_STORAGE_KEY);
-        if (!raw) return { done: false, skipped: false };
-        const s = JSON.parse(raw);
-        return { done: !!s.done, skipped: !!s.skipped };
-    } catch {
-        return { done: false, skipped: false };
-    }
+    return loadVillageState(typeof localStorage !== 'undefined' ? localStorage : null);
 }
 
 function _saveState(patch) {
-    try {
-        const cur = _loadState();
-        localStorage.setItem(
-            NEWBIE_VILLAGE_STORAGE_KEY,
-            JSON.stringify({ ...cur, ...patch, ts: Date.now() }),
-        );
-    } catch { /* ignore */ }
+    saveVillageState(typeof localStorage !== 'undefined' ? localStorage : null, patch);
 }
 
 /** 是否应当为当前用户展示新手村 */
 export function shouldShowNewbieVillage({ game } = {}) {
     if (typeof document === 'undefined' || typeof localStorage === 'undefined') return false;
-    const st = _loadState();
-    if (st.done || st.skipped) return false;
-    // 显式开关（便于自动化 / 压测 / 演示）
+    let force = false;
+    let skip = false;
     try {
         const url = new URL(window.location.href);
-        if (url.searchParams.get('novillage') === '1') return false;
-        if (url.searchParams.get('village') === '1') return true; // 强制展示（调试）
+        if (url.searchParams.get('novillage') === '1') skip = true;
+        if (url.searchParams.get('village') === '1') force = true;
     } catch { /* ignore */ }
-    // 首登信号：从未玩过任何一局
-    const lifetime = Number(game?.playerProfile?.lifetimeGames);
-    if (Number.isFinite(lifetime) && lifetime > 0) return false;
-    return true;
+    return shouldShowNewbieVillageCore({ game, storage: localStorage, force, skip });
 }
-
-/* ────────────────────────────────────────────────────────────────────────────
- * 纯逻辑（不依赖 DOM，便于单测）
- * 棋盘 board[y][x] = colorIdx(0~7) | null；空格用 null（不可用「真值」判空，colorIdx 0 是假值）。
- * ──────────────────────────────────────────────────────────────────────────── */
-
-function _emptyBoard() {
-    return Array.from({ length: ROWS }, () => Array.from({ length: COLS }, () => null));
-}
-
-/** 把 board 适配成 detectBonusLines 期望的 grid 形态（size + cells）。 */
-export function toGridLike(board) {
-    return { size: board.length, cells: board };
-}
-
-/**
- * 检测填满的整行 / 整列，返回去重后的待消单元格与命中行列总数。
- * @param {Array<Array<number|null>>} board
- * @returns {{ cells: Array<[number, number]>, lines: number }}
- */
-export function computeClears(board) {
-    const rows = board.length;
-    const cols = rows > 0 ? board[0].length : 0;
-    const fullRows = [];
-    const fullCols = [];
-    for (let r = 0; r < rows; r++) {
-        if (board[r].every((v) => v !== null)) fullRows.push(r);
-    }
-    for (let c = 0; c < cols; c++) {
-        let full = true;
-        for (let r = 0; r < rows; r++) { if (board[r][c] === null) { full = false; break; } }
-        if (full) fullCols.push(c);
-    }
-    const set = new Set();
-    const cells = [];
-    const push = (r, c) => { const k = `${r},${c}`; if (!set.has(k)) { set.add(k); cells.push([r, c]); } };
-    for (const r of fullRows) for (let c = 0; c < cols; c++) push(r, c);
-    for (const c of fullCols) for (let r = 0; r < rows; r++) push(r, c);
-    return { cells, lines: fullRows.length + fullCols.length };
-}
-
-/** 把方块按原点落入盘面副本（不校验，调用方先用合法性校验）。 */
-export function applyPiece(board, piece, origin) {
-    const next = board.map((row) => row.slice());
-    const [ox, oy] = origin;
-    for (const [dx, dy] of piece.cells) {
-        next[oy + dy][ox + dx] = piece.colorIdx;
-    }
-    return next;
-}
-
-/**
- * 用**真实计分链路**结算一次落子。
- * @returns {{ result: object, score: object, clears: object, perfect: boolean, afterBoard: Array }}
- */
-export function scorePlacement(filledBoard, comboCount) {
-    const clears = computeClears(filledBoard);
-    const c = clears.lines;
-    // 同花 bonus：在「清除前」的盘面上扫描满行/列是否同色（skin=null → 按 colorIdx 相等）
-    const bonusLines = c > 0 ? detectBonusLines(toGridLike(filledBoard), null) : [];
-    // 清除后盘面，用于判定 perfectClear（全空）
-    const afterBoard = filledBoard.map((row) => row.slice());
-    for (const [r, cc] of clears.cells) afterBoard[r][cc] = null;
-    const perfect = c > 0 && afterBoard.every((row) => row.every((v) => v === null));
-    const result = { count: c, bonusLines, perfectClear: perfect };
-    const score = computeClearScore(STRATEGY_ID, result, null, comboCount);
-    return { result, score, clears, perfect, afterBoard };
-}
-
-/* ────────────────────────────────────────────────────────────────────────────
- * 引导脚本（5 课）
- *
- * 每课（step）：
- *   - seed():  预铺盘 → ROWS×COLS 的 colorIdx|null 二维数组
- *   - pieces:  落子队列 [{ cells:[[dx,dy]...], colorIdx, target:[col,row] }]
- *              队列里逐枚落子（用于 combo 课连续 3 手）；落点锁定在 target，保证成功
- *   - coach:   教学气泡 { icon, title, body }
- *   - reveal:  本课消行解说 { title, body }（得分拆解由引擎按真实结算动态追加）
- * ──────────────────────────────────────────────────────────────────────────── */
-
-/**
- * 把真实候选块（shared/shapes.json）的 data 矩阵转成 cells 偏移 [[dx,dy]...]。
- * 这样演示用的就是真实游戏里会出现的多格形状，而非「假的单格」。
- */
-export function shapeCells(shapeId) {
-    const shape = getShapeById(shapeId);
-    const data = shape?.data || [[1]];
-    const cells = [];
-    for (let y = 0; y < data.length; y++) {
-        for (let x = 0; x < data[y].length; x++) {
-            if (data[y][x]) cells.push([x, y]);
-        }
-    }
-    return cells;
-}
-
-/** 用真实形状构造一枚落子：{ shapeId, cells, colorIdx, target } */
-const SP = (shapeId, colorIdx, target) => ({ shapeId, cells: shapeCells(shapeId), colorIdx, target });
-
-/**
- * 用真实形状在 board 上「盖章」铺盘（每个形状整体同色 → 看起来像真实落子留下的色块，
- * 而非散落的单格）。越界单元静默忽略。
- */
-function _stamp(board, shapeId, ox, oy, colorIdx) {
-    for (const [dx, dy] of shapeCells(shapeId)) {
-        const x = ox + dx;
-        const y = oy + dy;
-        if (y >= 0 && y < ROWS && x >= 0 && x < COLS) board[y][x] = colorIdx;
-    }
-    return board;
-}
-
-export const SCENARIO = [
-    {
-        id: 'single',
-        coach: {
-            icon: '🧩',
-            title: '第 1 课 · 单消',
-            body: '按住下方发光的方块拖到闪烁缺口松手落子。这是一条「1×4」候选块——填满一整行即可消除，基础分 = 20 × 行列数²。',
-        },
-        // 1×4 横条补满底行最后 4 格
-        pieces: [SP('1x4', 6, [4, 7])],
-        seed() {
-            const b = _emptyBoard();
-            _stamp(b, '1x4', 0, 7, 0);          // 底行 col0..3：一条已落的 1×4（缺口 col4..7）
-            _stamp(b, 'l-2', 1, 1, 2);          // 残留：L 形色块
-            _stamp(b, '2x2', 5, 3, 4);          // 残留：2×2 色块
-            return b;
-        },
-        reveal: {
-            title: '单消达成！',
-            body: '消除 1 条线，基础分 = 20 × 1² = 20。每消一行/列都会立即结算并飘出「+分数」。',
-        },
-    },
-    {
-        id: 'multi',
-        coach: {
-            icon: '✨',
-            title: '第 2 课 · 多消',
-            body: '这是「2×2」方块。放进右下角缺口，会**一手同时填满两行**！多消基础分按数量平方放大：20 × 2² = 80。',
-        },
-        // 2×2 方块同时补满 row6 + row7 的最后两格
-        pieces: [SP('2x2', 3, [6, 6])],
-        seed() {
-            const b = _emptyBoard();
-            _stamp(b, '2x3', 0, 6, 0);          // row6/7 的 col0..2（3×2 色块）
-            _stamp(b, '2x3', 3, 6, 5);          // row6/7 的 col3..5（3×2 色块），公共缺口 (6/7,6)(6/7,7)
-            _stamp(b, '2x2', 1, 2, 2);          // 残留：2×2 色块 → 非清屏
-            return b;
-        },
-        reveal: {
-            title: '多消 ×2！',
-            body: '一次落子清掉 2 条线，基础分 = 20 × 2² = 80。这就是「多消」的平方奖励——消得越多越值。',
-        },
-    },
-    {
-        id: 'mono',
-        coach: {
-            icon: '🌈',
-            title: '第 3 课 · 同花消除',
-            body: '这是「4×1」竖条。把它补进左侧同色列，让**整列颜色一致** —— 触发「同花」奖励，该列得分 ×5！',
-        },
-        // 4×1 竖条补满 col0（与已铺 4 格同色）
-        pieces: [SP('4x1', 2, [0, 4])],
-        seed() {
-            const b = _emptyBoard();
-            _stamp(b, '4x1', 0, 0, 2);          // 左列 row0..3：一条已落的 4×1（同色 2，缺口 row4..7）
-            _stamp(b, '2x2', 3, 1, 5);          // 残留：2×2 色块（异色）
-            _stamp(b, '1x4', 3, 5, 0);          // 残留：1×4 横条（异色，不在 col0 上）
-            return b;
-        },
-        reveal: {
-            title: '同花 BONUS！',
-            body: '整列同色触发同花：该线得分 ×5（20 → 100）。凑同色是高分的关键技巧之一。',
-        },
-    },
-    {
-        id: 'combo',
-        coach: {
-            icon: '🔥',
-            title: '第 4 课 · 连击 Combo',
-            body: '连续多手都消行会点燃 combo（♥N）：♥3 起得分 ×2、♥4 ×3、♥5+ ×4！连放 3 条「1×4」横条，逐行补满。',
-        },
-        // 连续三条 1×4 逐行清，combo ♥1→♥2→♥3
-        pieces: [
-            SP('1x4', 4, [4, 5]),
-            SP('1x4', 6, [4, 6]),
-            SP('1x4', 1, [4, 7]),
-        ],
-        seed() {
-            const b = _emptyBoard();
-            _stamp(b, '1x4', 0, 5, 0);          // 三行各铺 col0..3（各一条 1×4，缺口 col4..7）
-            _stamp(b, '1x4', 0, 6, 3);
-            _stamp(b, '1x4', 0, 7, 5);
-            _stamp(b, '2x2', 1, 1, 6);          // 上方残留：2×2 色块
-            _stamp(b, 'l-2', 4, 2, 1);          // 上方残留：L 形色块（不被清除 → 非清屏）
-            return b;
-        },
-        reveal: {
-            title: '连击 ♥3 ×2！',
-            body: 'combo 在整局里持续累积：连续清线越多，♥N 越高、倍率越大。这一手已经吃到 ×2 加成。',
-        },
-    },
-    {
-        id: 'perfect',
-        coach: {
-            icon: '🌟',
-            title: '第 5 课 · 清屏 Perfect',
-            body: '终极爽点：用这枚「2×3」方块补满最后两行，把**整个棋盘清空** —— 触发 PERFECT，全部得分 ×10！',
-        },
-        // 2×3（3 宽 2 高）补满 row6 + row7 的最后 3 列，清完即空盘
-        pieces: [SP('2x3', 5, [5, 6])],
-        seed() {
-            const b = _emptyBoard();
-            _stamp(b, '2x2', 0, 6, 0);          // row6/7 的 col0..1（2×2 色块）
-            _stamp(b, '2x3', 2, 6, 3);          // row6/7 的 col2..4（3×2 色块），缺口 col5..7
-            return b;                            // 仅此两行、无残留 → 清完即空盘（PERFECT）
-        },
-        reveal: {
-            title: 'PERFECT 清屏！',
-            body: '盘面被彻底清空，触发完美清屏：全部得分 ×10。这是冲击高分的最强一击！',
-        },
-    },
-];
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 样式注入（自包含，不依赖 main.css，避免 SW 缓存导致样式缺失）
@@ -449,7 +215,7 @@ class NewbieVillage {
         this._score = 0;
         this._comboCount = 0;
         this._roundsSinceClear = Infinity;
-        this._board = _emptyBoard();
+        this._board = emptyNvBoard();
         this._queue = [];
         this._queueIdx = 0;
         this._lastScored = null;
@@ -688,15 +454,7 @@ class NewbieVillage {
 
     /** 合法落点：界内、空格（=== null）；锁定 target 时必须与 target 一致 */
     _isPlacement(piece, origin) {
-        const [ox, oy] = origin;
-        if (piece.target && (ox !== piece.target[0] || oy !== piece.target[1])) return false;
-        for (const [dx, dy] of piece.cells) {
-            const c = ox + dx;
-            const r = oy + dy;
-            if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return false;
-            if (this._board[r][c] !== null) return false;
-        }
-        return true;
+        return isPlacementValid(this._board, piece, origin);
     }
 
     _showGhost(piece, origin) {
@@ -878,19 +636,13 @@ class NewbieVillage {
         this._revealEl.hidden = false;
         this._revealEl.querySelector('.nv-reveal__title').textContent = reveal.title;
         this._revealEl.querySelector('.nv-reveal__body').textContent = reveal.body;
-        this._revealEl.querySelector('.nv-reveal__calc').textContent = scored ? this._breakdownText(scored) : '';
+        this._revealEl.querySelector('.nv-reveal__calc').textContent = scored ? breakdownText(scored) : '';
         requestAnimationFrame(() => this._revealEl.classList.add('is-visible'));
     }
 
     /** 按真实结算结果生成得分拆解文案（与 computeClearScore 输出严格一致） */
     _breakdownText(scored) {
-        const { result, score } = scored;
-        const c = result.count;
-        const parts = [`基础 20×${c}²=${score.baseScore}`];
-        if (score.iconBonusScore > 0) parts.push(`同花 +${score.iconBonusScore}`);
-        if (result.perfectClear) parts.push(`完美清屏 ×${PERFECT_CLEAR_MULT}`);
-        if (score.comboMultiplier > 1) parts.push(`连击 ×${score.comboMultiplier}`);
-        return `本手 +${score.clearScore} = ${parts.join('  ·  ')}`;
+        return breakdownText(scored);
     }
 
     /* ── 收尾 ─────────────────────────────────────────────── */

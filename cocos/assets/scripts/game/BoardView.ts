@@ -1,7 +1,8 @@
 import { _decorator, Component, Graphics, UITransform, Node, Label, Color, UIOpacity, Sprite, SpriteFrame, resources } from 'cc';
 import { Grid, Skin, getWatermark, flag, ClearedCell } from '../core';
 import { blockColor, cellEmptyColor, gridOuterColor, gridLineColor, blockMetrics, blockIcon } from './skin/palette';
-import { paintBlockFace, iconFontSize, drawShapeFaces, applyIconLabelScaled } from './skin/blockPaint';
+import { paintBlockFace, paintPremiumCellFinish, iconFontSize, drawShapeFaces, applyIconLabelScaled } from './skin/blockPaint';
+import { isSkinPremiumEnabled, getPremiumVars } from './platform/SkinPremium';
 import { skinHasImageBlocks, getSkinBlockFrame, ensureSkinBlockFrames, skinBlockFramesReady, paintAssetOverlay, skinHasAssetOverlay } from './skin/skinSprites';
 import { Motion } from './platform/Motion';
 import { VisualFx } from './platform/VisualFx';
@@ -474,6 +475,35 @@ export class BoardView extends Component {
 
         // ─── Step 1: bg layer (outer + cellEmpty) ─────────────────────────────
         bg.clear();
+        const premium = isSkinPremiumEnabled();
+        const pv = getPremiumVars();
+
+        // 1a-premium. 盘面外框包装（对齐 web `#game-wrapper` 玻璃质感 + 深投影）
+        if (premium && pv) {
+            const pad = 10;
+            const outer = half + pad;
+            const wrap = this.boardPx + pad * 2;
+            const wr = 14;
+            bg.fillColor = new Color(0, 0, 0, 48);
+            bg.roundRect(-outer + 1, -outer - 4, wrap, wrap, wr);
+            bg.fill();
+            const mid = -outer + wrap * 0.35;
+            bg.fillColor = pv.wrapperBottom;
+            bg.roundRect(-outer, -outer, wrap, mid - (-outer) + 1, wr);
+            bg.fill();
+            bg.fillColor = pv.wrapperTop;
+            bg.roundRect(-outer, mid, wrap, -outer + wrap - mid, wr);
+            bg.fill();
+            bg.lineWidth = 1;
+            bg.strokeColor = pv.boardBorder;
+            bg.roundRect(-outer + 0.5, -outer + 0.5, wrap - 1, wrap - 1, wr);
+            bg.stroke();
+            bg.lineWidth = 2;
+            bg.strokeColor = pv.boardGlow;
+            bg.roundRect(-outer - 2, -outer - 2, wrap + 4, wrap + 4, wr + 2);
+            bg.stroke();
+        }
+
         // 1a. outer 圆角铺底（对齐 web `_paintBackgroundUnder`：full-bleed gridOuter）
         const framePad = Math.max(1, gap);
         bg.fillColor = gridOuterColor(skin);
@@ -486,14 +516,47 @@ export class BoardView extends Component {
         //     深色皮肤（如 beast：outer #150C04 vs cell #221608）下糊成一片，这是本投诉根因之一。
         const emptyFill = cellEmptyColor(skin);
         const inn = Math.max(1, cell - gap * 2);
+        const cellR = premium ? Math.max(2, Math.round((skin.blockRadius ?? 5) * inn / 38)) : 0;
         bg.fillColor = emptyFill;
         for (let gy = 0; gy < grid.size; gy++) {
             for (let gx = 0; gx < grid.size; gx++) {
                 const cellX = -half + gx * cell;
                 const cellY = half - (gy + 1) * cell;
-                bg.rect(cellX + gap, cellY + gap, inn, inn);
+                const px = cellX + gap;
+                const py = cellY + gap;
+                if (premium && cellR > 0) {
+                    bg.roundRect(px, py, inn, inn, cellR);
+                } else {
+                    bg.rect(px, py, inn, inn);
+                }
                 bg.fill();
             }
+        }
+        if (premium && inn > 4) {
+            bg.lineWidth = 0.75;
+            bg.strokeColor = new Color(148, 163, 184, 15);
+            for (let gy = 0; gy < grid.size; gy++) {
+                for (let gx = 0; gx < grid.size; gx++) {
+                    const cellX = -half + gx * cell;
+                    const cellY = half - (gy + 1) * cell;
+                    const px = cellX + gap + 0.5;
+                    const py = cellY + gap + 0.5;
+                    bg.roundRect(px, py, inn - 1, inn - 1, Math.max(0, cellR - 0.5));
+                    bg.stroke();
+                }
+            }
+        }
+        if (premium && pv) {
+            bg.lineWidth = 1;
+            bg.strokeColor = new Color(
+                pv.boardBorder.r, pv.boardBorder.g, pv.boardBorder.b,
+                Math.round(pv.boardBorder.a * 0.65),
+            );
+            bg.roundRect(-half + 0.5, -half + 0.5, this.boardPx - 1, this.boardPx - 1, 12);
+            bg.stroke();
+            bg.fillColor = new Color(255, 255, 255, 20);
+            bg.roundRect(-half + 1, -half + this.boardPx * 0.88, this.boardPx - 2, this.boardPx * 0.12 - 1, 10);
+            bg.fill();
         }
 
         // ─── Step 2: watermark ───────────────────────────────────────────────
@@ -506,7 +569,7 @@ export class BoardView extends Component {
         blk.clear();
         // 图片皮肤（blockIconAssets，如水墨雅集）：整面贴图渲染，跳过绘面 + emoji（与 web 一致）。
         const imgSkin = skinHasImageBlocks(skin);
-        const useSprites = !imgSkin && !!this._blockFrame && flag('spriteBlocks');
+        const useSprites = !imgSkin && !!this._blockFrame && flag('spriteBlocks') && !premium;
         // 图片皮肤的"面"区域 = cell - inset*2（与 web `paintBlockCell` 的 size 严格一致）；
         // 内部再按 blockIconInset 收一圈作为 PNG 画框边距（水墨雅集 0.03 几乎无可见，但保留对齐）。
         // 关键：sprite 与 overlay 必须用同一 imgSize，否则浮雕描边会与贴图错位。
@@ -554,6 +617,9 @@ export class BoardView extends Component {
                     s.color = blockColor(skin, v);
                 } else {
                     paintBlockFace(blk, cellX + inset, cellY + inset, fsize, radius, skin, v);
+                    if (isSkinPremiumEnabled()) {
+                        paintPremiumCellFinish(blk, cellX + inset, cellY + inset, fsize, radius);
+                    }
                 }
                 const em = blockIcon(skin, v);
                 const fs = em ? iconFontSize(fsize) : 0;
@@ -618,6 +684,10 @@ export class BoardView extends Component {
         const lg = this._gridLineG;
         if (!lg) return;
         lg.clear();
+        // 精致模式：盘面已用「圆角玻璃空格 + 柔描边」表达格位（对齐 web premium 玻璃盘），
+        // 此处的满盘 7+7 硬网格线（深盘 white@0.46）会把每块「框」起来 → 方块割裂、与盘面脱节。
+        // web premium 不画这层硬线，故 cocos 同步跳过，让方块融入暖色玻璃盘面。
+        if (isSkinPremiumEnabled()) return;
         const lineColor = gridLineColor(skin);
         if (!lineColor) return;
         const cell = this.cellSize;

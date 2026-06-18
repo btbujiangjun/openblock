@@ -163,6 +163,8 @@ if [[ "$DO_RUN" -eq 1 ]]; then
     SCHEME="${SCHEME:-openblock}"
     DERIVED="$COCOS_DIR/build/ios/_derived"
     echo "▶ xcodebuild 编译到真机（scheme=$SCHEME, Debug）…"
+    XCLOG="$(mktemp)"
+    trap 'rm -f "$XCLOG"' EXIT
     if ! /usr/bin/xcodebuild \
         -project "$PROJ" \
         -scheme "$SCHEME" \
@@ -170,10 +172,28 @@ if [[ "$DO_RUN" -eq 1 ]]; then
         -destination 'generic/platform=iOS' \
         -derivedDataPath "$DERIVED" \
         -allowProvisioningUpdates \
-        build; then
-        echo "✗ xcodebuild 编译失败（多为签名/描述文件问题）。建议改用 --open 在 Xcode 内编译查看详细报错。" >&2
+        build 2>&1 | tee "$XCLOG"; then
+        echo "" >&2
+        if grep -qE 'No signing certificate|requires a development team|Provisioning profile' "$XCLOG"; then
+            echo "✗ xcodebuild 签名失败（非代码编译错误）。" >&2
+            grep -E 'error:.*(signing certificate|development team|Provisioning profile)' "$XCLOG" | tail -3 >&2 || true
+            CONFIG_TEAM="$(grep -o '"developerTeam"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG" 2>/dev/null | sed 's/.*"\([^"]*\)"$/\1/')"
+            echo "" >&2
+            echo "  工程配置的 Team ID：${CONFIG_TEAM:-（未读到 ios.json）}" >&2
+            echo "  本机可用签名证书：" >&2
+            security find-identity -v -p codesigning 2>/dev/null | sed 's/^/    /' >&2 || echo "    （无法读取 Keychain）" >&2
+            echo "" >&2
+            echo "  处理方式（任选其一）：" >&2
+            echo "    1) cocos/scripts/build-ios.sh --open → Xcode 里选 Signing Team → ⌘R 真机运行" >&2
+            echo "    2) 把 cocos/build-configs/ios.json 的 developerTeam 改成上面对应 Team ID 后重新 build" >&2
+            echo "    3) 在 developer.apple.com 为 Team ${CONFIG_TEAM:-?} 下载证书并导入钥匙串" >&2
+        else
+            echo "✗ xcodebuild 编译失败。建议改用 --open 在 Xcode 内查看完整报错。" >&2
+        fi
         exit 1
     fi
+    rm -f "$XCLOG"
+    trap - EXIT
 
     # Cocos 的 CMake 生成工程常把产物落在 proj/Debug-iphoneos 而非 derivedDataPath，
     # 两处都找一遍，避免「BUILD SUCCEEDED 却报未找到 .app」。

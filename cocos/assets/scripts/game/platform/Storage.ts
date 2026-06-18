@@ -112,4 +112,8 @@ export const STORAGE_KEYS = {
     churnData: 'openblock_cocos_churn_data_v1',
     // 生命周期策略意图提示「每日一次」去重（存 ymd）
     strategyHint: 'openblock_cocos_strategy_hint_v1',
+    // 精致界面开关（对齐 web openblock_skin_premium_v1）
+    skinPremium: 'openblock_skin_premium_v1',
+    // 新手村引导完成态（对齐 web openblock_newbie_village_v1）
+    newbieVillage: 'openblock_newbie_village_v1',
 };

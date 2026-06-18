@@ -14,6 +14,7 @@
 
 const { paintMahjongTileIcon } = require('./mahjongTileIcon.js');
 const { paintBoardTexture } = require('./boardTexture.js');
+const { isPremiumRenderEnabled } = require('../core/effects/skinPremiumCore');
 
 const CLASSIC_PALETTE = [
   '#70AD47', '#5B9BD5', '#ED7D31', '#FFC000',
@@ -235,6 +236,7 @@ class GameRenderer {
        关闭特效时所有粒子/抖动/闪光均被守卫拒绝；省电画质会按比例削减粒子数量。 */
     this._effectsEnabled = true;
     this._qualityMode = 'high';
+    this._premiumEnabled = false;
   }
 
   setSkin(skin) {
@@ -262,6 +264,18 @@ class GameRenderer {
 
   getQualityMode() {
     return this._qualityMode || 'high';
+  }
+
+  setPremiumEnabled(on) {
+    this._premiumEnabled = !!on;
+  }
+
+  isPremiumEnabled() {
+    return isPremiumRenderEnabled({
+      enabled: this._premiumEnabled,
+      qualityMode: this._qualityMode,
+      qualityOff: false,
+    });
   }
 
   /** 粒子数量缩放：low 0.45 / balanced 0.78 / high 1.0。所有 add* 方法用它统一调节。 */
@@ -332,9 +346,30 @@ class GameRenderer {
     const gap = skin.gridGap ?? 1;
     const cs = cellSize - gap * 2;
     ctx.fillStyle = emptyCellColor;
+    const premiumCells = this.isPremiumEnabled();
+    const cellR = premiumCells ? Math.max(2, Math.round((skin.blockRadius ?? 5) * cs / 38)) : 0;
     for (let y = 0; y < n; y++) {
       for (let x = 0; x < n; x++) {
-        ctx.fillRect(offsetX + x * cellSize + gap, offsetY + y * cellSize + gap, cs, cs);
+        const px = offsetX + x * cellSize + gap;
+        const py = offsetY + y * cellSize + gap;
+        if (premiumCells && cellR > 0) {
+          roundRect(ctx, px, py, cs, cs, cellR);
+          ctx.fill();
+        } else {
+          ctx.fillRect(px, py, cs, cs);
+        }
+      }
+    }
+    if (premiumCells && cs > 4) {
+      for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+          const px = offsetX + x * cellSize + gap;
+          const py = offsetY + y * cellSize + gap;
+          ctx.strokeStyle = 'rgba(148,163,184,0.10)';
+          ctx.lineWidth = 0.75;
+          roundRect(ctx, px + 0.5, py + 0.5, cs - 1, cs - 1, Math.max(0, cellR - 0.5));
+          ctx.stroke();
+        }
       }
     }
 
@@ -438,6 +473,45 @@ class GameRenderer {
     return Math.max(3, Math.min(skinRadius, paintedSize * 0.16));
   }
 
+  /** S 级：方块顶缘内高光 + 底缘内阴影（对齐 web _paintPremiumCellFinish） */
+  _paintPremiumCellFinish(bx, by, size, r) {
+    const ctx = this._ctx;
+    const topG = ctx.createLinearGradient(bx, by, bx, by + size * 0.24);
+    topG.addColorStop(0, 'rgba(255,255,255,0.24)');
+    topG.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = topG;
+    if (r > 0) {
+      roundRect(ctx, bx, by, size, size, r);
+      ctx.fill();
+    } else {
+      ctx.fillRect(bx, by, size, size * 0.24);
+    }
+
+    const botG = ctx.createLinearGradient(bx, by + size * 0.68, bx, by + size);
+    botG.addColorStop(0, 'rgba(0,0,0,0)');
+    botG.addColorStop(1, 'rgba(0,0,0,0.30)');
+    ctx.fillStyle = botG;
+    if (r > 0) {
+      roundRect(ctx, bx, by, size, size, r);
+      ctx.fill();
+    } else {
+      ctx.fillRect(bx, by + size * 0.68, size, size * 0.32);
+    }
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.lineWidth = 0.75;
+    if (r > 0) {
+      roundRect(ctx, bx + 0.5, by + 0.5, size - 1, size - 1, Math.max(0, r - 0.5));
+      ctx.stroke();
+    }
+  }
+
+  _maybePaintPremiumCellFinish(bx, by, s, r) {
+    if (!this.isPremiumEnabled()) return;
+    if (Array.isArray(this._skin.blockIconAssets) && this._skin.blockIconAssets.length) return;
+    this._paintPremiumCellFinish(bx, by, s, r);
+  }
+
   /**
    * 按 `skin.blockStyle` 路由到与 web/src/renderer.js 同款的渲染分支。
    * 与 web 对齐的分支：
@@ -476,14 +550,15 @@ class GameRenderer {
       color = desaturateColor(color, this._isLightBoard() ? 0.92 : 0.55);
     }
 
-    if (style === 'bevel3d') return this._paintBevel3d(bx, by, s, r, color);
-    if (style === 'neon') return this._paintNeon(bx, by, s, r, color);
-    if (style === 'metal') return this._paintMetal(bx, by, s, r, color);
-    if (style === 'glass') return this._paintGlass(bx, by, s, r, color);
-    if (style === 'jelly') return this._paintJelly(bx, by, s, r, color);
-    if (style === 'pixel8') return this._paintPixel8(bx, by, s, color);
-    if (style === 'flat') return this._paintFlat(bx, by, s, r, color);
-    return this._paintCartoon(bx, by, s, r, color);
+    if (style === 'bevel3d') this._paintBevel3d(bx, by, s, r, color);
+    else if (style === 'neon') this._paintNeon(bx, by, s, r, color);
+    else if (style === 'metal') this._paintMetal(bx, by, s, r, color);
+    else if (style === 'glass') this._paintGlass(bx, by, s, r, color);
+    else if (style === 'jelly') this._paintJelly(bx, by, s, r, color);
+    else if (style === 'pixel8') this._paintPixel8(bx, by, s, color);
+    else if (style === 'flat') this._paintFlat(bx, by, s, r, color);
+    else this._paintCartoon(bx, by, s, r, color);
+    this._maybePaintPremiumCellFinish(bx, by, s, r);
   }
 
   /** cartoon —— 哑光磨砂瓷砖。完全对齐 web 同名分支的 alpha 与 lift 数值（lightBoard 差异化）。 */

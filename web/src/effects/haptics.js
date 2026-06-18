@@ -188,3 +188,9 @@ export async function notificationSuccess() {
 function _sleep(ms) {
     return new Promise(r => setTimeout(r, ms));
 }
+
+/** 原生 Capacitor 客户端启动时预加载 Haptics 插件，避免首帧放块触感因动态 import 延迟丢失。 */
+export function preloadHaptics() {
+    if (!_isNative()) return Promise.resolve(false);
+    return _getHaptics().then((mod) => !!mod).catch(() => false);
+}

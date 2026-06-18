@@ -156,6 +156,9 @@ document.addEventListener('DOMContentLoaded', async () => {
        audioFx 暴露到 window.__audioFx，便于其他模块和控制台调用。 */
     window.__openblockBootStage = 'audiofx-create';
     const audioFx = createAudioFx();
+    if (isNativeClient()) {
+        import('./effects/haptics.js').then(({ preloadHaptics }) => preloadHaptics()).catch(() => { /* ignore */ });
+    }
     bindNativeExitButtons({ audioFx });
     /* v10.15: 皮肤切换转场（0.6s 主题色一闪 + 淡入淡出）
        通过装饰 setActiveSkinId 实现，对其他模块透明。 */
@@ -334,9 +337,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const ambient = createAmbientParticles({ renderer: game.renderer, domHost: ambientDomHost });
     ambient.applySkin(getActiveSkin().id);
     game.renderer.setAmbientLayer(ambient);
-    window.__feedbackToggles = initFeedbackToggles({ game, audioFx, ambient });
-    /* Web 主端精致界面（默认关，HUD ◇/✨ 一键切换） */
     initSkinPremium({ game });
+    window.__feedbackToggles = initFeedbackToggles({ game, audioFx, ambient });
 
     /* v10.16: 各类道具与系统接入 game */
     initHintEconomy({ game, audio: audioFx });

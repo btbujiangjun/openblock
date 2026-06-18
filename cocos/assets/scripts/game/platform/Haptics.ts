@@ -4,12 +4,15 @@ import { sys } from 'cc';
  * 震动反馈适配（Phase 2/4）。
  *
  * 优先级：
- *  1) Cocos Native 内置 JSB 震动（`native.Device.vibrate` / `jsb.Device.vibrate`）
- *  2) 原生 iOS/Android Taptic 桥（`__openblockNative.postMessage('haptic', { style })` 或简化 `__openblockHaptic('light')`）
+ *  1) 原生 iOS/Android Taptic 桥（`__openblockHaptic` / `jsb.reflection`）
+ *     —— iOS：UIImpactFeedbackGenerator；Android：VibrationEffect 振幅控制短脉冲
+ *     iOS 上 Cocos `Device.vibrate` 对短脉冲几乎无体感，必须优先走 Taptic。
+ *  2) Cocos Native 内置 JSB 震动（`native.Device.vibrate` / `jsb.Device.vibrate`，Android 等）
+ *  3) 原生桥 postMessage（`__openblockNative.postMessage('haptic', { style })`）
  *     —— 对齐 mobile/ios 通过 @capacitor/haptics → UIImpactFeedbackGenerator 的真机体验
- *  3) 微信小游戏 wx.vibrateShort/Long
- *  4) navigator.vibrate（普通浏览器、安卓 WebView）
- *  5) 无能力时打印一次诊断后静默
+ *  4) 微信小游戏 wx.vibrateShort/Long
+ *  5) navigator.vibrate（普通浏览器、安卓 WebView）
+ *  6) 无能力时打印一次诊断后静默
  *
  * `enabled` 全局开关（玩家可在顶栏按钮里 toggle）；持久化由 GameController.toggleHaptics 负责。
  */
@@ -84,46 +87,69 @@ function warnNoBackendOnce(): void {
     console.warn('[OpenBlock] Haptics backend not available: no Cocos Device.vibrate / native bridge / wx / navigator.vibrate');
 }
 
+/** 原生 iOS/Android：优先走壳注入的 Taptic / Vibrator 桥，避免 iOS Device.vibrate 假成功。 */
+function vibrateNativeBridge(style: HapticStyle): boolean {
+    if (!sys.isNative) return false;
+    if (sys.os !== sys.OS.IOS && sys.os !== sys.OS.ANDROID) return false;
+
+    const bridge = getNativeHaptic();
+    if (bridge) {
+        bridge(style);
+        return true;
+    }
+
+    try {
+        const g = globalThis as unknown as {
+            jsb?: { reflection?: { callStaticMethod?: (...args: unknown[]) => unknown } };
+        };
+        const call = g.jsb?.reflection?.callStaticMethod;
+        if (typeof call !== 'function') return false;
+        if (sys.os === sys.OS.IOS) {
+            call('OpenBlockHapticHelper', 'impact:', style);
+            return true;
+        }
+        call('com/cocos/game/OpenBlockHapticHelper', 'impact', '(Ljava/lang/String;)V', style);
+        return true;
+    } catch { /* ignore */ }
+    return false;
+}
+
+function vibrateWithStyle(style: HapticStyle): void {
+    if (vibrateNativeBridge(style)) return;
+    /* iOS 禁止降级到 Device.vibrate：函数存在但短脉冲无体感。 */
+    if (sys.isNative && sys.os === sys.OS.IOS) {
+        warnNoBackendOnce();
+        return;
+    }
+    if (vibrateCocosNative(style)) return;
+    const native = getNativeHaptic();
+    if (native) { native(style); return; }
+    const wx = getWx();
+    if (style === 'heavy') {
+        if (wx?.vibrateLong) { wx.vibrateLong(); return; }
+    } else if (wx?.vibrateShort) {
+        wx.vibrateShort({ type: style });
+        return;
+    }
+    Haptics.web(styleToMs(style));
+}
+
 export const Haptics = {
     enabled: true,
 
     light(): void {
         if (!this.enabled) return;
-        if (vibrateCocosNative('light')) return;
-        const native = getNativeHaptic();
-        if (native) { native('light'); return; }
-        const wx = getWx();
-        if (wx?.vibrateShort) {
-            wx.vibrateShort({ type: 'light' });
-            return;
-        }
-        this.web(15);
+        vibrateWithStyle('light');
     },
 
     medium(): void {
         if (!this.enabled) return;
-        if (vibrateCocosNative('medium')) return;
-        const native = getNativeHaptic();
-        if (native) { native('medium'); return; }
-        const wx = getWx();
-        if (wx?.vibrateShort) {
-            wx.vibrateShort({ type: 'medium' });
-            return;
-        }
-        this.web(30);
+        vibrateWithStyle('medium');
     },
 
     heavy(): void {
         if (!this.enabled) return;
-        if (vibrateCocosNative('heavy')) return;
-        const native = getNativeHaptic();
-        if (native) { native('heavy'); return; }
-        const wx = getWx();
-        if (wx?.vibrateLong) {
-            wx.vibrateLong();
-            return;
-        }
-        this.web(60);
+        vibrateWithStyle('heavy');
     },
 
     web(ms: number): void {

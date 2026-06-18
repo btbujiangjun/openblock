@@ -1,6 +1,7 @@
 import { _decorator, Component, Label, Node, UITransform, Color, Graphics, tween, Tween, UIOpacity, Vec3 } from 'cc';
 import { t, onLocaleChange } from '../core';
 import { Wordmark } from './ui/Wordmark';
+import type { PremiumVars } from './platform/SkinPremium';
 
 const { ccclass } = _decorator;
 
@@ -54,6 +55,25 @@ export class Hud extends Component {
     private accent = new Color(56, 189, 248, 255); // web 默认 --accent-color #38bdf8
     private _unsubLocale: (() => void) | null = null;
     private _timeLeft: number | null = null;
+    private _premiumGlassG: Graphics | null = null;
+    private _scoreCardG: Graphics | null = null;
+    private _bestCardG: Graphics | null = null;
+    private _sepG: Graphics | null = null;
+    private _premiumOn = false;
+    private _premiumVars: PremiumVars | null = null;
+
+    // 精致模式双层布局（对齐 web 移动端 score-theme-row Tier1/Tier2）
+    private static readonly PREM_SCORE_X = -92;
+    private static readonly PREM_BEST_X = 92;
+    private static readonly PREM_ROW1_Y = 10;
+    private static readonly PREM_ROW2_Y = -27;
+    private static readonly PREM_LEVEL_X = 0;
+    private static readonly PREM_PANEL_W = 600;
+    private static readonly PREM_PANEL_H = 92;
+    private static readonly PREM_CARD_W = 156;
+    private static readonly PREM_CARD_H = 36;
+    private static readonly SCORE_GOLD = new Color(252, 211, 77, 255);
+    private static readonly SCORE_WHITE = new Color(255, 255, 255, 255);
 
     // 字标尺寸（放大强化的产品 icon）
     private static readonly WM_CELL_W = 9;
@@ -99,10 +119,14 @@ export class Hud extends Component {
         const sepNode = new Node('sep');
         sepNode.parent = this.rowNode;
         sepNode.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
-        const sepG = sepNode.addComponent(Graphics);
-        sepG.fillColor = Hud.SEP;
-        for (const sx of Hud.SEP_X) sepG.rect(sx - 0.5, -16, 1, 32);
-        sepG.fill();
+        this._sepG = sepNode.addComponent(Graphics);
+
+        this._scoreCardG = this.makeCardGraphics(this.rowNode, 'ScoreCard');
+        this._bestCardG = this.makeCardGraphics(this.rowNode, 'BestCard');
+        this._scoreCardG.node.active = false;
+        this._bestCardG.node.active = false;
+
+        this.redrawSeparators();
 
         // 能力：小灰标题 + 金色胶囊
         this.powerCaption = this.makeLabel(this.rowNode, t('hud.caption.power'), 13, Hud.PWR_X, Hud.CAP_Y, Hud.CAPTION);
@@ -152,9 +176,211 @@ export class Hud extends Component {
         }
     }
 
+    /** 精致界面：HUD 双层紧凑布局 + 统一玻璃栏（严格对齐 web 移动端 + premium）。 */
+    setPremiumGlass(on: boolean, vars?: PremiumVars | null): void {
+        if (!this.rowNode?.isValid) return;
+        this._premiumOn = on;
+        this._premiumVars = on ? (vars ?? null) : null;
+        this.applyPremiumLayout(on);
+        this.redrawPremiumChrome();
+    }
+
+    private makeCardGraphics(parent: Node, name: string): Graphics {
+        const n = new Node(name);
+        n.parent = parent;
+        n.setSiblingIndex(1);
+        n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+        return n.addComponent(Graphics);
+    }
+
+    /** 重绘精致模式玻璃底 + 得分/最佳子卡片。 */
+    private redrawPremiumChrome(): void {
+        if (!this.rowNode?.isValid) return;
+        if (!this._premiumGlassG) {
+            const n = new Node('PremiumGlass');
+            n.parent = this.rowNode;
+            n.setSiblingIndex(0);
+            n.addComponent(UITransform).setAnchorPoint(0.5, 0.5);
+            this._premiumGlassG = n.addComponent(Graphics);
+        }
+        const g = this._premiumGlassG;
+        g.clear();
+        const scoreG = this._scoreCardG;
+        const bestG = this._bestCardG;
+        scoreG?.clear();
+        bestG?.clear();
+
+        if (!this._premiumOn || !this._premiumVars) {
+            if (scoreG?.node) scoreG.node.active = false;
+            if (bestG?.node) bestG.node.active = false;
+            this.redrawSeparators();
+            return;
+        }
+
+        const vars = this._premiumVars;
+        const scoreFs = 24;
+        const scoreText = this.scoreLbl?.string ?? '0';
+        const bestText = this.bestLbl?.string ?? '0';
+        const scoreW = Math.min(Hud.PREM_CARD_W, Math.max(116, Math.round(this.estTextW(scoreText, scoreFs) + 34)));
+        const bestW = Math.min(Hud.PREM_CARD_W, Math.max(116, Math.round(this.estTextW(bestText, scoreFs) + 34)));
+        const cardH = Hud.PREM_CARD_H;
+        const cardR = 10;
+
+        if (scoreG?.node) {
+            scoreG.node.active = true;
+            scoreG.node.setPosition(Hud.PREM_SCORE_X, Hud.PREM_ROW1_Y, 0);
+            this.drawStatCard(scoreG, scoreW, cardH, cardR,
+                new Color(30, 41, 59, 128), new Color(96, 165, 250, 102));
+        }
+        if (bestG?.node) {
+            bestG.node.active = true;
+            bestG.node.setPosition(Hud.PREM_BEST_X, Hud.PREM_ROW1_Y, 0);
+            this.drawStatCard(bestG, bestW, cardH, cardR,
+                new Color(30, 41, 59, 128), new Color(252, 211, 77, 128));
+        }
+
+        const w = Hud.PREM_PANEL_W;
+        const h = Hud.PREM_PANEL_H;
+        const r = 14;
+        const x0 = -w / 2;
+        const y0 = -h / 2 + 2;
+
+        g.fillColor = new Color(0, 0, 0, 52);
+        g.roundRect(x0 + 1, y0 - 3, w, h, r);
+        g.fill();
+        const midY = y0 + h * 0.38;
+        g.fillColor = vars.glassTop;
+        g.roundRect(x0, midY, w, h - (midY - y0), r);
+        g.fill();
+        g.fillColor = vars.glassBottom;
+        g.roundRect(x0, y0, w, midY - y0 + 1, r);
+        g.fill();
+        g.lineWidth = 1;
+        g.strokeColor = vars.glassBorder;
+        g.roundRect(x0 + 0.5, y0 + 0.5, w - 1, h - 1, r);
+        g.stroke();
+
+        this.redrawSeparators();
+    }
+
+    private drawStatCard(
+        g: Graphics, w: number, h: number, r: number,
+        fill: Color, border: Color,
+    ): void {
+        g.fillColor = fill;
+        g.roundRect(-w / 2, -h / 2, w, h, r);
+        g.fill();
+        g.lineWidth = 1;
+        g.strokeColor = border;
+        g.roundRect(-w / 2 + 0.5, -h / 2 + 0.5, w - 1, h - 1, r);
+        g.stroke();
+    }
+
+    /** 精致模式：双层 Tier 布局，隐藏 best-gap，combo 锚定在得分卡右上角。 */
+    private applyPremiumLayout(on: boolean): void {
+        const showCap = !on;
+        if (this.powerCaption?.node?.isValid) this.powerCaption.node.active = showCap;
+        if (this.scoreCaption?.node?.isValid) this.scoreCaption.node.active = showCap;
+        if (this.bestCaption?.node?.isValid) this.bestCaption.node.active = showCap;
+
+        if (on) {
+            const scoreFs = 24;
+            if (this.scoreLbl?.node?.isValid) {
+                this.scoreLbl.node.setPosition(Hud.PREM_SCORE_X, Hud.PREM_ROW1_Y, 0);
+                this.scoreLbl.fontSize = scoreFs;
+                this.scoreLbl.lineHeight = scoreFs + 2;
+                this.scoreLbl.color = Hud.SCORE_WHITE;
+                this.scoreLbl.enableOutline = false;
+            }
+            if (this.bestLbl?.node?.isValid) {
+                this.bestLbl.node.setPosition(Hud.PREM_BEST_X, Hud.PREM_ROW1_Y, 0);
+                this.bestLbl.fontSize = scoreFs;
+                this.bestLbl.lineHeight = scoreFs + 2;
+                this.bestLbl.color = Hud.SCORE_GOLD;
+                this.bestLbl.enableOutline = false;
+            }
+            if (this.levelPill?.node?.isValid) {
+                this.levelPill.node.setPosition(Hud.PREM_LEVEL_X, Hud.PREM_ROW2_Y, 0);
+            }
+            if (this.comboHeart?.node?.isValid) {
+                const cardHalf = Hud.PREM_CARD_W / 2;
+                this.comboHeart.node.setPosition(Hud.PREM_SCORE_X + cardHalf - 8, Hud.PREM_ROW1_Y + 14, 0);
+            }
+            if (this.bestGapLbl?.node?.isValid) {
+                this.bestGapLbl.node.active = false;
+            }
+            this.refreshPremiumStatText();
+            return;
+        }
+
+        if (this.scoreLbl?.node?.isValid) {
+            this.scoreLbl.node.setPosition(Hud.SCORE_X, Hud.CONTENT_Y, 0);
+            this.scoreLbl.fontSize = 30;
+            this.scoreLbl.lineHeight = 34;
+            this.scoreLbl.color = this.accent;
+            this.applyDigitOutline(this.scoreLbl);
+        }
+        if (this.bestLbl?.node?.isValid) {
+            this.bestLbl.node.setPosition(Hud.BEST_X, Hud.CONTENT_Y, 0);
+            this.bestLbl.fontSize = 30;
+            this.bestLbl.lineHeight = 34;
+            this.bestLbl.color = this.accent;
+            this.applyDigitOutline(this.bestLbl);
+            this.bestLbl.string = this.stripStatPrefix(this.bestLbl.string);
+        }
+        if (this.levelPill?.node?.isValid) {
+            this.levelPill.node.setPosition(Hud.PWR_X, Hud.CONTENT_Y, 0);
+        }
+        if (this.comboHeart?.node?.isValid) {
+            this.comboHeart.node.setPosition(Hud.SCORE_X, 36, 0);
+        }
+        if (this.bestGapLbl?.node?.isValid) {
+            this.bestGapLbl.node.active = true;
+            this.bestGapLbl.node.setPosition(Hud.BEST_X, -28, 0);
+            this.bestGapLbl.fontSize = 12;
+            this.bestGapLbl.lineHeight = 14;
+        }
+        if (this.scoreLbl?.node?.isValid) {
+            this.scoreLbl.string = this.stripStatPrefix(this.scoreLbl.string);
+        }
+        if (this.powerCaption?.node?.isValid) this.powerCaption.node.setPosition(Hud.PWR_X, Hud.CAP_Y, 0);
+        if (this.scoreCaption?.node?.isValid) this.scoreCaption.node.setPosition(Hud.SCORE_X, Hud.CAP_Y, 0);
+        if (this.bestCaption?.node?.isValid) this.bestCaption.node.setPosition(Hud.BEST_X, Hud.CAP_Y, 0);
+    }
+
+    private stripStatPrefix(s: string): string {
+        return s.replace(/^[⭐🏆]\s*/, '');
+    }
+
+    private refreshPremiumStatText(): void {
+        if (!this._premiumOn) return;
+        if (this.scoreLbl?.node?.isValid) {
+            this.scoreLbl.string = `⭐ ${this.stripStatPrefix(this.scoreLbl.string)}`;
+        }
+        if (this.bestLbl?.node?.isValid) {
+            this.bestLbl.string = `🏆 ${this.stripStatPrefix(this.bestLbl.string)}`;
+        }
+    }
+
+    private redrawSeparators(): void {
+        const g = this._sepG;
+        if (!g?.node?.isValid) return;
+        g.clear();
+        if (this._premiumOn) return;
+        const h = 32;
+        const y0 = -h / 2;
+        g.fillColor = Hud.SEP;
+        for (const sx of Hud.SEP_X) g.rect(sx - 0.5, y0, 1, h);
+        g.fill();
+    }
+
     /** 皮肤强调色：得分 / 最佳数值随皮肤主题上色（对齐 web `--accent-color`）。 */
     setAccent(color: Color): void {
         this.accent = color;
+        if (this._premiumOn) {
+            this.redrawPremiumChrome();
+            return;
+        }
         if (this.scoreLbl?.node?.isValid) this.scoreLbl.color = color;
         if (this.bestLbl?.node?.isValid) this.bestLbl.color = color;
     }
@@ -192,7 +418,8 @@ export class Hud extends Component {
     }
 
     setBest(best: number): void {
-        this.bestLbl.string = `${best}`;
+        this.bestLbl.string = this._premiumOn ? `🏆 ${best}` : `${best}`;
+        if (this._premiumOn) this.redrawPremiumChrome();
     }
 
     /** coins 不在 HUD 单行内展示（对齐 web：余额由技能可负担态体现），保留接口避免上层改动。 */
@@ -249,6 +476,10 @@ export class Hud extends Component {
         g.fill();
         const wasActive = heart.node.active;
         heart.node.active = true;
+        if (this._premiumOn) {
+            const cardHalf = Hud.PREM_CARD_W / 2;
+            heart.node.setPosition(Hud.PREM_SCORE_X + cardHalf - 8, Hud.PREM_ROW1_Y + 14, 0);
+        }
         if (fading) {
             // 待断态：保留数值与 DOM，透明度淡出（与 CSS .combo-heart--fading opacity:0/transform 类比）。
             Tween.stopAllByTarget(op);
@@ -266,17 +497,23 @@ export class Hud extends Component {
     /** 追 PB 横幅（对齐 web `#best-gap`）：kind=none 清空，gap 橙色，over 金色。 */
     setBestGap(text: string, kind: 'gap' | 'over' | 'none'): void {
         if (!this.bestGapLbl?.node?.isValid) return;
+        if (this._premiumOn) {
+            this.bestGapLbl.string = '';
+            return;
+        }
         this.bestGapLbl.string = kind === 'none' ? '' : text;
         this.bestGapLbl.color = kind === 'over' ? Hud.OVER_COLOR : Hud.GAP_COLOR;
     }
 
     private setScoreText(s: string): void {
-        this.scoreLbl.string = s;
+        this.scoreLbl.string = this._premiumOn ? `⭐ ${this.stripStatPrefix(s)}` : s;
+        if (this._premiumOn) this.redrawPremiumChrome();
     }
 
     private applyLevelPillText(): void {
         const text = `★ Lv.${this.level} ${titleForLevel(this.level)}`;
         this.resizePill(this.levelPill, text);
+        if (this._premiumOn) this.redrawPremiumChrome();
     }
 
     /** 创建金色等级胶囊节点。 */
@@ -307,12 +544,20 @@ export class Hud extends Component {
 
     /** 按文案估宽重绘金色胶囊背景，并更新文字。 */
     private resizePill(pill: { node: Node; g: Graphics; lbl: Label }, text: string): void {
-        const fs = 14;
-        const w = Math.max(96, Math.round(this.estTextW(text, fs) + 22));
+        let fs = 14;
+        let w = Math.max(96, Math.round(this.estTextW(text, fs) + 22));
+        const maxW = this._premiumOn ? 260 : 260;
+        if (w > maxW) {
+            fs = 12;
+            w = Math.max(96, Math.round(this.estTextW(text, fs) + 20));
+        }
+        if (w > maxW) w = maxW;
         const h = 25;
         const uit = pill.node.getComponent(UITransform);
         if (uit) uit.setContentSize(w, h);
         pill.lbl.string = text;
+        pill.lbl.fontSize = fs;
+        pill.lbl.lineHeight = fs + 2;
         const g = pill.g;
         g.clear();
         const r = h / 2;

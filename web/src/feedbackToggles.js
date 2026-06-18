@@ -1,4 +1,13 @@
 import { stopPbChaseBgm } from './effects/pbChaseBgm.js';
+import {
+    resolveAppearanceMode,
+    cycleAppearanceMode,
+    getAppearanceState,
+    getAppearanceMeta,
+    APPEARANCE_MODES,
+} from './effects/appearanceModeCore.js';
+import { loadPremiumPrefs } from './effects/skinPremiumCore.js';
+import { setSkinPremiumEnabled } from './effects/skinPremium.js';
 
 const VISUAL_STORAGE_KEY = 'openblock_visualfx_v1';
 /* v1.55.10 回滚：v2 迁移过激进，把不少用户主动想保留的 high 偏好抹掉了；
@@ -148,14 +157,28 @@ function setButtonState(button, { enabled, onIcon, offIcon, onLabel, offLabel })
 }
 
 export function initFeedbackToggles({ game, audioFx, ambient } = {}) {
-    const visualBtn = document.getElementById('visual-effects-toggle');
+    const appearanceBtn = document.getElementById('appearance-mode-toggle');
     const qualityBtn = document.getElementById('quality-toggle');
     const soundBtn = document.getElementById('sound-effects-toggle');
     const normalized = normalizeIOSNativeFeedbackPrefs(loadVisualPrefs(), loadQualityPrefs(), audioFx);
     const visualPrefs = normalized.visualPrefs;
     const qualityPrefs = normalized.qualityPrefs;
+    let appearanceMode = resolveAppearanceMode({
+        premiumEnabled: loadPremiumPrefs(typeof localStorage !== 'undefined' ? localStorage : null).enabled,
+        visualEnabled: visualPrefs.enabled,
+    });
 
-    const applyVisual = (enabled, { persist = true } = {}) => {
+    const syncAppearanceButton = (mode) => {
+        const meta = getAppearanceMeta(mode);
+        if (!appearanceBtn) return;
+        appearanceBtn.textContent = meta.icon;
+        appearanceBtn.setAttribute('aria-pressed', String(mode !== 'basic'));
+        appearanceBtn.dataset.appearanceMode = mode;
+        appearanceBtn.setAttribute('aria-label', meta.ariaLabel);
+        appearanceBtn.title = meta.title;
+    };
+
+    const applyVisual = (enabled, { persist = true, syncButton = false } = {}) => {
         const on = !!enabled;
         game?.renderer?.setEffectsEnabled?.(on);
         ambient?.setEnabled?.(on);
@@ -163,14 +186,16 @@ export function initFeedbackToggles({ game, audioFx, ambient } = {}) {
             game?.renderer?.clearFx?.();
         }
         if (persist) saveVisualPrefs({ enabled: on });
-        setButtonState(visualBtn, {
-            enabled: on,
-            onIcon: '✨',
-            offIcon: '✦',
-            onLabel: '视觉特效',
-            offLabel: '视觉特效',
-        });
+        if (syncButton) syncAppearanceButton(appearanceMode);
         game?.markDirty?.();
+    };
+
+    const applyAppearanceMode = (mode, { persist = true } = {}) => {
+        appearanceMode = APPEARANCE_MODES.includes(mode) ? mode : 'basic';
+        const { premiumEnabled, visualEnabled } = getAppearanceState(appearanceMode);
+        setSkinPremiumEnabled(premiumEnabled, { persist });
+        applyVisual(visualEnabled, { persist, syncButton: false });
+        syncAppearanceButton(appearanceMode);
     };
 
     const applySound = (enabled) => {
@@ -213,13 +238,12 @@ export function initFeedbackToggles({ game, audioFx, ambient } = {}) {
         game?.markDirty?.();
     };
 
-    applyVisual(Boolean(visualPrefs.enabled), { persist: false });
+    applyAppearanceMode(appearanceMode, { persist: false });
     applyQuality(qualityPrefs.mode, { persist: false });
     applySound(audioFx?.getPrefs?.().sound !== false);
 
-    visualBtn?.addEventListener('click', () => {
-        const next = !(game?.renderer?.getEffectsEnabled?.() ?? true);
-        applyVisual(next);
+    appearanceBtn?.addEventListener('click', () => {
+        applyAppearanceMode(cycleAppearanceMode(appearanceMode));
         if (audioFx?.getPrefs?.().sound !== false) {
             audioFx.play?.('tick', { force: true });
         }
@@ -244,6 +268,8 @@ export function initFeedbackToggles({ game, audioFx, ambient } = {}) {
 
     return {
         setVisualEffectsEnabled: applyVisual,
+        setAppearanceMode: applyAppearanceMode,
+        getAppearanceMode: () => appearanceMode,
         setSoundEnabled: applySound,
         setQualityMode: applyQuality,
         getVisualPrefs: () => loadVisualPrefs(),

@@ -16,14 +16,6 @@ const {
     __resetPremiumForTest,
 } = await import('../web/src/effects/skinPremium.js');
 
-function _mountToggle() {
-    const btn = document.createElement('button');
-    btn.id = 'skin-premium-toggle';
-    btn.setAttribute('aria-pressed', 'false');
-    document.body.appendChild(btn);
-    return btn;
-}
-
 beforeEach(() => {
     __resetPremiumForTest();
     document.body.innerHTML = '';
@@ -41,14 +33,16 @@ beforeEach(() => {
     }
 });
 
-describe('skinPremium web-only gating', () => {
-    it('浏览器 Web 主端可启用', () => {
+describe('skinPremium 多端 gating', () => {
+    it('Web / Capacitor 壳可启用', () => {
         expect(isWebPremiumClient()).toBe(true);
     });
 
-    it('原生壳不启用', () => {
+    it('Capacitor 原生壳同样支持精致界面', () => {
         document.documentElement.classList.add('native-client');
-        expect(isWebPremiumClient()).toBe(false);
+        expect(isWebPremiumClient()).toBe(true);
+        setSkinPremiumEnabled(true, { persist: false });
+        expect(isSkinPremiumEnabled()).toBe(true);
     });
 
     it('默认关闭，不挂载 premium 类', () => {
@@ -79,27 +73,10 @@ describe('skinPremium web-only gating', () => {
 });
 
 describe('initSkinPremium toggle sync', () => {
-    it('从 localStorage 恢复开启态并同步按钮', () => {
+    it('从 localStorage 恢复开启态', () => {
         localStorage.setItem('openblock_skin_premium_v1', JSON.stringify({ enabled: true }));
-        const btn = _mountToggle();
         initSkinPremium();
         expect(isSkinPremiumEnabled()).toBe(true);
-        expect(btn.getAttribute('aria-pressed')).toBe('true');
-        expect(btn.textContent).toBe('💎');
-    });
-
-    it('点击按钮切换开关并持久化', () => {
-        const btn = _mountToggle();
-        initSkinPremium();
-        expect(isSkinPremiumEnabled()).toBe(false);
-
-        btn.click();
-        expect(isSkinPremiumEnabled()).toBe(true);
-        expect(JSON.parse(localStorage.getItem('openblock_skin_premium_v1')).enabled).toBe(true);
-
-        btn.click();
-        expect(isSkinPremiumEnabled()).toBe(false);
-        expect(JSON.parse(localStorage.getItem('openblock_skin_premium_v1')).enabled).toBe(false);
     });
 });
 

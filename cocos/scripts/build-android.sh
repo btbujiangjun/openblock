@@ -339,6 +339,14 @@ else
     echo "⚠ 未找到可执行的 patch-splash.sh（$SPLASH_PATCH），splash 维持 Creator 默认。" >&2
 fi
 
+APP_NAME_PATCH="$COCOS_DIR/scripts/patch-android-app-name.sh"
+if [[ -x "$APP_NAME_PATCH" ]]; then
+    "$APP_NAME_PATCH" "$ANDROID_PROJ" || true
+else
+    chmod +x "$APP_NAME_PATCH" 2>/dev/null || true
+    [[ -x "$APP_NAME_PATCH" ]] && "$APP_NAME_PATCH" "$ANDROID_PROJ" || true
+fi
+
 if [[ "$DO_OPEN" -eq 1 && "$DO_APK" -eq 0 && "$DO_AAB" -eq 0 ]]; then
     if command -v open >/dev/null 2>&1; then
         open_android_studio "$ANDROID_PROJ" || exit 1
@@ -390,6 +398,12 @@ rm -rf "$ANDROID_PROJ/build/openblock-cocos/outputs/apk" 2>/dev/null || true
 # 可能因增量判定沿用上一次合并结果（旧 cocos splash），故清掉已合并的 assets 中间产物，
 # 强制本次从 patch 后的 data 重新合并，确保产品 icon splash 真正进包。
 rm -rf "$ANDROID_PROJ/build/openblock-cocos/intermediates/assets" 2>/dev/null || true
+# app 名称写入 strings.xml / AndroidManifest 后，资源与 manifest 合并任务也可能被 Gradle 判定
+# UP-TO-DATE。清掉对应中间产物，确保 Launcher label 重新合并进 APK。
+rm -rf "$ANDROID_PROJ/build/openblock-cocos/intermediates/merged_res" 2>/dev/null || true
+rm -rf "$ANDROID_PROJ/build/openblock-cocos/intermediates/packaged_res" 2>/dev/null || true
+rm -rf "$ANDROID_PROJ/build/openblock-cocos/intermediates/merged_manifest" 2>/dev/null || true
+rm -rf "$ANDROID_PROJ/build/openblock-cocos/intermediates/merged_manifests" 2>/dev/null || true
 
 run_gradle_task() {
     local task="$1"

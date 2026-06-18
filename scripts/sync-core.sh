@@ -23,6 +23,8 @@ mkdir -p "$DST/spawn"
 mkdir -p "$DST/tuning/v2"
 mkdir -p "$DST/evaluation"
 mkdir -p "$DST/retention"
+mkdir -p "$DST/onboarding"
+mkdir -p "$DST/effects"
 
 # 小程序包不直接携带 JSON，避免开发工具把 JSON 解析成 .json.js 或提示未上传。
 # 共享数据以 CommonJS 数据模块形式进入运行时。
@@ -77,6 +79,10 @@ FILES=(
   "evaluation/runToRunEvaluator.js"
   "evaluation/evaluationLedger.js"
   "evaluation/evaluationHost.js"
+  "clearScoring.js"
+  "onboarding/newbieVillageCore.js"
+  "effects/skinPremiumCore.js"
+  "effects/appearanceModeCore.js"
 )
 
 for f in "${FILES[@]}"; do

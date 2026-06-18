@@ -9499,17 +9499,13 @@ html.web-premium-skin .float-label {
     text-shadow: 0 2px 12px rgba(251, 191, 36, 0.45);
 }
 
-/* 精致界面开关：开启态高亮（与视觉特效按钮同口径） */
-#skin-premium-toggle[aria-pressed="true"] {
+/* 界面风格三档（basic / premium / full）合并原精致界面与视觉特效开关 */
+#appearance-mode-toggle[data-appearance-mode="premium"][aria-pressed="true"] {
     opacity: 1;
     border-color: color-mix(in srgb, var(--premium-accent, #38bdf8) 42%, rgba(255, 255, 255, 0.14));
     box-shadow:
         0 0 0 1px color-mix(in srgb, var(--premium-accent, #38bdf8) 28%, transparent),
         0 2px 10px color-mix(in srgb, var(--premium-accent, #38bdf8) 22%, transparent);
-}
-
-html.native-client #skin-premium-toggle {
-    display: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {

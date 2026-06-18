@@ -26,6 +26,10 @@ package com.cocos.game;
 
 import android.os.Bundle;
 import android.os.Build;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.os.VibratorManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.ComponentCallbacks2;
 import android.content.res.Configuration;
@@ -45,6 +49,43 @@ import com.cocos.lib.CocosHelper;
 public class AppActivity extends CocosActivity {
 
     private static final String TAG = "OpenBlockNative";
+    private static volatile boolean sHapticBridgeInjected = false;
+
+    /**
+     * 原生触感桥：振幅可控的短脉冲，对齐 iOS UIImpactFeedbackGenerator 轻重分级。
+     */
+    public static class OpenBlockHapticHelper {
+        private static volatile AppActivity sActivity;
+
+        static void bind(AppActivity activity) {
+            sActivity = activity;
+        }
+
+        public static void impact(String style) {
+            AppActivity act = sActivity;
+            if (act == null) return;
+            try {
+                Vibrator vibrator = null;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    VibratorManager vm = (VibratorManager) act.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
+                    if (vm != null) vibrator = vm.getDefaultVibrator();
+                } else {
+                    vibrator = (Vibrator) act.getSystemService(Context.VIBRATOR_SERVICE);
+                }
+                if (vibrator == null || !vibrator.hasVibrator()) return;
+                final String s = style != null ? style : "light";
+                long ms = "heavy".equals(s) ? 60L : "medium".equals(s) ? 35L : 18L;
+                int amp = "heavy".equals(s) ? 255 : "medium".equals(s) ? 180 : 120;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createOneShot(ms, amp));
+                } else {
+                    vibrator.vibrate(ms);
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "haptic impact failed", t);
+            }
+        }
+    }
 
     /**
      * 窗口是否当前持有焦点。HOME / 最近任务 / 通知中心 下拉 / 来电浮窗 等都会令其变 false。
@@ -60,7 +101,9 @@ public class AppActivity extends CocosActivity {
         super.onCreate(savedInstanceState);
         // DO OTHER INITIALIZATION BELOW
         SDKWrapper.shared().init(this);
+        OpenBlockHapticHelper.bind(this);
         installSystemUiReassertListener();
+        injectOpenBlockHapticBridge();
     }
 
     /**
@@ -104,6 +147,7 @@ public class AppActivity extends CocosActivity {
         SDKWrapper.shared().onResume();
         // 回前台后必须重新应用 immersive，否则状态栏会持续显示。
         applyImmersive();
+        injectOpenBlockHapticBridge();
         // 关键：声明高帧率诉求，对抗华为 EMUI 的"前台 idle 自动降 30Hz"机制。
         // 实测现象：玩家停手 ~5s 后，EMUI 把屏幕从 60Hz 降到 30Hz 同时降低触摸采样率，
         // 导致重新触屏首点经常被丢弃 → 玩家感觉"卡死无法拖动"；15~20s 后系统判定
@@ -331,6 +375,34 @@ public class AppActivity extends CocosActivity {
             emitJsLowMemory("native-onTrimMemory:" + level);
         } else {
             Log.i(TAG, "onTrimMemory(level=" + level + ")  ignored (not foreground-critical)");
+        }
+    }
+
+    /**
+     * 注入 globalThis.__openblockHaptic，供 Haptics.ts 在 JS 主线程触发原生触感。
+     */
+    private void injectOpenBlockHapticBridge() {
+        if (sHapticBridgeInjected) return;
+        try {
+            final String js =
+                "try{ if(typeof globalThis.__openblockHaptic!=='function'){" +
+                "  globalThis.__openblockHaptic=function(style){" +
+                "   try{" +
+                "    if(typeof jsb!=='undefined'&&jsb.reflection){" +
+                "     jsb.reflection.callStaticMethod('com/cocos/game/OpenBlockHapticHelper','impact','(Ljava/lang/String;)V',String(style||'light'));" +
+                "    }" +
+                "   }catch(e){}" +
+                "  };" +
+                "  console.log('[OpenBlock][Native] __openblockHaptic bridge installed');" +
+                " } }catch(e){}";
+            CocosHelper.runOnGameThread(new Runnable() {
+                @Override public void run() {
+                    com.cocos.lib.CocosJavascriptJavaBridge.evalString(js);
+                }
+            });
+            sHapticBridgeInjected = true;
+        } catch (Throwable t) {
+            Log.w(TAG, "injectOpenBlockHapticBridge failed", t);
         }
     }
 

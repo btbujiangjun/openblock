@@ -16,6 +16,14 @@ const { setLanguage, t } = require('../../core/i18n');
 const { createAudioFx } = require('../../utils/audioFx');
 const { updatePbChaseBgm, resetPbChaseBgm, stopPbChaseBgm } = require('../../utils/pbChaseBgm');
 const { createFeedbackToggles } = require('../../utils/feedbackToggles');
+const {
+  initSkinPremium,
+  syncPremiumAfterQualityChange,
+  refreshPremiumSkinVars,
+} = require('../../utils/skinPremium');
+const { initAppearanceMode, cycleAppearanceModeOnPage } = require('../../utils/appearanceMode');
+const { runNewbieVillageIfFirstLogin, getActiveSession } = require('../../utils/newbieVillage');
+const { PlayerProfile } = require('../../core/playerProfile');
 /* v1.60.46：HUD 等级 + 称号 与 web 字标对齐——progression 共用同一
  * localStorage key（'openblock_progression_v1'），跨端 / 跨设备同步天然一致。 */
   const { loadProgress, getLevelProgress, titleForLevel, applyGameEndProgression } = require('../../core/progression');
@@ -87,12 +95,34 @@ Page({
     scoreText: '',
     clearsText: '',
     audioOn: true,
-    visualOn: true,
-    visualIcon: '✨',
-    visualLabel: '',
     qualityMode: 'high',
     qualityIcon: '🌈',
     qualityLabel: '',
+    appearanceMode: 'basic',
+    appearanceIcon: '◇',
+    appearanceClass: 'fx-toggle--off',
+    appearanceLabel: '',
+    premiumOn: false,
+    premiumClass: '',
+    nvVisible: false,
+    nvClosing: false,
+    nvCoachIcon: '',
+    nvCoachTitle: '',
+    nvCoachBodyHtml: '',
+    nvScoreText: '',
+    nvComboText: '',
+    nvComboVisible: false,
+    nvDots: [],
+    nvRevealVisible: false,
+    nvRevealTitle: '',
+    nvRevealBody: '',
+    nvRevealCalc: '',
+    nvGraduateVisible: false,
+    nvGraduateScore: 0,
+    nvStageHidden: false,
+    nvCanvasW: 0,
+    nvCanvasH: 0,
+    nvShake: false,
     text: {},
   },
 
@@ -126,6 +156,8 @@ Page({
   _audio: null,
   _toggles: null,
   _pbBaseline: 0,
+  _basePageStyle: '',
+  _nvBootDone: false,
 
   onLoad(query) {
     const strategyId = query.strategy || 'normal';
@@ -158,17 +190,14 @@ Page({
     if (this._toggles) return;
     this._toggles = createFeedbackToggles({
       renderer: null,
-      onChange: ({ visualEnabled, qualityMode }) => {
-        const visualMeta = this._toggles.getVisualMeta();
+      onChange: ({ qualityMode }) => {
         const qualityMeta = this._toggles.getQualityMeta();
         this.setData({
-          visualOn: visualEnabled,
-          visualIcon: visualMeta.icon,
-          visualLabel: t(visualMeta.labelKey),
           qualityMode,
           qualityIcon: qualityMeta.icon,
           qualityLabel: t(qualityMeta.labelKey),
         });
+        syncPremiumAfterQualityChange();
       },
     });
   },
@@ -181,14 +210,10 @@ Page({
     this._renderer.setEffectsEnabled?.(visualEnabled);
   },
 
-  onToggleVisual() {
+  onCycleAppearanceMode() {
     if (!this._toggles) this._initToggles();
     this._wireRendererToggles();
-    this._toggles.toggleVisual();
-    /* 反馈一下开关动作；关闭特效但保留音效（走的是 audio-toggle 路径，互不影响）。 */
-    if (this._audio?.getPrefs?.().sound !== false) {
-      this._audio.play('tick', { force: true });
-    }
+    cycleAppearanceModeOnPage({ toggles: this._toggles, audio: this._audio });
     this._redraw?.();
   },
 
@@ -199,7 +224,71 @@ Page({
     if (this._audio?.getPrefs?.().sound !== false) {
       this._audio.play('tick', { force: true });
     }
+    syncPremiumAfterQualityChange();
     this._redraw?.();
+  },
+
+  onNvTouchStart(e) {
+    getActiveSession()?.handleTouchStart?.(e);
+  },
+
+  onNvTouchMove(e) {
+    getActiveSession()?.handleTouchMove?.(e);
+  },
+
+  onNvTouchEnd(e) {
+    getActiveSession()?.handleTouchEnd?.(e);
+  },
+
+  onNvSkip() {
+    getActiveSession()?.handleSkip?.();
+  },
+
+  onNvCta() {
+    getActiveSession()?.handleCta?.();
+  },
+
+  _getNvCanvasNode() {
+    return new Promise((resolve) => {
+      const query = this.createSelectorQuery();
+      query.select('#nv-board-canvas')
+        .fields({ node: true, size: true, rect: true })
+        .exec((res) => {
+          if (!res || !res[0] || !res[0].node) {
+            resolve(null);
+            return;
+          }
+          const screen = getScreenSize();
+          resolve({
+            node: res[0].node,
+            dpr: screen.dpr,
+            rect: res[0],
+          });
+        });
+    });
+  },
+
+  _profileRefForNv() {
+    if (this._controller) {
+      return this._controller.getPlayerProfileRef?.() || null;
+    }
+    if (!this._profileRef) {
+      try { this._profileRef = PlayerProfile.load(); } catch { this._profileRef = null; }
+    }
+    return this._profileRef;
+  },
+
+  async _maybeRunNewbieVillage() {
+    if (this._nvBootDone) return false;
+    this._nvBootDone = true;
+    const profile = this._profileRefForNv();
+    const stub = profile ? { getPlayerProfileRef: () => profile } : null;
+    return runNewbieVillageIfFirstLogin({
+      controller: stub,
+      audio: this._audio,
+      setData: (data, cb) => this.setData(data, cb),
+      getCanvasNode: () => this._getNvCanvasNode(),
+    });
   },
 
   onToggleAudio() {
@@ -437,7 +526,9 @@ Page({
       dockCellSize,
       pageStyle: (() => {
         const accent = getSkinAccent((this._skin || getActiveSkin()).id);
-        return `padding-left:${pagePad}px;padding-right:${pagePad}px;--accent:${accent};`;
+        const base = `padding-left:${pagePad}px;padding-right:${pagePad}px;--accent:${accent};`;
+        this._basePageStyle = base;
+        return base;
       })(),
       // 浅色皮肤（水墨雅集等 uiDark:false）→ 根节点挂 ui-light class，让快捷开关芯片改用浅色（避免深芯片发黑）。
       uiThemeClass: (this._skin || getActiveSkin()).uiDark === false ? 'ui-light' : '',
@@ -513,6 +604,7 @@ Page({
       dockStyle: layout.dockStyle,
       dock: this._controller ? this._dockViewData(this._controller.dock, -1) : this.data.dock,
     }, () => {
+      refreshPremiumSkinVars();
       this._queryCanvasAndStart(screen, layout.gridPx);
     });
   },
@@ -532,43 +624,57 @@ Page({
           wx.showToast({ title: '画布初始化失败，请重试', icon: 'none' });
           return;
         }
-        this._canvasInitAttempts = 0;
-        const canvas = res[0].node;
-        const dpr = screen.dpr;
-
-        canvas.width = gridPx * dpr;
-        canvas.height = gridPx * dpr;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          console.error('Canvas 2D 上下文获取失败');
-          wx.showToast({ title: '画布初始化失败，请重试', icon: 'none' });
-          return;
-        }
-        ctx.scale(dpr, dpr);
-
-        this._canvas = canvas;
-        this._setGridRect(res[0], gridPx);
-        this._refreshGridRect();
-        this._renderer = new GameRenderer(canvas, dpr);
-        this._renderer._ctx = ctx;
-        this._renderer.setSkin(this._skin || getActiveSkin());
-        this._wireRendererToggles();
-
-        if (!this._controller) {
-          this._controller = new GameController(this._strategyId, {
-            skin: this._skin || getActiveSkin(),
-            onStateChange: (snap) => this._onStateChange(snap),
-            onLineClear: (info) => this._onLineClear(info),
-            onGameOver: (info) => this._onGameOver(info),
-          });
-          this._sessionId = `mp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          this._reportBehavior('game_start', { strategy: this._strategyId });
-        }
-
-        this._redraw();
-        wx.nextTick(() => this._drawDockBlocks());
-        setTimeout(() => this._audio?.warmup?.(['multi', 'combo', 'perfect', 'bonus', 'gameOver']), 800);
+        void this._finishCanvasInit(res[0], screen, gridPx);
       });
+  },
+
+  async _finishCanvasInit(rectInfo, screen, gridPx) {
+    this._canvasInitAttempts = 0;
+    const canvas = rectInfo.node;
+    const dpr = screen.dpr;
+
+    canvas.width = gridPx * dpr;
+    canvas.height = gridPx * dpr;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      console.error('Canvas 2D 上下文获取失败');
+      wx.showToast({ title: '画布初始化失败，请重试', icon: 'none' });
+      return;
+    }
+    ctx.scale(dpr, dpr);
+
+    this._canvas = canvas;
+    this._setGridRect(rectInfo, gridPx);
+    this._refreshGridRect();
+    this._renderer = new GameRenderer(canvas, dpr);
+    this._renderer._ctx = ctx;
+    this._renderer.setSkin(this._skin || getActiveSkin());
+    this._wireRendererToggles();
+    initSkinPremium({
+      page: this,
+      renderer: this._renderer,
+      getQualityMode: () => this._toggles?.getState?.().qualityMode || 'high',
+      getBasePageStyle: () => this._basePageStyle || '',
+    });
+    initAppearanceMode({ page: this, toggles: this._toggles });
+    refreshPremiumSkinVars();
+
+    await this._maybeRunNewbieVillage();
+
+    if (!this._controller) {
+      this._controller = new GameController(this._strategyId, {
+        skin: this._skin || getActiveSkin(),
+        onStateChange: (snap) => this._onStateChange(snap),
+        onLineClear: (info) => this._onLineClear(info),
+        onGameOver: (info) => this._onGameOver(info),
+      });
+      this._sessionId = `mp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      this._reportBehavior('game_start', { strategy: this._strategyId });
+    }
+
+    this._redraw();
+    wx.nextTick(() => this._drawDockBlocks());
+    setTimeout(() => this._audio?.warmup?.(['multi', 'combo', 'perfect', 'bonus', 'gameOver']), 800);
   },
 
   _onStateChange(snap) {

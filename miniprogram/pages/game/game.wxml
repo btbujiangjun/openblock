@@ -5,7 +5,7 @@
     - 第 1 行：app-wordmark 字标（Open Block 文字 LOGO）
     - 第 2 行：能力（Lv.N + 称号）/ 得分 / 最佳 / 步数 / 消行 + 右上角快捷开关
 -->
-<view class="game-page {{uiThemeClass}}" style="{{pageStyle}}" catchtouchmove="onDockTouchMove" catchtouchend="onDockTouchEnd">
+<view class="game-page {{uiThemeClass}} {{premiumClass}}" style="{{pageStyle}}" catchtouchmove="onDockTouchMove" catchtouchend="onDockTouchEnd">
 
   <!-- v1.60.46：与 web index.html .header--title-only 一致——文字 LOGO 优先 -->
   <view class="header header--title-only">
@@ -46,18 +46,18 @@
     </view>
     <view class="fx-toolbar">
       <view
+        class="fx-toggle fx-toggle--appearance {{appearanceClass}}"
+        catchtap="onCycleAppearanceMode"
+        aria-label="{{appearanceLabel}}"
+      >
+        <text class="fx-toggle-icon">{{appearanceIcon}}</text>
+      </view>
+      <view
         class="fx-toggle fx-toggle--quality"
         catchtap="onCycleQuality"
         aria-label="{{qualityLabel}}"
       >
         <text class="fx-toggle-icon">{{qualityIcon}}</text>
-      </view>
-      <view
-        class="fx-toggle {{visualOn ? 'fx-toggle--on' : 'fx-toggle--off'}}"
-        catchtap="onToggleVisual"
-        aria-label="{{visualLabel}}"
-      >
-        <text class="fx-toggle-icon">{{visualIcon}}</text>
       </view>
       <view
         class="fx-toggle {{audioOn ? 'fx-toggle--on' : 'fx-toggle--off'}}"
@@ -133,6 +133,59 @@
       <button class="game-over-btn" type="primary" size="mini" hover-class="game-over-btn--hover" catchtap="onRestart">
         <text class="game-over-btn-text">{{text.restart}}</text>
       </button>
+    </view>
+  </view>
+
+  <!-- 新手村引导 overlay -->
+  <view wx:if="{{nvVisible}}" class="nv-overlay {{nvClosing ? 'nv-overlay--closing' : 'nv-overlay--visible'}}">
+    <view class="nv-topbar">
+      <view class="nv-brand">
+        <text class="nv-spark">🏕️</text>
+        <text>新手村</text>
+      </view>
+      <button class="nv-skip" size="mini" plain="true" catchtap="onNvSkip">跳过引导</button>
+    </view>
+    <view class="nv-progress">
+      <view
+        wx:for="{{nvDots}}"
+        wx:key="index"
+        class="nv-dot {{item.active ? 'nv-dot--active' : ''}} {{item.done ? 'nv-dot--done' : ''}}"
+      />
+    </view>
+    <view wx:if="{{!nvStageHidden && !nvGraduateVisible}}" class="nv-coach">
+      <text class="nv-coach__icon">{{nvCoachIcon}}</text>
+      <view class="nv-coach__text">
+        <text class="nv-coach__title">{{nvCoachTitle}}</text>
+        <rich-text class="nv-coach__body" nodes="{{nvCoachBodyHtml}}" />
+      </view>
+    </view>
+    <view wx:if="{{!nvStageHidden && !nvGraduateVisible}}" class="nv-stage">
+      <view class="nv-hud">
+        <text class="nv-score">{{nvScoreText}}</text>
+        <text wx:if="{{nvComboVisible}}" class="nv-combo nv-combo--on">{{nvComboText}}</text>
+      </view>
+      <view class="nv-board-wrap {{nvShake ? 'nv-board-wrap--shake' : ''}}">
+        <canvas
+          type="2d"
+          id="nv-board-canvas"
+          class="nv-board-canvas"
+          style="width: {{nvCanvasW}}px; height: {{nvCanvasH}}px;"
+          bindtouchstart="onNvTouchStart"
+          bindtouchmove="onNvTouchMove"
+          bindtouchend="onNvTouchEnd"
+        />
+      </view>
+    </view>
+    <view wx:if="{{nvRevealVisible && !nvGraduateVisible}}" class="nv-reveal nv-reveal--visible">
+      <text class="nv-reveal__title">{{nvRevealTitle}}</text>
+      <text class="nv-reveal__body">{{nvRevealBody}}</text>
+      <text class="nv-reveal__calc">{{nvRevealCalc}}</text>
+    </view>
+    <view wx:if="{{nvGraduateVisible}}" class="nv-graduate">
+      <text class="nv-graduate__emoji">🎉</text>
+      <text class="nv-graduate__title">出师啦！</text>
+      <text class="nv-graduate__body">你已掌握单消 / 多消 / 同花 / 连击 / 清屏，训练赛累计得分 {{nvGraduateScore}}。真实对局采用同样的计分规则，去冲击最高分吧！</text>
+      <button class="nv-cta" type="primary" size="mini" catchtap="onNvCta">开始游戏</button>
     </view>
   </view>
 

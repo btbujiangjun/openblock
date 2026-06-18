@@ -82,8 +82,12 @@ const FILES = [
     'evaluation/roundQuality.js',
     'evaluation/sessionEvaluator.js',
     'evaluation/runToRunEvaluator.js',
-    'evaluation/evaluationLedger.js',
-    'evaluation/evaluationHost.js',
+  'evaluation/evaluationLedger.js',
+  'evaluation/evaluationHost.js',
+  'clearScoring.js',
+  'onboarding/newbieVillageCore.js',
+  'effects/skinPremiumCore.js',
+  'effects/appearanceModeCore.js',
 ];
 const COPY_SET = new Set(FILES);
 

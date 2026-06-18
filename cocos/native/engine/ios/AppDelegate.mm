@@ -40,6 +40,71 @@
 
 static NSString *const kOpenBlockNativeTag = @"OpenBlockNative";
 
+#pragma mark -
+#pragma mark OpenBlock iOS Taptic bridge (对齐 Capacitor @capacitor/haptics / UIImpactFeedbackGenerator)
+
+/**
+ * Cocos JSB `Device.vibrate(seconds)` 在 iOS 上走的是老式系统震动 API，短脉冲（~18ms）
+ * 在现代 iPhone 上几乎无体感，且函数存在时会"成功返回"导致 JS 层永远走不到降级路径。
+ * 本 Helper 供 Haptics.ts 经 `__openblockHaptic` 或 `jsb.reflection.callStaticMethod` 调用。
+ */
+@interface OpenBlockHapticHelper : NSObject
++ (void)impact:(NSString *)style;
+@end
+
+@implementation OpenBlockHapticHelper
+
++ (void)impact:(NSString *)style {
+    @try {
+        NSString *s = style ?: @"light";
+        UIImpactFeedbackStyle feedbackStyle = UIImpactFeedbackStyleLight;
+        if ([s isEqualToString:@"medium"]) {
+            feedbackStyle = UIImpactFeedbackStyleMedium;
+        } else if ([s isEqualToString:@"heavy"]) {
+            feedbackStyle = UIImpactFeedbackStyleHeavy;
+        }
+        UIImpactFeedbackGenerator *generator = [[UIImpactFeedbackGenerator alloc] initWithStyle:feedbackStyle];
+        [generator prepare];
+        [generator impactOccurred];
+    } @catch (NSException *e) {
+        NSLog(@"[%@] haptic impact failed: %@", kOpenBlockNativeTag, e);
+    }
+}
+
+@end
+
+static BOOL gOpenBlockHapticBridgeInjected = NO;
+
+static void injectOpenBlockHapticBridge() {
+    if (gOpenBlockHapticBridgeInjected) return;
+    @try {
+        if (!CC_CURRENT_APPLICATION()) return;
+        auto sche = CC_CURRENT_ENGINE()->getScheduler();
+        if (!sche) return;
+
+        sche->performFunctionInCocosThread([]() {
+            se::AutoHandleScope hs;
+            const char *js =
+                "try{"
+                " if(typeof globalThis.__openblockHaptic!=='function'){"
+                "  globalThis.__openblockHaptic=function(style){"
+                "   try{"
+                "    if(typeof jsb!=='undefined'&&jsb.reflection){"
+                "     jsb.reflection.callStaticMethod('OpenBlockHapticHelper','impact:',String(style||'light'));"
+                "    }"
+                "   }catch(e){}"
+                "  };"
+                "  console.log('[OpenBlock][Native] __openblockHaptic bridge installed');"
+                " }"
+                "}catch(e){ try{console.warn('[OpenBlock][Native] haptic bridge inject fail',e);}catch(_){} }";
+            se::ScriptEngine::getInstance()->evalString(js);
+            gOpenBlockHapticBridgeInjected = YES;
+        });
+    } @catch (NSException *e) {
+        NSLog(@"[%@] injectOpenBlockHapticBridge failed: %@", kOpenBlockNativeTag, e);
+    }
+}
+
 @implementation AppDelegate
 @synthesize window;
 @synthesize appDelegateBridge;
@@ -153,6 +218,7 @@ static void emitJsLowMemory(NSString *reason) {
     [self.window makeKeyAndVisible];
     [appDelegateBridge application:application didFinishLaunchingWithOptions:launchOptions];
     [self applyRenderingPolicy];
+    injectOpenBlockHapticBridge();
     return YES;
 }
 
@@ -181,6 +247,7 @@ static void emitJsLowMemory(NSString *reason) {
     // 对齐 Android onResume：回前台后重应用渲染策略（常亮 + 高刷 + 手势 deferral），
     // 降低 Metal surface 回收后 Graphics draw command 落空导致的黑屏概率。
     [self applyRenderingPolicy];
+    injectOpenBlockHapticBridge();
 }
 
 - (void)applicationDidEnterBackground:(UIApplication *)application {

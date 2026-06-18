@@ -39,7 +39,9 @@ function bevelOf(skin: Skin): { assetOverlay: boolean; overlayTop: number; overl
 /** 该皮肤是否配置了「图片皮肤的柔光浮雕叠加」（blockBevel.assetOverlay）。 */
 export function skinHasAssetOverlay(skin: Skin): boolean {
     if (!skinHasImageBlocks(skin)) return false;
-    return bevelOf(skin).assetOverlay === true;
+    // Cocos 原生 Sprite 贴图缺少 Canvas2D 的边缘抗锯齿与滤镜融合；即使 Web 端该皮肤
+    // assetOverlay=false，原生端也需要一层极轻柔光/描边来避免图片块像独立贴纸一样割裂。
+    return true;
 }
 
 /** 复用解析缓存：'rgba(r,g,b,a)' / '#rrggbb' → Color，避免逐格重新 parseFloat。 */

@@ -12,7 +12,9 @@
 | Web 规则轨自适应出块 | `difficulty.js` / `boardTopology.js` / `playerAbilityModel.js` / `adaptiveSpawn.js` / `bot/blockSpawn.js` |
 | 玩家实时能力画像（与 Web 同源） | `playerProfile.js`（持久化经 `adapters/storageShim.js` → `wx.*StorageSync`） |
 | 皮肤核心渲染字段 | `skins.js` |
-| 同色 / 同 icon 消行加分 | `bonusScoring.js` |
+| 同色 / 同 icon 消行加分 | `bonusScoring.js` / `clearScoring.js` |
+| 首登新手村 core | `onboarding/newbieVillageCore.js`（`scripts/sync-core.sh` 同步） |
+| 精致界面 core | `effects/skinPremiumCore.js`（`scripts/sync-core.sh` 同步） |
 | 本地语言设置 | `i18n.js` |
 
 ## 数据来源

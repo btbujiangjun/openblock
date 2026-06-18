@@ -43,7 +43,7 @@ function mockMatchMedia(matches = false) {
 
 function mountButtons() {
     document.body.innerHTML = `
-        <button id="visual-effects-toggle"></button>
+        <button id="appearance-mode-toggle"></button>
         <button id="quality-toggle"></button>
         <button id="sound-effects-toggle"></button>
     `;
@@ -85,7 +85,7 @@ describe('feedbackToggles', () => {
         mockMatchMedia(false);
     });
 
-    it('初始化时应用持久化的视觉特效偏好', () => {
+    it('初始化时应用持久化的界面风格偏好', () => {
         _store.set('openblock_visualfx_v1', JSON.stringify({ enabled: false }));
         mountButtons();
         const deps = makeDeps();
@@ -94,19 +94,31 @@ describe('feedbackToggles', () => {
 
         expect(deps.game.renderer.setEffectsEnabled).toHaveBeenCalledWith(false);
         expect(deps.ambient.setEnabled).toHaveBeenCalledWith(false);
-        expect(document.getElementById('visual-effects-toggle').textContent).toBe('✦');
+        expect(document.getElementById('appearance-mode-toggle').textContent).toBe('◇');
     });
 
-    it('点击视觉按钮会切换特效并持久化', () => {
+    it('点击界面风格按钮会三档循环并持久化', () => {
+        _store.set('openblock_visualfx_v1', JSON.stringify({ enabled: false }));
         mountButtons();
         const deps = makeDeps();
-        initFeedbackToggles(deps);
+        const toggles = initFeedbackToggles(deps);
+        const btn = document.getElementById('appearance-mode-toggle');
 
-        document.getElementById('visual-effects-toggle').click();
+        expect(btn.textContent).toBe('◇');
+        btn.click();
+        expect(btn.textContent).toBe('💎');
+        expect(JSON.parse(_store.get('openblock_skin_premium_v1')).enabled).toBe(true);
+        expect(JSON.parse(_store.get('openblock_visualfx_v1')).enabled).toBe(false);
 
-        expect(deps.game.renderer.setEffectsEnabled).toHaveBeenLastCalledWith(false);
-        expect(deps.ambient.setEnabled).toHaveBeenLastCalledWith(false);
-        expect(JSON.parse(_store.get('openblock_visualfx_v1'))).toEqual({ enabled: false });
+        btn.click();
+        expect(btn.textContent).toBe('✨');
+        expect(JSON.parse(_store.get('openblock_visualfx_v1')).enabled).toBe(true);
+
+        btn.click();
+        expect(btn.textContent).toBe('◇');
+        expect(JSON.parse(_store.get('openblock_skin_premium_v1')).enabled).toBe(false);
+        expect(JSON.parse(_store.get('openblock_visualfx_v1')).enabled).toBe(false);
+        expect(toggles.getAppearanceMode()).toBe('basic');
     });
 
     it('点击音效按钮只切换 audioFx 声音偏好', () => {
