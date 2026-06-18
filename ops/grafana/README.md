@@ -10,8 +10,19 @@ ops/grafana/
 ├── analytics_store_window.dashboard.json        # CC5：Y3 IDB 健康（4 panel）
 ├── analytics_store_window.alerts.yml            # 告警规则
 ├── monetization_bus_window.dashboard.json       # CC5：Y4 熔断器（4 panel）
-└── monetization_bus_window.alerts.yml           # 告警规则
+├── monetization_bus_window.alerts.yml           # 告警规则
+├── reporting_outbox_window.dashboard.json       # HH3：GG3 outbox quota 健康（4 panel）
+└── reporting_outbox_window.alerts.yml           # II3：4 条告警（P0/P1/P2）
 ```
+
+### reporting_outbox metric 映射（HH3 wiring）
+
+| 客户端字段 | Prometheus metric | 类型 |
+|---|---|---|
+| `totalQueued` | `openblock_reporting_outbox_total_queued` | gauge |
+| `quotaTrips` | `openblock_reporting_outbox_quota_trips` | counter |
+| `quotaShedRecords` | `openblock_reporting_outbox_quota_shed_records` | counter |
+| `channelCount` | `openblock_reporting_outbox_channel_count` | gauge |
 
 ## 接入步骤
 

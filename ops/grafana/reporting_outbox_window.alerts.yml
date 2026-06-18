@@ -1,0 +1,70 @@
+# v1.71 II3: reporting_outbox_window 告警规则（GG3 quota fallback + HH3 wiring）
+# 数据源 metric 命名见 ops/grafana/README.md 映射表。
+# 配套 dashboard: reporting_outbox_window.dashboard.json
+
+groups:
+  - name: openblock.reporting_outbox
+    interval: 30s
+    rules:
+
+      # P0: quota 触顶（短窗高频）→ 当前会话就在丢数据
+      - alert: OpenBlockOutboxQuotaTripsP0
+        expr: sum(rate(openblock_reporting_outbox_quota_trips{env="prod"}[5m])) * 60 > 5
+        for: 5m
+        labels:
+          severity: P0
+          team: client
+        annotations:
+          summary: "outbox quota 触顶 > 5 次/min（{{ $value | printf \"%.2f\" }}）"
+          description: |
+            P0：客户端 localStorage 容量频繁触顶，正在通过 shed-and-retry
+            主动丢弃最老 30% 待发送数据。**正在丢数据**。
+            排查：
+              1. 看 quota_shed_records/s 量级（每事件丢多少）
+              2. flush loop 是否卡住（看 totalQueued 趋势）
+              3. 是否有新事件类型暴增（按 channel 拆）
+              4. 服务端 5xx 持续？outbox 入队速度 ≫ 出队速度
+
+      # P1: 持续 quota 触顶（低频但持续）
+      - alert: OpenBlockOutboxQuotaTripsP1
+        expr: sum(rate(openblock_reporting_outbox_quota_trips{env="prod"}[15m])) * 60 > 1
+        for: 30m
+        labels:
+          severity: P1
+          team: client
+        annotations:
+          summary: "outbox quota 持续触顶 > 1 次/min × 30min"
+          description: |
+            P1：少量但持续的 quota 触顶。某些重型设备（旧 iOS / Android Go）
+            localStorage 容量逼近上限。考虑：
+              1. 降低 outbox flush 间隔
+              2. 减小单事件 payload
+              3. 引入 batch 上报
+
+      # P2: 在队记录数高位（疑似 flush loop 失活）
+      - alert: OpenBlockOutboxQueueHighP2
+        expr: avg(openblock_reporting_outbox_total_queued{env="prod"}) > 200
+        for: 30m
+        labels:
+          severity: P2
+          team: client
+        annotations:
+          summary: "outbox 在队数 > 200 持续 30min（{{ $value }}）"
+          description: |
+            P2：在队记录长期高位。可能 flush loop 失活、网络出口降级、
+            或服务端 5xx 累积。看 channel_count 是否异常增长（无限新建）。
+
+      # P2: shed 突增（一次性丢大批量）
+      - alert: OpenBlockOutboxShedSurgeP2
+        expr: sum(rate(openblock_reporting_outbox_quota_shed_records{env="prod"}[5m])) > 10
+        for: 10m
+        labels:
+          severity: P2
+          team: client
+        annotations:
+          summary: "outbox shed 速率 > 10/s 持续 10min"
+          description: |
+            P2：shed 速率突增。一次主动丢数据规模超过 10 条/s，
+            数据完整性受影响。配合 quota_trips 一起看：
+              - quota_trips 也高 → 频繁触顶（设备容量问题）
+              - quota_trips 不高 → 单次触顶 shed 量大（payload 异常）
