@@ -423,26 +423,33 @@ class Grid {
     }
 
     /* ── v1.71 U2：canPlaceAnywhere / countValidPlacements 局部 bitmap 优化 ──
+     * AA2：抽出共享 _buildBitmapView 减少 80% 重复代码，逻辑更清晰。
+     *
      * 这两个方法都是 n×n× canPlace 的扫描，是 DFS 出块 / 死局检测等热点。
      * 在方法内部一次性把 cells / shape 投影为 Int32Array bitmap，然后逐位置
      * 用单行 AND 判断冲突——无需缓存失效（局部状态），向后兼容（API 不变）。
      * n ≤ 30 时启用（OpenBlock 默认 n=8）；超出时回退到原 canPlace 路径。 */
-    canPlaceAnywhere(shapeData) {
+
+    /**
+     * AA2 helper：把 grid + shape 投影为 bitmap 视图。
+     *
+     * 返回 null 当：n > 30 / shape 非数组或空 / sw=0 / shape 全空
+     * 返回 null 时调用方应回退到 canPlace 慢路径。
+     *
+     * @param {number[][]} shapeData
+     * @returns {{ occRows: Int32Array, rowMasks: Int32Array, sh: number, sw: number,
+     *             maxGy: number, maxGx: number, n: number } | null}
+     */
+    _buildBitmapView(shapeData) {
         const n = this.size;
-        if (n > 30 || !Array.isArray(shapeData) || shapeData.length === 0) {
-            for (let y = 0; y < n; y++)
-                for (let x = 0; x < n; x++)
-                    if (this.canPlace(shapeData, x, y)) return true;
-            return false;
-        }
+        if (n > 30 || !Array.isArray(shapeData) || shapeData.length === 0) return null;
         const sh = shapeData.length;
         let sw = 0;
         for (let y = 0; y < sh; y++) {
             const len = shapeData[y]?.length || 0;
             if (len > sw) sw = len;
         }
-        if (sw === 0) return false;
-        /* shape rowMasks（按 shape.data 维度内联编译，避免缓存层带来的复杂度）。 */
+        if (sw === 0) return null;
         const rowMasks = new Int32Array(sh);
         let anyCell = false;
         for (let y = 0; y < sh; y++) {
@@ -452,8 +459,7 @@ class Grid {
             for (let x = 0; x < row.length; x++) if (row[x]) { m |= (1 << x); anyCell = true; }
             rowMasks[y] = m;
         }
-        if (!anyCell) return false;
-        /* grid occRows */
+        if (!anyCell) return null;
         const occRows = new Int32Array(n);
         const cells = this.cells;
         for (let y = 0; y < n; y++) {
@@ -462,8 +468,21 @@ class Grid {
             for (let x = 0; x < n; x++) if (row[x] !== null) m |= (1 << x);
             occRows[y] = m;
         }
-        const maxGy = n - sh;
-        const maxGx = n - sw;
+        return { occRows, rowMasks, sh, sw, maxGy: n - sh, maxGx: n - sw, n };
+    }
+
+    canPlaceAnywhere(shapeData) {
+        const view = this._buildBitmapView(shapeData);
+        if (!view) {
+            /* 慢路径回退：n > 30 / 形状无效 / 全空 shape */
+            const n = this.size;
+            if (!Array.isArray(shapeData) || shapeData.length === 0) return false;
+            for (let y = 0; y < n; y++)
+                for (let x = 0; x < n; x++)
+                    if (this.canPlace(shapeData, x, y)) return true;
+            return false;
+        }
+        const { occRows, rowMasks, sh, maxGy, maxGx } = view;
         for (let gy = 0; gy <= maxGy; gy++) {
             for (let gx = 0; gx <= maxGx; gx++) {
                 let conflict = false;
@@ -478,41 +497,17 @@ class Grid {
 
     /** 返回该形状在当前盘面上的合法放置位数量 */
     countValidPlacements(shapeData) {
-        const n = this.size;
-        if (n > 30 || !Array.isArray(shapeData) || shapeData.length === 0) {
+        const view = this._buildBitmapView(shapeData);
+        if (!view) {
+            const n = this.size;
+            if (!Array.isArray(shapeData) || shapeData.length === 0) return 0;
             let count = 0;
             for (let y = 0; y < n; y++)
                 for (let x = 0; x < n; x++)
                     if (this.canPlace(shapeData, x, y)) count++;
             return count;
         }
-        const sh = shapeData.length;
-        let sw = 0;
-        for (let y = 0; y < sh; y++) {
-            const len = shapeData[y]?.length || 0;
-            if (len > sw) sw = len;
-        }
-        if (sw === 0) return 0;
-        const rowMasks = new Int32Array(sh);
-        let anyCell = false;
-        for (let y = 0; y < sh; y++) {
-            const row = shapeData[y];
-            if (!row) continue;
-            let m = 0;
-            for (let x = 0; x < row.length; x++) if (row[x]) { m |= (1 << x); anyCell = true; }
-            rowMasks[y] = m;
-        }
-        if (!anyCell) return 0;
-        const occRows = new Int32Array(n);
-        const cells = this.cells;
-        for (let y = 0; y < n; y++) {
-            const row = cells[y];
-            let m = 0;
-            for (let x = 0; x < n; x++) if (row[x] !== null) m |= (1 << x);
-            occRows[y] = m;
-        }
-        const maxGy = n - sh;
-        const maxGx = n - sw;
+        const { occRows, rowMasks, sh, maxGy, maxGx } = view;
         let count = 0;
         for (let gy = 0; gy <= maxGy; gy++) {
             for (let gx = 0; gx <= maxGx; gx++) {
