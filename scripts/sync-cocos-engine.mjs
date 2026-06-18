@@ -35,6 +35,10 @@ const FILES = [
     'lib/logger.js',
     'lib/dateUtils.js',
     'lib/storageAdapter.js',
+    'lib/decisionTable.js',
+    /* V2 V5：新增的轻量纯工具，cocos 端 adaptiveSpawn / analytics 都依赖 */
+    'lib/analyticsStore.js',
+    'lib/loggerBatchSink.js',
     'grid.js',
     'shapes.js',
     'gameRules.js',
@@ -303,6 +307,8 @@ export function getWallet() { return _noopWallet; }
 `);
 
 CUSTOM_STUBS.set('monetization/cohortManager.js', `${GEN_HEADER('monetization/cohortManager（Cocos 桩：cohort 标记返回空集）')}
+// experimentPlatform.mjs 顶部 named import initCohortManager，cocos 桩必须 export 否则 rollup 中断。
+export function initCohortManager() {}
 const _noopCohort = {
     init() {},
     syncFromSystem() {},
@@ -318,12 +324,17 @@ CUSTOM_STUBS.set('monetization/iapAdapter.js', `${GEN_HEADER('monetization/iapAd
 export function isPurchased() { return false; }
 export function getOwnedProducts() { return []; }
 export function purchase() { return Promise.resolve({ ok: false, reason: 'stub' }); }
+// lifecycleOrchestrator 经 _safe() 回退 null，stub 端必须显式导出避免 rollup parse error。
+export function getLifetimeSpend() { return null; }
 `);
 
 CUSTOM_STUBS.set('monetization/personalization.js', `${GEN_HEADER('monetization/personalization（Cocos 桩：个性化推荐返回空）')}
 export function getPersonalizedOffer() { return null; }
 export function recordOfferShown() {}
 export function recordOfferAccepted() {}
+// lifecycleOrchestrator 直接 named import 这两个，桩端必须显式 export 否则 rollup 中断打包。
+export function getCommercialModelContext() { return null; }
+export function updateRealtimeSignals() {}
 `);
 
 /* inc8-B/C/D 间接依赖桩 —— push/abtest/social 模块对 progression / retentionAnalyzer /
@@ -364,6 +375,9 @@ CUSTOM_STUBS.set('bestScoreBuckets.js', `${GEN_HEADER('bestScoreBuckets（Cocos 
 export function bucketForScore() { return 'unknown'; }
 export function getBucketStats() { return {}; }
 export function recordScoreForBucketing() {}
+// socialLeaderboard.mjs 顶部 named import getAllBestByStrategy 用于 PB 风险修复；
+// 桩端必须显式 export 否则 rollup MISSING_EXPORT 中断 JS 打包（→ APK 黑屏）。
+export function getAllBestByStrategy() { return {}; }
 `);
 
 CUSTOM_STUBS.set('monetization/adAdapter.js', `${GEN_HEADER('monetization/adAdapter（Cocos 桩：广告适配器 no-op，iapAdapter 间接依赖）')}

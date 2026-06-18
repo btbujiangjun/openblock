@@ -54,6 +54,7 @@ FILES=(
   "lib/logger.js"
   "lib/dateUtils.js"
   "lib/storageAdapter.js"
+  "lib/decisionTable.js"
   "grid.js"
   "shapes.js"
   "gameRules.js"

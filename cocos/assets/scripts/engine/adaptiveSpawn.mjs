@@ -40,6 +40,7 @@
 import { getStrategy } from './config.mjs';
 import { GAME_RULES } from './gameRules.mjs';
 import { pickByPlatform } from './config/platformProfile.mjs';
+import { applyDecisionTable } from './lib/decisionTable.mjs';
 import {
     getSpawnStressFromScore,
     getRunDifficultyModifiers,
@@ -292,59 +293,76 @@ function _applyPbOvershootBoost(s) {
  * @returns {{ clearGuarantee:number, sizePreference:number, diversityBoost:number }}
  */
 /**
- * spawnHints 第 2 段：能力风险护栏 + 实时状态救济（v1.71 V1 抽出 L2247-2280）。
+ * spawnHints 第 2 段：能力风险护栏 + 实时状态救济
+ * （v1.71 V1 抽出 L2247-2280，V5 改为 decisionTable DSL 数据驱动）
  *
- * 与 _applySpawnHintsBaseRules 的关系：base 跑完后再叠加这段。
- *
- * 这段 5 条规则的共性：
- *   1. ability 高风险（risk≥0.62 + confidence≥0.25）→ 全面收紧
- *   2. ability 高手低风险（skill≥0.72 + risk≤0.38 + confidence≥0.45）→ 解放多消
- *   3. preFrustrationRelief < 0（认知负荷过载）→ 救济
- *   4. boardFrustrationRelief < 0（盘面恶化）→ 重救济
- *   5. decisionLoadReliefActive → 关闭顺序压迫
- *
- * 都是 Math.max（clearGuarantee/multiClearBonus/diversityBoost）/ Math.min（sizePreference）
- * 单调叠加，**无顺序依赖陷阱**（与 base 段不同——这里全是幂等 min/max）。
- * rhythmPhase 转换有条件（'setup' → 'neutral'），多触发时一旦变 neutral 后续判断自然短路。
- *
- * @param {object} s 输入状态
- * @returns {{ clearGuarantee, sizePreference, multiClearBonus, diversityBoost, rhythmPhase }}
+ * 规则全部为 max/min 幂等叠加（无顺序依赖），适合表化。
+ * 维护成本：增删改规则只改 SPAWN_HINTS_RISK_RELIEF_TABLE 常量，无需改函数实现。
  */
+const SPAWN_HINTS_RISK_RELIEF_TABLE = [
+    {
+        name: 'high-risk-guard',
+        when: (s) => s.ability.confidence >= 0.25 && (s.ability.riskLevel ?? 0) >= 0.62,
+        apply: [
+            { field: 'clearGuarantee', op: 'max', value: 2 },
+            { field: 'sizePreference', op: 'min', value: -0.22 },
+            { field: 'multiClearBonus', op: 'max', value: 0.45 },
+            { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
+        ],
+    },
+    {
+        name: 'expert-low-risk-payoff',
+        /* 注意：原版用 else if，这里改 when 表达「不满足 high-risk」语义 */
+        when: (s) => !(s.ability.confidence >= 0.25 && (s.ability.riskLevel ?? 0) >= 0.62)
+            && s.ability.confidence >= 0.45 && s.ability.skillScore >= 0.72 && (s.ability.riskLevel ?? 0) <= 0.38,
+        apply: [
+            { field: 'diversityBoost', op: 'max', value: 0.12 },
+            { field: 'multiClearBonus', op: 'max', value: 0.5 },
+            { field: 'rhythmPhase', op: 'set', value: 'payoff', when: (s) => s.rhythmPhase === 'neutral' && s.nearFullLines >= 1 },
+        ],
+    },
+    {
+        name: 'pre-frustration-relief',
+        when: (s) => s.preFrustrationRelief < 0,
+        apply: [
+            { field: 'clearGuarantee', op: 'max', value: 2 },
+            { field: 'sizePreference', op: 'min', value: -0.18 },
+            { field: 'multiClearBonus', op: 'max', value: 0.42 },
+            { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
+        ],
+    },
+    {
+        name: 'board-frustration-relief',
+        when: (s) => s.boardFrustrationRelief < 0,
+        apply: [
+            { field: 'clearGuarantee', op: 'max', value: 2 },
+            { field: 'sizePreference', op: 'min', value: -0.28 },
+            { field: 'multiClearBonus', op: 'max', value: 0.55 },
+            { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
+        ],
+    },
+    {
+        name: 'decision-load-relief',
+        when: (s) => s.decisionLoadReliefActive === true,
+        apply: [
+            { field: 'clearGuarantee', op: 'max', value: 2 },
+            { field: 'sizePreference', op: 'min', value: -0.22 },
+            { field: 'diversityBoost', op: 'max', value: 0.08 },
+            { field: 'rhythmPhase', op: 'set', value: 'neutral', when: (s) => s.rhythmPhase === 'setup' },
+        ],
+    },
+];
+
 function _applySpawnHintsRiskReliefRules(s) {
-    let { clearGuarantee, sizePreference, multiClearBonus, diversityBoost, rhythmPhase } = s;
-    const { ability, preFrustrationRelief, boardFrustrationRelief, decisionLoadReliefActive, nearFullLines } = s;
-    const riskLevel = ability.riskLevel ?? 0;
-
-    if (ability.confidence >= 0.25 && riskLevel >= 0.62) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, -0.22);
-        multiClearBonus = Math.max(multiClearBonus, 0.45);
-        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
-    } else if (ability.confidence >= 0.45 && ability.skillScore >= 0.72 && riskLevel <= 0.38) {
-        diversityBoost = Math.max(diversityBoost, 0.12);
-        multiClearBonus = Math.max(multiClearBonus, 0.5);
-        if (rhythmPhase === 'neutral' && nearFullLines >= 1) rhythmPhase = 'payoff';
-    }
-
-    if (preFrustrationRelief < 0) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, -0.18);
-        multiClearBonus = Math.max(multiClearBonus, 0.42);
-        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
-    }
-    if (boardFrustrationRelief < 0) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, -0.28);
-        multiClearBonus = Math.max(multiClearBonus, 0.55);
-        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
-    }
-    if (decisionLoadReliefActive) {
-        clearGuarantee = Math.max(clearGuarantee, 2);
-        sizePreference = Math.min(sizePreference, -0.22);
-        diversityBoost = Math.max(diversityBoost, 0.08);
-        if (rhythmPhase === 'setup') rhythmPhase = 'neutral';
-    }
-    return { clearGuarantee, sizePreference, multiClearBonus, diversityBoost, rhythmPhase };
+    /* 原地修改 state；调用方 destructure 5 个返回字段（保持原 API 形状） */
+    applyDecisionTable(SPAWN_HINTS_RISK_RELIEF_TABLE, s);
+    return {
+        clearGuarantee: s.clearGuarantee,
+        sizePreference: s.sizePreference,
+        multiClearBonus: s.multiClearBonus,
+        diversityBoost: s.diversityBoost,
+        rhythmPhase: s.rhythmPhase,
+    };
 }
 
 function _applySpawnHintsBaseRules(s) {
