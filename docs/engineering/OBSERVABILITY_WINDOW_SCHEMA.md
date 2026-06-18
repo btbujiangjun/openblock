@@ -40,6 +40,9 @@
 | `cappedRatio` | float [0,1] | cappedCount / evalTripletCalls | leafCap 决策 |
 | `leafUsageHist` | int[4] | solutionCount/cap 桶分布 | 双峰发现 |
 | `evalTripletCalls` | int | evaluateTripletSolutions 调用数 | leafCap 分母 |
+| `rolloutBucket` | int [-1, 99] | 用户在 dynamicLeafCap 灰度桶号（-1=未分桶） | DD2 加：服务端 group_by 对照组 |
+| `rolloutEnabled` | bool | 该用户是否启用 dynamicLeafCap | DD2 加：实验组判定 |
+| `rolloutSalt` | string | 当前 rollout salt（如 'dyn-cap-v1'） | DD2 加：灰度方案版本区分 |
 | `windowMs` | int | 60000（窗口长度） | 归一化 rate |
 
 **P0 告警**：`truncatedRatio > 0.30` 持续 ≥ 3 窗口 → 预算不足。
@@ -113,6 +116,7 @@ GROUP BY 1;
 |---|---|---|
 | v1 (X1) | dfs_budget_window 首发 | – |
 | v2 (X4) | dfs_budget_window 加 cappedCount / leafUsageHist 等字段 | 向后兼容 |
+| v3 (DD2) | dfs_budget_window 加 rolloutBucket / rolloutEnabled / rolloutSalt | 向后兼容（fallback -1/false/''） |
 | v3 (Y3) | 新 analytics_store_window 事件 | – |
 | v4 (Y4) | 新 monetization_bus_window 事件 | – |
 

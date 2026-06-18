@@ -27,6 +27,12 @@ ops/grafana/
 | `totalCalls` | `openblock_dfs_budget_window_total_calls` | counter |
 | `budgetUsageHist[0..3]` | `openblock_dfs_budget_window_usage_{lt25,lt50,lt75,lte100}` | counter |
 | `leafUsageHist[0..3]` | `openblock_dfs_budget_window_leaf_{lt25,lt50,lt75,lte100}` | counter |
+| `rolloutBucket` | metric label `rollout_bucket` (0..99 / -1) | label |
+| `rolloutEnabled` | metric label `rollout_enabled` (true/false) | label |
+| `rolloutSalt` | metric label `rollout_salt` | label |
+
+> **DD2 灰度对照**：所有 metric 应附加 `rollout_bucket` / `rollout_enabled` 标签，
+> 服务端 `sum(...) by (rollout_enabled)` 即得对照组 vs 实验组的 cappedRatio 对比。
 
 所有 metric 必须带标签：`env`（prod/staging/dev）、`region`、`app_version`。
 

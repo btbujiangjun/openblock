@@ -132,11 +132,22 @@ import('./monetization/analyticsTracker.js').then(({ getAnalyticsTracker }) => {
                 if (!stats || stats.totalCalls === 0) return;
                 const tracker = getAnalyticsTracker?.();
                 if (!tracker || typeof tracker.trackEvent !== 'function') return;
+                /* DD2：附 AA5 灰度 bucket 信息（服务端 group_by 对照组 vs 实验组）+ X4 leafCap 字段 */
+                const rolloutInfo = (typeof globalThis !== 'undefined' && globalThis.__OPENBLOCK_ROLLOUT__?.dynamicLeafCap) || null;
                 tracker.trackEvent('dfs_budget_window', {
                     totalCalls: stats.totalCalls,
                     truncatedCount: stats.truncatedCount,
                     truncatedRatio: stats.truncatedRatio,
                     budgetUsageHist: stats.budgetUsageHist,
+                    /* X4 leafCap 观测（之前漏报） */
+                    cappedCount: stats.cappedCount,
+                    cappedRatio: stats.cappedRatio,
+                    leafUsageHist: stats.leafUsageHist,
+                    evalTripletCalls: stats.evalTripletCalls,
+                    /* DD2 灰度对照：bucket 0..99 + enabled + salt（服务端 group_by） */
+                    rolloutBucket: rolloutInfo?.bucket ?? -1,
+                    rolloutEnabled: rolloutInfo?.enabled ?? false,
+                    rolloutSalt: rolloutInfo?.salt ?? '',
                     windowMs: FLUSH_INTERVAL_MS,
                 });
                 resetBlockSpawnDfsStats();
