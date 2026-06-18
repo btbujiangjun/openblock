@@ -123,6 +123,13 @@ Page({
     nvCanvasW: 0,
     nvCanvasH: 0,
     nvShake: false,
+    // i18n 文案字段（newbieVillage.js 在 overlay 挂载 / 结业时填充）
+    nvBrand: '新手村',
+    nvSkipText: '跳过引导',
+    nvGraduateTitle: '出师啦！',
+    nvGraduateBody: '',
+    nvGraduateRewardText: '',
+    nvGraduateCta: '🚀  开始挑战',
     text: {},
   },
 

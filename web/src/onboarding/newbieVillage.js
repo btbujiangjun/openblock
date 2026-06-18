@@ -52,7 +52,18 @@ import {
     shouldShowNewbieVillageCore,
     emptyNvBoard,
     isPlacementValid,
+    pickSmartSnap,
 } from './newbieVillageCore.js';
+import { nvT } from './newbieVillageStrings.js';
+import { getLocale } from '../i18n/i18n.js';
+
+/** 新手村本地翻译辅助：当前 locale → en → zh-CN → fallback → key 五级回退。 */
+function _t(key, vars, fallback) {
+    return nvT(getLocale(), key, vars, fallback);
+}
+
+/** 智能吸附半径（格）。1 格容差已覆盖"差半格"的常见 finger drift，避免邻接块互相吸到错的格子。 */
+const NV_SNAP_RADIUS = 1;
 
 export {
     NEWBIE_VILLAGE_STORAGE_KEY,
@@ -190,8 +201,24 @@ const STYLE_TEXT = `
   70%{opacity:1;transform:translate(-50%,-50%) scale(1);}100%{opacity:0;transform:translate(-50%,-50%) scale(1);}}
 @keyframes nv-shake{10%,90%{transform:translateX(-2px);}20%,80%{transform:translateX(4px);}
   30%,50%,70%{transform:translateX(-7px);}40%,60%{transform:translateX(7px);}}
+/* 无操作小手引导（对齐 cocos showIdleHint）：候选块就绪后 2.6s 无操作 → 👆 从候选区滑向目标格，
+ * 周期 1.74s 循环；CSS 变量 --nv-hint-dx/--nv-hint-dy 由 JS 在每课重置。 */
+.nv-hint{position:fixed;left:0;top:0;font-size:34px;line-height:1;pointer-events:none;z-index:12055;
+  opacity:0;transform:translate3d(var(--nv-hint-sx,0px),var(--nv-hint-sy,0px),0);
+  filter:drop-shadow(0 2px 6px rgba(0,0,0,.55));animation:nv-hint-loop 1.74s ease-in-out infinite;}
+@keyframes nv-hint-loop{
+  0%   {opacity:0;transform:translate3d(var(--nv-hint-sx,0px),var(--nv-hint-sy,0px),0) scale(1);}
+  14%  {opacity:.92;transform:translate3d(var(--nv-hint-sx,0px),var(--nv-hint-sy,0px),0) scale(1);}
+  60%  {opacity:.92;transform:translate3d(var(--nv-hint-ex,0px),var(--nv-hint-ey,0px),0) scale(1);}
+  67%  {opacity:.92;transform:translate3d(var(--nv-hint-ex,0px),var(--nv-hint-ey,0px),0) scale(.78);}
+  74%  {opacity:.92;transform:translate3d(var(--nv-hint-ex,0px),var(--nv-hint-ey,0px),0) scale(1);}
+  88%  {opacity:0;transform:translate3d(var(--nv-hint-ex,0px),var(--nv-hint-ey,0px),0) scale(1);}
+  100% {opacity:0;transform:translate3d(var(--nv-hint-sx,0px),var(--nv-hint-sy,0px),0) scale(1);}
+}
 @media (prefers-reduced-motion:reduce){
   .nv-board.is-shake,.nv-piece.is-pulse,.nv-cell.is-target,.nv-graduate__emoji,.nv-combo.is-on{animation:none;}
+  /* reduced-motion：小手静态显示在目标格中心，不做位移/缩放循环 */
+  .nv-hint{animation:none;opacity:.85;transform:translate3d(var(--nv-hint-ex,0px),var(--nv-hint-ey,0px),0);}
 }`;
 
 function _injectStyles() {
@@ -205,6 +232,9 @@ function _injectStyles() {
 
 const BOARD_PAD = 10;
 const BOARD_GAP = 4;
+
+/** 候选块就绪后无操作多久弹「小手」引导（毫秒）。对齐 cocos `scheduleIdleHint` 的 2.6s。 */
+const NV_IDLE_HINT_DELAY_MS = 2600;
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 新手村控制器：DOM / 拖拽 / 真实计分结算 / 分类特效 / 收尾
@@ -228,6 +258,8 @@ class NewbieVillage {
         this._busy = false;
         this._finished = false;
         this._awaitingPlacement = false;
+        this._hintEl = null;
+        this._hintTimer = null;
         this._onPointerMove = this._onPointerMove.bind(this);
         this._onPointerUp = this._onPointerUp.bind(this);
     }
@@ -249,11 +281,13 @@ class NewbieVillage {
         const overlay = document.createElement('div');
         overlay.className = 'nv-overlay';
         overlay.setAttribute('role', 'dialog');
-        overlay.setAttribute('aria-label', '新手村教程');
+        overlay.setAttribute('aria-label', _t('ui.ariaLabel', undefined, '新手村教程'));
+        const brandName = _t('ui.title', undefined, '🏕️ 新手村')
+            .replace(/^🏕️\s*/, ''); // 与原 markup 一致：emoji 单独包在 .nv-spark 里
         overlay.innerHTML = `
             <div class="nv-topbar">
-                <div class="nv-brand"><span class="nv-spark">🏕️</span><span>新手村</span></div>
-                <button class="nv-skip" type="button">跳过引导</button>
+                <div class="nv-brand"><span class="nv-spark">🏕️</span><span>${brandName}</span></div>
+                <button class="nv-skip" type="button">${_t('ui.skip', undefined, '跳过引导')}</button>
             </div>
             <div class="nv-progress">${SCENARIO.map(() => '<span class="nv-dot"></span>').join('')}</div>
             <div class="nv-coach">
@@ -342,10 +376,11 @@ class NewbieVillage {
         this._roundsSinceClear = Infinity;
         this._lastScored = null;
         this._awaitingPlacement = true;
+        // 教程文案走 i18n：缺译时回退 SCENARIO 内嵌中文原文。
         this._coachIcon.textContent = step.coach.icon;
-        this._coachTitle.textContent = step.coach.title;
-        this._coachBody.innerHTML = step.coach.body;
-        this._scoreEl.textContent = `总分 ${this._score}`;
+        this._coachTitle.textContent = _t(`scenario.${step.id}.coach.title`, undefined, step.coach.title);
+        this._coachBody.innerHTML = _t(`scenario.${step.id}.coach.body`, undefined, step.coach.body);
+        this._scoreEl.textContent = _t('ui.totalScore', { n: this._score }, `总分 ${this._score}`);
         this._updateComboBadge();
         this._revealEl.hidden = true;
         this._revealEl.classList.remove('is-visible');
@@ -382,6 +417,8 @@ class NewbieVillage {
         el.addEventListener('pointerdown', (e) => this._onPointerDown(e, piece, el));
         this._trayEl.appendChild(el);
         this._pieceEl = el;
+        // 新候选块就绪 → 重置无操作小手引导计时（与 cocos showIdleHint 同步语义）。
+        this._scheduleIdleHint();
     }
 
     _pieceExtent(piece) {
@@ -397,6 +434,8 @@ class NewbieVillage {
     /* ── 拖拽 ─────────────────────────────────────────────── */
     _onPointerDown(e, piece, el) {
         if (this._finished || this._busy || !this._awaitingPlacement) return;
+        // 玩家已开始拖拽 → 撤掉小手引导（不打断教学焦点）。
+        this._clearIdleHint();
         e.preventDefault();
         const rect = el.getBoundingClientRect();
         this._drag = {
@@ -422,7 +461,10 @@ class NewbieVillage {
         const top = e.clientY - d.grabY;
         d.el.style.left = `${left}px`;
         d.el.style.top = `${top}px`;
-        this._showGhost(d.piece, this._originFromPointer(left, top));
+        // ghost 预览走智能吸附：aim 命中 target / 邻近合法格时高亮吸附位（与最终落点一致，所见即所得）。
+        const aim = this._originFromPointer(left, top);
+        const snap = pickSmartSnap(this._board, d.piece, aim, NV_SNAP_RADIUS);
+        this._showGhost(d.piece, snap || aim);
     }
 
     _onPointerUp(e) {
@@ -431,9 +473,11 @@ class NewbieVillage {
         document.removeEventListener('pointermove', this._onPointerMove);
         document.removeEventListener('pointerup', this._onPointerUp);
         this._drag = null;
-        const origin = this._originFromPointer(e.clientX - d.grabX, e.clientY - d.grabY);
+        const aim = this._originFromPointer(e.clientX - d.grabX, e.clientY - d.grabY);
+        const snap = pickSmartSnap(this._board, d.piece, aim, NV_SNAP_RADIUS);
         this._clearGhost();
-        const ok = origin && this._isPlacement(d.piece, origin);
+        const origin = snap || aim;
+        const ok = !!(origin && this._isPlacement(d.piece, origin));
         d.el.classList.remove('is-dragging');
         d.el.style.left = '';
         d.el.style.top = '';
@@ -480,6 +524,7 @@ class NewbieVillage {
     /* ── 落子结算（复用真实计分链路） ──────────────────────── */
     _commitPlacement(piece, origin) {
         this._awaitingPlacement = false;
+        this._clearIdleHint();
         const [ox, oy] = origin;
         for (const [dx, dy] of piece.cells) this._board[oy + dy][ox + dx] = piece.colorIdx;
         this._pieceEl?.remove();
@@ -522,11 +567,11 @@ class NewbieVillage {
         else colors = [PALETTE[piece.colorIdx % PALETTE.length], '#fde68a'];
         this._burstParticles(clears.cells, colors);
 
-        // 横幅优先级：清屏 > 连击(×>1) > 同花 > 多消
-        if (perfect) this._banner(`PERFECT ×${PERFECT_CLEAR_MULT}`, 'perfect');
-        else if (comboMult > 1) this._banner(`COMBO ♥${this._comboCount} ×${comboMult}`, 'combo');
-        else if (mono) this._banner(`同花 BONUS ×${ICON_BONUS_LINE_MULT}`, 'mono');
-        else if (lines >= 2) this._banner(`多消 ×${lines}`, 'multi');
+        // 横幅优先级：清屏 > 连击(×>1) > 同花 > 多消（各条走 i18n）
+        if (perfect) this._banner(_t('banner.perfect', { n: PERFECT_CLEAR_MULT }, `PERFECT ×${PERFECT_CLEAR_MULT}`), 'perfect');
+        else if (comboMult > 1) this._banner(_t('banner.combo', { n: comboMult, hearts: this._comboCount }, `COMBO ♥${this._comboCount} ×${comboMult}`), 'combo');
+        else if (mono) this._banner(_t('banner.mono', { n: ICON_BONUS_LINE_MULT }, `同花 BONUS ×${ICON_BONUS_LINE_MULT}`), 'mono');
+        else if (lines >= 2) this._banner(_t('banner.multi', { n: lines }, `多消 ×${lines}`), 'multi');
 
         const strong = perfect || comboMult > 1 || mono || lines >= 2;
         try { this._audio?.play?.(strong ? 'comboClear' : 'clear', { force: true }); } catch { /* ignore */ }
@@ -537,7 +582,7 @@ class NewbieVillage {
         setTimeout(() => {
             this._board = afterBoard;
             this._paintBoard();
-            this._scoreEl.textContent = `总分 ${this._score}`;
+            this._scoreEl.textContent = _t('ui.totalScore', { n: this._score }, `总分 ${this._score}`);
             this._updateComboBadge();
             this._busy = false;
             this._afterPlacement();
@@ -555,7 +600,13 @@ class NewbieVillage {
             return;
         }
         const step = SCENARIO[this._stepIndex];
-        if (step?.reveal) this._showReveal(step.reveal, this._lastScored);
+        if (step?.reveal) {
+            // reveal 走 i18n：title/body 各自按 scenario.<id>.reveal.* 翻译。
+            this._showReveal({
+                title: _t(`scenario.${step.id}.reveal.title`, undefined, step.reveal.title),
+                body: _t(`scenario.${step.id}.reveal.body`, undefined, step.reveal.body),
+            }, this._lastScored);
+        }
         setTimeout(() => this._advance(), step?.reveal ? 1800 : 450);
     }
 
@@ -661,14 +712,23 @@ class NewbieVillage {
 
         const card = document.createElement('div');
         card.className = 'nv-graduate';
-        const rewardHtml = reward ? `<div class="nv-graduate__reward">🎁 新手礼包：${reward}</div>` : '';
+        // 礼包用 i18n 拼接：三项分别走 hint/undo/coin key（避免文本拼接的本地化盲点）
+        const rewardHtml = reward
+            ? `<div class="nv-graduate__reward">${_t('graduate.reward.title', undefined, '🎁 新手礼包')}：${[
+                _t('graduate.reward.hint', undefined, '提示×2'),
+                _t('graduate.reward.undo', undefined, '撤销×1'),
+                _t('graduate.reward.coin', undefined, '金币×100'),
+            ].join(' · ')}</div>`
+            : '';
+        // graduate.bodyHtml 含 <b> 标签 + {{n}} 占位符，跨语言一致的整段文案。
+        const bodyHtml = _t('graduate.bodyHtml', { n: this._score },
+            `你已掌握 <b>单消 / 多消 / 同花 / 连击 / 清屏</b>，训练赛累计得分 <b>${this._score}</b>。真实对局采用同样的计分规则，去冲击最高分吧！`);
         card.innerHTML = `
             <div class="nv-graduate__emoji">🎉</div>
-            <div class="nv-graduate__title">出师啦！</div>
-            <div class="nv-graduate__body">你已掌握 <b>单消 / 多消 / 同花 / 连击 / 清屏</b>，
-            训练赛累计得分 <b>${this._score}</b>。真实对局采用同样的计分规则，去冲击最高分吧！</div>
+            <div class="nv-graduate__title">${_t('graduate.title', undefined, '出师啦！')}</div>
+            <div class="nv-graduate__body">${bodyHtml}</div>
             ${rewardHtml}
-            <button class="nv-cta" type="button">开始游戏</button>
+            <button class="nv-cta" type="button">${_t('graduate.cta', undefined, '🚀  开始挑战')}</button>
         `;
         this._overlay.appendChild(card);
         try { this._audio?.play?.('unlock', { force: true }); } catch { /* ignore */ }
@@ -691,6 +751,7 @@ class NewbieVillage {
     _finish({ done = false, skipped = false } = {}) {
         if (this._finished) return;
         this._finished = true;
+        this._clearIdleHint();
         _saveState({ done: done || skipped, skipped });
         document.removeEventListener('pointermove', this._onPointerMove);
         document.removeEventListener('pointerup', this._onPointerUp);
@@ -699,6 +760,72 @@ class NewbieVillage {
             this._overlay?.remove();
             this._onFinish({ done, skipped });
         }, 360);
+    }
+
+    /* ── 无操作小手引导（对齐 cocos showIdleHint / 小程序 _scheduleIdleHint） ─── */
+
+    /** 候选块就绪后调用：静置 NV_IDLE_HINT_DELAY_MS 无操作则弹出「候选块 → 目标格」👆 滑动提示。 */
+    _scheduleIdleHint() {
+        this._clearIdleHint();
+        if (this._finished || typeof window === 'undefined') return;
+        this._hintTimer = window.setTimeout(() => this._showIdleHint(), NV_IDLE_HINT_DELAY_MS);
+    }
+
+    /** 取消计时并移除 👆 节点（玩家开始拖拽 / 落子 / 结束时调用）。 */
+    _clearIdleHint() {
+        if (this._hintTimer) {
+            try { clearTimeout(this._hintTimer); } catch { /* ignore */ }
+            this._hintTimer = null;
+        }
+        if (this._hintEl) {
+            this._hintEl.remove();
+            this._hintEl = null;
+        }
+    }
+
+    /**
+     * 显示「小手 → 目标格」动画。仅在等待落子且非自由步骤（有 target）时启用 ——
+     * 自由步骤不强引导，避免干扰玩家自主探索。CSS 动画驱动，1.74s 周期循环（与 cocos 对齐）。
+     */
+    _showIdleHint() {
+        if (this._finished || this._busy || this._drag || !this._awaitingPlacement || !this._pieceEl) return;
+        const piece = this._currentPiece();
+        if (!piece?.target) return;
+
+        // 起点：候选块在屏幕中的中心；终点：目标格几何中心。两者均为 viewport 坐标，
+        // CSS `position:fixed` 直接接收 translate3d，无需再叠加 scroll 偏移。
+        const pieceRect = this._pieceEl.getBoundingClientRect();
+        const sx = pieceRect.left + pieceRect.width / 2;
+        const sy = pieceRect.top + pieceRect.height / 2;
+
+        let cx = 0;
+        let cy = 0;
+        let count = 0;
+        for (const [dx, dy] of piece.cells) {
+            const tc = piece.target[0] + dx;
+            const tr = piece.target[1] + dy;
+            const cellEl = this._cellEls[tr]?.[tc];
+            if (!cellEl) continue;
+            const r = cellEl.getBoundingClientRect();
+            cx += r.left + r.width / 2;
+            cy += r.top + r.height / 2;
+            count++;
+        }
+        if (!count) return;
+        const ex = cx / count;
+        const ey = cy / count;
+
+        const hint = document.createElement('div');
+        hint.className = 'nv-hint';
+        hint.textContent = '👆';
+        // CSS var 控制起/终点：left/top 固定 0，靠 translate3d 移动；动画在 keyframes 内部插值。
+        // 减去 17px（emoji 视觉中心补偿，34px / 2）让 emoji 中心对齐 cell 中心。
+        hint.style.setProperty('--nv-hint-sx', `${sx - 17}px`);
+        hint.style.setProperty('--nv-hint-sy', `${sy - 17}px`);
+        hint.style.setProperty('--nv-hint-ex', `${ex - 17}px`);
+        hint.style.setProperty('--nv-hint-ey', `${ey - 17}px`);
+        document.body.appendChild(hint);
+        this._hintEl = hint;
     }
 }
 

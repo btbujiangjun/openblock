@@ -141,9 +141,9 @@
     <view class="nv-topbar">
       <view class="nv-brand">
         <text class="nv-spark">🏕️</text>
-        <text>新手村</text>
+        <text>{{nvBrand}}</text>
       </view>
-      <button class="nv-skip" size="mini" plain="true" catchtap="onNvSkip">跳过引导</button>
+      <button class="nv-skip" size="mini" plain="true" catchtap="onNvSkip">{{nvSkipText}}</button>
     </view>
     <view class="nv-progress">
       <view
@@ -183,9 +183,10 @@
     </view>
     <view wx:if="{{nvGraduateVisible}}" class="nv-graduate">
       <text class="nv-graduate__emoji">🎉</text>
-      <text class="nv-graduate__title">出师啦！</text>
-      <text class="nv-graduate__body">你已掌握单消 / 多消 / 同花 / 连击 / 清屏，训练赛累计得分 {{nvGraduateScore}}。真实对局采用同样的计分规则，去冲击最高分吧！</text>
-      <button class="nv-cta" type="primary" size="mini" catchtap="onNvCta">开始游戏</button>
+      <text class="nv-graduate__title">{{nvGraduateTitle}}</text>
+      <text class="nv-graduate__body">{{nvGraduateBody}}</text>
+      <text wx:if="{{nvGraduateRewardText}}" class="nv-graduate__reward">{{nvGraduateRewardText}}</text>
+      <button class="nv-cta" type="primary" size="mini" catchtap="onNvCta">{{nvGraduateCta}}</button>
     </view>
   </view>
 
