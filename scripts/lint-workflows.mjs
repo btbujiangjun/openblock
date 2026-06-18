@@ -55,6 +55,41 @@ for (const f of files) {
     if (/uses:\s*actions\/checkout\s*$/m.test(txt)) {
         warnings.push({ file: f, rule: 'pin-action-version', msg: 'actions/checkout 未固定版本' });
     }
+
+    /* KK5: secret 引用规范检查
+     * 规则：
+     *   - secrets.X 必须全大写 + 下划线（GITHUB_TOKEN, SLACK_WEBHOOK，不能 githubToken）
+     *   - 禁用裸 echo "${{ secrets.X }}"（会写到日志泄露）
+     *   - 未引用 ${{ secrets.GITHUB_TOKEN }} 时不允许声明 `permissions: write-all`（最小权限）
+     */
+    const secretRefs = txt.matchAll(/\$\{\{\s*secrets\.([A-Za-z0-9_]+)\s*\}\}/g);
+    for (const m of secretRefs) {
+        const name = m[1];
+        if (!/^[A-Z][A-Z0-9_]*$/.test(name)) {
+            const lineNum = txt.substring(0, m.index).split('\n').length;
+            violations.push({
+                file: f,
+                line: lineNum,
+                rule: 'secret-name-convention',
+                msg: `secrets.${name} 不符合 UPPER_SNAKE_CASE 命名规范`,
+            });
+        }
+    }
+    /* 禁用 echo "${{ secrets.X }}"（GitHub 自动屏蔽，但 base64/拼接绕过会泄露） */
+    const echoSecretMatches = txt.matchAll(/echo[^\n]*\$\{\{\s*secrets\.\w+\s*\}\}/g);
+    for (const m of echoSecretMatches) {
+        const lineNum = txt.substring(0, m.index).split('\n').length;
+        violations.push({
+            file: f,
+            line: lineNum,
+            rule: 'no-echo-secrets',
+            msg: 'echo 输出 secret 风险——日志静默泄露面攻击',
+        });
+    }
+    /* permissions: write-all 全权限警告 */
+    if (/permissions:\s*write-all/.test(txt)) {
+        warnings.push({ file: f, rule: 'avoid-write-all', msg: 'permissions: write-all 过宽，建议改 token-level 最小权限' });
+    }
 }
 
 if (violations.length === 0) {
@@ -71,8 +106,8 @@ for (const v of violations) {
     console.error(`  ✖ ${v.file}:${v.line}  [${v.rule}]  ${v.msg}`);
 }
 console.error('');
-console.error('修复：在 actions/upload-artifact 步骤的 with: 块下加');
-console.error('  retention-days: 30   # 诊断 artifact');
-console.error('  retention-days: 90   # 趋势/基线 artifact');
-console.error('（详见 docs/engineering/CI_ARTIFACT_RETENTION.md）');
+console.error('规则参考：');
+console.error('  - upload-artifact-needs-retention: 详见 docs/engineering/CI_ARTIFACT_RETENTION.md');
+console.error('  - secret-name-convention: secrets.X 必须 UPPER_SNAKE_CASE');
+console.error('  - no-echo-secrets: 不要 echo 输出 secret（日志泄露面）');
 process.exit(1);
