@@ -298,33 +298,56 @@ export class Grid {
         }
     }
 
+    /**
+     * 检查并清除所有满行/满列，返回结算结果。
+     *
+     * v1.71 Z5：内部拆为 4 个私有 helper（公开 API 与返回值 1:1 不变）。
+     *   1. _detectFullRowsCols  — 仅扫描，返回 { fullRows, fullCols }
+     *   2. _detectBonusLines    — 同色行/列检测（必须在清除前）
+     *   3. _collectClearedCells — 去重收集要清除的 cells（含原 color）
+     *   4. _clearCellsAndMeta   — 实际清除 cells + cellMeta
+     *
+     * 关键时序契约：bonusLines / clearedCells 必须在 _clearCellsAndMeta **之前**完成，
+     * 因为它们读 this.cells[y][x] 的原 colorIdx；清除后即为 null。
+     *
+     * @returns {{ count: number, cells: Array, bonusLines: Array, rows: number[], cols: number[] }}
+     */
     checkLines() {
+        const { fullRows, fullCols } = this._detectFullRowsCols();
+        const bonusLines = this._detectBonusLines(fullRows, fullCols);
+        const clearedCells = this._collectClearedCells(fullRows, fullCols);
+        this._clearCellsAndMeta(fullRows, fullCols);
+        return {
+            count: fullRows.length + fullCols.length,
+            cells: clearedCells,
+            bonusLines,
+            rows: fullRows,
+            cols: fullCols,
+        };
+    }
+
+    /** Z5 step 1：扫描所有满行 / 满列。纯读，无副作用。 */
+    _detectFullRowsCols() {
         const fullRows = [];
         const fullCols = [];
-        const clearedCells = [];
-        const clearedSet = {};
-
-        for (let y = 0; y < this.size; y++) {
-            if (this.cells[y].every(c => c !== null)) {
-                fullRows.push(y);
-            }
+        const n = this.size;
+        for (let y = 0; y < n; y++) {
+            if (this.cells[y].every(c => c !== null)) fullRows.push(y);
         }
-
-        for (let x = 0; x < this.size; x++) {
+        for (let x = 0; x < n; x++) {
             let colFull = true;
-            for (let y = 0; y < this.size; y++) {
-                if (this.cells[y][x] === null) {
-                    colFull = false;
-                    break;
-                }
+            for (let y = 0; y < n; y++) {
+                if (this.cells[y][x] === null) { colFull = false; break; }
             }
-            if (colFull) {
-                fullCols.push(x);
-            }
+            if (colFull) fullCols.push(x);
         }
+        return { fullRows, fullCols };
+    }
 
-        // 在清除格子前检测同色（同icon）行列，用于后续加分和特效
+    /** Z5 step 2：在清除前检测同色（同 icon）行/列，用于加分和特效。 */
+    _detectBonusLines(fullRows, fullCols) {
         const bonusLines = [];
+        const n = this.size;
         for (const y of fullRows) {
             const first = this.cells[y][0];
             if (first !== null && this.cells[y].every(c => c === first)) {
@@ -335,15 +358,22 @@ export class Grid {
             const first = this.cells[0][x];
             if (first !== null) {
                 let allSame = true;
-                for (let y = 1; y < this.size; y++) {
+                for (let y = 1; y < n; y++) {
                     if (this.cells[y][x] !== first) { allSame = false; break; }
                 }
                 if (allSame) bonusLines.push({ type: 'col', idx: x, colorIdx: first });
             }
         }
+        return bonusLines;
+    }
 
+    /** Z5 step 3：去重收集要清除的 cells（含原 colorIdx）。 */
+    _collectClearedCells(fullRows, fullCols) {
+        const clearedCells = [];
+        const clearedSet = {};
+        const n = this.size;
         for (const y of fullRows) {
-            for (let x = 0; x < this.size; x++) {
+            for (let x = 0; x < n; x++) {
                 const key = x + ',' + y;
                 if (!clearedSet[key]) {
                     clearedSet[key] = true;
@@ -351,9 +381,8 @@ export class Grid {
                 }
             }
         }
-
         for (const x of fullCols) {
-            for (let y = 0; y < this.size; y++) {
+            for (let y = 0; y < n; y++) {
                 const key = x + ',' + y;
                 if (!clearedSet[key]) {
                     clearedSet[key] = true;
@@ -361,24 +390,25 @@ export class Grid {
                 }
             }
         }
+        return clearedCells;
+    }
 
+    /** Z5 step 4：实际清除 cells + cellMeta（破坏性操作，调在最后）。 */
+    _clearCellsAndMeta(fullRows, fullCols) {
+        const n = this.size;
         for (const y of fullRows) {
-            for (let x = 0; x < this.size; x++) {
+            for (let x = 0; x < n; x++) {
                 this.cells[y][x] = null;
                 /* v1.60.1：清行同时清除对应 cellMeta，避免 isSpecial=true 残留误判 */
                 if (this._cellMeta) this._cellMeta.delete(this._metaKey(x, y));
             }
         }
-
         for (const x of fullCols) {
-            for (let y = 0; y < this.size; y++) {
+            for (let y = 0; y < n; y++) {
                 this.cells[y][x] = null;
                 if (this._cellMeta) this._cellMeta.delete(this._metaKey(x, y));
             }
         }
-
-        const lines = fullRows.length + fullCols.length;
-        return { count: lines, cells: clearedCells, bonusLines, rows: fullRows, cols: fullCols };
     }
 
     hasAnyMove(blocks) {
