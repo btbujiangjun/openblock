@@ -27,7 +27,11 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
-      - run: npm run lint
+      # GG4: lint:strict 等价 `eslint --max-warnings 0`，让 warnings
+      # 也阻塞 CI。前提：FF1 已把现存 4 problems 清零，GG4 守住基线
+      # 防止退步。新违例必须修复或加 // eslint-disable-next-line 显式
+      # 标注（强制开发者意识到债务），不允许 warning 静默累积。
+      - run: npm run lint:strict
       - name: vitest with coverage
         run: npx vitest run --coverage
         env:

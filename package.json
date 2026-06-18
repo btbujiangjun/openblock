@@ -32,6 +32,7 @@
     "benchmark:write-trend": "node scripts/benchmark-suite.mjs --skip-perf --write-trend docs/engineering/benchmark-trend-baseline.json",
     "perf:check:gpu": "node scripts/perf-check-gpu.mjs",
     "lint": "eslint web/src tests",
+    "lint:strict": "eslint web/src tests --max-warnings 0",
     "sync:core": "bash scripts/sync-core.sh",
     "sync:cocos-core": "node scripts/sync-cocos-core.mjs && node scripts/sync-cocos-engine.mjs",
     "verify:cocos-core": "node scripts/sync-cocos-core.mjs --verify && node scripts/sync-cocos-engine.mjs --verify && node scripts/sync-cocos-resources.mjs --verify",
