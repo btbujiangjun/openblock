@@ -20,6 +20,59 @@ function _ctz32(v) {
     return 31 - Math.clz32(v & -v);
 }
 
+/**
+ * v1.71 LL1：mono flush 共享 bitmap 预计算工具（potential + buildup 共用）。
+ *
+ * 同时返回：
+ *   - rowOccBitmap[y]：第 y 行已占 cell mask（II1）
+ *   - rowEmptyCount[y] / colEmptyCount[x]：每行/列空 cell 数（II1 emptyCount 剪枝用）
+ *   - shapeRowFill[dy] / shapeColFill[dx]：shape 每行/列占 cell 数
+ *   - shapeRowBits[dy]：shape 第 dy 行 cell mask（未平移）
+ *   - useBitmap：n>=31 时禁用 bitmap 优化（防 32-bit overflow）
+ *   - fullMask
+ *
+ * @param {Grid} grid
+ * @param {Array<[number,number]>} shapeCells 已展开的 [dx,dy] 列表
+ * @param {number} sh shape 高
+ * @param {number} sw shape 宽
+ * @returns {object}
+ */
+function _buildMonoFlushBitmaps(grid, shapeCells, sh, sw) {
+    const n = grid.size;
+    const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
+    const useBitmap = n < 31 && fullMask !== 0;
+    const rowOccBitmap = new Int32Array(n);
+    const rowEmptyCount = new Int32Array(n);
+    const colEmptyCount = new Int32Array(n);
+    for (let y = 0; y < n; y++) {
+        const row = grid.cells[y];
+        let occ = 0;
+        for (let x = 0; x < n; x++) if (row[x] !== null) occ |= (1 << x);
+        rowOccBitmap[y] = occ;
+        rowEmptyCount[y] = _popcount32((~occ) & fullMask);
+    }
+    for (let x = 0; x < n; x++) {
+        let occCol = 0;
+        for (let y = 0; y < n; y++) if (grid.cells[y][x] !== null) occCol |= (1 << y);
+        colEmptyCount[x] = _popcount32((~occCol) & fullMask);
+    }
+    const shapeRowFill = new Int32Array(sh);
+    const shapeColFill = new Int32Array(sw);
+    const shapeRowBits = new Int32Array(sh);
+    for (let k = 0; k < shapeCells.length; k++) {
+        const dx = shapeCells[k][0];
+        const dy = shapeCells[k][1];
+        shapeColFill[dx]++;
+        shapeRowFill[dy]++;
+        shapeRowBits[dy] |= (1 << dx);
+    }
+    return {
+        rowOccBitmap, rowEmptyCount, colEmptyCount,
+        shapeRowFill, shapeColFill, shapeRowBits,
+        useBitmap, fullMask,
+    };
+}
+
 export class Grid {
     constructor(size = 8) {
         this.size = size;
@@ -1121,44 +1174,15 @@ export class Grid {
         }
         if (shapeCells.length === 0) return returnTarget ? { count: 0, targetCi: null } : 0;
 
-        /* HH2 阶段 1：预计算每行/列 emptyCount（基于 bitmap）+ shape 每行/列占用 count。
-         * placement 上 mono flush 的硬约束是"shape 放下后该 line 全填"，即
-         * (line empty cells) === (shape contributes cells to this line)。
-         * 任何不满足的 placement 直接跳过 sameAs 检查（之前是 O(n) per line × 2 lines）。
+        /* HH2 阶段 1 + II1 阶段 2：mono flush placement 预计算
+         * （emptyCount 剪枝 + canPlace bitmap）。
          *
-         * 与 _buildBitmapView 不复用：bestMonoFlushPotential 需要的是
-         * `emptyCount per row/col`，不是单 mask；自有数据结构更直接。
-         *
-         * II1 阶段 2：rowOccBitmap 与 shapeRowBitmap 同时存下，让 canPlace 走
-         * "ANY (rowOcc & shapeBits)" 一次 AND 判定，省掉每 placement 重走
-         * shapeCells 列表。n=8 时整 row 8 bit 一次完成。 */
-        const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
-        const rowOccBitmap = new Int32Array(n); /* II1: occupied mask per row */
-        const colEmptyCount = new Int32Array(n);
-        const rowEmptyCount = new Int32Array(n);
-        for (let y = 0; y < n; y++) {
-            const row = this.cells[y];
-            let occ = 0;
-            for (let x = 0; x < n; x++) if (row[x] !== null) occ |= (1 << x);
-            rowOccBitmap[y] = occ;
-            rowEmptyCount[y] = _popcount32((~occ) & fullMask);
-        }
-        for (let x = 0; x < n; x++) {
-            let occCol = 0;
-            for (let y = 0; y < n; y++) if (this.cells[y][x] !== null) occCol |= (1 << y);
-            colEmptyCount[x] = _popcount32((~occCol) & fullMask);
-        }
-        /* shape 每行/列占用 cell 计数 + II1 行 bitmap（含 dx/dy 偏移） */
-        const shapeRowFill = new Int32Array(sh);
-        const shapeColFill = new Int32Array(sw);
-        const shapeRowBits = new Int32Array(sh); /* II1: bit mask of shape cells per row（未平移） */
-        for (let k = 0; k < shapeCells.length; k++) {
-            const dx = shapeCells[k][0];
-            const dy = shapeCells[k][1];
-            shapeColFill[dx]++;
-            shapeRowFill[dy]++;
-            shapeRowBits[dy] |= (1 << dx);
-        }
+         * v1.71 LL1：抽出 _buildMonoFlushBitmaps 共享给 buildup，
+         * 消除两函数 30+ 行重复代码。注释保留在工具函数 docstring。 */
+        const {
+            rowOccBitmap, rowEmptyCount, colEmptyCount,
+            shapeRowFill, shapeColFill, shapeRowBits,
+        } = _buildMonoFlushBitmaps(this, shapeCells, sh, sw);
 
         /* v1.55.11 perf：受影响 row/col 用 Uint8Array 标记位（8 位足够 n=8），
          * shape 占用 cell 直接通过坐标算术判断（sx = x - ox, sy = y - oy）回查 shapeData，
@@ -1300,51 +1324,27 @@ export class Grid {
         }
         if (shapeCells.length === 0) return 0;
 
-        /* v1.55.11 perf：同 bestMonoFlushPotential 优化——
-         * Uint8Array 标记受影响行列，shape 占用通过坐标算术回查 shapeData。
-         *
-         * JJ1：移植 II1 阶段 2 优化——canPlace 用 row bitmap AND 替代
-         * O(shapeCells) 检查。buildup 与 potential 不同：buildup 不
-         * 要求 emptyCount === shapeFill（接受空格未填），所以这里**仅**
-         * 移植 canPlace bitmap，不引入 emptyCount 剪枝。 */
-        const fullMask = (n >= 31) ? -1 : ((1 << n) - 1);
-        const rowOccBitmap = new Int32Array(n);
-        for (let y = 0; y < n; y++) {
-            const row = this.cells[y];
-            let occ = 0;
-            for (let x = 0; x < n; x++) if (row[x] !== null) occ |= (1 << x);
-            rowOccBitmap[y] = occ;
-        }
-        const shapeRowBits = new Int32Array(sh);
-        for (let k = 0; k < shapeCells.length; k++) {
-            shapeRowBits[shapeCells[k][1]] |= (1 << shapeCells[k][0]);
-        }
-        /* fullMask 仅用于守 n 边界（>=31 时禁用 bit 优化，走老路径） */
-        const useBitmap = n < 31 && fullMask !== 0;
+        /* v1.55.11 perf + JJ1 + KK1。LL1 抽 _buildMonoFlushBitmaps
+         * 复用，复用得到的 rowEmptyCount/colEmptyCount 反推
+         * preFilled（n - empty）以及 shapeRow/ColFill 直接当
+         * shapeRow/ColCount 用，省一遍 shapeCells 遍历。 */
+        const {
+            rowOccBitmap, rowEmptyCount, colEmptyCount,
+            shapeRowFill, shapeColFill, shapeRowBits,
+            useBitmap,
+        } = _buildMonoFlushBitmaps(this, shapeCells, sh, sw);
         const rowMask = new Uint8Array(n);
         const colMask = new Uint8Array(n);
-
-        /* KK1：预计算每 row/col 已填 cell 数 + shape 每行/列占 cell 数。
-         * 内圈 mono 检查无法 bitmap 化（要查 ci 同色），但能用
-         *   preFilledUpperBound + shapeCellsOnLine < minBuildup → skip
-         * 预剪掉绝大多数空盘行/列，让内圈只跑可能合格的 line。 */
-        let rowPreFilled = null; let colPreFilled = null;
-        let shapeRowCount = null; let shapeColCount = null;
+        /* KK1 内圈剪枝：preFilled = n - emptyCount，与历史等价。 */
+        const rowPreFilled = useBitmap ? new Int32Array(n) : null;
+        const colPreFilled = useBitmap ? new Int32Array(n) : null;
         if (useBitmap) {
-            rowPreFilled = new Int32Array(n);
-            colPreFilled = new Int32Array(n);
-            for (let y = 0; y < n; y++) {
-                rowPreFilled[y] = n - _popcount32((~rowOccBitmap[y]) & fullMask);
-            }
-            for (let x = 0; x < n; x++) {
-                let cnt = 0;
-                for (let y = 0; y < n; y++) if ((rowOccBitmap[y] >> x) & 1) cnt++;
-                colPreFilled[x] = cnt;
-            }
-            shapeRowCount = new Int32Array(sh);
-            shapeColCount = new Int32Array(sw);
-            for (const [dx, dy] of shapeCells) { shapeRowCount[dy]++; shapeColCount[dx]++; }
+            for (let y = 0; y < n; y++) rowPreFilled[y] = n - rowEmptyCount[y];
+            for (let x = 0; x < n; x++) colPreFilled[x] = n - colEmptyCount[x];
         }
+        /* JJ1 命名 → LL1 统一为 shapeRowFill/shapeColFill（与 potential 同名） */
+        const shapeRowCount = shapeRowFill;
+        const shapeColCount = shapeColFill;
 
         let best = 0;
         for (let oy = 0; oy <= n - sh; oy++) {
