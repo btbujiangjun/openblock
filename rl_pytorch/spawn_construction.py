@@ -55,36 +55,37 @@ def _is_board_empty(grid: Grid) -> bool:
 
 
 def _find_best_placement(grid: Grid, shape_data: list[list[int]]) -> tuple[int, int, int] | None:
-    """找到使消行数最大的放置位置。返回 (gx, gy, clears) 或 None。"""
-    n = grid.size
-    best = None
-    best_clears = -1
-    for gy in range(n):
-        for gx in range(n):
-            if not grid.can_place(shape_data, gx, gy):
-                continue
-            g2, clears = _sim_place_and_clear(grid, shape_data, gx, gy)
-            if clears > best_clears:
-                best_clears = clears
-                best = (gx, gy, clears)
-    return best
+    """找到使消行数最大的放置位置。返回 (gx, gy, clears) 或 None。
+
+    numpy 向量化：get_legal_positions + batch_count_clears 一次算完，
+    替代旧版 n² 次 can_place + clone()+check_lines()（profile 热点）。
+    """
+    grid_np = _fg.grid_to_np(grid)
+    shape_np = _fg.shape_to_np(shape_data)
+    return _fg.best_placement_np(grid_np, shape_np)
 
 
 def _sim_sequence_greedy(
     grid: Grid, datas: list[list[list[int]]], order: list[int]
 ) -> tuple[int, bool, bool]:
-    """贪心模拟：每步选消行最多的位置。返回 (总消行, 是否清屏, 是否全部放完)。"""
-    g = grid.clone()
+    """贪心模拟：每步选消行最多的位置。返回 (总消行, 是否清屏, 是否全部放完)。
+
+    全程在 numpy int8 棋盘上推进，零 Grid.clone()/check_lines()——这是 dock 构造
+    spawner 的最热内循环（旧实现占采集总耗时一半以上）。
+    """
+    grid_np = _fg.grid_to_np(grid)
+    shapes_np = [_fg.shape_to_np(d) for d in datas]
     total = 0
     for idx in order:
-        data = datas[idx]
-        placement = _find_best_placement(g, data)
+        shape_np = shapes_np[idx]
+        placement = _fg.best_placement_np(grid_np, shape_np)
         if placement is None:
             return total, False, False
         gx, gy, clears = placement
-        g, _ = _sim_place_and_clear(g, data, gx, gy)
+        grid_np, _ = _fg.place_and_clear_np(grid_np, shape_np, gx, gy)
         total += clears
-    return total, _is_board_empty(g), True
+    is_pc = bool((grid_np < 0).all())
+    return total, is_pc, True
 
 
 # ---------------------------------------------------------------------------

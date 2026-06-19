@@ -1537,7 +1537,13 @@ def create_rl_blueprint() -> Blueprint:
         preset_mcts = dict(preset_cfg.get("mcts") or {})
         preset_beam3 = dict(preset_cfg.get("beam3ply") or {})
         preset_beam2 = dict(preset_cfg.get("beam2ply") or {})
-        if "mcts_sims" in data:
+        # lookahead 显式开关：None=按 preset；False=强制关闭每步前瞻搜索（MCTS/beam/1-step），
+        # 采集退化为「每步一次策略前向」，单局快 1~2 个数量级（吞吐优先，弱 teacher 信号）。
+        _lookahead_raw = data.get("lookahead", None)
+        force_no_lookahead = _lookahead_raw is False
+        if force_no_lookahead:
+            mcts_sims = 0
+        elif "mcts_sims" in data:
             mcts_sims = int(data.get("mcts_sims", 0))
         elif preset_mcts.get("enabled", False):
             mcts_sims = int(preset_mcts.get("numSimulations", 0) or 0)
@@ -1589,8 +1595,15 @@ def create_rl_blueprint() -> Blueprint:
         env.setdefault("RL_BEST_GUARD_EVERY", "40")
         if mcts_sims <= 0:
             env.pop("RL_MCTS", None)
+        # lookahead=false：强制关闭所有每步搜索（最大吞吐）。每步搜索的真正瓶颈是
+        # 模拟器内循环（数百次 step/restore，纯 Python），关闭后单局采集快 1~2 个数量级。
+        if force_no_lookahead:
+            env["RL_MCTS"] = "0"
+            env["RL_BEAM3PLY"] = "0"
+            env["RL_BEAM2PLY"] = "0"
+            env["RL_LOOKAHEAD"] = "0"
         # 无 MCTS 且 preset/请求均未启用 beam 时，才关闭搜索以最大化采集吞吐。
-        if (
+        elif (
             mcts_sims <= 0
             and not data.get("beam3ply")
             and not data.get("beam2ply")

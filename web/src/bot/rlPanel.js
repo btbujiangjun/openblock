@@ -45,19 +45,15 @@ function resolveBackgroundWorkerCount(preset) {
         typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 0
     );
     const cores = Number.isFinite(rawCores) && rawCores > 0 ? Math.floor(rawCores) : 4;
+    // 训练子进程现在把每个 worker 固定为单线程（见 train.py `_pool_worker_init`），
+    // 因此 worker 数应贴近「可用核数」才能跑满 CPU；预留 2 核给主进程 GPU 更新 + 系统。
     const usable = Math.max(1, cores - (cores >= 8 ? 2 : 1));
-    let target;
+    // quality 单局最重（MCTS sims 多 + 大 beam），略少 worker 控制内存与单局延迟
     if (preset === 'quality') {
-        target = Math.max(2, Math.floor(usable * 0.75));
-        // MCTS/beam 每 worker 自带重搜索，过多进程争抢 CPU 反而拖慢单局吞吐
-        return Math.max(1, Math.min(usable, target, 2));
+        return Math.max(1, Math.min(usable, 6));
     }
-    if (preset === 'balanced') {
-        target = Math.max(2, Math.floor(usable * 0.6));
-        return Math.max(1, Math.min(usable, target, 3));
-    }
-    target = Math.max(1, Math.floor(usable * 0.5));
-    return Math.max(1, Math.min(usable, target, 4));
+    // balanced / performance：单线程 worker 各占 ~1 核，直接吃满可用核
+    return Math.max(1, Math.min(usable, 8));
 }
 
 /**
@@ -973,6 +969,9 @@ export function initRLPanel(game) {
                     const trainingPreset = selPreset?.value || 'balanced';
                     const workerCount = resolveBackgroundWorkerCount(trainingPreset);
                     const webBatch = WEB_DASHBOARD_TRAIN_BATCH;
+                    // 性能档：默认关闭每步前瞻搜索（采集瓶颈是模拟器内循环，数百次 step/restore），
+                    // 退化为「每步一次策略前向」，单局快 1~2 个数量级。用户显式勾选 lookahead 时尊重其选择。
+                    const fastSampling = trainingPreset === 'performance' && !useLookahead;
                     await startBackgroundTraining({
                         episodes: 500000,
                         resume: true,
@@ -984,11 +983,14 @@ export function initRLPanel(game) {
                         preset: trainingPreset,
                         eval_gate_every: 0,
                         value_coef: 1.5,
+                        ...(fastSampling ? { lookahead: false } : {}),
                     });
-                    if (trainingPreset === 'balanced' || trainingPreset === 'quality') {
+                    if (fastSampling) {
+                        logLine('⚡ 性能档：已关闭每步搜索，纯策略快速采集（弱 teacher 信号，吞吐最高）');
+                    } else if (trainingPreset === 'balanced' || trainingPreset === 'quality') {
                         logLine(
-                            `⚠️ ${trainingPreset === 'quality' ? '效果' : '平衡'}档含 MCTS/搜索，单局采集慢；`
-                            + `看板 batch=${webBatch}。要更快反馈请选 ⚡性能 并停止后重开训练`
+                            `⚠️ ${trainingPreset === 'quality' ? '效果' : '平衡'}档含 MCTS/搜索，单局采集慢（模拟器内循环密集）；`
+                            + `要最快反馈请选 ⚡性能 档并停止后重开训练`
                         );
                     }
                     logLine(

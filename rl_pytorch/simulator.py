@@ -219,6 +219,10 @@ class OpenBlockSimulator:
         # _search_mode：MCTS/lookahead/beam 路径下置 True，跳过 eval shaping 的 O(|A|) 计算
         # （search 用 NN-V 估计，shaping 是给真实采集轨迹的 GAE 用的，否则双重计入）。
         self._search_mode: bool = False
+        # 可行性 DFS / 纯探测路径下置 True：step() 放完整副 dock 时**跳过昂贵的构造式重抽**
+        # （generate_dock_shapes 每次 ~0.34s）。这些路径放完最后一块即返回，永远不会用到新 dock，
+        # 重抽是纯浪费且被 restore_state 丢弃。profile 显示这是采集耗时的最大放大器。
+        self._skip_dock_respawn: bool = False
         self.reset()
 
     def _difficulty_target_for_spawn(self) -> float:
@@ -542,7 +546,18 @@ class OpenBlockSimulator:
                 self.restore_state(state)
             return min(subtotal, leaf_cap)
 
-        leaves = dfs(0)
+        # 纯可行性探测：只关心“剩余 dock 能否依序放完”。step() 在此应跳过
+        #  (1) eval-feedback 的 O(|A|) 计算（search_mode），
+        #  (2) 放完整副 dock 时的构造式重抽（_skip_dock_respawn）——放完末块即返回，新 dock 永不使用。
+        prev_search = self._search_mode
+        prev_skip = self._skip_dock_respawn
+        self._search_mode = True
+        self._skip_dock_respawn = True
+        try:
+            leaves = dfs(0)
+        finally:
+            self._search_mode = prev_search
+            self._skip_dock_respawn = prev_skip
         self.restore_state(saved_root)
         return int(min(leaves, leaf_cap))
 
@@ -704,7 +719,8 @@ class OpenBlockSimulator:
                     self._spawn_context.get("roundsSinceClear", 0)
                 ) + 1
             self._remember_recent_categories()
-            self._spawn_dock()
+            if not self._skip_dock_respawn:
+                self._spawn_dock()
 
         self._invalidate_grid_np()
 

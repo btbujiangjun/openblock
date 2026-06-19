@@ -132,6 +132,24 @@ def _pool_worker_init(
     使跨进程 Zobrist 缓存生效。
     """
     global _pool_net, _pool_device, _pool_shared_table
+    # 性能关键：每个 worker 是独立进程，torch 默认按物理核数开 intra-op 线程；
+    # N workers × N threads 在 CPU 上严重超额订阅（context-switch + 缓存抖动），
+    # 而 21 万参数小网络做单样本/小批 CPU 推理用多线程几乎零收益。固定单线程后，
+    # 实际并行度 = worker 数，单局采集吞吐显著提升（可用 RL_WORKER_THREADS 调整）。
+    try:
+        _wt = max(1, int(os.environ.get("RL_WORKER_THREADS", "1") or "1"))
+    except ValueError:
+        _wt = 1
+    try:
+        torch.set_num_threads(_wt)
+    except Exception:
+        pass
+    try:
+        if hasattr(torch, "set_num_interop_threads"):
+            torch.set_num_interop_threads(1)
+    except Exception:
+        # 已初始化过：只能设一次，忽略
+        pass
     # spawn 子进程不继承主进程的 torch.backends 状态，须在此各自关闭
     # NNPACK / oneDNN，否则旧 CPU 上 Conv2d 会抛 could not create a primitive。
     disable_cpu_conv_backends()
@@ -2457,7 +2475,19 @@ def train_loop(
     # --- 多进程 worker pool（0=自动检测） ---
     pool = None
     actual_workers = n_workers if n_workers > 0 else _auto_n_workers(device)
+    try:
+        _worker_threads = max(1, int(os.environ.get("RL_WORKER_THREADS", "1") or "1"))
+    except ValueError:
+        _worker_threads = 1
     if actual_workers > 1:
+        # 让 spawn 出的 worker 在 import torch 时即以单线程加载底层 BLAS/OMP，
+        # 配合 _pool_worker_init 里的 set_num_threads 双重保证不超额订阅 CPU。
+        _wt_env = str(_worker_threads)
+        for _thr_key in (
+            "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+            "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS",
+        ):
+            os.environ.setdefault(_thr_key, _wt_env)
         w = getattr(net, "width", 128)
         cc = getattr(net, "conv_channels", 32)
 
@@ -2483,7 +2513,11 @@ def train_loop(
             initargs=(train_arch, w, policy_depth_arg, value_depth_arg, mlp_ratio, cc,
                       shm_name, shm_slots),
         )
-        print(f"多进程采集: {actual_workers} workers (CPU inference → GPU update) + pipeline overlap", file=sys.stderr)
+        print(
+            f"多进程采集: {actual_workers} workers × {_worker_threads} thread "
+            f"(CPU inference → GPU update) + pipeline overlap",
+            file=sys.stderr,
+        )
 
     wins = 0
     scores: list[float] = []

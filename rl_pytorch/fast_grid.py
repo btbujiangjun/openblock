@@ -159,6 +159,55 @@ def batch_count_clears(
     return (full_rows + full_cols).astype(np.int32)
 
 
+def place_and_clear_np(
+    grid_np: np.ndarray,
+    shape_np: np.ndarray,
+    gx: int,
+    gy: int,
+) -> tuple[np.ndarray, int]:
+    """numpy 原生「放置 + 消行」，返回 (新棋盘, 消行数)。
+
+    与 Grid.place + Grid.check_lines 语义逐位一致：先按占用计算满行/满列，
+    清行数 = 满行数 + 满列数（交叉格只清一次），再把满行满列整体置空。
+    替代 spawn_construction 里 clone()+place()+check_lines() 的纯 Python 热路径。
+    """
+    n = grid_np.shape[0]
+    g = grid_np.copy()
+    cells = np.argwhere(shape_np > 0)
+    if len(cells):
+        ys = gy + cells[:, 0]
+        xs = gx + cells[:, 1]
+        g[ys, xs] = 0  # 占用（颜色 0，仅占位语义）
+    occ = g >= 0
+    full_rows = np.where(occ.all(axis=1))[0]
+    full_cols = np.where(occ.all(axis=0))[0]
+    clears = int(len(full_rows) + len(full_cols))
+    if clears:
+        if len(full_rows):
+            g[full_rows, :] = -1
+        if len(full_cols):
+            g[:, full_cols] = -1
+    return g, clears
+
+
+def best_placement_np(
+    grid_np: np.ndarray,
+    shape_np: np.ndarray,
+) -> tuple[int, int, int] | None:
+    """返回使消行数最大的放置 (gx, gy, clears)；无合法位置返回 None。
+
+    向量化等价于旧 _find_best_placement 的 n² can_place + clone 扫描。
+    tie-break：get_legal_positions 以 (gy, gx) 行主序枚举，argmax 取首个最大值，
+    与旧实现「gy 外层 gx 内层、严格 > 更新」的选择一致。
+    """
+    positions = get_legal_positions(grid_np, shape_np)
+    if len(positions) == 0:
+        return None
+    clears = batch_count_clears(grid_np, shape_np, positions)
+    i = int(np.argmax(clears))
+    return int(positions[i, 1]), int(positions[i, 0]), int(clears[i])
+
+
 def count_clears_single(
     grid_np: np.ndarray,
     shape_np: np.ndarray,
