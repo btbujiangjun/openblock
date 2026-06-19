@@ -47,9 +47,12 @@ if not _HAS_NUMBA:
 if _HAS_NUMBA:
 
     @_njit(cache=True)
-    def _legal_positions_kernel(occ, shape):  # occ:uint8[n,n], shape:uint8[h,w]
-        """枚举 shape 所有无重叠放置 (gy,gx)，行优先（gy 外 gx 内）与 np.argwhere 同序。"""
-        n = occ.shape[0]
+    def _legal_positions_kernel(grid, shape):  # grid:int32[n,n](occ≥0), shape:uint8[h,w]
+        """枚举 shape 所有无重叠放置 (gy,gx)，行优先（gy 外 gx 内）与 np.argwhere 同序。
+
+        occupied 判定（grid≥0）在原生代码内完成，免去 wrapper 的 (grid>=0) bool 数组分配。
+        """
+        n = grid.shape[0]
         h = shape.shape[0]
         w = shape.shape[1]
         out = np.empty((n * n, 2), np.int32)
@@ -59,7 +62,7 @@ if _HAS_NUMBA:
                 ok = True
                 for sy in range(h):
                     for sx in range(w):
-                        if shape[sy, sx] and occ[gy + sy, gx + sx]:
+                        if shape[sy, sx] and grid[gy + sy, gx + sx] >= 0:
                             ok = False
                             break
                     if not ok:
@@ -71,11 +74,24 @@ if _HAS_NUMBA:
         return out[:cnt].copy()
 
     @_njit(cache=True)
-    def _batch_count_clears_kernel(occ, sy, sx, positions, row_counts, col_counts):
-        """对同一 shape 的 P 个放置位置逐个算消行数（满行数+满列数），与 numpy 版逐元素等价。"""
-        n = occ.shape[0]
-        k = sy.shape[0]
+    def _batch_count_clears_kernel(grid, shape, positions):
+        """对同一 shape 的 P 个放置位置逐个算消行数（满行数+满列数）。
+
+        grid:int32[n,n]（occupied≥0），shape:uint8[h,w]，positions:int32[P,2]=(gy,gx)。
+        行/列占用计数与形状遍历全在原生代码内完成，免去 wrapper 的 occupied_mask/sum/argwhere。
+        与 numpy 版逐元素等价：仅当前为空（grid<0）的形状格计入增量。
+        """
+        n = grid.shape[0]
+        h = shape.shape[0]
+        w = shape.shape[1]
         P = positions.shape[0]
+        row_counts = np.zeros(n, np.int32)
+        col_counts = np.zeros(n, np.int32)
+        for y in range(n):
+            for x in range(n):
+                if grid[y, x] >= 0:
+                    row_counts[y] += 1
+                    col_counts[x] += 1
         out = np.empty(P, np.int32)
         rd = np.zeros(n, np.int32)
         cd = np.zeros(n, np.int32)
@@ -85,12 +101,14 @@ if _HAS_NUMBA:
             for i in range(n):
                 rd[i] = 0
                 cd[i] = 0
-            for j in range(k):
-                py = gy + sy[j]
-                px = gx + sx[j]
-                if occ[py, px] == 0:  # 仅新增占用格计入增量（与 is_new 掩码一致）
-                    rd[py] += 1
-                    cd[px] += 1
+            for sy in range(h):
+                for sx in range(w):
+                    if shape[sy, sx]:
+                        py = gy + sy
+                        px = gx + sx
+                        if grid[py, px] < 0:  # 仅新增占用格计入增量（与 is_new 掩码一致）
+                            rd[py] += 1
+                            cd[px] += 1
             fr = 0
             fc = 0
             for i in range(n):
@@ -431,9 +449,9 @@ def get_legal_positions(grid_np: np.ndarray, shape_np: np.ndarray) -> np.ndarray
         return np.empty((0, 2), dtype=np.int32)
 
     if _HAS_NUMBA:
-        occ = np.ascontiguousarray(grid_np >= 0, dtype=np.uint8)
+        grid_c = np.ascontiguousarray(grid_np, dtype=np.int32)
         shp = np.ascontiguousarray(shape_np, dtype=np.uint8)
-        return _legal_positions_kernel(occ, shp)
+        return _legal_positions_kernel(grid_c, shp)
 
     occ = occupied_mask(grid_np)
     windows = sliding_window_view(occ, (h, w))
@@ -473,6 +491,14 @@ def batch_count_clears(
     if P == 0:
         return np.array([], dtype=np.int32)
 
+    if _HAS_NUMBA:
+        # grid+shape 直接进核，行列计数与形状遍历全在原生代码内，免去 wrapper numpy 派发。
+        return _batch_count_clears_kernel(
+            np.ascontiguousarray(grid_np, dtype=np.int32),
+            np.ascontiguousarray(shape_np, dtype=np.uint8),
+            np.ascontiguousarray(positions, dtype=np.int32),
+        )
+
     occ = occupied_mask(grid_np)
     row_counts = occ.sum(axis=1, dtype=np.int32)
     col_counts = occ.sum(axis=0, dtype=np.int32)
@@ -483,16 +509,6 @@ def batch_count_clears(
         return np.zeros(P, dtype=np.int32)
     sy = shape_cells[:, 0]
     sx = shape_cells[:, 1]
-
-    if _HAS_NUMBA:
-        return _batch_count_clears_kernel(
-            np.ascontiguousarray(occ, dtype=np.uint8),
-            np.ascontiguousarray(sy, dtype=np.int32),
-            np.ascontiguousarray(sx, dtype=np.int32),
-            np.ascontiguousarray(positions, dtype=np.int32),
-            row_counts,
-            col_counts,
-        )
 
     gy = positions[:, 0]
     gx = positions[:, 1]
