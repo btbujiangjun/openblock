@@ -1034,12 +1034,14 @@
     <!-- 侧栏 emoji 与 web/src/uiIcons.js 对齐（静态 HTML 需与 JS 常量同步修改） -->
     <div class="app-side-left" aria-label="左侧工具栏">
     <aside id="player-insight-panel" class="side-panel-base player-insight-panel" aria-label="玩家画像与自适应策略">
-        <!-- 收起态细栏：insight-collapsed 时仅此可见，点击 #insight-expand-btn 展开 -->
+        <!-- 收起态细栏：insight-collapsed 时仅此可见，点击 #insight-expand-btn 或「展开」文字展开 -->
         <div class="insight-collapsed-strip" aria-hidden="true">
             <button type="button" class="insight-expand-btn" id="insight-expand-btn"
                     title="展开玩家画像面板"
                     aria-label="展开玩家画像面板">👤</button>
-            <span class="insight-collapsed-strip-label">玩家画像 · 展开 ›</span>
+            <button type="button" class="insight-collapsed-strip-label" id="insight-expand-label"
+                    title="展开玩家画像面板"
+                    aria-label="展开玩家画像面板">玩家画像 · 展开 ›</button>
         </div>
         <div class="insight-toolbar">
             <h3 class="player-insight-title"><span class="panel-head-icon" aria-hidden="true">👤</span>玩家画像</h3>
@@ -1240,12 +1242,14 @@ Transformer V3.1 学条件分布 P(s₁,s₂,s₃|board, behaviorContext₅₆, 
           3) JS（rlPanel.js）通过 #rl-panel 判断挂载点并按 ID 绑定其余子元素，所有子 ID 保持不变。
     -->
     <aside id="rl-panel" class="side-panel-base rl-panel rl-panel--right" aria-label="AI Bot 训练">
-        <!-- v1.33：收起态细栏 — body.rl-collapsed 时仅此可见，点击 #rl-expand-btn 展开 -->
+        <!-- v1.33：收起态细栏 — body.rl-collapsed 时仅此可见，点击 #rl-expand-btn 或「展开」文字展开 -->
         <div class="rl-collapsed-strip" aria-hidden="true">
             <button type="button" class="rl-expand-btn" id="rl-expand-btn"
                     title="展开 RL 训练面板（恢复右侧栏宽度）"
                     aria-label="展开 RL 训练面板">🦾</button>
-            <span class="rl-collapsed-strip-label">RL 训练 · 展开 ›</span>
+            <button type="button" class="rl-collapsed-strip-label" id="rl-expand-label"
+                    title="展开 RL 训练面板（恢复右侧栏宽度）"
+                    aria-label="展开 RL 训练面板">RL 训练 · 展开 ›</button>
         </div>
         <div class="rl-header-row">
             <h3 class="rl-panel-title"><span class="panel-head-icon" aria-hidden="true">🦾</span>AI Bot</h3>

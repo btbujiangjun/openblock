@@ -2543,8 +2543,11 @@ export function setInsightPanelCollapsed(collapsed, { persist = true } = {}) {
     }
     const collapseBtn = document.getElementById('insight-collapse-btn');
     const expandBtn = document.getElementById('insight-expand-btn');
-    if (collapseBtn) collapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-    if (expandBtn) expandBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    const expandLabel = document.getElementById('insight-expand-label');
+    const expanded = collapsed ? 'false' : 'true';
+    if (collapseBtn) collapseBtn.setAttribute('aria-expanded', expanded);
+    if (expandBtn) expandBtn.setAttribute('aria-expanded', expanded);
+    if (expandLabel) expandLabel.setAttribute('aria-expanded', expanded);
     if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('resize'));
     }
@@ -2557,15 +2560,16 @@ export function initPlayerInsightPanel(game) {
     game._playerInsightRefresh = () => _render(game);
     game.clearInsightHints = () => _clearHints(game);
 
-    /* 收起 / 展开按钮绑定 */
+    /* 收起 / 展开按钮绑定（图标按钮 + 竖排「展开」文字按钮） */
     const collapseBtn = document.getElementById('insight-collapse-btn');
     const expandBtn = document.getElementById('insight-expand-btn');
+    const expandLabel = document.getElementById('insight-expand-label');
     if (collapseBtn) {
         collapseBtn.addEventListener('click', () => setInsightPanelCollapsed(true));
     }
-    if (expandBtn) {
-        expandBtn.addEventListener('click', () => setInsightPanelCollapsed(false));
-    }
+    const expandPanel = () => setInsightPanelCollapsed(false);
+    if (expandBtn) expandBtn.addEventListener('click', expandPanel);
+    if (expandLabel) expandLabel.addEventListener('click', expandPanel);
 
     const btnNew = document.getElementById('insight-new-game');
     const btnRestart = document.getElementById('insight-restart');

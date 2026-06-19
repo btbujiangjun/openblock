@@ -1634,21 +1634,22 @@ def create_rl_blueprint() -> Blueprint:
             env["RL_BEAM2PLY"] = "0"
             env["RL_LOOKAHEAD"] = "0"
 
-        # P1：performance 预设 = 复刻早期纯 PPO 的轻量热路径。实测单局耗时由两部分主导：
-        #   (1) 每步监督税（可行性 DFS + 棋盘势能 + 拓扑）→ RL_SUPERVISION=0 关闭；
-        #   (2) 每次出块的构造引擎 v3 / 线上 IPC（~0.34s/次，占采集大头）→ RL_SPAWN_CHEAP=1
-        #       改为廉价随机出块（比关 online 回落到本地构造式更快一个数量级）。
-        # 调用方仍可在请求 body 显式传 supervision/spawn_cheap 覆盖。
+        # performance 预设 = 吞吐优先的轻量热路径，但必须保持「部署保真」：真实出块仍走
+        # 在线/构造式（与 web/小程序真实游戏同分布），否则策略会在随机 dock 上过拟合、
+        # 上线水土不服且自博弈得分塌方（实测 avg100 从 ~500 跌到 ~130）。
+        #   - RL_SUPERVISION=0：仅关掉辅助监督头的每步计算（不改变对局分布，质量影响极小）；
+        #   - RL_SPAWN_CHEAP：**重度改变训练分布，默认关闭**，仅在显式传 spawn_cheap=true 时
+        #     开启（用于纯吞吐压测/管线验证，不产出可上线模型）。
         if preset == "performance":
             if "supervision" in data:
                 env["RL_SUPERVISION"] = "1" if data.get("supervision") else "0"
             else:
                 env["RL_SUPERVISION"] = "0"
-            if "spawn_cheap" in data:
-                env["RL_SPAWN_CHEAP"] = "1" if data.get("spawn_cheap") else "0"
-            else:
-                env["RL_SPAWN_CHEAP"] = "1"
-                env["RL_SPAWN_ONLINE"] = "0"
+        # cheap-spawn 为全局显式 opt-in（任何预设均需主动传 spawn_cheap=true 才启用）。
+        if "spawn_cheap" in data:
+            env["RL_SPAWN_CHEAP"] = "1" if data.get("spawn_cheap") else "0"
+        else:
+            env.pop("RL_SPAWN_CHEAP", None)
         # 即便启用评估门，也默认关闭双路搜索评估（per-step per-action 子模拟，开销极大），
         # 避免后台训练触发门控时长时间冻结、日志停更。
         if eval_gate_every > 0:

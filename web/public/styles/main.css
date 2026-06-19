@@ -3973,6 +3973,15 @@ html[data-visibility="hidden"] *::after {
     user-select: none;
     margin-top: 2px;
     white-space: nowrap;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: color 120ms ease;
+}
+
+.rl-collapsed-strip-label:hover {
+    color: var(--accent-color, #4472c4);
 }
 
 .rl-collapse-btn,
@@ -4082,6 +4091,15 @@ html[data-visibility="hidden"] *::after {
     user-select: none;
     margin-top: 2px;
     white-space: nowrap;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: color 120ms ease;
+}
+
+.insight-collapsed-strip-label:hover {
+    color: var(--accent-color, #4472c4);
 }
 
 /* 收起/展开按钮（与 .rl-collapse-btn / .rl-expand-btn 完全同款） */

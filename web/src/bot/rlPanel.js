@@ -164,11 +164,14 @@ function setRlPanelCollapsed(collapsed, { persist = true } = {}) {
             localStorage.setItem(LS_RL_COLLAPSED, collapsed ? '1' : '0');
         } catch { /* storage 满 / 隐私模式：忽略 */ }
     }
-    /* 同步 ARIA：两端按钮的 aria-expanded 反映「面板是否展开」 */
+    /* 同步 ARIA：收起/展开按钮（含竖排「展开」文字）的 aria-expanded 反映面板是否展开 */
     const collapseBtn = document.getElementById('rl-collapse-btn');
     const expandBtn = document.getElementById('rl-expand-btn');
-    if (collapseBtn) collapseBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-    if (expandBtn) expandBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    const expandLabel = document.getElementById('rl-expand-label');
+    const expanded = collapsed ? 'false' : 'true';
+    if (collapseBtn) collapseBtn.setAttribute('aria-expanded', expanded);
+    if (expandBtn) expandBtn.setAttribute('aria-expanded', expanded);
+    if (expandLabel) expandLabel.setAttribute('aria-expanded', expanded);
     /* 触发布局重算：游戏盘面 ResizeObserver 监听 canvas CSS 宽度，--cell-px 变化时
      * dock 会自动 refreshDockSkin。dispatch 'resize' 是兜底，确保任何 window 级监听都能感知。 */
     if (typeof window !== 'undefined') {
@@ -1225,6 +1228,7 @@ export function initRLPanel(game) {
      * ==================================================================== */
     const collapseBtn = document.getElementById('rl-collapse-btn');
     const expandBtn = document.getElementById('rl-expand-btn');
+    const expandLabel = document.getElementById('rl-expand-label');
     if (collapseBtn) {
         collapseBtn.addEventListener('click', () => {
             setRlPanelCollapsed(true);
@@ -1233,17 +1237,19 @@ export function initRLPanel(game) {
             if (next) next.focus({ preventScroll: true });
         });
     }
-    if (expandBtn) {
-        expandBtn.addEventListener('click', () => {
-            setRlPanelCollapsed(false);
-            const next = document.getElementById('rl-collapse-btn');
-            if (next) next.focus({ preventScroll: true });
-        });
-    }
+    const expandPanel = () => {
+        setRlPanelCollapsed(false);
+        const next = document.getElementById('rl-collapse-btn');
+        if (next) next.focus({ preventScroll: true });
+    };
+    if (expandBtn) expandBtn.addEventListener('click', expandPanel);
+    if (expandLabel) expandLabel.addEventListener('click', expandPanel);
     /* 把 inline 脚本提前打的 .rl-collapsed 投影到按钮初始 aria-expanded */
     const initiallyCollapsed = document.documentElement.classList.contains('rl-collapsed');
-    if (collapseBtn) collapseBtn.setAttribute('aria-expanded', initiallyCollapsed ? 'false' : 'true');
-    if (expandBtn) expandBtn.setAttribute('aria-expanded', initiallyCollapsed ? 'false' : 'true');
+    const expanded = initiallyCollapsed ? 'false' : 'true';
+    if (collapseBtn) collapseBtn.setAttribute('aria-expanded', expanded);
+    if (expandBtn) expandBtn.setAttribute('aria-expanded', expanded);
+    if (expandLabel) expandLabel.setAttribute('aria-expanded', expanded);
 }
 
 /** v1.33: 暴露给其它模块（例如未来的「全屏游戏」入口）以编程方式控制 RL 面板收起态。 */
