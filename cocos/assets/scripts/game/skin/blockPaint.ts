@@ -2,7 +2,6 @@ import { Color, Graphics, Label, Sprite, UITransform, sys } from 'cc';
 import { Skin } from '../../core';
 import { blockColor, blockFaceColor, lightenInto, darkenInto, blockMetrics, blockIcon, isLightBoard } from './palette';
 import { skinHasImageBlocks, getSkinBlockFrame } from './skinSprites';
-import { isSkinPremiumEnabled } from '../platform/SkinPremium';
 
 /**
  * 仅 iOS / macOS 原生端为 true。Android / Web / 小游戏均为 false。
@@ -111,7 +110,7 @@ function paintImageBacking(
  *
  * ⚠️ 不要再用多段 band 近似渐变：cocos Graphics 上离散 band 会渲染成可见横条（割裂感），
  * 且「先 fill 主色再 stroke」会暴露 fill 边缘锯齿。本干净版（先粗外描边遮锯齿，再 fill 主色覆盖）
- * 才是各皮肤稳定、与盘面衔接自然的实现；S 级光泽由 paintPremiumCellFinish 单独叠加。
+ * 才是各皮肤稳定、与盘面衔接自然的实现 —— 方块面保持纯色，不叠任何过渡色/玻璃光泽。
  */
 function paintCartoon(
     g: Graphics, x: number, y: number, size: number, r: number,
@@ -405,39 +404,6 @@ function paintPixel8(
     g.fill();
 }
 
-/**
- * S 级精致界面：顶部玻璃光泽 + 底缘柔影（对齐 web `_paintPremiumCellFinish` 的渐变意图）。
- *
- * 实现要点（cocos Graphics 无渐变/模糊）：用「圆角顶高光 + 圆角底柔影 + 顶沿亮线」三个
- * **跟随圆角的整形** 叠加，而非多段横向 band —— band 在原生屏会渲成可见横条（割裂感）。
- * 高光/柔影都用 roundRect 贴合方块圆角，cut 边落在中段、低对比、几乎不可见，整体呈现
- * 「水晶玻璃方块」的精致光泽，且只增强、不破坏底层 cartoon 瓷砖。
- */
-export function paintPremiumCellFinish(
-    g: Graphics, x: number, y: number, size: number, r: number, alpha = 255,
-): void {
-    const rr = Math.max(0, Math.min(r, size / 2));
-
-    // 1. 顶沿玻璃高光：仅贴最顶 ~22%（圆角与方块顶角对齐，底边小圆角落在边缘附近不显眼），
-    //    形成「水晶反光锐沿」。这是 premium 相对普通 cartoon 最直观的精致增益。
-    const topH = Math.max(2, size * 0.22);
-    g.fillColor = col(255, 255, 255, Math.round(alpha * 0.22));
-    g.roundRect(x + 1, y + size - topH, size - 2, topH, Math.max(0, rr - 1));
-    g.fill();
-
-    // 2. 底沿柔影：仅贴最底 ~20%，给方块一点接地阴影，增强立体感。
-    const botH = Math.max(2, size * 0.20);
-    g.fillColor = col(0, 0, 0, Math.round(alpha * 0.22));
-    g.roundRect(x + 1, y + 1, size - 2, botH, Math.max(0, rr - 1));
-    g.fill();
-
-    // 3. 外沿极淡白描边，收口玻璃质感。
-    g.strokeColor = col(255, 255, 255, Math.round(alpha * 0.14));
-    g.lineWidth = 0.75;
-    g.roundRect(x + 0.5, y + 0.5, size - 1, size - 1, Math.max(0, rr - 0.5));
-    g.stroke();
-}
-
 /** flat —— 纯色 + 极弱描边（对齐 web flat 分支）。先描边后填充消除 fill 边缘毛刺。 */
 function paintFlat(
     g: Graphics, x: number, y: number, size: number, r: number,
@@ -660,10 +626,6 @@ export function drawShapeFaces(
             // 底瓷砖（含边框）始终绘制：非图片皮肤即方块本体；图片皮肤作为 PNG 底+边框，
             // 同时也是 PNG 未加载完成时的占位。彻底消除「激活态/落点预览只有纯色或贴图缺边框」。
             paintBlockFace(g, cellX + inset, cellY + inset, fsize, radius, skin, colorIdx, alpha);
-            // S 级精致叠加：与 web `_maybePaintPremiumCellFinish` 同条件（图片皮肤跳过）。
-            if (isSkinPremiumEnabled() && !imgSkin) {
-                paintPremiumCellFinish(g, cellX + inset, cellY + inset, fsize, radius, alpha);
-            }
             if (imgSkin) {
                 if (spritePool) {
                     const sf = getSkinBlockFrame(skin, colorIdx);

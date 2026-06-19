@@ -1,7 +1,7 @@
 import { _decorator, Component, Graphics, UITransform, Node, Label, Color, UIOpacity, Sprite, SpriteFrame, resources } from 'cc';
 import { Grid, Skin, getWatermark, flag, ClearedCell } from '../core';
 import { blockColor, cellEmptyColor, gridOuterColor, gridLineColor, blockMetrics, blockIcon } from './skin/palette';
-import { paintBlockFace, paintPremiumCellFinish, iconFontSize, drawShapeFaces, applyIconLabelScaled } from './skin/blockPaint';
+import { paintBlockFace, iconFontSize, drawShapeFaces, applyIconLabelScaled } from './skin/blockPaint';
 import { isSkinPremiumEnabled, getPremiumVars } from './platform/SkinPremium';
 import { skinHasImageBlocks, getSkinBlockFrame, ensureSkinBlockFrames, skinBlockFramesReady, paintAssetOverlay, skinHasAssetOverlay } from './skin/skinSprites';
 import { Motion } from './platform/Motion';
@@ -554,8 +554,16 @@ export class BoardView extends Component {
             );
             bg.roundRect(-half + 0.5, -half + 0.5, this.boardPx - 1, this.boardPx - 1, 12);
             bg.stroke();
+            // 玻璃顶部高光带（对齐 web `#game-wrapper::before`）—— 必须画在「盘面外框包装」(wrapper) 上沿，
+            // 而非盘面内部。早期 y=-half+boardPx*0.88 → 高光落在盘面**顶行格子上**，把第一行 cellEmpty
+            // 整条盖成一抹白底（看截图蓝框：顶行无格分、底色比其余行更浅）。修正为画在 wrapper 顶部
+            // 内侧（在 outer 内 +1，跨出盘面 box 上沿 ~pad 像素），bg 层级低于 wm/网格线/方块，不会
+            // 干扰盘面内容；高度 = 半个 pad，恰好覆盖外框上沿那条玻璃高光。
+            const pad = 10;
+            const outerTop = half + pad;
+            const hiH = Math.max(4, Math.round(pad * 0.7));
             bg.fillColor = new Color(255, 255, 255, 20);
-            bg.roundRect(-half + 1, -half + this.boardPx * 0.88, this.boardPx - 2, this.boardPx * 0.12 - 1, 10);
+            bg.roundRect(-half + 1, outerTop - hiH - 1, this.boardPx - 2, hiH, Math.max(2, hiH * 0.6));
             bg.fill();
         }
 
@@ -617,9 +625,6 @@ export class BoardView extends Component {
                     s.color = blockColor(skin, v);
                 } else {
                     paintBlockFace(blk, cellX + inset, cellY + inset, fsize, radius, skin, v);
-                    if (isSkinPremiumEnabled()) {
-                        paintPremiumCellFinish(blk, cellX + inset, cellY + inset, fsize, radius);
-                    }
                 }
                 const em = blockIcon(skin, v);
                 const fs = em ? iconFontSize(fsize) : 0;

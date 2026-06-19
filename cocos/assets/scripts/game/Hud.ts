@@ -63,13 +63,18 @@ export class Hud extends Component {
     private _premiumVars: PremiumVars | null = null;
 
     // 精致模式双层布局（对齐 web 移动端 score-theme-row Tier1/Tier2）
+    // ⚠️ Tier1 上移到 +16、Tier2 下移到 -30：两行间距更宽，避免 score 卡片下沿与等级胶囊上沿重叠
+    //   （此前 row1 +10 / card_h 36 → 卡片下沿 -8；row2 -27 / pill_h 25 → 胶囊上沿 -14.5；仅 6.5px
+    //   缝隙，且 combo heart 在 row1 上方 +14 → 卡片视觉高度被 heart 拉到 38px，与下方胶囊几乎贴边
+    //   →「堆叠混乱」的根因）。同时 PREM_PANEL_H 加高 92→104 覆盖 Tier1+Tier2 + combo heart，
+    //   让玻璃底板形成稳定的「分数卡」视觉容器。
     private static readonly PREM_SCORE_X = -92;
     private static readonly PREM_BEST_X = 92;
-    private static readonly PREM_ROW1_Y = 10;
-    private static readonly PREM_ROW2_Y = -27;
+    private static readonly PREM_ROW1_Y = 16;
+    private static readonly PREM_ROW2_Y = -30;
     private static readonly PREM_LEVEL_X = 0;
     private static readonly PREM_PANEL_W = 600;
-    private static readonly PREM_PANEL_H = 92;
+    private static readonly PREM_PANEL_H = 104;
     private static readonly PREM_CARD_W = 156;
     private static readonly PREM_CARD_H = 36;
     private static readonly SCORE_GOLD = new Color(252, 211, 77, 255);
@@ -303,8 +308,10 @@ export class Hud extends Component {
                 this.levelPill.node.setPosition(Hud.PREM_LEVEL_X, Hud.PREM_ROW2_Y, 0);
             }
             if (this.comboHeart?.node?.isValid) {
+                // combo heart 锚到 score 卡右上「肩部」(card 上沿 + heart 半高)，避免被 wordmark
+                // 压到、也不再侵入卡片内文字。+18 = card_h/2(18) + heart 半高/2 - 微调。
                 const cardHalf = Hud.PREM_CARD_W / 2;
-                this.comboHeart.node.setPosition(Hud.PREM_SCORE_X + cardHalf - 8, Hud.PREM_ROW1_Y + 14, 0);
+                this.comboHeart.node.setPosition(Hud.PREM_SCORE_X + cardHalf - 6, Hud.PREM_ROW1_Y + 18, 0);
             }
             if (this.bestGapLbl?.node?.isValid) {
                 this.bestGapLbl.node.active = false;
@@ -478,7 +485,7 @@ export class Hud extends Component {
         heart.node.active = true;
         if (this._premiumOn) {
             const cardHalf = Hud.PREM_CARD_W / 2;
-            heart.node.setPosition(Hud.PREM_SCORE_X + cardHalf - 8, Hud.PREM_ROW1_Y + 14, 0);
+            heart.node.setPosition(Hud.PREM_SCORE_X + cardHalf - 6, Hud.PREM_ROW1_Y + 18, 0);
         }
         if (fading) {
             // 待断态：保留数值与 DOM，透明度淡出（与 CSS .combo-heart--fading opacity:0/transform 类比）。

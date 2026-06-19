@@ -865,6 +865,20 @@ export class Bootstrap extends Component {
             // 直接读 live 值会让首登判定永远落空（全新安装也不弹新手村）。
             game: { playerProfile: { lifetimeGames: this._lifetimeGamesAtBoot } },
             wallet: this._ctrl.model.wallet,
+            // 新手村展示期间临时隐藏主游戏所有可视层（盘面 / 候选区 / HUD / 技能栏 / Ghost / Meta / 顶栏按钮）。
+            // bg Graphics 虽然铺满全屏，但 dock 候选块（带皮肤 emoji 的方块）+ ghost 节点的渲染顺序在
+            // 某些设备 / 布局上仍会漏在新手村之上（截图反馈右下角出现"花朵"方块 + 深红 ghost）——
+            // 直接 active=false 比拼 sibling 层级稳，新手村 finish 时自动恢复。
+            hideDuring: [
+                this._play,
+                this._dock,
+                this._hud,
+                this._skillBar,
+                this.node.getChildByName('Ghost'),
+                this.node.getChildByName('MetaPanel'),
+                ...this._buttons,
+                ...(this._wheelBtn ? [this._wheelBtn] : []),
+            ].filter((n) => !!n) as Node[],
         });
     }
 

@@ -51,14 +51,32 @@ function _migrateRules(rules) {
 
 const { migrated: _migratedRules, didMigrate: _did, fromVersion: _from } = _migrateRules(rawRules);
 if (_did && typeof console !== 'undefined') {
-    /* eslint-disable no-console */
+     
     console.warn(`[gameRules] schema v${_from} → v${RULES_SCHEMA_VERSION} 自动迁移（内存）`);
-    /* eslint-enable no-console */
+     
 }
 
 export const GAME_RULES = _migratedRules;
 export const _RULES_SCHEMA_VERSION = RULES_SCHEMA_VERSION; /* 供 test 检查 */
 export { _migrateRules };
+
+/**
+ * OO4 / NN-F2.1: 供 remote config 子系统使用的就地替换接口。
+ *
+ * 由于消费方常以 `import { GAME_RULES } from '...'` 拿引用，无法 reassign 常量；
+ * 此函数通过删 + 拷贝键的方式，让所有现有引用同时看到新值（保持单一对象引用）。
+ *
+ * 安全性：
+ *   - 远端 rules 必须通过 _migrateRules（schema 校验）；future 版本 throw
+ *   - 任何异常不污染当前 GAME_RULES（先 migrate，成功才覆盖）
+ *
+ * 注意：仅 remote-config / 测试可用，业务代码勿直接调。
+ */
+export function _replaceRulesForRemoteSync(newRules) {
+    const { migrated } = _migrateRules(newRules); /* 可能 throw → 调用方负责回退 */
+    for (const k of Object.keys(GAME_RULES)) delete GAME_RULES[k];
+    Object.assign(GAME_RULES, migrated);
+}
 export const WIN_SCORE_THRESHOLD = rawRules.winScoreThreshold;
 export const FEATURE_ENCODING = rawRules.featureEncoding;
 export const RL_TRAINING_STRATEGY_ID =
