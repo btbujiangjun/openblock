@@ -7,6 +7,9 @@ v1.67：state=204（含 4 单步难度 + 3 空间规划 + 3 策略 one-hot + 11 
 from __future__ import annotations
 
 
+import os
+from collections import OrderedDict
+
 import numpy as np
 
 from .game_rules import FEATURE_ENCODING, rl_bonus_block_icons
@@ -15,6 +18,11 @@ from .spawn_step_difficulty import spawn_step_difficulty_features
 from .spatial_planning import spatial_planning_features
 from .strategy_features import encode_strategy_onehot
 from .condition_token import encode_condition_onehot
+
+try:
+    from numba import njit as _njit
+except Exception:  # pragma: no cover - numba 缺失时走 Python 回退
+    _njit = None
 
 _ENC = FEATURE_ENCODING
 _AF = float(_ENC.get("almostFullLineRatio", 0.78))
@@ -26,6 +34,105 @@ _DOCK_SLOTS = int(_ENC.get("dockSlots", 3))
 _SCALAR_DIM = int(_ENC.get("stateScalarDim", 23))
 _N_COLORS = int(_ENC.get("colorCount", 8))
 _RL_BONUS_ICONS = rl_bonus_block_icons()
+
+
+if _njit is not None:
+
+    @_njit(cache=True)
+    def _nf_adj_kernel(occ, shape_np, row_counts, col_counts, gx: int, gy: int, nf_thr: float):
+        n = occ.shape[0]
+        h = shape_np.shape[0]
+        w = shape_np.shape[1]
+        cells_count = 0
+        nf_count = 0
+        adj_count = 0
+        for sy in range(h):
+            for sx in range(w):
+                if shape_np[sy, sx] == 0:
+                    continue
+                cells_count += 1
+                py = gy + sy
+                px = gx + sx
+                if row_counts[py] >= nf_thr or col_counts[px] >= nf_thr:
+                    nf_count += 1
+                for k in range(4):
+                    dy = -1 if k == 0 else (1 if k == 1 else 0)
+                    dx = -1 if k == 2 else (1 if k == 3 else 0)
+                    ny = py + dy
+                    nx = px + dx
+                    if ny < 0 or ny >= n or nx < 0 or nx >= n or occ[ny, nx] == 0:
+                        continue
+                    in_block = False
+                    by = ny - gy
+                    bx = nx - gx
+                    if 0 <= by < h and 0 <= bx < w and shape_np[by, bx] != 0:
+                        in_block = True
+                    if not in_block:
+                        adj_count += 1
+        nf = 0.0 if cells_count <= 0 else nf_count / cells_count
+        return nf, adj_count, cells_count
+
+    @_njit(cache=True)
+    def _holes_after_kernel(grid_np, shape_np, gx: int, gy: int):
+        n = grid_np.shape[0]
+        h = shape_np.shape[0]
+        w = shape_np.shape[1]
+        after = np.empty((n, n), np.int32)
+        for y in range(n):
+            for x in range(n):
+                after[y, x] = int(grid_np[y, x])
+        for sy in range(h):
+            for sx in range(w):
+                if shape_np[sy, sx] != 0:
+                    after[gy + sy, gx + sx] = 0
+
+        row_full = np.zeros(n, np.uint8)
+        col_full = np.zeros(n, np.uint8)
+        for y in range(n):
+            full = True
+            for x in range(n):
+                if after[y, x] < 0:
+                    full = False
+                    break
+            if full:
+                row_full[y] = 1
+        for x in range(n):
+            full = True
+            for y in range(n):
+                if after[y, x] < 0:
+                    full = False
+                    break
+            if full:
+                col_full[x] = 1
+        for y in range(n):
+            if row_full[y]:
+                for x in range(n):
+                    after[y, x] = -1
+        for x in range(n):
+            if col_full[x]:
+                for y in range(n):
+                    after[y, x] = -1
+
+        holes = 0
+        for y in range(n):
+            for x in range(n):
+                if after[y, x] >= 0:
+                    continue
+                neighbor_empty = False
+                for dy in (-1, 0, 1):
+                    for dx in (-1, 0, 1):
+                        if dy == 0 and dx == 0:
+                            continue
+                        ny = y + dy
+                        nx = x + dx
+                        if 0 <= ny < n and 0 <= nx < n and after[ny, nx] < 0:
+                            neighbor_empty = True
+                if not neighbor_empty:
+                    holes += 1
+        return holes
+else:
+    _nf_adj_kernel = None
+    _holes_after_kernel = None
 
 STATE_FEATURE_DIM = int(_ENC["stateDim"])
 ACTION_FEATURE_DIM = int(_ENC["actionDim"])
@@ -220,6 +327,19 @@ _NF_THR = float(_AN.get("nearFullThreshold", 0.75))
 
 
 def _near_full_ratio_np(occ: np.ndarray, shape_np: np.ndarray, gx: int, gy: int) -> float:
+    if _nf_adj_kernel is not None:
+        row_counts = occ.sum(axis=1).astype(np.int32)
+        col_counts = occ.sum(axis=0).astype(np.int32)
+        nf, _adj, _cells = _nf_adj_kernel(
+            np.ascontiguousarray(occ, dtype=np.uint8),
+            np.ascontiguousarray(shape_np, dtype=np.uint8),
+            row_counts,
+            col_counts,
+            int(gx),
+            int(gy),
+            float(_NF_THR * occ.shape[0]),
+        )
+        return float(nf)
     n = occ.shape[0]
     threshold = _NF_THR * n
     row_counts = occ.sum(axis=1)
@@ -237,6 +357,19 @@ def _near_full_ratio_np(occ: np.ndarray, shape_np: np.ndarray, gx: int, gy: int)
 
 
 def _adjacent_occupied_np(occ: np.ndarray, shape_np: np.ndarray, gx: int, gy: int) -> int:
+    if _nf_adj_kernel is not None:
+        row_counts = occ.sum(axis=1).astype(np.int32)
+        col_counts = occ.sum(axis=0).astype(np.int32)
+        _nf, adj, _cells = _nf_adj_kernel(
+            np.ascontiguousarray(occ, dtype=np.uint8),
+            np.ascontiguousarray(shape_np, dtype=np.uint8),
+            row_counts,
+            col_counts,
+            int(gx),
+            int(gy),
+            float(_NF_THR * occ.shape[0]),
+        )
+        return int(adj)
     n = occ.shape[0]
     cells_yx = np.argwhere(shape_np > 0)
     if len(cells_yx) == 0:
@@ -255,6 +388,13 @@ def _adjacent_occupied_np(occ: np.ndarray, shape_np: np.ndarray, gx: int, gy: in
 
 
 def _holes_after_np(grid_np: np.ndarray, shape_np: np.ndarray, gx: int, gy: int) -> int:
+    if _holes_after_kernel is not None:
+        return int(_holes_after_kernel(
+            np.ascontiguousarray(grid_np, dtype=np.int32),
+            np.ascontiguousarray(shape_np, dtype=np.uint8),
+            int(gx),
+            int(gy),
+        ))
     after = grid_np.copy()
     cells_yx = np.argwhere(shape_np > 0)
     for sy, sx in cells_yx:
@@ -365,7 +505,81 @@ def extract_action_features(
     return np.concatenate([state_feat, action_part], axis=0)
 
 
+# ---------------------------------------------------------------------------
+# 局内 state→phi 精确缓存（E）：同一 (grid, dock, sid, arc, intent) 在一局内被
+# 多次 build_phi_batch（agent policy 前向 + MCTS 根展开 + 树复用边界）重复计算。
+# 用精确键（含颜色与 dock 形状，非有损 zobrist）做 LRU 缓存：命中返回拷贝、未命中
+# 存拷贝，保证调用方始终持有私有数组（无别名风险），且与重算逐字段等价。
+# RL_PHI_CACHE=0 可关闭。
+# ---------------------------------------------------------------------------
+
+_PHI_CACHE_ENABLED: bool = False
+_PHI_CACHE: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray]]" = OrderedDict()
+_PHI_CACHE_MAX: int = 256
+_phi_cache_hits: int = 0
+_phi_cache_misses: int = 0
+
+
+def phi_cache_begin_episode() -> None:
+    """局首调用：按 RL_PHI_CACHE 启用并清空缓存与计数。"""
+    global _PHI_CACHE_ENABLED, _phi_cache_hits, _phi_cache_misses
+    if os.environ.get("RL_PHI_CACHE", "1").strip().lower() in ("0", "false", "no", "off"):
+        _PHI_CACHE_ENABLED = False
+        _PHI_CACHE.clear()
+        return
+    _PHI_CACHE_ENABLED = True
+    _PHI_CACHE.clear()
+    _phi_cache_hits = 0
+    _phi_cache_misses = 0
+
+
+def phi_cache_stats() -> tuple[int, int]:
+    """返回 (hits, misses)。"""
+    return _phi_cache_hits, _phi_cache_misses
+
+
+def _phi_cache_key(sim) -> tuple:
+    cells = sim.grid.cells
+    grid_key = tuple(tuple(row) for row in cells)
+    dock_key = tuple(
+        (
+            b["id"],
+            bool(b["placed"]),
+            int(b.get("color_idx", b.get("colorIdx", 0))),
+            tuple(tuple(r) for r in b["shape"]),
+        )
+        for b in sim.dock
+    )
+    return (
+        grid_key,
+        dock_key,
+        getattr(sim, "strategy_id", "normal"),
+        getattr(sim, "condition_arc", None),
+        getattr(sim, "condition_intent", None),
+    )
+
+
 def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
+    """缓存包装：命中精确键时直接返回拷贝，否则计算并缓存。"""
+    global _phi_cache_hits, _phi_cache_misses
+    if _PHI_CACHE_ENABLED and legal:
+        key = (_phi_cache_key(sim), len(legal))
+        hit = _PHI_CACHE.get(key)
+        if hit is not None:
+            _phi_cache_hits += 1
+            _PHI_CACHE.move_to_end(key)
+            s, p = hit
+            return s.copy(), p.copy()
+        state, phi = _build_phi_batch_impl(sim, legal)
+        _phi_cache_misses += 1
+        _PHI_CACHE[key] = (state.copy(), phi.copy())
+        if len(_PHI_CACHE) > _PHI_CACHE_MAX:
+            _PHI_CACHE.popitem(last=False)
+        return state, phi
+    return _build_phi_batch_impl(sim, legal)
+
+
+def _build_phi_batch_impl(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
     """v6: numpy 向量化批量特征提取，batch_count_clears 替代逐动作调用。"""
     sid = getattr(sim, "strategy_id", "normal")
     state = extract_state_features(
@@ -381,8 +595,8 @@ def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
     occ = _fg.occupied_mask(gnp)
     n = sim.grid.size
 
-    row_counts = occ.sum(axis=1)
-    col_counts = occ.sum(axis=0)
+    row_counts = occ.sum(axis=1, dtype=np.int32)
+    col_counts = occ.sum(axis=0, dtype=np.int32)
     nf_thr = _NF_THR * n
 
     rows = []
@@ -395,25 +609,35 @@ def build_phi_batch(sim, legal: list[dict]) -> tuple[np.ndarray, np.ndarray]:
         h, w = shape_np.shape
         wc = int(clears[i])
 
-        cells_yx = np.argwhere(shape_np > 0)
-        nf_count = 0
-        adj_count = 0
-        for sy, sx in cells_yx:
-            py, px_ = gy + sy, gx + sx
-            if row_counts[py] >= nf_thr or col_counts[px_] >= nf_thr:
-                nf_count += 1
-            for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                ny, nx = py + dy, px_ + dx
-                if 0 <= ny < n and 0 <= nx < n and occ[ny, nx]:
-                    is_block = False
-                    for sy2, sx2 in cells_yx:
-                        if gy + sy2 == ny and gx + sx2 == nx:
-                            is_block = True
-                            break
-                    if not is_block:
-                        adj_count += 1
-
-        nf = nf_count / max(cells_count, 1)
+        if _nf_adj_kernel is not None:
+            nf, adj_count, _cells_count = _nf_adj_kernel(
+                np.ascontiguousarray(occ, dtype=np.uint8),
+                np.ascontiguousarray(shape_np, dtype=np.uint8),
+                row_counts,
+                col_counts,
+                int(gx),
+                int(gy),
+                float(nf_thr),
+            )
+        else:
+            cells_yx = np.argwhere(shape_np > 0)
+            nf_count = 0
+            adj_count = 0
+            for sy, sx in cells_yx:
+                py, px_ = gy + sy, gx + sx
+                if row_counts[py] >= nf_thr or col_counts[px_] >= nf_thr:
+                    nf_count += 1
+                for dy, dx in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    ny, nx = py + dy, px_ + dx
+                    if 0 <= ny < n and 0 <= nx < n and occ[ny, nx]:
+                        is_block = False
+                        for sy2, sx2 in cells_yx:
+                            if gy + sy2 == ny and gx + sx2 == nx:
+                                is_block = True
+                                break
+                        if not is_block:
+                            adj_count += 1
+            nf = nf_count / max(cells_count, 1)
         unplaced_after = sum(1 for b in sim.dock if not b.get("placed")) - 1
         blocks_remain = max(0, unplaced_after) / 3.0
         adj = min(adj_count / _DIV_ADJ, 1.0)

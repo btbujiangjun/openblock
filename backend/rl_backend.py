@@ -187,6 +187,29 @@ def _get_bg_training_info() -> dict:
 DEFAULT_CKPT_NAME = "rl_checkpoints/bb_policy.pt"
 DEFAULT_TRAINING_LOG = "rl_checkpoints/training.jsonl"
 
+# 后台训练子进程只继承与设备/运行时相关的 RL_*，搜索、出块、teacher、监督等语义变量
+# 必须由 start_training 的请求体和 preset 决定性设置，避免 Flask 常驻进程环境泄漏。
+_RL_TRAIN_ENV_ALLOWLIST = {
+    "RL_DEVICE",
+    "RL_CUDA_DEVICE_IDS",
+    "RL_CUDA_DP_TRUNK",
+    "RL_CUDA_DP_VALUE",
+    "RL_CPU_DISABLE_MKLDNN",
+    "RL_WORKER_THREADS",
+    "RL_MPS_SYNC",
+    "RL_MPS_HIGH_WATERMARK_RATIO",
+}
+
+
+def _clean_training_subprocess_env() -> tuple[dict, list[str]]:
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith("RL_") or k in _RL_TRAIN_ENV_ALLOWLIST
+    }
+    dropped = sorted(k for k in os.environ if k.startswith("RL_") and k not in _RL_TRAIN_ENV_ALLOWLIST)
+    return env, dropped
+
 
 def _training_log_path() -> Path:
     return Path(os.environ.get("RL_TRAINING_LOG", DEFAULT_TRAINING_LOG))
@@ -1559,6 +1582,8 @@ def create_rl_blueprint() -> Blueprint:
         eval_gate_every = int(data.get("eval_gate_every", 0))
         eval_gate_games = int(data.get("eval_gate_games", 50))
         do_resume = bool(data.get("resume", True))
+        training_stage = str(data.get("training_stage", data.get("stage", "single"))).strip() or "single"
+        stage_plan = str(data.get("stage_plan", "")).strip()
         # 价值头损失权重：Lv 较 Lπ 收敛慢，看板模式默认 1.5 加速 value 拟合（决策更稳）
         value_coef = float(data.get("value_coef", os.environ.get("RL_VALUE_COEF", "1.0")))
         # 指标落盘频率：默认与 batch_episodes 对齐，确保每批训练都写一条 train_episode
@@ -1578,7 +1603,10 @@ def create_rl_blueprint() -> Blueprint:
             "--value-coef", str(value_coef),
             "--save-every", str(save_every),
             "--save", save_path,
+            "--training-stage", training_stage,
         ]
+        if stage_plan:
+            cmd += ["--stage-plan", stage_plan]
         if n_workers > 0:
             cmd += ["--n-workers", str(n_workers)]
         if do_resume and Path(save_path).exists():
@@ -1586,9 +1614,12 @@ def create_rl_blueprint() -> Blueprint:
         if mcts_sims > 0:
             cmd += ["--mcts", "--mcts-sims", str(mcts_sims)]
 
-        env = {**os.environ}
+        env, dropped_rl_env = _clean_training_subprocess_env()
         env["RL_TRAINING_LOG"] = str(_training_log_path())
         env["RL_TRAINING_PRESET"] = preset
+        env["RL_TRAINING_STAGE"] = training_stage
+        if stage_plan:
+            env["RL_STAGE_PLAN"] = stage_plan
         # 页面训练强调可中断/可重启，BestGuard 窗口比离线长跑更短，
         # 让 checkpoint 尽早保存“近期最好”而不是退化中的最后权重。
         env.setdefault("RL_BEST_GUARD_WINDOW", "80")
@@ -1654,6 +1685,8 @@ def create_rl_blueprint() -> Blueprint:
         # 避免后台训练触发门控时长时间冻结、日志停更。
         if eval_gate_every > 0:
             env.setdefault("RL_EVAL_DUAL", "0")
+        if dropped_rl_env:
+            env["RL_ENV_CLEANED_KEYS"] = ",".join(dropped_rl_env[:64])
 
         def _monitor_process(proc: subprocess.Popen):
             global _bg_train_status
@@ -1670,6 +1703,10 @@ def create_rl_blueprint() -> Blueprint:
                     "preset": preset,
                     "value_coef": value_coef,
                     "resume": do_resume,
+                    "clean_env": True,
+                    "dropped_rl_env": dropped_rl_env,
+                    "training_stage": training_stage,
+                    "stage_plan": stage_plan,
                 })
                 proc.wait()
                 rc = proc.returncode
@@ -1732,6 +1769,7 @@ def create_rl_blueprint() -> Blueprint:
                 "episodes_target": episodes,
                 "batch_episodes": batch_episodes,
                 "preset": preset,
+                "training_stage": training_stage,
                 "save_path": save_path,
                 "started_at": int(time.time()),
             })
@@ -1749,6 +1787,7 @@ def create_rl_blueprint() -> Blueprint:
             "batch_episodes": batch_episodes,
             "log_every": log_every,
             "preset": preset,
+            "training_stage": training_stage,
         })
 
     @bp.route("/api/rl/stop_training", methods=["POST"])

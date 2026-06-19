@@ -23,9 +23,12 @@ import copy
 import json
 import math
 import os
+import platform
 import random
 import sys
+import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Union
 
@@ -108,6 +111,51 @@ def _emit_train_progress_heartbeat(global_ep: int, ep_data: dict) -> None:
     })
 
 
+def _git_sha_short() -> str:
+    try:
+        import subprocess
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(Path(__file__).resolve().parents[1]),
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2.0,
+        )
+        return out.strip()
+    except Exception:
+        return ""
+
+
+def _safe_env_manifest() -> dict:
+    """只记录影响训练语义/吞吐的关键 env，避免把 shell 环境和潜在秘密写入日志。"""
+    keys = (
+        "RL_TRAINING_PRESET", "RL_DEVICE", "RL_MCTS", "RL_MCTS_SIMS",
+        "RL_MCTS_MIN_SIMS", "RL_MCTS_MAX_SIMS", "RL_MCTS_CONFIDENCE",
+        "RL_MCTS_BATCH_THRESHOLD", "RL_MCTS_BATCH_SIZE", "RL_MCTS_ADAPTIVE",
+        "RL_BEAM2PLY", "RL_BEAM3PLY", "RL_LOOKAHEAD", "RL_SUPERVISION",
+        "RL_SPAWN_ONLINE", "RL_SPAWN_CHEAP", "RL_SPAWN_LEGACY",
+        "RL_WORKER_THREADS", "RL_NO_NUMBA", "RL_COLLECT_SCHEDULER",
+        "RL_WEIGHT_BROADCAST", "RL_TRAINING_STAGE",
+    )
+    return {k: os.environ.get(k) for k in keys if os.environ.get(k) is not None}
+
+
+def _quality_gate_manifest() -> dict:
+    """训练效率优化的质量护栏；仅记录阈值，实际对比由评估/看板消费。"""
+    def _f(name: str, default: float) -> float:
+        try:
+            return float(os.environ.get(name, str(default)))
+        except ValueError:
+            return default
+
+    return {
+        "teacher_coverage_drop_max": _f("RL_GATE_TEACHER_COVERAGE_DROP_MAX", 0.02),
+        "avg100_drop_max_ratio": _f("RL_GATE_AVG100_DROP_MAX_RATIO", 0.03),
+        "spawn_drift_max": _f("RL_GATE_SPAWN_DRIFT_MAX", 0.05),
+        "throughput_must_improve": os.environ.get("RL_GATE_THROUGHPUT_REQUIRED", "1") not in ("0", "false", "no", "off"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # 多进程 worker（CPU 推理采集，GPU 专做更新）
 # ---------------------------------------------------------------------------
@@ -167,8 +215,9 @@ def _pool_worker_init(
 def _pool_worker_collect(args: tuple) -> list[dict]:
     """Worker：加载最新权重 → 采集若干局 → 返回轨迹。
 
-    P2：args = (weight_version, weight_bytes, configs)。
-    - weight_bytes 为主进程 torch.save 一次得到的字节（pickle bytes ≈ memcpy，廉价）；
+    args = (weight_version, weight_bytes, configs[, weight_path])。
+    - 默认用 weight_path：主进程每批 torch.save 一次到临时文件，任务只传短路径；
+    - 兼容旧 bytes 路径：weight_bytes 非空时从 bytes 加载；
     - 同批次所有 per-episode 任务共享同一 weight_version，worker 仅在版本变化时
       torch.load + load_state_dict 一次，其余任务直接复用 _pool_net，省去重复反序列化。
 
@@ -177,10 +226,15 @@ def _pool_worker_collect(args: tuple) -> list[dict]:
     第 7 个元素 win_threshold_override 为可选（None 表示使用线性课程）。
     """
     global _pool_net, _pool_device, _pool_w_version
-    weight_version, weight_bytes, configs = args
+    weight_version, weight_bytes, configs = args[:3]
+    weight_path = args[3] if len(args) > 3 else ""
     if weight_bytes is not None and weight_version != _pool_w_version:
         import io as _io
         sd = torch.load(_io.BytesIO(weight_bytes), map_location="cpu")
+        _pool_net.load_state_dict(sd)
+        _pool_w_version = weight_version
+    elif weight_path and weight_version != _pool_w_version:
+        sd = torch.load(str(weight_path), map_location="cpu")
         _pool_net.load_state_dict(sd)
         _pool_w_version = weight_version
     episodes_out: list[dict] = []
@@ -624,7 +678,11 @@ def _remaining_unplaced_dock_blocks(sim: OpenBlockSimulator) -> int:
 
 
 def _mcts_risk_adaptive_sims(sim: OpenBlockSimulator, legal: list[dict], base_sims: int, cfg: dict, risk_node_budget: int = 150) -> int:
-    """高风险局面提升 MCTS sims，普通局面节省预算。"""
+    """高风险局面提升 MCTS sims；低风险降 sims 仅在显式配置时启用。
+
+    质量约束：默认行为保持“普通局面不低于 base_sims”，避免为了吞吐削弱 teacher。
+    需要更激进的吞吐实验时，可设 RL_MCTS_RISK_LOW_MULT=0.75 等显式降低低风险局面 sims。
+    """
     raw_enabled = os.environ.get("RL_MCTS_RISK_ADAPTIVE", "").strip().lower()
     enabled = (
         raw_enabled not in ("0", "false", "no", "off")
@@ -641,12 +699,20 @@ def _mcts_risk_adaptive_sims(sim: OpenBlockSimulator, legal: list[dict], base_si
         risk += 0.35
     if mobility <= int(cfg.get("riskMobility", 16)):
         risk += 0.35
+    # 高分支局面虽然不一定危险，但 teacher 更容易分歧；可由 preset/env 追加预算。
+    branch_thr = int(os.environ.get("RL_MCTS_RISK_BRANCHING", int(cfg.get("riskBranching", 0) or 0)))
+    if branch_thr > 0 and mobility >= branch_thr:
+        risk += float(cfg.get("riskBranchingWeight", 0.15))
     try:
         if sim.count_sequential_solution_leaves(leaf_cap=2, node_budget=risk_node_budget) <= 1:
             risk += 0.30
     except Exception:
         pass
-    mult = 1.0 + min(1.0, risk) * (float(cfg.get("riskMaxMultiplier", 2.0)) - 1.0)
+    risk = float(np.clip(risk, 0.0, 1.0))
+    if risk <= 1e-9:
+        low_mult = float(os.environ.get("RL_MCTS_RISK_LOW_MULT", cfg.get("riskLowMultiplier", 1.0)))
+        return max(1, int(round(base_sims * max(0.1, min(1.0, low_mult)))))
+    mult = 1.0 + risk * (float(cfg.get("riskMaxMultiplier", 2.0)) - 1.0)
     max_sims = int(os.environ.get("RL_MCTS_MAX_SIMS", int(cfg.get("maxSimulations", max(base_sims, 80)))))
     return max(base_sims, min(max_sims, int(round(base_sims * mult))))
 
@@ -1201,6 +1267,12 @@ def collect_episode(
     新增参数 win_threshold_override：自适应课程时由 train_loop 动态传入，
     覆盖基于 global_ep 的线性计算结果。
     """
+    try:
+        from . import spawn_online as _spawn_stats_mod
+        _spawn_stats_mod.reset_spawn_stats()
+    except Exception:
+        _spawn_stats_mod = None
+
     ep_strategy = sample_rl_training_strategy_id()
     # v12 风格族 token：训练时按 conditionToken.samplingProb 随机注入 (arc, intent)；
     # 同时让 simulator 拿到当前 episode 的难度桶 scd 上限以做 dock 重抽。
@@ -1218,7 +1290,14 @@ def collect_episode(
         sim.win_score_threshold = win_threshold_override
     else:
         sim.win_score_threshold = rl_win_threshold_for_episode(global_ep)
+    # E：开启局内精确 phi 缓存（同盘面重复 build_phi_batch 命中即复用，逐字段等价）。
+    try:
+        from .features import phi_cache_begin_episode as _phi_cache_begin
+        _phi_cache_begin()
+    except Exception:
+        pass
     trajectory: list[dict] = []
+    mcts_sims_used_vals: list[int] = []
     gamma = float(os.environ.get("RL_GAMMA", "0.99"))
     use_lookahead = os.environ.get("RL_LOOKAHEAD", "1").lower() not in ("0", "false", "no")
     lookahead_mix = float(os.environ.get("RL_LOOKAHEAD_MIX", "0.5"))
@@ -1284,6 +1363,16 @@ def collect_episode(
     _mcts_min_sims = int(os.environ.get("RL_MCTS_MIN_SIMS", max(10, _mcts_sims // 4)))
     _mcts_confidence = float(os.environ.get("RL_MCTS_CONFIDENCE", "3.0"))
 
+    # D：优先级 teacher（默认关闭）。在「策略高置信 + 低风险 + mobility 充足」的步上跳过昂贵
+    # 搜索，把 teacher 预算留给困难步。改变 teacher 覆盖分布，必须经 rl-quality-gate A/B 验证
+    # （teacher 覆盖下降 ≤2%、avg100/eval 不退化）后再开。RL_TEACHER_GATE=1 启用。
+    _teacher_gate_enabled = os.environ.get("RL_TEACHER_GATE", "0").strip().lower() in ("1", "true", "yes", "on")
+    _tg_conf = float(os.environ.get("RL_TEACHER_GATE_CONF", "0.92"))
+    _tg_maxfill = float(os.environ.get("RL_TEACHER_GATE_MAXFILL", "0.55"))
+    _tg_minlegal = int(os.environ.get("RL_TEACHER_GATE_MINLEGAL", "12"))
+    _teacher_skipped = 0
+    _teacher_eligible = 0
+
     _beam3ply_cfg = {**(RL_REWARD_SHAPING.get("beam3ply") or {}), **_preset_b3}
     use_beam3ply = (
         (_beam3ply_cfg.get("enabled", False)
@@ -1339,9 +1428,21 @@ def collect_episode(
         q_vals = None
         _visit_pi = None
         _beam_risk = 0.0
-        if use_lookahead and step_idx >= explore_first_moves:
+        # D：优先级 teacher 门控——置信且低风险的步跳过搜索，预算留给困难步。
+        _run_teacher = True
+        if _teacher_gate_enabled and use_lookahead and step_idx >= explore_first_moves:
+            _teacher_eligible += 1
+            with torch.no_grad():
+                _top1 = float(torch.softmax(logits, dim=-1).max().item())
+            _gnp_gate = sim._ensure_grid_np()
+            _fill = float((_gnp_gate >= 0).sum()) / float(max(_gnp_gate.size, 1))
+            if _top1 >= _tg_conf and _fill <= _tg_maxfill and len(legal) >= _tg_minlegal:
+                _run_teacher = False
+                _teacher_skipped += 1
+        if use_lookahead and step_idx >= explore_first_moves and _run_teacher:
             if use_mcts:
                 mcts_sims_eff = _mcts_risk_adaptive_sims(sim, legal, _mcts_sims, _mcts_cfg, risk_node_budget=_risk_budget)
+                _sims_used = int(mcts_sims_eff)
                 if _mcts_adaptive:
                     # v8.3：渐进式模拟次数（adaptive sims）
                     from .mcts import run_mcts_adaptive as _adaptive_fn
@@ -1376,6 +1477,8 @@ def collect_episode(
                 if _mcts_tree is not None and _mcts_tree.root is not None:
                     from .mcts import _extract_visit_pi as _evp
                     _visit_pi = _evp(_mcts_tree.root, len(legal))
+                if q_vals is not None or _visit_pi is not None:
+                    mcts_sims_used_vals.append(int(_sims_used))
             elif use_beam3ply:
                 # 3-ply beam：还有 3 个未放置 dock 块时展开，否则自动退化为 2-ply/1-step
                 _b3_topk_eff, _b3_max_eff, _b3_topk2_eff, _b3_max2_eff, _beam_risk = _beam3_risk_adaptive_params(
@@ -1488,6 +1591,15 @@ def collect_episode(
         "clears": sim.total_clears,
         "won": won,
         "win_threshold": int(sim.win_score_threshold),
+        "spawn_stats": _spawn_stats_mod.get_spawn_stats(reset=True) if _spawn_stats_mod is not None else {},
+        "spawn_difficulty": sim.spawn_difficulty_stats(),
+        "teacher_stats": {
+            "mcts_steps": int(len(mcts_sims_used_vals)),
+            "mcts_sims_avg": float(np.mean(mcts_sims_used_vals)) if mcts_sims_used_vals else 0.0,
+            "mcts_sims_max": int(max(mcts_sims_used_vals)) if mcts_sims_used_vals else 0,
+            "teacher_eligible": int(_teacher_eligible),
+            "teacher_skipped": int(_teacher_skipped),
+        },
     }
 
 
@@ -2517,6 +2629,70 @@ def train_loop(
         _worker_threads = max(1, int(os.environ.get("RL_WORKER_THREADS", "1") or "1"))
     except ValueError:
         _worker_threads = 1
+
+    _run_id = os.environ.get("RL_RUN_ID", "").strip() or uuid.uuid4().hex[:12]
+    _training_stage = os.environ.get("RL_TRAINING_STAGE", "").strip().lower() or "single"
+    _manifest = {
+        "event": "run_manifest",
+        "run_id": _run_id,
+        "git_sha": _git_sha_short(),
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "device": device_summary_line(device),
+        "training_stage": _training_stage,
+        "stage_plan": os.environ.get("RL_STAGE_PLAN", ""),
+        "quality_gates": _quality_gate_manifest(),
+        "env": _safe_env_manifest(),
+        "model": {
+            "arch": train_arch,
+            "width": int(getattr(net, "width", 0) or 0),
+            "conv_channels": int(getattr(net, "conv_channels", 0) or 0),
+            "policy_depth": int(policy_depth_arg),
+            "value_depth": int(value_depth_arg),
+            "mlp_ratio": float(mlp_ratio),
+            "params": int(sum(p.numel() for p in net.parameters())),
+        },
+        "train": {
+            "episodes_target": int(episodes),
+            "start_ep": int(start_ep),
+            "batch_episodes": int(batch_episodes),
+            "ppo_epochs": int(ppo_epochs),
+            "lr": float(lr),
+            "gamma": float(gamma),
+            "value_coef": float(value_coef),
+            "target_kl": float(target_kl),
+            "save_every": int(save_every),
+            "log_every": int(log_every),
+            "resume": str(resume or ""),
+            "checkpoint": str(ckpt_path or ""),
+        },
+        "pipeline": {
+            "n_workers": int(actual_workers),
+            "worker_threads": int(_worker_threads),
+            "weight_broadcast": os.environ.get("RL_WEIGHT_BROADCAST", "file"),
+            "collect_scheduler": os.environ.get("RL_COLLECT_SCHEDULER", "dynamic-prefetch"),
+            "numba_disabled": os.environ.get("RL_NO_NUMBA", "").lower() in ("1", "true", "yes", "on"),
+        },
+    }
+    _append_training_jsonl(_manifest)
+    if _manifest["pipeline"]["numba_disabled"]:
+        _append_training_jsonl({
+            "event": "run_warning",
+            "run_id": _run_id,
+            "code": "numba_disabled",
+            "message": "RL_NO_NUMBA is enabled; fast_grid hot kernels will use numpy fallback.",
+        })
+    for _risk_key in ("RL_SPAWN_CHEAP", "RL_LOOKAHEAD"):
+        _risk_val = os.environ.get(_risk_key)
+        if (_risk_key == "RL_SPAWN_CHEAP" and str(_risk_val).lower() in ("1", "true", "yes", "on")) or (
+            _risk_key == "RL_LOOKAHEAD" and str(_risk_val).lower() in ("0", "false", "no", "off")
+        ):
+            _append_training_jsonl({
+                "event": "run_warning",
+                "run_id": _run_id,
+                "code": _risk_key.lower(),
+                "message": f"{_risk_key}={_risk_val} may reduce teacher quality or change train/deploy distribution.",
+            })
     if actual_workers > 1:
         # 让 spawn 出的 worker 在 import torch 时即以单线程加载底层 BLAS/OMP，
         # 配合 _pool_worker_init 里的 set_num_threads 双重保证不超额订阅 CPU。
@@ -2578,20 +2754,100 @@ def train_loop(
 
     # 流水线状态：上一轮异步采集的 AsyncResult
     _pending_async = None
+    _pending_weight_path: str | None = None
     t_collect_ms = 0.0
     t_train_ms = 0.0
 
     _weight_version_holder = [0]
 
+    def _cleanup_weight_file(path: str | None) -> None:
+        if not path:
+            return
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def _aggregate_spawn_stats(batch_items: list[dict]) -> dict:
+        total = {
+            "requests": 0,
+            "ok": 0,
+            "failures": 0,
+            "legacy_fallbacks": 0,
+            "latency_ms_total": 0.0,
+            "latency_ms_max": 0.0,
+        }
+        for ep in batch_items:
+            st = ep.get("spawn_stats") or {}
+            total["requests"] += int(st.get("requests", 0) or 0)
+            total["ok"] += int(st.get("ok", 0) or 0)
+            total["failures"] += int(st.get("failures", 0) or 0)
+            total["legacy_fallbacks"] += int(st.get("legacy_fallbacks", 0) or 0)
+            total["latency_ms_total"] += float(st.get("latency_ms_total", 0.0) or 0.0)
+            total["latency_ms_max"] = max(total["latency_ms_max"], float(st.get("latency_ms_max", 0.0) or 0.0))
+        total["latency_ms_avg"] = total["latency_ms_total"] / max(total["requests"], 1)
+        total["failure_rate"] = total["failures"] / max(total["requests"], 1)
+        return total
+
+    def _aggregate_spawn_difficulty(batch_items: list[dict]) -> dict:
+        count = 0
+        scd_sum = 0.0
+        scd_max = 0.0
+        buckets: dict[str, int] = {}
+        for ep in batch_items:
+            sd = ep.get("spawn_difficulty") or {}
+            c = int(sd.get("count", 0) or 0)
+            if c <= 0:
+                continue
+            count += c
+            scd_sum += float(sd.get("scd_avg", 0.0) or 0.0) * c
+            scd_max = max(scd_max, float(sd.get("scd_max", 0.0) or 0.0))
+            for k, v in (sd.get("bucket_counts") or {}).items():
+                buckets[str(k)] = int(buckets.get(str(k), 0)) + int(v or 0)
+        dist = {k: (v / max(count, 1)) for k, v in sorted(buckets.items())}
+        return {
+            "count": int(count),
+            "scd_avg": scd_sum / max(count, 1),
+            "scd_max": scd_max,
+            "bucket_counts": buckets,
+            "bucket_dist": dist,
+        }
+
+    def _aggregate_teacher_stats(batch_items: list[dict]) -> dict:
+        steps = 0
+        sims_sum = 0.0
+        sims_max = 0
+        eligible = 0
+        skipped = 0
+        for ep in batch_items:
+            st = ep.get("teacher_stats") or {}
+            eligible += int(st.get("teacher_eligible", 0) or 0)
+            skipped += int(st.get("teacher_skipped", 0) or 0)
+            n = int(st.get("mcts_steps", 0) or 0)
+            if n <= 0:
+                continue
+            steps += n
+            sims_sum += float(st.get("mcts_sims_avg", 0.0) or 0.0) * n
+            sims_max = max(sims_max, int(st.get("mcts_sims_max", 0) or 0))
+        return {
+            "mcts_steps": int(steps),
+            "mcts_sims_avg": sims_sum / max(steps, 1),
+            "mcts_sims_max": int(sims_max),
+            "teacher_eligible": int(eligible),
+            "teacher_skipped": int(skipped),
+            "teacher_skip_rate": (skipped / eligible) if eligible > 0 else 0.0,
+        }
+
     def _make_pool_args(ep_start: int, count: int, win_thr: int | None = None):
-        """构建 pool worker 的参数列表（P2：每局一个任务，动态分发）。
+        """构建 pool worker 的参数列表（每局一个任务，动态分发）。
 
         早期静态分发把 count 局按 i%actual_workers 预切成 actual_workers 个大块，
         每个 worker 领固定一块；局长差异大时严重负载不均（实测 99/33/19/3/0/0/0/0）。
         改为「每局一个任务 + chunksize=1」后，空闲 worker 动态领下一局，自然均衡。
 
-        权重只 torch.save 一次为 bytes（同批所有任务共享、版本号一致），worker 端按
-        版本号缓存，仅首个任务真正反序列化，避免 per-episode 重复传输/加载的开销。
+        权重默认 torch.save 一次到临时文件（同批所有任务共享、版本号一致），worker 端按
+        版本号缓存，仅首个任务真正反序列化，避免每个 task pickle 携带完整 state_dict bytes。
+        RL_WEIGHT_BROADCAST=bytes 可退回旧 bytes 模式。
 
         每个 config 为 7-tuple：(global_ep, temp_floor, explore_first_moves,
             explore_temp_mult, dirichlet_epsilon, dirichlet_alpha, win_threshold_override)
@@ -2608,10 +2864,25 @@ def train_loop(
         wbytes = _buf.getvalue()
         _weight_version_holder[0] += 1
         version = _weight_version_holder[0]
-        # 每局一个任务：(version, weight_bytes, [single_config])
-        return [(version, wbytes, [cfg]) for cfg in configs]
+        if os.environ.get("RL_WEIGHT_BROADCAST", "file").strip().lower() in ("bytes", "pickle"):
+            return [(version, wbytes, [cfg]) for cfg in configs], None
+        fd, path = tempfile.mkstemp(prefix=f"openblock_rl_w{version}_", suffix=".pt")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(wbytes)
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
+        # 每局一个任务：(version, None, [single_config], weight_path)
+        return [(version, None, [cfg], path) for cfg in configs], path
 
     ep_cursor = start_ep
+    _last_spawn_stats: dict = {}
+    _last_spawn_difficulty: dict = {}
+    _last_teacher_stats: dict = {}
     try:
         while ep_cursor < start_ep + episodes:
             if stop_event is not None and stop_event.is_set():
@@ -2664,12 +2935,19 @@ def train_loop(
 
             if pool is not None:
                 if _pending_async is not None:
-                    results = _pending_async.get()
+                    try:
+                        results = _pending_async.get()
+                    finally:
+                        _cleanup_weight_file(_pending_weight_path)
+                        _pending_weight_path = None
                     batch = [ep for worker_eps in results for ep in worker_eps]
                 else:
-                    args_list = _make_pool_args(ep_cursor, bs, cur_win_thr)
+                    args_list, weight_path = _make_pool_args(ep_cursor, bs, cur_win_thr)
                     # chunksize=1：每局一个任务，空闲 worker 动态领取，治负载不均
-                    results = pool.map(_pool_worker_collect, args_list, chunksize=1)
+                    try:
+                        results = pool.map(_pool_worker_collect, args_list, chunksize=1)
+                    finally:
+                        _cleanup_weight_file(weight_path)
                     batch = [ep for worker_eps in results for ep in worker_eps]
 
                 tc1 = time.perf_counter()
@@ -2679,10 +2957,12 @@ def train_loop(
                 next_ep = ep_cursor + bs
                 next_bs = min(batch_episodes, start_ep + episodes - next_ep)
                 if next_bs > 0:
-                    next_args = _make_pool_args(next_ep, next_bs, cur_win_thr)
+                    next_args, next_weight_path = _make_pool_args(next_ep, next_bs, cur_win_thr)
                     _pending_async = pool.map_async(_pool_worker_collect, next_args, chunksize=1)
+                    _pending_weight_path = next_weight_path
                 else:
                     _pending_async = None
+                    _pending_weight_path = None
             else:
                 batch = []
                 for i in range(bs):
@@ -2697,6 +2977,22 @@ def train_loop(
                     _emit_train_progress_heartbeat(ep_cursor + i + 1, _ep_data)
                 tc1 = time.perf_counter()
                 t_collect_ms = (tc1 - tc0) * 1000
+
+            _last_spawn_stats = _aggregate_spawn_stats(batch)
+            _last_spawn_difficulty = _aggregate_spawn_difficulty(batch)
+            _last_teacher_stats = _aggregate_teacher_stats(batch)
+            _append_training_jsonl({
+                "event": "batch_collect_done",
+                "run_id": _run_id,
+                "batch_size": int(bs),
+                "ep_cursor": int(ep_cursor),
+                "collect_ms": float(t_collect_ms),
+                "scheduler": os.environ.get("RL_COLLECT_SCHEDULER", "dynamic-prefetch"),
+                "weight_broadcast": os.environ.get("RL_WEIGHT_BROADCAST", "file"),
+                "spawn": dict(_last_spawn_stats),
+                "spawn_difficulty": dict(_last_spawn_difficulty),
+                "teacher": dict(_last_teacher_stats),
+            })
 
             # --- Ranked Reward：只使用历史分数计算分位，把奖励加到终局步，避免改变局内局势模拟 ---
             if _use_ranked:
@@ -3056,6 +3352,8 @@ def train_loop(
                 if _training_log_path is not None:
                     _jsonl_row: dict = {
                         "event": "train_episode",
+                        "run_id": _run_id,
+                        "training_stage": _training_stage,
                         "episodes": ep_cursor,
                         "batch_size": int(bs),
                         "ppo_epochs": int(ppo_epochs),
@@ -3086,6 +3384,11 @@ def train_loop(
                         "teacher_q_entropy_norm": _num_update("teacher_q_entropy_norm") if last_update else None,
                         "teacher_visit_coverage": _num_update("teacher_visit_coverage") if last_update else None,
                         "teacher_visit_entropy_norm": _num_update("teacher_visit_entropy_norm") if last_update else None,
+                        "teacher_mcts_steps": int(_last_teacher_stats.get("mcts_steps", 0) or 0),
+                        "teacher_mcts_sims_avg": float(_last_teacher_stats.get("mcts_sims_avg", 0.0) or 0.0),
+                        "teacher_mcts_sims_max": int(_last_teacher_stats.get("mcts_sims_max", 0) or 0),
+                        "teacher_skip_rate": float(_last_teacher_stats.get("teacher_skip_rate", 0.0) or 0.0),
+                        "teacher_skipped": int(_last_teacher_stats.get("teacher_skipped", 0) or 0),
                         "optimizer_step": bool(last_update.get("optimizer_stepped", True)) if last_update else True,
                         "optimizer_skip_reason": str(last_update.get("optimizer_skip_reason") or "") if last_update else "",
                         "score": float(last_ep["score"]),
@@ -3096,6 +3399,19 @@ def train_loop(
                         "eps_since_last_log": int(eps_since),
                         "win_rate": (wins_since / max(eps_since, 1)) if eps_since > 0 else 0.0,
                         "avg100": float(avg),
+                        "collect_ms": float(t_collect_ms),
+                        "train_ms": float(t_train_ms),
+                        "gpu_util_est": float(gpu_pct),
+                        "spawn_online_requests": int(_last_spawn_stats.get("requests", 0) or 0),
+                        "spawn_online_failures": int(_last_spawn_stats.get("failures", 0) or 0),
+                        "spawn_online_failure_rate": float(_last_spawn_stats.get("failure_rate", 0.0) or 0.0),
+                        "spawn_online_latency_ms_avg": float(_last_spawn_stats.get("latency_ms_avg", 0.0) or 0.0),
+                        "spawn_online_latency_ms_max": float(_last_spawn_stats.get("latency_ms_max", 0.0) or 0.0),
+                        "spawn_legacy_fallbacks": int(_last_spawn_stats.get("legacy_fallbacks", 0) or 0),
+                        "spawn_scd_count": int(_last_spawn_difficulty.get("count", 0) or 0),
+                        "spawn_scd_avg": float(_last_spawn_difficulty.get("scd_avg", 0.0) or 0.0),
+                        "spawn_scd_max": float(_last_spawn_difficulty.get("scd_max", 0.0) or 0.0),
+                        "spawn_bucket_dist": dict(_last_spawn_difficulty.get("bucket_dist", {}) or {}),
                         "curriculum_mode": _curr_mode,
                     }
                     # best-checkpoint 守护状态（防退化）
@@ -3276,6 +3592,7 @@ def train_loop(
                     ckpt_path,
                 )
     finally:
+        _cleanup_weight_file(_pending_weight_path)
         if pool is not None:
             pool.close()
             pool.join()
@@ -3555,6 +3872,19 @@ def main() -> None:
         default=3.0,
         help="v8.3：adaptive 模式收敛阈值：top1/top2 访问比 ≥ 此值时提前停止（默认 3.0）",
     )
+    p.add_argument(
+        "--training-stage",
+        type=str,
+        default=os.environ.get("RL_TRAINING_STAGE", "single"),
+        choices=("single", "performance", "balanced", "quality"),
+        help="分阶段训练标记，仅记录到 run_manifest；推荐 performance→balanced→quality。",
+    )
+    p.add_argument(
+        "--stage-plan",
+        type=str,
+        default=os.environ.get("RL_STAGE_PLAN", ""),
+        help="分阶段训练计划说明/ID，仅记录到 run_manifest，便于固定评估集对比。",
+    )
     args = p.parse_args()
 
     random.seed(args.seed)
@@ -3615,6 +3945,9 @@ def main() -> None:
         os.environ["RL_MCTS_MIN_SIMS"] = str(args.mcts_min_sims)
     if getattr(args, "mcts_confidence", 3.0) != 3.0:
         os.environ["RL_MCTS_CONFIDENCE"] = str(args.mcts_confidence)
+    os.environ["RL_TRAINING_STAGE"] = str(args.training_stage)
+    if args.stage_plan:
+        os.environ["RL_STAGE_PLAN"] = str(args.stage_plan)
 
     arch = args.arch.strip().lower()
     net = build_policy_net(

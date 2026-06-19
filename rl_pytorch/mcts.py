@@ -703,12 +703,20 @@ def _select_leaf_for_batch(
     device: "torch.device",
     c_puct: float,
     max_depth: int,
-) -> "tuple[list[tuple[_MCTSNode, int]], np.ndarray | None, bool]":
-    """Selection + Expansion（不做 GPU 评估），返回：
+    defer_policy: bool = False,
+) -> "tuple[list[tuple[_MCTSNode, int]], np.ndarray | None, bool, _MCTSNode | None, np.ndarray | None, int]":
+    """Selection + Expansion（不做 value GPU 评估），返回 6 元组：
 
-    - path      : [(parent_node, action_idx), ...]
-    - leaf_feat : 叶子状态特征 numpy array，或 None（终局时）
-    - is_term   : 是否为终局节点
+    - path         : [(parent_node, action_idx), ...]
+    - leaf_feat    : 叶子状态特征 numpy array，或 None（终局时）
+    - is_term      : 是否为终局节点
+    - expand_node  : 本次新展开的叶子节点（需批量回填 prior），否则 None
+    - expand_phi   : 该叶子合法动作的 phi 矩阵（shape=(n_legal, F)），否则 None
+    - expand_n     : 该叶子合法动作数，否则 0
+
+    当 ``defer_policy=True`` 时，新展开节点的子先验先用均匀值占位，
+    由调用方在批量 policy 前向后用真实网络先验覆盖（语义等价：先验仅初始化
+    child.P，逐叶 softmax 与合批 softmax 数值一致）。
     """
     node = root
     path: list[tuple[_MCTSNode, int]] = []
@@ -720,14 +728,23 @@ def _select_leaf_for_batch(
             break
 
         if not node.is_expanded:
-            # 展开：用策略网络计算先验
-            with torch.no_grad():
-                _, phi_leaf = build_phi_batch(sim, legal)
-                if phi_leaf.shape[0] == 0:
-                    break
-                phi_t = tensor_to_device(torch.from_numpy(phi_leaf), device)
-                logits = net.forward_policy_logits(phi_t).cpu().numpy()
+            # 展开：先取叶子合法动作的 phi
+            _, phi_leaf = build_phi_batch(sim, legal)
+            if phi_leaf.shape[0] == 0:
+                break
             n_legal = len(legal)
+            phi_slice = np.ascontiguousarray(phi_leaf[:n_legal])
+            if defer_policy:
+                # 占位均匀先验，批量前向后由调用方覆盖
+                for j in range(n_legal):
+                    node.children[j] = _MCTSNode(prior=1.0 / n_legal)
+                node.is_expanded = True
+                node.n_legal = n_legal
+                leaf_feat = sim.extract_state()
+                return path, leaf_feat, False, node, phi_slice, n_legal
+            with torch.no_grad():
+                phi_t = tensor_to_device(torch.from_numpy(phi_slice), device)
+                logits = net.forward_policy_logits(phi_t).cpu().numpy()
             block_logits = logits[:n_legal]
             priors = np.exp(block_logits - block_logits.max())
             priors /= priors.sum()
@@ -759,9 +776,53 @@ def _select_leaf_for_batch(
 
     is_term = sim.is_terminal() or not sim.get_legal_actions()
     if is_term:
-        return path, None, True
+        return path, None, True, None, None, 0
     leaf_feat = sim.extract_state()
-    return path, leaf_feat, False
+    return path, leaf_feat, False, None, None, 0
+
+
+def _mcts_batch_policy_enabled() -> bool:
+    """是否启用 MCTS policy expansion 批量化（默认开，RL_MCTS_BATCH_POLICY=0 回退）。"""
+    return os.environ.get("RL_MCTS_BATCH_POLICY", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _flush_expand_policy(
+    net,
+    device: "torch.device",
+    expand_nodes: "list[_MCTSNode]",
+    expand_phi: "list[np.ndarray]",
+    expand_n: "list[int]",
+) -> None:
+    """把同批次新展开叶子的先验合并为一次 policy 前向，回填各 child.P。
+
+    与逐叶 ``forward_policy_logits`` + 每叶 softmax 数值等价：softmax 仅在每个
+    叶子自己的 n_legal 个 logit 上做，跨叶不混合。
+    """
+    if not expand_phi:
+        return
+    sizes = [int(p.shape[0]) for p in expand_phi]
+    cat_phi = np.concatenate(expand_phi, axis=0)
+    phi_t = tensor_to_device(torch.from_numpy(cat_phi), device)
+    with torch.no_grad():
+        logits_cat = net.forward_policy_logits(phi_t).cpu().numpy()
+    off = 0
+    for node, n_legal, size in zip(expand_nodes, expand_n, sizes):
+        block_logits = logits_cat[off:off + n_legal]
+        off += size
+        if block_logits.size == 0:
+            continue
+        priors = np.exp(block_logits - block_logits.max())
+        s = float(priors.sum())
+        if s > 0:
+            priors = priors / s
+        else:
+            priors = np.full(n_legal, 1.0 / max(n_legal, 1), dtype=np.float64)
+        for j in range(n_legal):
+            child = node.children.get(j)
+            if child is None:
+                child = _MCTSNode()
+                node.children[j] = child
+            child.P = float(priors[j])
 
 
 def run_mcts_batched(
@@ -853,6 +914,7 @@ def run_mcts_batched(
         return _extract_visit_pi(root, len(legal_root))
 
     # ---- 批量模拟 ----
+    _defer_policy = _mcts_batch_policy_enabled()
     done = 0
     while done < n_simulations:
         batch = min(eval_batch_size, n_simulations - done)
@@ -861,13 +923,17 @@ def run_mcts_batched(
         feats_list: list[np.ndarray] = []
         term_flags: list[bool] = []
         leaf_feat_idx: list[int] = []   # 非终局样本在 feats_list 中的索引
+        expand_nodes: list[_MCTSNode] = []
+        expand_phi: list[np.ndarray] = []
+        expand_n: list[int] = []
 
         # Phase 1: selection（含虚拟 loss）—— search_mode 跳过 eval shaping 计算
         for _ in range(batch):
             sim.restore_state(root_saved)
             with sim.search_mode():
-                path, feat, is_term = _select_leaf_for_batch(
-                    root, sim, net, device, c_puct, max_depth
+                path, feat, is_term, ex_node, ex_phi, ex_n = _select_leaf_for_batch(
+                    root, sim, net, device, c_puct, max_depth,
+                    defer_policy=_defer_policy,
                 )
             paths_list.append(path)
             term_flags.append(is_term)
@@ -876,10 +942,17 @@ def run_mcts_batched(
                 feats_list.append(feat)
             else:
                 leaf_feat_idx.append(-1)
+            if ex_node is not None and ex_phi is not None and ex_n > 0:
+                expand_nodes.append(ex_node)
+                expand_phi.append(ex_phi)
+                expand_n.append(ex_n)
             # 施加虚拟 loss，使后续模拟分散
             _apply_virtual_loss(path)
 
-        # Phase 2: 批量 GPU 推理（仅非终局叶子）
+        # Phase 2a: 批量 policy 展开（合并多个新叶子的 prior 前向）
+        _flush_expand_policy(net, device, expand_nodes, expand_phi, expand_n)
+
+        # Phase 2b: 批量 GPU value 推理（仅非终局叶子）
         values_arr: np.ndarray | None = None
         if feats_list:
             stacked = np.stack(feats_list, axis=0)
@@ -1176,16 +1249,19 @@ def run_mcts_adaptive(
             return
         use_batch = n >= 8
         if use_batch:
+            _defer_policy = _mcts_batch_policy_enabled()
             bs = min(eval_batch_size, n)
             done = 0
             while done < n:
                 batch = min(bs, n - done)
                 paths_list, feats_list, term_flags, leaf_feat_idx = [], [], [], []
+                expand_nodes, expand_phi, expand_n = [], [], []
                 for _ in range(batch):
                     sim.restore_state(root_saved)
                     with sim.search_mode():
-                        path, feat, is_term = _select_leaf_for_batch(
-                            root, sim, net, device, c_puct, max_depth
+                        path, feat, is_term, ex_node, ex_phi, ex_n = _select_leaf_for_batch(
+                            root, sim, net, device, c_puct, max_depth,
+                            defer_policy=_defer_policy,
                         )
                     paths_list.append(path)
                     term_flags.append(is_term)
@@ -1194,7 +1270,13 @@ def run_mcts_adaptive(
                         feats_list.append(feat)
                     else:
                         leaf_feat_idx.append(-1)
+                    if ex_node is not None and ex_phi is not None and ex_n > 0:
+                        expand_nodes.append(ex_node)
+                        expand_phi.append(ex_phi)
+                        expand_n.append(ex_n)
                     _apply_virtual_loss(path)
+
+                _flush_expand_policy(net, device, expand_nodes, expand_phi, expand_n)
 
                 values_arr = None
                 if feats_list:

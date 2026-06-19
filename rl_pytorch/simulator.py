@@ -15,7 +15,7 @@ from .grid import Grid
 from .dock_color_bias import mono_near_full_line_color_weights, pick_three_dock_colors
 from .player_profile_lite import PlayerProfileLite
 from .shapes_data import get_all_shapes, shape_category
-from .spawn_step_difficulty import spawn_step_difficulty_features
+from .spawn_step_difficulty import DIFFICULTY_BUCKETS, spawn_step_difficulty_features
 from . import fast_grid as _fg
 from . import spawn_online as _spawn_online
 
@@ -206,6 +206,10 @@ class OpenBlockSimulator:
         self._grid_np: np.ndarray | None = None
         self._last_clears: int = 0
         self._last_bonus_lines: int = 0
+        self._spawn_scd_sum: float = 0.0
+        self._spawn_scd_max: float = 0.0
+        self._spawn_scd_count: int = 0
+        self._spawn_bucket_counts: dict[str, int] = {k: 0 for k in DIFFICULTY_BUCKETS}
         # Combo 链（**时间维度** combo with grace window）：当前 combo 累计清线次数；与 web _comboCount 同口径。
         # 清线 → 按 grace 窗口推导（gap<grace → +1；gap≥grace → 重启=1）；未清 → 累加 _rounds_since_last_clear。
         # 与「空间维度单手多消」result["count"] 完全独立；进入 _clear_score_gain → comboMultiplier。
@@ -232,6 +236,39 @@ class OpenBlockSimulator:
             os.environ.get("RL_SPAWN_CHEAP", "0").strip().lower() in ("1", "true", "yes", "on")
         )
         self.reset()
+
+    def _record_spawn_difficulty(self, shapes: list[dict]) -> None:
+        """记录真实 dock 刷新的 spawnStepDifficulty 分布；search_mode 的假想 dock 不计入。"""
+        if self._search_mode:
+            return
+        try:
+            occupied = sum(1 for row in self.grid.cells for c in row if c is not None)
+            vals = spawn_step_difficulty_features([s["data"] for s in shapes], occupied)
+            scd = float(vals[0]) if vals else 0.0
+        except Exception:
+            return
+        self._spawn_scd_sum += scd
+        self._spawn_scd_max = max(self._spawn_scd_max, scd)
+        self._spawn_scd_count += 1
+        if scd < 0.2:
+            bucket = "trivial"
+        elif scd < 0.4:
+            bucket = "easy"
+        elif scd < 0.6:
+            bucket = "standard"
+        elif scd < 0.8:
+            bucket = "hard"
+        else:
+            bucket = "extreme"
+        self._spawn_bucket_counts[bucket] = int(self._spawn_bucket_counts.get(bucket, 0)) + 1
+
+    def spawn_difficulty_stats(self) -> dict:
+        return {
+            "count": int(self._spawn_scd_count),
+            "scd_avg": float(self._spawn_scd_sum / max(self._spawn_scd_count, 1)),
+            "scd_max": float(self._spawn_scd_max),
+            "bucket_counts": dict(self._spawn_bucket_counts),
+        }
 
     def _difficulty_target_for_spawn(self) -> float:
         """将当前局面状态映射为出块难度目标 [0, 1]。
@@ -291,6 +328,10 @@ class OpenBlockSimulator:
         self._grid_np = None
         self._last_clears = 0
         self._last_bonus_lines = 0
+        self._spawn_scd_sum = 0.0
+        self._spawn_scd_max = 0.0
+        self._spawn_scd_count = 0
+        self._spawn_bucket_counts = {k: 0 for k in DIFFICULTY_BUCKETS}
         self._combo_count = 0
         self._rounds_since_last_clear = float("inf")
         self._profile = PlayerProfileLite()
@@ -331,6 +372,7 @@ class OpenBlockSimulator:
                 self.grid, self.strategy_config, difficulty_target=dt,
             ),
         )
+        self._record_spawn_difficulty(shapes)
         self.dock = []
         for i in range(3):
             shape = shapes[i] if i < len(shapes) else all_shapes[0]
@@ -358,6 +400,11 @@ class OpenBlockSimulator:
                     self.grid, self.strategy_config, difficulty_target=dt,
                 ),
             )
+        norm_shapes = [
+            s if isinstance(s, dict) and "data" in s else {"data": s}
+            for s in shapes
+        ]
+        self._record_spawn_difficulty(norm_shapes)
         self.dock = []
         for i in range(3):
             shape = shapes[i] if i < len(shapes) else all_shapes[0]
@@ -471,6 +518,8 @@ class OpenBlockSimulator:
         pool = placeable if placeable else all_shapes
         ws = [max(1e-6, float(weights.get(shape_category(s["id"]), 1.0))) for s in pool]
         chosen = _random.choices(pool, weights=ws, k=3)
+        if not self._search_mode:
+            self._record_spawn_difficulty(chosen)
         n_colors = max(1, int(self.strategy_config.get("color_count", 8)))
         self.dock = [
             {
