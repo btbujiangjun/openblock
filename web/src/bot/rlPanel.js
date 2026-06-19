@@ -37,6 +37,9 @@ function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Web 看板后台训练 batch：小 batch 更快出现首条 loss（balanced+MCTS 单局很慢）。 */
+const WEB_DASHBOARD_TRAIN_BATCH = 4;
+
 function resolveBackgroundWorkerCount(preset) {
     const rawCores = Number(
         typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 0
@@ -46,14 +49,98 @@ function resolveBackgroundWorkerCount(preset) {
     let target;
     if (preset === 'quality') {
         target = Math.max(2, Math.floor(usable * 0.75));
-        return Math.max(1, Math.min(usable, target, 8));
+        // MCTS/beam 每 worker 自带重搜索，过多进程争抢 CPU 反而拖慢单局吞吐
+        return Math.max(1, Math.min(usable, target, 2));
     }
     if (preset === 'balanced') {
         target = Math.max(2, Math.floor(usable * 0.6));
-        return Math.max(1, Math.min(usable, target, 6));
+        return Math.max(1, Math.min(usable, target, 3));
     }
     target = Math.max(1, Math.floor(usable * 0.5));
     return Math.max(1, Math.min(usable, target, 4));
+}
+
+/**
+ * 从 training.jsonl 推导当前批采集进度（bg_training_start 至下一 train_episode 之间）。
+ * @param {object[]} entries
+ */
+function computeBatchCollectProgress(entries) {
+    if (!entries?.length) {
+        return null;
+    }
+    const lastBg = [...entries].reverse().find((e) => e.event === 'bg_training_start');
+    if (!lastBg) {
+        return null;
+    }
+    const batchSize = Number(lastBg.batch_episodes) || WEB_DASHBOARD_TRAIN_BATCH;
+    const startTs = lastBg.ts || 0;
+    const since = entries.filter((e) => (e.ts || 0) >= startTs);
+    const lastTeInRun = [...since].reverse().find((e) => e.event === 'train_episode');
+    const floorEp = typeof lastTeInRun?.episodes === 'number' ? lastTeInRun.episodes : 0;
+    const prog = since.filter(
+        (e) => e.event === 'train_progress'
+            && typeof e.episodes === 'number'
+            && e.episodes > floorEp
+    );
+    const epSet = new Set(prog.map((e) => e.episodes));
+    const collected = epSet.size;
+    if (collected >= batchSize) {
+        return null;
+    }
+    const hasNewLoss = since.some(
+        (e) => e.event === 'train_episode'
+            && typeof e.episodes === 'number'
+            && e.episodes > floorEp
+            && e.loss_policy != null
+    );
+    if (hasNewLoss) {
+        return null;
+    }
+    return {
+        collected,
+        batchSize,
+        mcts: Number(lastBg.mcts_sims) || 0,
+        preset: lastBg.preset || '',
+    };
+}
+
+function shortCheckpointLabel(path) {
+    if (!path || typeof path !== 'string') {
+        return null;
+    }
+    const slash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+    return slash >= 0 ? path.slice(slash + 1) : path;
+}
+
+/** @param {Awaited<ReturnType<import('./pytorchBackend.js')['fetchRlStatus']>>} st */
+function formatDeepModelStatusLine(st) {
+    if (!st?.available) {
+        return `PyTorch 深度模型不可用：${st?.reason || '无法连接训练服务端'}`;
+    }
+    const arch = st.meta?.arch || 'conv-shared';
+    const ckPath = st.checkpoint_loaded || st.save_path;
+    const ckLabel = ckPath
+        ? `checkpoint ${shortCheckpointLabel(String(ckPath))}`
+        : '新初始化（无 checkpoint）';
+    const ep = typeof st.episodes === 'number' ? st.episodes : 0;
+    const dev = st.device || '?';
+    const preset = st.training_preset ? ` · 预设 ${st.training_preset}` : '';
+    const bg = st.bg_training?.running ? ' · 后台训练中' : '';
+    return `PyTorch 深度模型 · ${arch} · ${dev} · ${ckLabel} · 累计 ${ep} 局${preset}${bg}`;
+}
+
+function formatLinearModelStatusLine(source) {
+    const winHint = `胜≥${WIN_SCORE_THRESHOLD}分`;
+    if (source === 'sqlite') {
+        return `浏览器线性模型 · 已从 SQLite 恢复（本用户）· ${winHint}`;
+    }
+    if (source === 'local-backup') {
+        return `浏览器线性模型 · 已备份至 SQLite（本用户）· ${winHint}`;
+    }
+    if (source === 'localStorage') {
+        return `浏览器线性模型 · 已从 localStorage 加载 · ${winHint}`;
+    }
+    return `浏览器线性模型 · 新初始化 · ${winHint}`;
 }
 
 /**
@@ -132,26 +219,43 @@ export function initRLPanel(game) {
         if (saved && selPreset.querySelector(`option[value="${saved}"]`)) {
             selPreset.value = saved;
         }
+        async function syncTrainingPresetToServer(preset) {
+            try {
+                const res = await fetch('/api/rl/training_preset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ preset }),
+                });
+                return res.ok;
+            } catch {
+                return false;
+            }
+        }
         selPreset.addEventListener('change', async () => {
             const v = selPreset.value;
             try { localStorage.setItem(LS_PRESET, v); } catch { /* */ }
-            try {
-                await fetch('/api/rl/training_preset', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ preset: v }),
-                });
-            } catch { /* offline / no backend */ }
+            await syncTrainingPresetToServer(v);
         });
-        /* 初始同步到后端 */
+        /* 初始对齐：先 GET 服务端 active，仅与下拉不一致时才 POST（避免每次刷新刷日志） */
         void (async () => {
             try {
-                await fetch('/api/rl/training_preset', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ preset: selPreset.value }),
-                });
-            } catch { /* */ }
+                const res = await fetch('/api/rl/training_preset');
+                if (!res.ok) {
+                    return;
+                }
+                const data = await res.json();
+                const serverActive = data.active;
+                const uiChoice = selPreset.value;
+                if (serverActive && selPreset.querySelector(`option[value="${serverActive}"]`)) {
+                    if (!saved) {
+                        selPreset.value = serverActive;
+                    }
+                }
+                const toSync = selPreset.value;
+                if (toSync !== serverActive) {
+                    await syncTrainingPresetToServer(toSync);
+                }
+            } catch { /* offline / no backend */ }
         })();
     }
 
@@ -166,6 +270,8 @@ export function initRLPanel(game) {
     }
 
     let agent = LinearAgent.load();
+    /** 线性模型来源，供日志按实际运行模型展示（PyTorch 模式下不写入进展日志）。 */
+    let linearModelSource = hasSavedLinearAgentInLocalStorage() ? 'localStorage' : 'default';
 
     if (game?.db && isSqliteClientDatabase()) {
         setBrowserRlLinearPersistHook((payload) => {
@@ -228,7 +334,22 @@ export function initRLPanel(game) {
             persistPytorchToggle();
             void refreshBackendStatus();
             void refreshDashboardFull();
+            void logActiveModelStatus();
         });
+    }
+
+    /** 训练进展日志：按当前实际使用的模型（PyTorch 深度 / 浏览器线性）输出一行摘要。 */
+    async function logActiveModelStatus() {
+        if (readUseBackend()) {
+            try {
+                const st = await fetchRlStatus();
+                logLine(formatDeepModelStatusLine(st));
+            } catch {
+                logLine('PyTorch 深度模型：无法连接训练服务端');
+            }
+            return;
+        }
+        logLine(formatLinearModelStatusLine(linearModelSource));
     }
 
     async function refreshBackendStatus() {
@@ -447,6 +568,13 @@ export function initRLPanel(game) {
                 const stp = typeof e.steps === 'number' ? e.steps : '?';
                 return `${t}·${ep} 采集 分${sc} 步${stp}${e.won ? ' 胜' : ''}`;
             });
+            const batchProg = computeBatchCollectProgress(data.entries);
+            if (batchProg) {
+                const mctsTag = batchProg.mcts ? ` MCTS×${batchProg.mcts}` : '';
+                progressFeedLines.unshift(
+                    `▶ 本批采集 ${batchProg.collected}/${batchProg.batchSize} 局${mctsTag}（攒满后 GPU 更新并显示 loss）`
+                );
+            }
             renderProgressPanel();
             // 「训练损失」面板：仅保留真正的 loss 行（train_episode）与结构性事件，
             // 排除采集进度心跳，避免 loss 数据被刷屏（修复「训练损失数据不对」）。
@@ -484,6 +612,9 @@ export function initRLPanel(game) {
                     const sims = e.mcts_sims ? ` MCTS×${e.mcts_sims}` : '';
                     return `[${t}] 后台训练启动：目标 ${e.episodes_target ?? '?'} 局 batch=${e.batch_episodes ?? '?'} workers=${e.n_workers ?? 'auto'}${sims}`;
                 }
+                if (e.event === 'batch_collect_start') {
+                    return `[${t}] 开始采集 batch ${e.episodes_from ?? '?'}-${e.episodes_to ?? '?'}（${e.batch_size ?? '?'} 局）`;
+                }
                 if (e.event === 'bg_training_end') {
                     const reason = e.reason === 'completed' ? '已完成' : e.reason === 'stopped' ? '已停止' : `退出(${e.exit_code ?? '?'})`;
                     return `[${t}] 后台训练结束：${reason}`;
@@ -494,7 +625,12 @@ export function initRLPanel(game) {
                 return `[${t}] ${JSON.stringify(e).slice(0, 100)}`;
             });
             const hasLoss = tail.some((e) => e.event === 'train_episode' && e.loss_policy != null);
-            if (!hasLoss && tail.length > 0) {
+            if (batchProg) {
+                const mctsHint = batchProg.mcts ? `（MCTS×${batchProg.mcts}，单局较慢）` : '';
+                rows.unshift(
+                    `⏳ 本批采集 ${batchProg.collected}/${batchProg.batchSize} 局${mctsHint}，攒满后 GPU 更新并显示 loss…`
+                );
+            } else if (!hasLoss && tail.length > 0) {
                 rows.unshift('⏳ 批量训练攒批中，loss 将在攒满一批后显示…');
             }
             outServerLog.textContent = rows.join('\n');
@@ -802,8 +938,8 @@ export function initRLPanel(game) {
         scheduleTrainingMetricsAutoCollapse();
         logLine(
             useBackend
-                ? '开始 PyTorch后端 可随时停止'
-                : '开始 浏览器线性模型 可随时停止'
+                ? '开始 PyTorch 深度模型后台训练（服务端 rl_pytorch）· 可随时停止'
+                : '开始浏览器线性模型自博弈训练 · 可随时停止'
         );
         if (useBackend && useLookahead) {
             logLine('已开启 1-step lookahead（首局较慢）；不需要 Q 蒸馏时请取消勾选');
@@ -836,20 +972,28 @@ export function initRLPanel(game) {
                 try {
                     const trainingPreset = selPreset?.value || 'balanced';
                     const workerCount = resolveBackgroundWorkerCount(trainingPreset);
+                    const webBatch = WEB_DASHBOARD_TRAIN_BATCH;
                     await startBackgroundTraining({
                         episodes: 500000,
                         resume: true,
                         n_workers: workerCount,
-                        // batch=16：小 batch（8）长/变长 episode 的梯度方差大，是策略漂移退化诱因之一；
-                        // 提至 16 提升梯度稳定性。日志实时性由后端 per-episode 进度心跳保证（不再依赖 batch）。
-                        batch_episodes: 16,
+                        // 看板用小 batch：balanced+MCTS 单局可达 1–3 分钟，batch=16 首屏 loss 要等太久
+                        batch_episodes: webBatch,
+                        log_every: webBatch,
                         save_every: 50,
                         preset: trainingPreset,
                         eval_gate_every: 0,
-                        // Lv 价值损失较 Lπ 收敛慢，加权至 1.5 加速 value 拟合，决策更稳
                         value_coef: 1.5,
                     });
-                    logLine(`后台训练已启动（${trainingPreset} / workers=${workerCount} / batch=16 / save=50 / value_coef=1.5 / 逐局进度心跳 / best 守护+回滚；评估门关闭）`);
+                    if (trainingPreset === 'balanced' || trainingPreset === 'quality') {
+                        logLine(
+                            `⚠️ ${trainingPreset === 'quality' ? '效果' : '平衡'}档含 MCTS/搜索，单局采集慢；`
+                            + `看板 batch=${webBatch}。要更快反馈请选 ⚡性能 并停止后重开训练`
+                        );
+                    }
+                    logLine(
+                        `后台训练已启动（${trainingPreset} / workers=${workerCount} / batch=${webBatch} / save=50 / 逐局心跳）`
+                    );
                 } catch (err) {
                     logLine(`后台训练启动失败: ${err.message}`);
                     return;
@@ -888,10 +1032,10 @@ export function initRLPanel(game) {
 
             logLine(
                 useBackend
-                    ? '结束 服务端'
+                    ? '结束 PyTorch 深度模型后台训练（权重已写入服务端 checkpoint）'
                     : (game?.db && isSqliteClientDatabase()
-                        ? '结束 已写 localStorage + SQLite（按用户）'
-                        : '结束 已写 localStorage')
+                        ? '结束浏览器线性模型训练 · 已写 localStorage + SQLite（本用户）'
+                        : '结束浏览器线性模型训练 · 已写 localStorage')
             );
         } catch (err) {
             log.error('[RL panel] startBatch', err);
@@ -1033,39 +1177,34 @@ export function initRLPanel(game) {
             /* ignore */
         }
     })();
-    logLine(
-        `已加载${readUseBackend() ? ' PT后端' : ' 线性'} 胜≥${WIN_SCORE_THRESHOLD}分`
-    );
 
     void (async () => {
-        if (!needRlHydrate) {
-            return;
-        }
-        try {
-            const remote = await game.db.getBrowserRlLinearAgent();
-            if (isValidLinearAgentPayload(remote)) {
-                agent = LinearAgent.fromJSON(remote);
-                agent.save();
-                logLine('已从 SQLite 恢复本用户线性模型');
-                return;
-            }
-            if (hasSavedLinearAgentInLocalStorage()) {
-                const local = agent.toJSON();
-                if (isValidLinearAgentPayload(local)) {
-                    await game.db.putBrowserRlLinearAgent(local);
-                    logLine('已将本地线性模型备份到 SQLite（本用户）');
+        if (needRlHydrate) {
+            try {
+                const remote = await game.db.getBrowserRlLinearAgent();
+                if (isValidLinearAgentPayload(remote)) {
+                    agent = LinearAgent.fromJSON(remote);
+                    agent.save();
+                    linearModelSource = 'sqlite';
+                } else if (hasSavedLinearAgentInLocalStorage()) {
+                    const local = agent.toJSON();
+                    if (isValidLinearAgentPayload(local)) {
+                        await game.db.putBrowserRlLinearAgent(local);
+                        linearModelSource = 'local-backup';
+                    }
+                }
+            } catch (e) {
+                log.warn('[RL] 从 SQLite 拉取/回填模型失败', e);
+            } finally {
+                if (btnStart && !running) {
+                    btnStart.disabled = false;
+                }
+                if (btnEpisode && !vizBusy) {
+                    btnEpisode.disabled = false;
                 }
             }
-        } catch (e) {
-            log.warn('[RL] 从 SQLite 拉取/回填模型失败', e);
-        } finally {
-            if (btnStart && !running) {
-                btnStart.disabled = false;
-            }
-            if (btnEpisode && !vizBusy) {
-                btnEpisode.disabled = false;
-            }
         }
+        await logActiveModelStatus();
     })();
 
     /* ====================================================================

@@ -2560,6 +2560,13 @@ def train_loop(
                 cur_win_thr = None  # None = collect_episode 内部按线性课程计算
 
             # --- 采集（含流水线重叠）---
+            _append_training_jsonl({
+                "event": "batch_collect_start",
+                "batch_size": bs,
+                "ep_cursor": ep_cursor,
+                "episodes_from": ep_cursor + 1,
+                "episodes_to": ep_cursor + bs,
+            })
             tc0 = time.perf_counter()
 
             if pool is not None:

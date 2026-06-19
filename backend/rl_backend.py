@@ -1485,15 +1485,18 @@ def create_rl_blueprint() -> Blueprint:
         name = str(data.get("preset", "")).strip()
         if not name:
             return jsonify({"error": "preset field required"}), 400
+        prev = rl_active_training_preset()
         cfg = rl_set_training_preset(name)
         if cfg is None:
             return jsonify({"error": f"unknown preset: {name}"}), 400
-        _append_training_log({
-            "event": "preset_changed",
-            "preset": name,
-            "label": cfg.get("label", name),
-        })
-        return jsonify({"ok": True, "active": name, "label": cfg.get("label", name)})
+        # 页面刷新/多标签会重复 POST 同一 preset；仅真正切换时写日志，避免 training.jsonl 刷屏
+        if name != prev:
+            _append_training_log({
+                "event": "preset_changed",
+                "preset": name,
+                "label": cfg.get("label", name),
+            })
+        return jsonify({"ok": True, "active": name, "label": cfg.get("label", name), "changed": name != prev})
 
     @bp.route("/api/rl/start_training", methods=["POST"])
     def rl_start_training():
