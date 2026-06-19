@@ -52,6 +52,83 @@ function placeAndClear(grid, shapeData, gx, gy) {
 }
 
 /**
+ * v1.72：DFS 专用「就地放置+消行」+ undo，替代 placeAndClear 的逐节点 clone。
+ *
+ * 在 `grid.cells` 上**原地**复刻 `clone({skipMeta}).place(shape,0,gx,gy).checkLines()`
+ * 对 cells 的最终效果（占用格置 0 → 满行/满列整体置 null），并返回 undo 记录。
+ * DFS 叶子只读 cells（countIsolatedHoles / countOccupied / canPlace 等，不读 meta、
+ * bonusLines 或 checkLines 返回值），故省去 clone 的 N×slice + Map 分配。
+ *
+ * **幂等性契约**：记录每次写操作 (cellIdx, oldValue)，undo 按**逆序**还原，
+ * 即可对「放置后又被消除」「行列交叉」等情形精确复原——重复执行不改变最终盘面。
+ * 调用方必须在递归返回后调用 {@link undoPlaceAndClear} 还原，保证 grid 不被破坏。
+ *
+ * @returns {{ idx: number[], old: Array }} undo 记录（写顺序）
+ */
+function placeAndClearInPlace(grid, shapeData, gx, gy) {
+    const n = grid.size;
+    const cells = grid.cells;
+    const idx = [];
+    const old = [];
+    // 1) 放置：占用格置 0（对齐 grid.place(shape, 0, gx, gy)）
+    for (let y = 0; y < shapeData.length; y++) {
+        const row = shapeData[y];
+        for (let x = 0; x < row.length; x++) {
+            if (row[x]) {
+                const cy = gy + y;
+                const cx = gx + x;
+                idx.push(cy * n + cx);
+                old.push(cells[cy][cx]);
+                cells[cy][cx] = 0;
+            }
+        }
+    }
+    // 2) 检测满行/满列（对齐 _detectFullRowsCols：cell !== null 即占用）
+    let fullRows = null;
+    for (let y = 0; y < n; y++) {
+        const r = cells[y];
+        let full = true;
+        for (let x = 0; x < n; x++) { if (r[x] === null) { full = false; break; } }
+        if (full) { (fullRows || (fullRows = [])).push(y); }
+    }
+    let fullCols = null;
+    for (let x = 0; x < n; x++) {
+        let full = true;
+        for (let y = 0; y < n; y++) { if (cells[y][x] === null) { full = false; break; } }
+        if (full) { (fullCols || (fullCols = [])).push(x); }
+    }
+    // 3) 清除：满行先于满列（对齐 _clearCellsAndMeta；交叉格已 null 则跳过，幂等）
+    if (fullRows) {
+        for (const y of fullRows) {
+            const r = cells[y];
+            for (let x = 0; x < n; x++) {
+                if (r[x] !== null) { idx.push(y * n + x); old.push(r[x]); r[x] = null; }
+            }
+        }
+    }
+    if (fullCols) {
+        for (const x of fullCols) {
+            for (let y = 0; y < n; y++) {
+                if (cells[y][x] !== null) { idx.push(y * n + x); old.push(cells[y][x]); cells[y][x] = null; }
+            }
+        }
+    }
+    return { idx, old };
+}
+
+/** v1.72：还原 {@link placeAndClearInPlace} 的原地改动（逆序精确复原）。 */
+function undoPlaceAndClear(grid, rec) {
+    const cells = grid.cells;
+    const n = grid.size;
+    const idx = rec.idx;
+    const old = rec.old;
+    for (let k = idx.length - 1; k >= 0; k--) {
+        const p = idx[k];
+        cells[(p / n) | 0][p % n] = old[k];
+    }
+}
+
+/**
  * v1.57.2 廉价"孤立空格"hole 计数：四面（上下左右；出界算非空边墙）都是非空的空格。
  *
  * 设计选择理由：
@@ -199,4 +276,4 @@ function countColorBoundaries(grid) {
     return b;
 }
 
-module.exports = { columnHeightVariance, computeColumnHeightSummary, countColorBoundaries, countDangerColumns, countIsolatedHoles, countNearFullLinesCheap, countOccupied, countOccupiedCells, permutations3, placeAndClear, shapeCellCount };
+module.exports = { columnHeightVariance, computeColumnHeightSummary, countColorBoundaries, countDangerColumns, countIsolatedHoles, countNearFullLinesCheap, countOccupied, countOccupiedCells, permutations3, placeAndClear, placeAndClearInPlace, shapeCellCount, undoPlaceAndClear };

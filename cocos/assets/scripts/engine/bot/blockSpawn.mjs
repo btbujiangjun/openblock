@@ -46,7 +46,8 @@ export { _sanitizeShapeArr, _pickFallbackSafe };
 import {
     shapeCellCount,
     permutations3,
-    placeAndClear,
+    placeAndClearInPlace,
+    undoPlaceAndClear,
     countIsolatedHoles,
     countOccupied,
     countOccupiedCells,
@@ -414,8 +415,10 @@ function dfsPlaceOrder(grid, orderedShapes, depth, budget) {
             if (!grid.canPlace(s, x, y)) continue;
             if (budget.n <= 0) return !!budget.exhaustAsPass;
             budget.n--;
-            const next = placeAndClear(grid, s, x, y);
-            if (dfsPlaceOrder(next, orderedShapes, depth + 1, budget)) return true;
+            const rec = placeAndClearInPlace(grid, s, x, y);
+            const solved = dfsPlaceOrder(grid, orderedShapes, depth + 1, budget);
+            undoPlaceAndClear(grid, rec);
+            if (solved) return true;
         }
     }
     return false;
@@ -558,8 +561,9 @@ function dfsCountSolutions(grid, orderedShapes, depth, accum, budget) {
                 accum.rootCandidatesTotal++;
             }
             budget.n--;
-            const next = placeAndClear(grid, s, x, y);
-            dfsCountSolutions(next, orderedShapes, depth + 1, accum, budget);
+            const rec = placeAndClearInPlace(grid, s, x, y);
+            dfsCountSolutions(grid, orderedShapes, depth + 1, accum, budget);
+            undoPlaceAndClear(grid, rec);
             if (depth === 0) accum.currentRootIdx = savedRootIdx;
         }
     }
