@@ -17,6 +17,24 @@ const PREMIUM_VAR_KEYS = [
 
 const PREMIUM_ACTIVE_CLASS = 'web-premium-skin';
 
+/** 精致盘面内圆角（对齐 web `#game-grid` / `.game-board-flow-bg` border-radius: 12px） */
+const PREMIUM_BOARD_INNER_RADIUS_PX = 12;
+/** 精致外框包装圆角（对齐 web `#game-wrapper` border-radius: 14px） */
+const PREMIUM_WRAPPER_RADIUS_PX = 14;
+const PREMIUM_WRAPPER_PAD_PX = 10;
+/** L0 背景外扩 bleed（对齐 web `_paintBackgroundUnder`） */
+const PREMIUM_BOARD_BLEED_PX = 10;
+const PREMIUM_BOARD_RADIUS_REFERENCE_PX = 480;
+
+/**
+ * 按盘面显示宽度缩放精致内圆角（reference 默认 480px 桌面棋盘）。
+ * @param {number} boardDisplayPx
+ * @param {number} [referencePx]
+ */
+function premiumBoardCornerRadiusPx(boardDisplayPx, referencePx = PREMIUM_BOARD_RADIUS_REFERENCE_PX) {
+    return Math.max(4, Math.round(PREMIUM_BOARD_INNER_RADIUS_PX * boardDisplayPx / Math.max(1, referencePx)));
+}
+
 const DEFAULT_PREFS = { enabled: false };
 
 function hexToRgba(hex, alpha) {
@@ -83,4 +101,4 @@ function isPremiumRenderEnabled({
     return true;
 }
 
-module.exports = { computePremiumSkinVars, hexToRgba, isPremiumRenderEnabled, loadPremiumPrefs, PREMIUM_ACTIVE_CLASS, PREMIUM_VAR_KEYS, savePremiumPrefs, SKIN_PREMIUM_STORAGE_KEY };
+module.exports = { computePremiumSkinVars, hexToRgba, isPremiumRenderEnabled, loadPremiumPrefs, PREMIUM_ACTIVE_CLASS, PREMIUM_BOARD_BLEED_PX, PREMIUM_BOARD_INNER_RADIUS_PX, PREMIUM_BOARD_RADIUS_REFERENCE_PX, PREMIUM_VAR_KEYS, PREMIUM_WRAPPER_PAD_PX, PREMIUM_WRAPPER_RADIUS_PX, premiumBoardCornerRadiusPx, savePremiumPrefs, SKIN_PREMIUM_STORAGE_KEY };

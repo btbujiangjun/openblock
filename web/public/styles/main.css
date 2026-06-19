@@ -9452,6 +9452,11 @@ html.web-premium-skin #game-wrapper {
         inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
+html.web-premium-skin .game-board-flow-bg {
+    border-radius: 12px;
+    overflow: hidden;
+}
+
 html.web-premium-skin #game-grid,
 html.web-premium-skin #game-grid-bg,
 html.web-premium-skin #game-grid-wm {

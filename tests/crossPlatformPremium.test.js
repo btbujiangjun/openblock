@@ -98,6 +98,12 @@ describe('skinPremiumCore / appearanceModeCore 跨端一致', () => {
         expect(premiumWeb.isPremiumRenderEnabled({ enabled: true, qualityMode: 'high' })).toBe(true);
     });
 
+    it('premiumBoardCornerRadiusPx 随盘面宽度缩放', () => {
+        expect(premiumWeb.premiumBoardCornerRadiusPx(480)).toBe(12);
+        expect(premiumWeb.premiumBoardCornerRadiusPx(240)).toBe(6);
+        expect(premiumMp.premiumBoardCornerRadiusPx(480)).toBe(12);
+    });
+
     it('appearanceModeCore 三档与 resolve 一致', () => {
         expect(appearanceMp.APPEARANCE_MODES).toEqual(appearanceWeb.APPEARANCE_MODES);
         expect(appearanceMp.resolveAppearanceMode({ premiumEnabled: true, visualEnabled: false }))

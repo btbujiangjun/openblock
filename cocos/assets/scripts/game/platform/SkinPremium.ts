@@ -16,6 +16,12 @@ import {
 } from '../../engine/effects/skinPremiumCore.mjs';
 
 export { SKIN_PREMIUM_STORAGE_KEY } from '../../engine/effects/skinPremiumCore.mjs';
+export {
+    PREMIUM_BOARD_BLEED_PX,
+    PREMIUM_WRAPPER_PAD_PX,
+    PREMIUM_WRAPPER_RADIUS_PX,
+    premiumBoardCornerRadiusPx,
+} from '../../engine/effects/skinPremiumCore.mjs';
 
 export interface PremiumVars {
     accent: Color;

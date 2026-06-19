@@ -5,6 +5,7 @@
 import { CONFIG } from './config.js';
 import { getActiveSkin, getBlockColors, SKINS } from './skins.js';
 import { isSkinPremiumEnabled } from './effects/skinPremium.js';
+import { PREMIUM_BOARD_BLEED_PX, premiumBoardCornerRadiusPx } from './effects/skinPremiumCore.js';
 import { paintMahjongTileIcon } from './mahjongTileIcon.js';
 import { paintBoardTexture } from './boardTexture.js';
 
@@ -1440,7 +1441,32 @@ export class Renderer {
         };
         const r1 = apply(this.bgCanvas, this.dpr);
         const r2 = apply(this.wmCanvas, this.wmDpr);
+        this._applyFlowBgGeometry(cssW, cssH, left, top);
         if (r1 || r2) this._boardBgKey = ''; // 尺寸变化 → 失效 L0 缓存，下一帧 render 重画
+    }
+
+    /** 精致界面：flow-bg 与 #game-grid 同几何 + 同圆角，避免 canvas 圆角裁剪后露出直角底色。 */
+    _applyFlowBgGeometry(cssW, cssH, left, top) {
+        if (!this._flowBgEl) {
+            this._flowBgEl = this.canvas.parentElement?.querySelector('.game-board-flow-bg') ?? null;
+        }
+        const el = this._flowBgEl;
+        if (!el) return;
+        if (!isSkinPremiumEnabled()) {
+            el.style.inset = '0';
+            el.style.left = '';
+            el.style.top = '';
+            el.style.width = '';
+            el.style.height = '';
+            el.style.borderRadius = '';
+            return;
+        }
+        el.style.inset = 'auto';
+        el.style.left = `${left}px`;
+        el.style.top = `${top}px`;
+        el.style.width = `${cssW}px`;
+        el.style.height = `${cssH}px`;
+        el.style.borderRadius = '12px';
     }
 
     /**
@@ -1996,12 +2022,20 @@ export class Renderer {
         const outerA = 1;
         const cellA = lightBoard ? 0.96 : highQualityBackdrop ? 0.96 : 0.96;
 
+        const premiumCells = isSkinPremiumEnabled();
+        const bleed = premiumCells ? PREMIUM_BOARD_BLEED_PX : 10;
         ctx.fillStyle = hexToRgba(skin.gridOuter, outerA);
-        ctx.fillRect(-10, -10, this.logicalW + 20, this.logicalH + 20);
+        if (premiumCells) {
+            const cssW = this.canvas?.offsetWidth || this.logicalW;
+            const outerR = premiumBoardCornerRadiusPx(cssW);
+            roundRectPath(ctx, -bleed, -bleed, this.logicalW + bleed * 2, this.logicalH + bleed * 2, outerR);
+            ctx.fill();
+        } else {
+            ctx.fillRect(-bleed, -bleed, this.logicalW + bleed * 2, this.logicalH + bleed * 2);
+        }
 
         const cs = this.cellSize - 2 * g;
         ctx.fillStyle = hexToRgba(skin.gridCell, cellA);
-        const premiumCells = isSkinPremiumEnabled();
         const cellR = premiumCells ? Math.max(2, Math.round((skin.blockRadius ?? 5) * cs / 38)) : 0;
         for (let y = 0; y < this.gridSize; y++) {
             for (let x = 0; x < this.gridSize; x++) {
@@ -2046,15 +2080,23 @@ export class Renderer {
         }
 
         if (skin.boardTexture) {
+            if (premiumCells) {
+                const cssW = this.canvas?.offsetWidth || this.logicalW;
+                const outerR = premiumBoardCornerRadiusPx(cssW);
+                ctx.save();
+                roundRectPath(ctx, -bleed, -bleed, this.logicalW + bleed * 2, this.logicalH + bleed * 2, outerR);
+                ctx.clip();
+            }
             paintBoardTexture(
                 ctx,
-                -10,
-                -10,
-                this.logicalW + 20,
-                this.logicalH + 20,
+                -bleed,
+                -bleed,
+                this.logicalW + bleed * 2,
+                this.logicalH + bleed * 2,
                 skin.boardTexture,
                 this._qualityMode,
             );
+            if (premiumCells) ctx.restore();
         }
     }
 

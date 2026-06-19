@@ -20,6 +20,24 @@ export const PREMIUM_VAR_KEYS = [
 
 export const PREMIUM_ACTIVE_CLASS = 'web-premium-skin';
 
+/** 精致盘面内圆角（对齐 web `#game-grid` / `.game-board-flow-bg` border-radius: 12px） */
+export const PREMIUM_BOARD_INNER_RADIUS_PX = 12;
+/** 精致外框包装圆角（对齐 web `#game-wrapper` border-radius: 14px） */
+export const PREMIUM_WRAPPER_RADIUS_PX = 14;
+export const PREMIUM_WRAPPER_PAD_PX = 10;
+/** L0 背景外扩 bleed（对齐 web `_paintBackgroundUnder`） */
+export const PREMIUM_BOARD_BLEED_PX = 10;
+export const PREMIUM_BOARD_RADIUS_REFERENCE_PX = 480;
+
+/**
+ * 按盘面显示宽度缩放精致内圆角（reference 默认 480px 桌面棋盘）。
+ * @param {number} boardDisplayPx
+ * @param {number} [referencePx]
+ */
+export function premiumBoardCornerRadiusPx(boardDisplayPx, referencePx = PREMIUM_BOARD_RADIUS_REFERENCE_PX) {
+    return Math.max(4, Math.round(PREMIUM_BOARD_INNER_RADIUS_PX * boardDisplayPx / Math.max(1, referencePx)));
+}
+
 const DEFAULT_PREFS = { enabled: false };
 
 export function hexToRgba(hex, alpha) {

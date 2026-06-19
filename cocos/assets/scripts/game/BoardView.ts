@@ -2,7 +2,14 @@ import { _decorator, Component, Graphics, UITransform, Node, Label, Color, UIOpa
 import { Grid, Skin, getWatermark, flag, ClearedCell } from '../core';
 import { blockColor, cellEmptyColor, gridOuterColor, gridLineColor, blockMetrics, blockIcon } from './skin/palette';
 import { paintBlockFace, iconFontSize, drawShapeFaces, applyIconLabelScaled } from './skin/blockPaint';
-import { isSkinPremiumEnabled, getPremiumVars } from './platform/SkinPremium';
+import {
+    isSkinPremiumEnabled,
+    getPremiumVars,
+    PREMIUM_BOARD_BLEED_PX,
+    PREMIUM_WRAPPER_PAD_PX,
+    PREMIUM_WRAPPER_RADIUS_PX,
+    premiumBoardCornerRadiusPx,
+} from './platform/SkinPremium';
 import { skinHasImageBlocks, getSkinBlockFrame, ensureSkinBlockFrames, skinBlockFramesReady, paintAssetOverlay, skinHasAssetOverlay } from './skin/skinSprites';
 import { Motion } from './platform/Motion';
 import { VisualFx } from './platform/VisualFx';
@@ -480,10 +487,10 @@ export class BoardView extends Component {
 
         // 1a-premium. 盘面外框包装（对齐 web `#game-wrapper` 玻璃质感 + 深投影）
         if (premium && pv) {
-            const pad = 10;
+            const pad = PREMIUM_WRAPPER_PAD_PX;
             const outer = half + pad;
             const wrap = this.boardPx + pad * 2;
-            const wr = 14;
+            const wr = PREMIUM_WRAPPER_RADIUS_PX;
             bg.fillColor = new Color(0, 0, 0, 48);
             bg.roundRect(-outer + 1, -outer - 4, wrap, wrap, wr);
             bg.fill();
@@ -504,10 +511,15 @@ export class BoardView extends Component {
             bg.stroke();
         }
 
-        // 1a. outer 圆角铺底（对齐 web `_paintBackgroundUnder`：full-bleed gridOuter）
+        // 1a. outer 圆角铺底（对齐 web `_paintBackgroundUnder`：full-bleed gridOuter + 12px 内圆角）
         const framePad = Math.max(1, gap);
+        const boardOuterR = premium ? premiumBoardCornerRadiusPx(this.boardPx) : 10;
+        const boardBleed = premium ? PREMIUM_BOARD_BLEED_PX : framePad;
+        if (premium) {
+            this._drawPremiumFlowBg(bg, half, this.boardPx, boardOuterR, skin);
+        }
         bg.fillColor = gridOuterColor(skin);
-        bg.roundRect(-half - framePad, -half - framePad, this.boardPx + framePad * 2, this.boardPx + framePad * 2, 10);
+        bg.roundRect(-half - boardBleed, -half - boardBleed, this.boardPx + boardBleed * 2, this.boardPx + boardBleed * 2, boardOuterR);
         bg.fill();
         // 1b. cellEmpty 8×8 全格（含已放块的格子；块下垫底，消除 inset 黑边）
         //   ⭐ 与 web `_paintBackgroundUnder` 严格一致：格矩形 = `cell - 2*gap`，偏移 `+gap`。
@@ -552,14 +564,14 @@ export class BoardView extends Component {
                 pv.boardBorder.r, pv.boardBorder.g, pv.boardBorder.b,
                 Math.round(pv.boardBorder.a * 0.65),
             );
-            bg.roundRect(-half + 0.5, -half + 0.5, this.boardPx - 1, this.boardPx - 1, 12);
+            bg.roundRect(-half + 0.5, -half + 0.5, this.boardPx - 1, this.boardPx - 1, boardOuterR);
             bg.stroke();
             // 玻璃顶部高光带（对齐 web `#game-wrapper::before`）—— 必须画在「盘面外框包装」(wrapper) 上沿，
             // 而非盘面内部。早期 y=-half+boardPx*0.88 → 高光落在盘面**顶行格子上**，把第一行 cellEmpty
             // 整条盖成一抹白底（看截图蓝框：顶行无格分、底色比其余行更浅）。修正为画在 wrapper 顶部
             // 内侧（在 outer 内 +1，跨出盘面 box 上沿 ~pad 像素），bg 层级低于 wm/网格线/方块，不会
             // 干扰盘面内容；高度 = 半个 pad，恰好覆盖外框上沿那条玻璃高光。
-            const pad = 10;
+            const pad = PREMIUM_WRAPPER_PAD_PX;
             const outerTop = half + pad;
             const hiH = Math.max(4, Math.round(pad * 0.7));
             bg.fillColor = new Color(255, 255, 255, 20);
@@ -670,6 +682,26 @@ export class BoardView extends Component {
         // 用独立 _ghostG → 拖拽期间只清/重画此层，blocks 层保持不变，省 60+ 帧的方块重画成本。
         this._ghostG?.clear();
         this.hideGhostSprites();
+    }
+
+    /** 精致界面 flow 底色（对齐 web `.game-board-flow-bg`：与盘面同几何 + 12px 圆角，避免四角露出直角包装层）。 */
+    private _drawPremiumFlowBg(bg: Graphics, half: number, boardPx: number, outerR: number, skin: Skin): void {
+        const bleed = PREMIUM_BOARD_BLEED_PX;
+        const x = -half - bleed;
+        const y = -half - bleed;
+        const w = boardPx + bleed * 2;
+        const h = boardPx + bleed * 2;
+        const outer = gridOuterColor(skin);
+        const empty = cellEmptyColor(skin);
+        const accent = getPremiumVars()?.accent ?? new Color(56, 189, 248, 255);
+        bg.fillColor = new Color(
+            Math.round(outer.r * 0.55 + empty.r * 0.30 + accent.r * 0.15),
+            Math.round(outer.g * 0.55 + empty.g * 0.30 + accent.g * 0.15),
+            Math.round(outer.b * 0.55 + empty.b * 0.30 + accent.b * 0.15),
+            255,
+        );
+        bg.roundRect(x, y, w, h, outerR);
+        bg.fill();
     }
 
     /**
