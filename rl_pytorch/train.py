@@ -68,6 +68,47 @@ from .simulator import OpenBlockSimulator, board_potential, _BOARD_POT_NORM, _SU
 from .strategy_features import sample_rl_training_strategy_id
 
 # ---------------------------------------------------------------------------
+# training.jsonl 追加（主进程 + worker 共用；fcntl 避免多进程交错写）
+# ---------------------------------------------------------------------------
+
+
+def _append_training_jsonl_entry(entry: dict) -> None:
+    """与 rl_backend._append_training_log 字段对齐，看板 rlTrainingCharts.js 可读。"""
+    path_str = os.environ.get("RL_TRAINING_LOG", "").strip()
+    if not path_str:
+        return
+    path = Path(path_str)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        row = {"ts": int(time.time()), **entry}
+        line = json.dumps(row, ensure_ascii=False) + "\n"
+        with open(path, "a", encoding="utf-8") as f:
+            try:
+                import fcntl
+
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                try:
+                    f.write(line)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            except (ImportError, AttributeError, OSError):
+                f.write(line)
+    except OSError:
+        pass  # 写日志失败不应阻塞训练
+
+
+def _emit_train_progress_heartbeat(global_ep: int, ep_data: dict) -> None:
+    """采集进度心跳：每打完一局即写一条，看板可逐局刷新局数/得分。"""
+    _append_training_jsonl_entry({
+        "event": "train_progress",
+        "episodes": int(global_ep),
+        "score": float(ep_data.get("score", 0.0)),
+        "steps": int(ep_data.get("steps", 0)),
+        "won": bool(ep_data.get("won", False)),
+    })
+
+
+# ---------------------------------------------------------------------------
 # 多进程 worker（CPU 推理采集，GPU 专做更新）
 # ---------------------------------------------------------------------------
 _pool_net: AnyNet | None = None
@@ -114,14 +155,17 @@ def _pool_worker_collect(args: tuple) -> list[dict]:
     global _pool_net, _pool_device
     state_dict, configs = args
     _pool_net.load_state_dict(state_dict)
-    return [
-        collect_episode(
+    episodes_out: list[dict] = []
+    for cfg in configs:
+        ep_data = collect_episode(
             _pool_net, _pool_device,
             cfg[0], cfg[1], cfg[2], cfg[3], cfg[4], cfg[5],
             win_threshold_override=cfg[6] if len(cfg) > 6 else None,
         )
-        for cfg in configs
-    ]
+        episodes_out.append(ep_data)
+        # 多 worker 并行采集时也逐局写心跳（与单进程路径一致），避免整批攒满前看板无输出。
+        _emit_train_progress_heartbeat(cfg[0], ep_data)
+    return episodes_out
 
 
 def _normalize_advantages(adv: torch.Tensor, min_std: float = 1e-4) -> torch.Tensor:
@@ -2323,15 +2367,9 @@ def train_loop(
         print(f"  Training JSONL: {_training_log_path}", file=sys.stderr)
 
     def _append_training_jsonl(entry: dict) -> None:
-        """与 rl_backend._append_training_log 字段对齐，看板可同时读取离线/在线日志。"""
         if _training_log_path is None:
             return
-        try:
-            row = {"ts": int(time.time()), **entry}
-            with open(_training_log_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(row, ensure_ascii=False) + "\n")
-        except OSError:
-            pass  # 写日志失败不应阻塞训练
+        _append_training_jsonl_entry(entry)
 
     if _use_quantile:
         print(
@@ -2555,16 +2593,7 @@ def train_loop(
                         win_threshold_override=cur_win_thr,
                     )
                     batch.append(_ep_data)
-                    # 采集进度心跳：每打完一局即写一条轻量日志，让看板每 ~1-2s 就能看到
-                    # 局数推进与单局得分，无需等整批 PPO 更新完成（train_episode 间隔可达数十秒，
-                    # 之前表现为「日志长时间不刷新、无法判断是否在训练」）。仅含基础字段，开销可忽略。
-                    _append_training_jsonl({
-                        "event": "train_progress",
-                        "episodes": ep_cursor + i + 1,
-                        "score": float(_ep_data.get("score", 0.0)),
-                        "steps": int(_ep_data.get("steps", 0)),
-                        "won": bool(_ep_data.get("won", False)),
-                    })
+                    _emit_train_progress_heartbeat(ep_cursor + i + 1, _ep_data)
                 tc1 = time.perf_counter()
                 t_collect_ms = (tc1 - tc0) * 1000
 
