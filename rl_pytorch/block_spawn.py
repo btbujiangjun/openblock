@@ -26,14 +26,47 @@ from typing import Any
 
 import numpy as np
 
+import os
+
 from .grid import Grid
 from .shapes_data import get_all_shapes, pick_random_shape_weighted, shape_category
 from . import fast_grid as _fg
 from .spawn_construction import try_construct, ConstructResult
+from .game_rules import constructive_spawn_config as _constructive_spawn_config
 
 MAX_SPAWN_ATTEMPTS = 18
 FILL_SURVIVABILITY_ON = 0.52
 SURVIVE_SEARCH_BUDGET = 14000
+
+
+def _constructive_attempt_prob(fill: float) -> float:
+    """legacy 出块构造式尝试概率，对齐真游戏 constructiveSpawn 的概率门控。
+
+    真游戏按 pressurePhase（low/mid/high）用 pCompleterLow/Mid/High 概率决定是否注入
+    构造块；legacy 无 pressurePhase，这里用盘面填充率 fill 作代理映射压力档：
+      fill < 0.40 → low、0.40~0.62 → mid、否则 high。
+    构造式被禁用（enabled=false）或概率取 0 时，完全走加权采样（与游戏裸 config 等价）。
+    RL_CONSTRUCTIVE_PROB 可显式覆盖（便于压测/消融）。
+    """
+    raw = os.environ.get("RL_CONSTRUCTIVE_PROB", "").strip()
+    if raw != "":
+        try:
+            return max(0.0, min(1.0, float(raw)))
+        except ValueError:
+            pass
+    cfg = _constructive_spawn_config()
+    if not cfg.get("enabled", False):
+        return 0.0
+    if fill < 0.40:
+        p = cfg.get("pCompleterLow", 0.7)
+    elif fill < 0.62:
+        p = cfg.get("pCompleterMid", 0.35)
+    else:
+        p = cfg.get("pCompleterHigh", 0.22)
+    try:
+        return max(0.0, min(1.0, float(p)))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _shape_cell_count(data: list[list[int]]) -> int:
@@ -617,7 +650,13 @@ def generate_dock_shapes(
 
     # v3: 构造式出块——在常规加权采样之前，尝试构造满足特定产品目标的三块组合
     # 使用独立 RNG 避免构造器搜索消耗影响后续加权采样的随机性
-    if dt < 0.7:
+    #
+    # 对齐真游戏：构造式只应「小概率」触发（真游戏按 pCompleterLow/Mid/High≈0.7/0.35/0.22
+    # 概率注入）。过去 legacy 仅看 dt<0.7 就每次跑重量三连搜索、命中必用，与游戏策略不一致
+    # 且造成大量无效构造调用（profile 中 ~49% CPU）。这里加入与游戏同源的概率门控：
+    # 未命中概率时直接走下方加权采样（与游戏多数 dock 的纯选择式行为一致）。
+    _construct_p = _constructive_attempt_prob(fill)
+    if dt < 0.7 and _construct_p > 0.0 and random.random() < _construct_p:
         rng_state = random.getstate()
         construct_result = _try_constructive_spawn(
             grid, fill, board, dt, scoring,

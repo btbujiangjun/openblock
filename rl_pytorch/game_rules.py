@@ -54,6 +54,16 @@ _RL_CURRICULUM = dict(_DATA.get("rlCurriculum") or {})
 _RL_BONUS_SCORING = dict(_DATA.get("rlBonusScoring") or {})
 
 
+def constructive_spawn_config() -> dict:
+    """构造式出块概率配置真源（与 web/src/bot/blockSpawn.js 同源 shared/game_rules.json）。
+
+    真游戏（含线上 Node worker）按 pCompleterLow/Mid/High 等概率门控注入构造块；
+    legacy Python 出块过去无此门控（dt<0.7 即每次跑重量搜索且命中必用），导致
+    与游戏策略不一致 + 大量无效构造调用。本配置供 block_spawn.py 对齐使用。
+    """
+    return dict((_DATA.get("adaptiveSpawn") or {}).get("constructiveSpawn") or {})
+
+
 def rl_bonus_block_icons() -> list[str] | None:
     """RL bonus icon 的唯一来源：shared/game_rules.json -> rlBonusScoring.blockIcons。"""
     if _RL_BONUS_SCORING.get("useGameplayBonusRules") is False:

@@ -2544,6 +2544,14 @@ def train_loop(
             except Exception as e:
                 print(f"警告: 共享 Zobrist 表创建失败，退化为本地缓存: {e}", file=sys.stderr)
 
+        # 采集前在父进程预热 numba 热核（编译+写盘缓存），避免 8 个 spawn worker 并发冷编译。
+        try:
+            from .fast_grid import warmup_numba_kernels
+            if warmup_numba_kernels():
+                print("numba 热核已预编译（fast_grid），worker 直接命中缓存", file=sys.stderr)
+        except Exception as _e:
+            print(f"numba 预热跳过: {_e}", file=sys.stderr)
+
         ctx = mp.get_context("spawn")
         pool = ctx.Pool(
             actual_workers,

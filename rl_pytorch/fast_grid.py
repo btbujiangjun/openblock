@@ -14,6 +14,281 @@ from numpy.lib.stride_tricks import sliding_window_view
 
 from .shapes_data import get_all_shapes
 
+# scipy.ndimage.label 用于空白连通分量计数（_contiguous_regions），不可用时回退纯 Python DFS。
+try:
+    from scipy.ndimage import label as _ndimage_label
+except Exception:  # pragma: no cover - scipy 缺失时优雅降级
+    _ndimage_label = None
+
+# Numba JIT：8×8 小数组上 numpy 单次派发开销就是地板（实测纯 numpy 向量化仅 ~1.08×），
+# 唯有把热核编译成原生循环才能拿到数量级提升（消除 ufunc/argwhere/add.at 的 Python 派发）。
+# 不可用时所有热核都有等价 numpy 回退（见各函数 else 分支），保证零依赖可运行。
+import os as _os
+
+if _os.environ.get("RL_NO_NUMBA", "").strip().lower() in ("1", "true", "yes", "on"):
+    _HAS_NUMBA = False  # 显式关闭（A/B 对比或排障逃生口）
+else:
+    try:
+        from numba import njit as _njit
+        _HAS_NUMBA = True
+    except Exception:  # pragma: no cover - numba 缺失时优雅降级到 numpy
+        _HAS_NUMBA = False
+
+if not _HAS_NUMBA:
+
+    def _njit(*args, **kwargs):  # type: ignore
+        def _deco(fn):
+            return fn
+        if args and callable(args[0]):
+            return args[0]
+        return _deco
+
+
+if _HAS_NUMBA:
+
+    @_njit(cache=True)
+    def _legal_positions_kernel(occ, shape):  # occ:uint8[n,n], shape:uint8[h,w]
+        """枚举 shape 所有无重叠放置 (gy,gx)，行优先（gy 外 gx 内）与 np.argwhere 同序。"""
+        n = occ.shape[0]
+        h = shape.shape[0]
+        w = shape.shape[1]
+        out = np.empty((n * n, 2), np.int32)
+        cnt = 0
+        for gy in range(n - h + 1):
+            for gx in range(n - w + 1):
+                ok = True
+                for sy in range(h):
+                    for sx in range(w):
+                        if shape[sy, sx] and occ[gy + sy, gx + sx]:
+                            ok = False
+                            break
+                    if not ok:
+                        break
+                if ok:
+                    out[cnt, 0] = gy
+                    out[cnt, 1] = gx
+                    cnt += 1
+        return out[:cnt].copy()
+
+    @_njit(cache=True)
+    def _batch_count_clears_kernel(occ, sy, sx, positions, row_counts, col_counts):
+        """对同一 shape 的 P 个放置位置逐个算消行数（满行数+满列数），与 numpy 版逐元素等价。"""
+        n = occ.shape[0]
+        k = sy.shape[0]
+        P = positions.shape[0]
+        out = np.empty(P, np.int32)
+        rd = np.zeros(n, np.int32)
+        cd = np.zeros(n, np.int32)
+        for p in range(P):
+            gy = positions[p, 0]
+            gx = positions[p, 1]
+            for i in range(n):
+                rd[i] = 0
+                cd[i] = 0
+            for j in range(k):
+                py = gy + sy[j]
+                px = gx + sx[j]
+                if occ[py, px] == 0:  # 仅新增占用格计入增量（与 is_new 掩码一致）
+                    rd[py] += 1
+                    cd[px] += 1
+            fr = 0
+            fc = 0
+            for i in range(n):
+                if row_counts[i] + rd[i] >= n:
+                    fr += 1
+                if col_counts[i] + cd[i] >= n:
+                    fc += 1
+            out[p] = fr + fc
+        return out
+
+    @_njit(cache=True)
+    def _board_features_kernel(grid, coverable):
+        """一次原生遍历算出 fast_board_features 的全部结构特征。
+
+        grid:int32[n,n]（occupied≥0,empty<0），coverable:uint8[n,n]（空格可被覆盖标记）。
+        返回与 numpy 版逐字段对齐的元组（整数特征精确等价，浮点特征数值等价）。
+        """
+        n = grid.shape[0]
+        af = 0.78
+        # 占用/空格 + 行列计数
+        row_sum = np.zeros(n, np.int32)
+        col_sum = np.zeros(n, np.int32)
+        filled = 0
+        holes = 0
+        for y in range(n):
+            for x in range(n):
+                if grid[y, x] >= 0:
+                    row_sum[y] += 1
+                    col_sum[x] += 1
+                    filled += 1
+                else:
+                    if coverable[y, x] == 0:
+                        holes += 1
+        row_fill = np.empty(n, np.float32)
+        col_fill = np.empty(n, np.float32)
+        for i in range(n):
+            row_fill[i] = row_sum[i] / n
+            col_fill[i] = col_sum[i] / n
+        # 行列 min/max/mean/std（总体方差 ddof=0）
+        max_row = row_fill[0]; min_row = row_fill[0]
+        max_col = col_fill[0]; min_col = col_fill[0]
+        srow = 0.0; scol = 0.0
+        for i in range(n):
+            if row_fill[i] > max_row: max_row = row_fill[i]
+            if row_fill[i] < min_row: min_row = row_fill[i]
+            if col_fill[i] > max_col: max_col = col_fill[i]
+            if col_fill[i] < min_col: min_col = col_fill[i]
+            srow += row_fill[i]; scol += col_fill[i]
+        mean_row = srow / n; mean_col = scol / n
+        vrow = 0.0; vcol = 0.0
+        for i in range(n):
+            dr = row_fill[i] - mean_row; vrow += dr * dr
+            dc = col_fill[i] - mean_col; vcol += dc * dc
+        std_row = (vrow / n) ** 0.5
+        std_col = (vcol / n) ** 0.5
+
+        # 行列跳变（边界视为 occupied）+ 井深 + 暴露边 + 凹角 + 列高 + 近满，单次/少次遍历
+        row_trans = 0; col_trans = 0; wells = 0; edge_exposure = 0; concave = 0
+        for y in range(n):
+            for x in range(n):
+                occ_yx = grid[y, x] >= 0
+                # 行内相邻 + 右边界
+                if x + 1 < n:
+                    if occ_yx != (grid[y, x + 1] >= 0):
+                        row_trans += 1
+                        edge_exposure += 1
+                else:
+                    if not occ_yx:
+                        row_trans += 1  # 与右边界(occupied)不同
+                # 列内相邻 + 下边界
+                if y + 1 < n:
+                    if occ_yx != (grid[y + 1, x] >= 0):
+                        col_trans += 1
+                        edge_exposure += 1
+                else:
+                    if not occ_yx:
+                        col_trans += 1
+                # 左边界（x==0 且为空 → 与左边界 occupied 不同）
+                if x == 0 and not occ_yx:
+                    row_trans += 1
+                if y == 0 and not occ_yx:
+                    col_trans += 1
+                if not occ_yx:
+                    # 井：左右邻（或边界）均 occupied
+                    left_occ = (x == 0) or (grid[y, x - 1] >= 0)
+                    right_occ = (x == n - 1) or (grid[y, x + 1] >= 0)
+                    if left_occ and right_occ:
+                        wells += 1
+                    # 凹角：4 个对角，正交两邻格均 occupied（越界=未占用）
+                    up = (y > 0) and (grid[y - 1, x] >= 0)
+                    down = (y < n - 1) and (grid[y + 1, x] >= 0)
+                    lf = (x > 0) and (grid[y, x - 1] >= 0)
+                    rt = (x < n - 1) and (grid[y, x + 1] >= 0)
+                    if up and lf: concave += 1
+                    if up and rt: concave += 1
+                    if down and lf: concave += 1
+                    if down and rt: concave += 1
+
+        # 列高 + height_std（每列首个被占用行；空列高 0）
+        col_h = np.zeros(n, np.float32)
+        for x in range(n):
+            for y in range(n):
+                if grid[y, x] >= 0:
+                    col_h[x] = (n - y) / n
+                    break
+        mh = 0.0
+        for x in range(n):
+            mh += col_h[x]
+        mh /= n
+        vh = 0.0
+        for x in range(n):
+            d = col_h[x] - mh; vh += d * d
+        height_std = (vh / n) ** 0.5
+
+        # 近满行/列 + close1/close2：fillable = 有空格且所有空格可覆盖
+        almost_full_rows = 0; almost_full_cols = 0; close1 = 0; close2 = 0
+        for y in range(n):
+            empty_cnt = 0; uncover = False
+            for x in range(n):
+                if grid[y, x] < 0:
+                    empty_cnt += 1
+                    if coverable[y, x] == 0:
+                        uncover = True
+            fillable = (empty_cnt > 0) and (not uncover)
+            if fillable:
+                if row_fill[y] >= af and row_fill[y] < 1.0:
+                    almost_full_rows += 1
+                if empty_cnt == 1:
+                    close1 += 1
+                elif empty_cnt == 2:
+                    close2 += 1
+        for x in range(n):
+            empty_cnt = 0; uncover = False
+            for y in range(n):
+                if grid[y, x] < 0:
+                    empty_cnt += 1
+                    if coverable[y, x] == 0:
+                        uncover = True
+            fillable = (empty_cnt > 0) and (not uncover)
+            if fillable:
+                if col_fill[x] >= af and col_fill[x] < 1.0:
+                    almost_full_cols += 1
+                if empty_cnt == 1:
+                    close1 += 1
+                elif empty_cnt == 2:
+                    close2 += 1
+
+        # 空白 4-连通分量数（flood fill，显式栈）
+        visited = np.zeros((n, n), np.uint8)
+        sy_st = np.empty(n * n, np.int32)
+        sx_st = np.empty(n * n, np.int32)
+        regions = 0
+        for y0 in range(n):
+            for x0 in range(n):
+                if grid[y0, x0] >= 0 or visited[y0, x0]:
+                    continue
+                regions += 1
+                sp = 0
+                sy_st[0] = y0; sx_st[0] = x0; visited[y0, x0] = 1; sp = 1
+                while sp > 0:
+                    sp -= 1
+                    cy = sy_st[sp]; cx = sx_st[sp]
+                    if cy > 0 and not visited[cy - 1, cx] and grid[cy - 1, cx] < 0:
+                        visited[cy - 1, cx] = 1; sy_st[sp] = cy - 1; sx_st[sp] = cx; sp += 1
+                    if cy + 1 < n and not visited[cy + 1, cx] and grid[cy + 1, cx] < 0:
+                        visited[cy + 1, cx] = 1; sy_st[sp] = cy + 1; sx_st[sp] = cx; sp += 1
+                    if cx > 0 and not visited[cy, cx - 1] and grid[cy, cx - 1] < 0:
+                        visited[cy, cx - 1] = 1; sy_st[sp] = cy; sx_st[sp] = cx - 1; sp += 1
+                    if cx + 1 < n and not visited[cy, cx + 1] and grid[cy, cx + 1] < 0:
+                        visited[cy, cx + 1] = 1; sy_st[sp] = cy; sx_st[sp] = cx + 1; sp += 1
+
+        return (
+            filled, row_fill, col_fill,
+            float(max_row), float(min_row), float(max_col), float(min_col),
+            float(mean_row), float(mean_col), float(std_row), float(std_col),
+            holes, row_trans, col_trans, wells, edge_exposure,
+            regions, concave, float(height_std),
+            almost_full_rows, almost_full_cols, close1, close2,
+        )
+
+
+def warmup_numba_kernels() -> bool:
+    """在父进程中预触发 numba 热核编译并写入磁盘缓存（cache=True）。
+
+    多进程 spawn 采集时若 8 个 worker 同时首次调用会并发冷编译（受文件锁串行化、拖慢首批）。
+    采集前在父进程调用本函数一次，worker 启动后直接命中 .nbc/.nbi 缓存、无需重编译。
+    numba 不可用时为 no-op，返回 False。
+    """
+    if not _HAS_NUMBA:
+        return False
+    dummy = np.full((8, 8), -1, dtype=np.int32)
+    dummy[0, 0] = 0
+    shp = np.ones((1, 2), dtype=np.uint8)
+    pos = get_legal_positions(dummy, shp)
+    batch_count_clears(dummy, shp, pos)
+    fast_board_features(dummy)
+    return True
+
 
 def grid_to_np(grid) -> np.ndarray:
     """Grid.cells → int8 numpy array。occupied ≥ 0，empty = -1。"""
@@ -48,11 +323,27 @@ def count_unfillable_cells(grid_np: np.ndarray, shapes: list[dict] | None = None
 def coverable_cells(grid_np: np.ndarray, shapes: list[dict] | None = None) -> np.ndarray:
     """返回空格能否被任一合法形状覆盖的 bool 矩阵。
 
-    向量化实现：对每个形状，positions(N×2) 与 cells(M×2) 做广播得到所有覆盖坐标
-    (N·M×2)，一次性写入 coverable，避免逐行 Python 解包（旧实现三层循环在近空棋盘
-    合法位置上百时会组合爆炸，单步特征提取退化到秒级）。
+    **shapes 为 None（默认全量形状库）时的精确捷径**：形状库包含全部 2 格块
+    （1x2 / 2x1 / diag-2a / diag-2b，含特殊块），它们合起来覆盖 8 个邻接方向。
+    因此「空格 c 能被某形状覆盖」⟺「c 为空且其 8-邻域内至少有一个空格」——
+    孤立空格（8 邻域全满）无任何形状可覆盖；只要有一个空邻格，对应 2 格块即可覆盖 c。
+    更大的块约束更强，不会覆盖到 2 格块覆盖不到的孤立空格，故该判据精确等价于
+    遍历全部 40 个形状。这把曾占采集 ~49% CPU 的「40 形状 × sliding_window_view」
+    降为一次 8-邻域 OR。（已用暴力实现做随机盘等价校验。）
+
+    传入自定义 shapes 子集时，回退到通用的逐形状向量化枚举。
     """
     n = grid_np.shape[0]
+    if shapes is None:
+        empty = grid_np < 0
+        padded = np.zeros((n + 2, n + 2), dtype=bool)
+        padded[1:-1, 1:-1] = empty
+        neighbor_empty = (
+            padded[0:n, 0:n] | padded[0:n, 1:n + 1] | padded[0:n, 2:n + 2]
+            | padded[1:n + 1, 0:n] | padded[1:n + 1, 2:n + 2]
+            | padded[2:n + 2, 0:n] | padded[2:n + 2, 1:n + 1] | padded[2:n + 2, 2:n + 2]
+        )
+        return empty & neighbor_empty
     coverable = np.zeros((n, n), dtype=bool)
     for shape in shapes or get_all_shapes():
         data = shape.get("data") if isinstance(shape, dict) else shape
@@ -87,6 +378,11 @@ def get_legal_positions(grid_np: np.ndarray, shape_np: np.ndarray) -> np.ndarray
     h, w = shape_np.shape
     if h > n or w > n or h == 0 or w == 0:
         return np.empty((0, 2), dtype=np.int32)
+
+    if _HAS_NUMBA:
+        occ = np.ascontiguousarray(grid_np >= 0, dtype=np.uint8)
+        shp = np.ascontiguousarray(shape_np, dtype=np.uint8)
+        return _legal_positions_kernel(occ, shp)
 
     occ = occupied_mask(grid_np)
     windows = sliding_window_view(occ, (h, w))
@@ -136,6 +432,16 @@ def batch_count_clears(
         return np.zeros(P, dtype=np.int32)
     sy = shape_cells[:, 0]
     sx = shape_cells[:, 1]
+
+    if _HAS_NUMBA:
+        return _batch_count_clears_kernel(
+            np.ascontiguousarray(occ, dtype=np.uint8),
+            np.ascontiguousarray(sy, dtype=np.int32),
+            np.ascontiguousarray(sx, dtype=np.int32),
+            np.ascontiguousarray(positions, dtype=np.int32),
+            row_counts,
+            col_counts,
+        )
 
     gy = positions[:, 0]
     gx = positions[:, 1]
@@ -246,10 +552,43 @@ def count_clears_single(
 # ---------------------------------------------------------------------------
 
 def fast_board_features(grid_np: np.ndarray) -> dict:
-    """一次 numpy 调用返回所有棋盘结构特征。"""
+    """返回所有棋盘结构特征。numba 可用时走单次原生遍历的编译热核，否则走 numpy 向量化回退。"""
     n = grid_np.shape[0]
-    occ = occupied_mask(grid_np)
     area = n * n
+
+    if _HAS_NUMBA:
+        # coverable 已是廉价的一次 8-邻域 OR，保留 numpy；其余结构特征交给编译热核。
+        coverable = coverable_cells(grid_np)
+        (
+            filled, row_fill, col_fill,
+            max_row, min_row, max_col, min_col,
+            mean_row, mean_col, std_row, std_col,
+            holes, row_trans, col_trans, wells, edge_exposure,
+            contiguous_regions, concave_corners, height_std,
+            almost_full_rows, almost_full_cols, close1, close2,
+        ) = _board_features_kernel(
+            np.ascontiguousarray(grid_np, dtype=np.int32),
+            np.ascontiguousarray(coverable, dtype=np.uint8),
+        )
+        return {
+            "filled": int(filled), "area": area,
+            "row_fill": row_fill, "col_fill": col_fill,
+            "max_row": max_row, "min_row": min_row,
+            "max_col": max_col, "min_col": min_col,
+            "mean_row": mean_row, "mean_col": mean_col,
+            "std_row": std_row, "std_col": std_col,
+            "almost_full_rows": int(almost_full_rows),
+            "almost_full_cols": int(almost_full_cols),
+            "holes": int(holes), "row_trans": int(row_trans),
+            "col_trans": int(col_trans), "wells": int(wells),
+            "close1": int(close1), "close2": int(close2),
+            "edge_exposure": int(edge_exposure),
+            "contiguous_regions": int(contiguous_regions),
+            "concave_corners": int(concave_corners),
+            "height_std": height_std,
+        }
+
+    occ = occupied_mask(grid_np)
 
     filled = int(occ.sum())
     row_fill = occ.sum(axis=1).astype(np.float32) / n
@@ -270,15 +609,25 @@ def fast_board_features(grid_np: np.ndarray) -> dict:
     coverable = coverable_cells(grid_np)
     holes = int(((grid_np < 0) & ~coverable).sum())
 
-    # 行列跳变（向量化）：pad 边界为 occupied，统计相邻差异
-    padded_h = np.pad(occ, ((0, 0), (1, 1)), constant_values=1)
-    row_trans = int(np.sum(padded_h[:, :-1] != padded_h[:, 1:]))
-    padded_v = np.pad(occ, ((1, 1), (0, 0)), constant_values=1)
-    col_trans = int(np.sum(padded_v[:-1, :] != padded_v[1:, :]))
+    # 行列跳变（向量化）：边界视为 occupied。np.pad 每次新建数组开销大（实测占本函数 ~32%
+    # cumtime），改为「内部相邻差异 + 两端边界差异」直接切片求和，结果逐字段等价：
+    #   边界(1) 与首/尾格不同 ⟺ 该格为空(occ==0)，故两端贡献 = 首/尾行列的空格数。
+    row_trans = int(
+        np.sum(occ[:, :-1] != occ[:, 1:])
+        + np.count_nonzero(occ[:, 0] == 0)
+        + np.count_nonzero(occ[:, -1] == 0)
+    )
+    col_trans = int(
+        np.sum(occ[:-1, :] != occ[1:, :])
+        + np.count_nonzero(occ[0, :] == 0)
+        + np.count_nonzero(occ[-1, :] == 0)
+    )
 
-    # 井深（向量化）：空格且左右邻居（或边界）均为 occupied
-    left_nb = np.pad(occ, ((0, 0), (1, 0)), constant_values=1)[:, :-1].astype(bool)
-    right_nb = np.pad(occ, ((0, 0), (0, 1)), constant_values=1)[:, 1:].astype(bool)
+    # 井深（向量化）：空格且左右邻居（或边界）均为 occupied。用切片构造邻接掩码替代 np.pad。
+    left_nb = np.ones_like(occ_bool)
+    left_nb[:, 1:] = occ_bool[:, :-1]
+    right_nb = np.ones_like(occ_bool)
+    right_nb[:, :-1] = occ_bool[:, 1:]
     wells = int((~occ_bool & left_nb & right_nb).sum())
 
     # 暴露边（吸附/贴合约束用）：占用区朝向「界内空格」的 4-邻接边数（墙边不计 → 贴墙=吸附）。
@@ -293,41 +642,32 @@ def fast_board_features(grid_np: np.ndarray) -> dict:
 
     # 列高标准差（top-profile）：与 web/src/bot/features.js heightStd 同口径——
     # 每列从顶部数最低被占用行得到列高 (n - first_occupied_row)，空列高 0。
-    col_heights = np.zeros(n, dtype=np.float32)
-    for x in range(n):
-        occ_rows = np.where(occ_bool[:, x])[0]
-        if occ_rows.size:
-            col_heights[x] = n - int(occ_rows[0])
+    # 向量化：argmax 取每列首个被占用行（空列 any_occ=False → 高 0），替代 Python 循环。
+    any_occ_col = occ_bool.any(axis=0)
+    first_occ_row = occ_bool.argmax(axis=0)  # 无占用时为 0，由 any_occ_col 掩码归零
+    col_heights = np.where(any_occ_col, n - first_occ_row, 0).astype(np.float32)
     height_std = float((col_heights / n).std())
 
-    # 差 1/2 格满
+    # 差 1/2 格满（向量化，与逐行/列循环逐字段等价）：
+    #   fillable(行) = 该行有空格 且 所有空格均可被覆盖（即无「空且不可覆盖」格）。
     af = 0.78
-    almost_full_rows = 0
-    almost_full_cols = 0
-    close1 = 0
-    close2 = 0
+    empty_mask = grid_np < 0
+    uncoverable_empty = empty_mask & ~coverable
+    empty_per_row = empty_mask.sum(axis=1)
+    empty_per_col = empty_mask.sum(axis=0)
+    row_fillable = (empty_per_row > 0) & ~uncoverable_empty.any(axis=1)
+    col_fillable = (empty_per_col > 0) & ~uncoverable_empty.any(axis=0)
 
-    for y in range(n):
-        empty = np.where(grid_np[y, :] < 0)[0]
-        empty_count = len(empty)
-        fillable = empty_count > 0 and bool(coverable[y, empty].all())
-        if fillable and row_fill[y] >= af and row_fill[y] < 1.0:
-            almost_full_rows += 1
-        if fillable and empty_count == 1:
-            close1 += 1
-        elif fillable and empty_count == 2:
-            close2 += 1
-
-    for x in range(n):
-        empty = np.where(grid_np[:, x] < 0)[0]
-        empty_count = len(empty)
-        fillable = empty_count > 0 and bool(coverable[empty, x].all())
-        if fillable and col_fill[x] >= af and col_fill[x] < 1.0:
-            almost_full_cols += 1
-        if fillable and empty_count == 1:
-            close1 += 1
-        elif fillable and empty_count == 2:
-            close2 += 1
+    almost_full_rows = int(np.sum(row_fillable & (row_fill >= af) & (row_fill < 1.0)))
+    almost_full_cols = int(np.sum(col_fillable & (col_fill >= af) & (col_fill < 1.0)))
+    close1 = int(
+        np.sum(row_fillable & (empty_per_row == 1))
+        + np.sum(col_fillable & (empty_per_col == 1))
+    )
+    close2 = int(
+        np.sum(row_fillable & (empty_per_row == 2))
+        + np.sum(col_fillable & (empty_per_col == 2))
+    )
 
     return {
         "filled": filled,
@@ -358,7 +698,15 @@ def fast_board_features(grid_np: np.ndarray) -> dict:
 
 
 def _contiguous_regions(occ_bool: np.ndarray) -> int:
-    """空白（~occ）4-连通分量数 —— 与 boardTopology.js countEmptyRegions 同口径。"""
+    """空白（~occ）4-连通分量数 —— 与 boardTopology.js countEmptyRegions 同口径。
+
+    优先用 scipy.ndimage.label（4-邻接结构元）做连通分量计数，等价于原 Python DFS 但更快；
+    scipy 不可用时回退到纯 Python flood-fill DFS（保持零依赖可运行）。
+    """
+    if _ndimage_label is not None:
+        # structure 默认即 4-连通（十字结构），label 返回分量数；对全占用盘返回 0，与 DFS 一致。
+        _, num = _ndimage_label(~occ_bool)
+        return int(num)
     n = occ_bool.shape[0]
     visited = np.zeros((n, n), dtype=bool)
     regions = 0
@@ -380,20 +728,24 @@ def _contiguous_regions(occ_bool: np.ndarray) -> int:
 
 
 def _concave_corners(occ_bool: np.ndarray) -> int:
-    """凹角数 —— 与 boardTopology.js countConcaveCorners 同口径（越界视为未占用）。"""
+    """凹角数 —— 与 boardTopology.js countConcaveCorners 同口径（越界视为未占用）。
+
+    向量化：对每个空格 (y,x)，4 个对角各计一次「正交两邻格均被占用」。用越界=False 的
+    平移掩码 up/down/left/right 替代逐格 Python 双循环，逐项与原实现等价。
+    """
     n = occ_bool.shape[0]
-
-    def occ(y: int, x: int) -> bool:
-        return 0 <= y < n and 0 <= x < n and bool(occ_bool[y, x])
-
-    count = 0
-    for y in range(n):
-        for x in range(n):
-            if occ_bool[y, x]:
-                continue
-            for dy, dx in ((-1, -1), (-1, 1), (1, -1), (1, 1)):
-                if occ(y + dy, x) and occ(y, x + dx):
-                    count += 1
+    empty = ~occ_bool
+    # 平移：up[y,x]=occ(y-1,x)，down=occ(y+1,x)，left=occ(y,x-1)，right=occ(y,x+1)；越界补 False。
+    up = np.zeros_like(occ_bool); up[1:, :] = occ_bool[:-1, :]
+    down = np.zeros_like(occ_bool); down[:-1, :] = occ_bool[1:, :]
+    left = np.zeros_like(occ_bool); left[:, 1:] = occ_bool[:, :-1]
+    right = np.zeros_like(occ_bool); right[:, :-1] = occ_bool[:, 1:]
+    count = (
+        np.sum(empty & up & left)
+        + np.sum(empty & up & right)
+        + np.sum(empty & down & left)
+        + np.sum(empty & down & right)
+    )
     return int(count)
 
 

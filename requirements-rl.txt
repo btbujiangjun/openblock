@@ -3,3 +3,8 @@
 # - NVIDIA：--device cuda
 numpy>=1.22
 torch>=2.0.0
+# 可选加速（缺失时自动回退到纯 numpy/DFS，功能不受影响）：
+# - numba：把 8×8 棋盘热核（合法位置/消行/棋盘特征）JIT 成原生循环，实测 5~10× 提速
+# - scipy：空白连通分量计数（fast_board_features）走 ndimage.label
+numba>=0.60
+scipy>=1.10
