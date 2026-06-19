@@ -57,10 +57,19 @@ FILES=(
   "lib/decisionTable.js"
   "lib/userBucketing.js"
   "lib/beaconSender.js"
+  # V2 V5：adaptiveSpawn / analytics 依赖（与 cocos sync 名单对齐）
+  "lib/analyticsStore.js"
+  "lib/loggerBatchSink.js"
   # NN-F1 / OO3：跨端 trace 上下文，三端共享同源
   "lib/traceContext.js"
   # OO6 / NN-F4.1：bitmap ops 抽象层（JS fallback + WASM-ready）
   "lib/bitmapOps.js"
+  # OO4 / NN-F2.1：remote game_rules（CDN 拉取 + 24h cache + 签名 hook）
+  "gameRulesRemote.js"
+  # OO5 / NN-F3.1：spawn DSL runtime
+  "spawn/spawnRulesDsl.js"
+  # PP5 / NN-F3.3：baseRules DSL 镜像
+  "spawn/baseRulesDsl.js"
   # PP6 / NN-F4.2：60 字节手编码 WASM popcount/ctz
   "lib/bitmapOpsWasm.js"
   # PP1 / NN-F2.2：签名验证（Ed25519/HMAC SubtleCrypto 包装）
