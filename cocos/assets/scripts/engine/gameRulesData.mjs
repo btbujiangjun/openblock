@@ -309,7 +309,7 @@ export default {
     "comment": "自适应出块系统：综合玩家实时能力画像（技能水平、心流状态、节奏相位、挫败感、差一点效应、新手标识）动态选择出块权重档位 + spawnHints，维持心流体验、延长停留时间。",
     "enabled": true,
     "phaseGeomGain": {
-      "comment": "§O2 相位化几何信号增益：playerAbilityModel 中『由真实几何派生的负向项』（holePenalty/nearClearScore/lockRiskScore）按本配置乘以系数。解决 §4.17 几何信号回灌后『新手早期 1 个 close1 就让形状先验向 t/z 漂』『温暖局 ability 几何项剧烈波动』两个副作用。1=完全消费=旧行为；<1=按比例衰减（仅衰减负向项，保留正向 spatialPlanning 不动）。adaptiveSpawn 读 cfg.phaseGeomGain 并在调 buildPlayerAbilityVector 时按 inOnboarding/warmRunState.active 选定一项。",
+      "comment": "相位化几何增益 相位化几何信号增益：playerAbilityModel 中『由真实几何派生的负向项』（holePenalty/nearClearScore/lockRiskScore）按本配置乘以系数。解决 §4.17 几何信号回灌后『新手早期 1 个 close1 就让形状先验向 t/z 漂』『温暖局 ability 几何项剧烈波动』两个副作用。1=完全消费=旧行为；<1=按比例衰减（仅衰减负向项，保留正向 spatialPlanning 不动）。adaptiveSpawn 读 cfg.phaseGeomGain 并在调 buildPlayerAbilityVector 时按 inOnboarding/warmRunState.active 选定一项。",
       "onboarding": 0.3,
       "warmRun": 0.5,
       "default": 1
@@ -451,7 +451,7 @@ export default {
         "escalateAfterApproachCount": 3,
         "scorePerSpawnSoftCap": 0.06,
         "hintsCapHeadroomRatio": 0.25,
-        "yieldHitsComment": "§O3 持续阈值让位：bottleneck/near_miss 让位由『单帧触发』改为『连续 ≥N 帧触发』，缓解高 PB 前期 PEOG 因瞬时谷值频繁中断、PB 加压窗口建立不起来的问题。默认 2 帧；设为 1 = 旧行为（瞬时让位）；设为 >1 = 抗抖动。",
+        "yieldHitsComment": "PEOG 抗抖动 持续阈值让位：bottleneck/near_miss 让位由『单帧触发』改为『连续 ≥N 帧触发』，缓解高 PB 前期 PEOG 因瞬时谷值频繁中断、PB 加压窗口建立不起来的问题。默认 2 帧；设为 1 = 旧行为（瞬时让位）；设为 >1 = 抗抖动。",
         "bottleneckYieldHits": 2,
         "nearMissYieldHits": 2,
         "intensities": {
@@ -1158,7 +1158,7 @@ export default {
         "killer": 0.13,
         "fragmentation": 0.12
       },
-      "vectorComment": "v-research §2.10 难度相对论：把 computeSpawnStepDifficulty.terms 确定性投影为 6 维『考点向量』difficultyVec(b⃗)={b_spatial,b_combo,b_order,b_recovery,b_tempo,b_clearEff}，供等体感选块对齐 b* 使用。每个 b 维 = clamp01(Σ coef·term)（每维系数和≈1）。§O4 升级：combo/recovery/clearEff 由消费真实信号 clearPotential(meanNearFullDelta)/cleanPath(minHoleIncrement 反向)/permVariance(solutionDiversity)，与原 terms 自动重分配；solutionMetrics 缺省时旧 terms 兜底，行为完全兼容。标量 stepDifficulty 与 5 档桶口径完全不变。enabled=false 或缺省时 computeSpawnStepDifficulty 仍返回 difficultyVec（纯加字段，不影响既有消费方）。",
+      "vectorComment": "v-research §2.10 难度相对论：把 computeSpawnStepDifficulty.terms 确定性投影为 6 维『考点向量』difficultyVec(b⃗)={b_spatial,b_combo,b_order,b_recovery,b_tempo,b_clearEff}，供等体感选块对齐 b* 使用。每个 b 维 = clamp01(Σ coef·term)（每维系数和≈1）。difficultyVec 真实信号化 升级：combo/recovery/clearEff 由消费真实信号 clearPotential(meanNearFullDelta)/cleanPath(minHoleIncrement 反向)/permVariance(solutionDiversity)，与原 terms 自动重分配；solutionMetrics 缺省时旧 terms 兜底，行为完全兼容。标量 stepDifficulty 与 5 档桶口径完全不变。enabled=false 或缺省时 computeSpawnStepDifficulty 仍返回 difficultyVec（纯加字段，不影响既有消费方）。",
       "vectorWeights": {
         "spatial": {
           "scd": 0.55,
@@ -1207,7 +1207,7 @@ export default {
       "alignSharpness": 2,
       "alignTemperature": 0.15,
       "burstReleaseProb": 0.2,
-      "earlyPhaseComment": "§O5 早期相位 b* 上界：低 d* 阶段（d* < earlyPhaseDStar，默认 0.40）即便 θ 偏高也把 b* 钳制在 d + earlyPhaseBStarCap（默认 0.10）以内，解决『高 PB 玩家前期被喂偏难三连』。这是不对称钳制：只压上限不抬下限，仍允许弱项 ZPD 课程在低 d* 时正向施压。earlyPhaseDStar=0 时禁用（保留旧行为）。与 solveObjectiveTarget 主公式 b=(1-λ)d+λ·clamp(θ+(d-0.5)) 互补，前者是『相对论』，后者是『前期保护』。",
+      "earlyPhaseComment": "b* 前期上界 早期相位 b* 上界：低 d* 阶段（d* < earlyPhaseDStar，默认 0.40）即便 θ 偏高也把 b* 钳制在 d + earlyPhaseBStarCap（默认 0.10）以内，解决『高 PB 玩家前期被喂偏难三连』。这是不对称钳制：只压上限不抬下限，仍允许弱项 ZPD 课程在低 d* 时正向施压。earlyPhaseDStar=0 时禁用（保留旧行为）。与 solveObjectiveTarget 主公式 b=(1-λ)d+λ·clamp(θ+(d-0.5)) 互补，前者是『相对论』，后者是『前期保护』。",
       "earlyPhaseDStar": 0.4,
       "earlyPhaseBStarCap": 0.1,
       "dims": [
@@ -1232,7 +1232,7 @@ export default {
         "enabled": true,
         "strength": 0.4,
         "cap": 0.2,
-        "dimAffinityComment": "§O4 修正：spatial 维对 lines/squares 的负权重过强，会与 clearEff/recovery 维的正权重在高填充率下抵消失衡。本次把 spatial 负权重减半（-0.20→-0.10、-0.30→-0.15），并把 clearEff 维 lines/rects 正权重抬到 0.70/0.60（原 0.50/0.40），让 b*_clearEff 高时主导拉高消除型形状池权重，对齐 b* 与促爽消同向。仍保留 tshapes/zshapes/lshapes/jshapes 在 spatial/order 维的正向（高 b*_spatial 时这些形状定向加压），方向不变。",
+        "dimAffinityComment": "difficultyVec 真实信号化 修正：spatial 维对 lines/squares 的负权重过强，会与 clearEff/recovery 维的正权重在高填充率下抵消失衡。本次把 spatial 负权重减半（-0.20→-0.10、-0.30→-0.15），并把 clearEff 维 lines/rects 正权重抬到 0.70/0.60（原 0.50/0.40），让 b*_clearEff 高时主导拉高消除型形状池权重，对齐 b* 与促爽消同向。仍保留 tshapes/zshapes/lshapes/jshapes 在 spatial/order 维的正向（高 b*_spatial 时这些形状定向加压），方向不变。",
         "dimAffinity": {
           "spatial": {
             "lines": -0.1,

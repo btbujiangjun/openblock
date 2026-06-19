@@ -510,14 +510,14 @@ export function buildPlayerStateSnapshot(profile, ctx) {
                 enabled: r.enabled === true,
                 bypass: r.bypass ?? null,
                 lambda: Number.isFinite(Number(r.lambda)) ? Number(r.lambda) : 0,
-                /* §O1（pv=5+）：相位化对齐预算（'off'|'prior_only'|'kbest_only'|'full'|null）。
+                /* 相位化对齐预算（pv=5+）：'off'|'prior_only'|'kbest_only'|'full'|null。
                  * 旧帧无该字段，读端按 null 自然兼容；为 null 时离线归类为"未标注"桶。 */
                 intent: typeof r.intent === 'string' ? r.intent : null,
-                /* §O2（pv=5+）：本帧 ability 几何信号增益（1=完全消费=mid 段，<1=onboarding/warmRun 期衰减）。 */
+                /* 几何信号增益（pv=5+）：1=完全消费=mid 段，<1=onboarding/warmRun 期衰减。 */
                 phaseGeomGain: Number.isFinite(Number(r.phaseGeomGain)) ? Number(r.phaseGeomGain) : null,
-                /* §O5（pv=5+）：本帧 b* 是否触前期上界（true=高 PB 玩家前期保护生效）。 */
+                /* 前期上界（pv=5+）：本帧 b* 是否触上界（true=高 PB 玩家前期保护生效）。 */
                 earlyPhaseCapHit: r.earlyPhaseCapHit === true,
-                /* §O3（pv=5+）：PEOG bottleneck/near_miss 让位计数器（仅 PEOG active 时有值）。 */
+                /* PEOG 抗抖动（pv=5+）：bottleneck/near_miss 让位计数器（仅 PEOG active 时有值）。 */
                 peogYieldHits: r.peogYieldHits && typeof r.peogYieldHits === 'object'
                     ? { ...r.peogYieldHits } : null,
                 dStar: Number.isFinite(Number(r.dStar)) ? Number(r.dStar) : null,
@@ -873,7 +873,7 @@ export function formatPlayerStateForReplay(ps) {
         lines.push(
             `投放 stress ${num(ad.stress)} · fill ${num(ad.fillRatio)} · 技能(est) ${num(ad.skillLevel)}`
         );
-        /* §O1/O2/O3/O5：把回放帧的相对论一行可读化——回放者能直接看到"这一帧系统在用
+        /* 把回放帧的相对论一行可读化——回放者能直接看到"这一帧系统在用
          * 哪一档对齐预算 / 是否在衰减几何信号 / 是否触前期上界 / PEOG 是否在抗抖动"。
          * 旧帧（pv<5 或 enabled=false）字段全 null，此处自然不输出。 */
         const r = ad.relativity;
@@ -1130,7 +1130,7 @@ export const REPLAY_METRICS = [
     },
     {
         key: 'frustration',
-        label: '未消行',
+        label: '未清',
         group: 'state',
         extract: ps => ps.frustration,
         fmt: 'int',
@@ -1216,17 +1216,17 @@ export const REPLAY_METRICS = [
     },
     {
         key: 'flowAdjust',
-        label: '心流',
+        label: '心流贡',
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.flowAdjust,
         fmt: 'f2',
-        tooltip: '心流偏移修正：F(t) 偏向无聊（玩家觉得太简单）→ 加压；偏向焦虑 → 减压。绝对值越大说明系统越主动调整难度。\n📈 看图：与「F(t)」+「消行率」共看——F(t)>0.55 + clearRate>42% → 正向（加压抗 bored）；F(t)>0.55 + clearRate<30% → 负向（减压救 anxious）。值贴近 0 = 玩家在沉浸区，无需主动干预。'
+        tooltip: '心流贡献：F(t) 偏向无聊（玩家觉得太简单）→ 加压；偏向焦虑 → 减压。它是 F(t) 对 stress 的数值贡献，不是 F(t) 本身。\n📈 看图：与「F(t)」+「消行率」共看——F(t)>0.55 + clearRate>42% → 正向（加压抗 bored）；F(t)>0.55 + clearRate<30% → 负向（减压救 anxious）。值贴近 0 = 玩家在沉浸区，无需主动干预。'
     },
     /* v1.46：「反应触发的 stress 微调」(reactionAdjust) — pickToPlaceMs 落入快/慢区间时
      * 对 stress 施加 ±0.05 的微调；与 flowAdjust 同列展示，便于看"反应快慢→出块强度"的反馈链。 */
     {
         key: 'reactionAdjust',
-        label: '反应调',
+        label: '反应',
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.reactionAdjust,
         fmt: 'f2',
@@ -1235,13 +1235,12 @@ export const REPLAY_METRICS = [
     {
         key: 'pacingAdjust',
         // v1.20：原标签"节奏"与右侧 spawnHints.rhythmPhase pill 的「节奏 收获/中性/搭建」
-        // 撞名（同名不同概念：rhythmPhase 是"相位"枚举、pacingAdjust 是"松紧"数值微调），
-        // 改用「松紧」与 rhythmPhase 解耦，对应 stressBreakdown 中节奏阶段对 stress 的实际偏移量。
-        label: '松紧',
+        // 撞名；这里用“张弛贡”强调它是 pacing 对 stress 的贡献值。
+        label: '张弛贡',
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.pacingAdjust,
         fmt: 'f2',
-        tooltip: '节奏松紧（pacingAdjust）：搭建期(setup) 略加压、收获期(payoff/release) 减压（让多消爽点更易触发），中性时为 0。⚠ 与右侧「节奏 收获/中性/搭建」pill（rhythmPhase 相位枚举）不同——那是"现在处于什么阶段"，本指标是"该阶段对 stress 的具体偏移量"。\n📈 看图：默认 release 期约 -0.12 / tension 期约 +0.04（typical 在 -0.20 ~ +0.10 之间，可配置）；与右侧 rhythmPhase pill 切换同步——pill 切到「收获」此值通常变负、切到「搭建」通常变正。'
+        tooltip: '张弛贡献（pacingAdjust）：搭建期(setup) 略加压、收获期(payoff/release) 减压（让多消爽点更易触发），中性时为 0。⚠ 与右侧「节奏 收获/中性/搭建」pill（rhythmPhase 相位枚举）不同——那是"现在处于什么阶段"，本指标是"该阶段对 stress 的具体偏移量"。\n📈 看图：默认 release 期约 -0.12 / tension 期约 +0.04（typical 在 -0.20 ~ +0.10 之间，可配置）；与右侧 rhythmPhase pill 切换同步——pill 切到「收获」此值通常变负、切到「搭建」通常变正。'
     },
     {
         key: 'friendlyBoardRelief',
@@ -1253,11 +1252,11 @@ export const REPLAY_METRICS = [
     },
     {
         key: 'sessionArcAdjust',
-        label: '会话',
+        label: '会话贡',
         group: 'stress',
         extract: ps => ps.adaptive?.stressBreakdown?.sessionArcAdjust,
         fmt: 'f2',
-        tooltip: '会话弧线整体节奏：热身期减压、巅峰期加压、收官期略减压，按本局阶段比例插值。\n📈 看图：单局内呈"半圆弧"——开头负（热身减压）→ 中段正（巅峰加压）→ 结尾微负（收官缓和）。与左上「session 阶段」tag (early/peak/late) 严格对应。'
+        tooltip: '会话贡献：热身期减压、巅峰期加压、收官期略减压，按本局阶段比例插值。它是会话阶段对 stress 的贡献值，不是 sessionPhase 状态本身。\n📈 看图：单局内呈"半圆弧"——开头负（热身减压）→ 中段正（巅峰加压）→ 结尾微负（收官缓和）。与左上「session 阶段」tag (early/peak/late) 严格对应。'
     },
     {
         key: 'challengeBoost',
@@ -1308,7 +1307,7 @@ export const REPLAY_METRICS = [
     },
     {
         key: 'regionEntropy',
-        label: '区域熵',
+        label: '熵',
         group: 'game',
         extract: ps => ps.spawnGeo?.regionEntropy,
         fmt: 'pct',
@@ -1317,7 +1316,7 @@ export const REPLAY_METRICS = [
     },
     {
         key: 'largestRegionRatio',
-        label: '最大开放区',
+        label: '开放',
         group: 'game',
         extract: ps => ps.spawnGeo?.largestRegionRatio,
         fmt: 'pct',
@@ -1326,7 +1325,7 @@ export const REPLAY_METRICS = [
     },
     {
         key: 'smallRegionCellRatio',
-        label: '小死腔',
+        label: '死腔',
         group: 'game',
         extract: ps => ps.spawnGeo?.smallRegionCellRatio,
         fmt: 'pct',
@@ -1339,89 +1338,120 @@ export const REPLAY_METRICS = [
      */
     {
         key: 'relativityLambda',
-        label: '相对论λ',
+        label: 'λ',
         group: 'relativity',
-        extract: ps => ps.adaptive?.relativity?.lambda,
+        extract: ps => {
+            const r = ps.adaptive?.relativity;
+            if (!r) return null;
+            return Number.isFinite(Number(r.lambda)) ? Number(r.lambda) : 0;
+        },
         fmt: 'f2',
         tooltip:
             '难度相对论个性化强度 λ（0~1）：体感目标 d*=stress 反解客观目标 b* 时，在「均匀客观（λ=0，≡现状）」与「按 θ⃗ 相对偏移（λ=1）」之间的插值权重。\n📈 看图：恒 0 = 未个性化（默认关 / bypass / 低置信 θ⃗）；> 0 = 同一体感对不同能力玩家给出不同客观难度的题目。S 曲线主线（stress）不受 λ 影响。'
     },
     {
         key: 'relativityAlign',
-        label: '等体感对齐',
+        label: '对齐',
         group: 'relativity',
-        extract: ps => ps.adaptive?.relativity?.chosenAlign,
+        extract: ps => {
+            const r = ps.adaptive?.relativity;
+            if (!r) return null;
+            if (Number.isFinite(Number(r.chosenAlign))) return Number(r.chosenAlign);
+            /* 未启用 best-of-K（λ=0/bypass/prior_only/off）时语义上等价“未做偏离”，显示为 1。 */
+            return 1;
+        },
         fmt: 'f2',
         tooltip:
             '等体感选块对齐度（0~1）：本轮入选三连的客观难度向量 b⃗ 对目标 b* 的贴近度 exp(−w·‖b⃗−b*‖)。越接近 1 表示选出的题目越精确命中"该玩家该体感下应得的客观难度"。\n📈 看图：恒 1 = 未激活对齐（λ=0/bypass）；< 1 且回升 = best-of-K 在硬约束允许范围内尽量贴近 b*。硬约束/救济始终优先于对齐项。'
     },
     {
         key: 'relativityTargetGap',
-        label: '客观偏差',
+        label: '偏差',
         group: 'relativity',
-        extract: ps => ps.adaptive?.relativity?.targetGap,
-        fmt: 'f3',
+        extract: ps => {
+            const r = ps.adaptive?.relativity;
+            if (!r) return null;
+            if (Number.isFinite(Number(r.targetGap))) return Number(r.targetGap);
+            /* 未产生 chosenVec/b* 对齐诊断时，若本帧没有 best-of-K 对齐，偏差按恒等 0 展示。 */
+            return 0;
+        },
+        fmt: 'f2',
         tooltip:
             '客观难度偏差 ‖b⃗(选中) − b*‖ 平均（6 维考点）：入选三连实际客观难度与个性化目标 b* 的逐维平均差。越小越好。\n📈 看图：与「等体感对齐」反向；持续偏高=候选池受硬约束/盘面限制，难以凑出贴近 b* 的题目（可作为出块供给瓶颈的诊断信号）。'
     },
     {
         key: 'thetaConfidence',
-        label: 'θ⃗置信',
+        label: 'θ置信',
         group: 'relativity',
-        extract: ps => ps.adaptive?.relativity?.thetaConfidence,
+        extract: ps => {
+            const r = ps.adaptive?.relativity;
+            if (!r) return null;
+            return Number.isFinite(Number(r.thetaConfidence)) ? Number(r.thetaConfidence) : 0;
+        },
         fmt: 'pct',
         tooltip:
             'θ⃗ 潜在能力标定置信度（0~100%）：玩家 6 维能力后验的样本充分度 1−e^(−n/N0)。低于 minConfidence（默认 45%）时难度相对论退回恒等标定（行为=现状）。\n📈 看图：随对局累积单调上升；跨过阈值后等体感个性化才会真正生效。θ⃗ 只吃行为质量不吃绝对分数，故"耐心刷分新手"与"天才"会分化。'
     },
-    /* ── §O1/O2/O3/O5 相位化对齐预算诊断曲线（pv=5+）─────────────────────────────
+    /* ── 难度相对论相位保护诊断曲线（pv=5+）──────────────────────────────────────
      * 这 4 条曲线把"系统性优化"的运行轨迹可视化，便于离线观察相位切换 / 几何衰减 /
      * PEOG 让位抗抖动 / 前期上界触发的真实占比。配置缺省时多为恒等值（曲线平直）。
      */
     {
         key: 'relativityIntent',
-        label: '对齐预算',
+        label: '预算',
         group: 'relativity',
         /* intent 是字符串枚举，映射为有序数（off=0/prior=1/kbest=2/full=3）便于 sparkline 渲染。
-         * null 视为缺数据（点不绘）。 */
+         * relativity 存在但 intent 缺省时按 off 展示，避免面板空白。 */
         extract: ps => {
-            const v = ps.adaptive?.relativity?.intent;
+            const r = ps.adaptive?.relativity;
+            if (!r) return null;
+            const v = r.intent;
             if (v === 'off') return 0;
             if (v === 'prior_only') return 1;
             if (v === 'kbest_only') return 2;
             if (v === 'full') return 3;
-            return null;
+            return 0;
         },
         fmt: 'f0',
         tooltip:
-            '§O1 相位化对齐预算（0=off / 1=prior_only / 2=kbest_only / 3=full）：bypass 或救济/瓶颈/onboarding 时 off；harvest/engage/warm/warmup arc/pbPhase∈chase|release 时 prior_only（禁 best-of-K，构造式爽消不被对齐评分挑掉）；maintain/flow/sprint/pressure 时 full。\n📈 看图：长时间停在 0/1=系统对相位敏感（顺玩家阶段被保护）；停在 3=mid 段正常个性化。'
+            '相位化对齐预算（0=off / 1=prior_only / 2=kbest_only / 3=full）：bypass 或救济/瓶颈/onboarding 时 off；harvest/engage/warm/warmup arc/pbPhase∈chase|release 时 prior_only（禁 best-of-K，构造式爽消不被对齐评分挑掉）；maintain/flow/sprint/pressure 时 full。\n📈 看图：长时间停在 0/1=系统对相位敏感（顺玩家阶段被保护）；停在 3=mid 段正常个性化。'
     },
     {
         key: 'phaseGeomGain',
-        label: '几何增益',
+        label: '几何',
         group: 'relativity',
-        extract: ps => ps.adaptive?.relativity?.phaseGeomGain,
+        extract: ps => {
+            const r = ps.adaptive?.relativity;
+            if (!r) return null;
+            return Number.isFinite(Number(r.phaseGeomGain)) ? Number(r.phaseGeomGain) : 1;
+        },
         fmt: 'f2',
         tooltip:
-            '§O2 相位化几何信号增益（0~1）：onboarding=0.3 / warmRun=0.5 / 默认=1.0。<1 时 ability 中由真实几何派生的负向项（holePenalty/nearClearScore/lockRiskScore）按比例衰减，缓解新手/温暖局期"1 个 close1 就让形状先验向 t/z 漂"。正向 spatialPlanning 不受影响（保留客观规划质量）。\n📈 看图：阶梯 0.3→0.5→1.0 = 新手→温暖局→mid；恒 1.0 = 已离开保护期。'
+            '相位化几何信号增益（0~1）：onboarding=0.3 / warmRun=0.5 / 默认=1.0。<1 时 ability 中由真实几何派生的负向项（holePenalty/nearClearScore/lockRiskScore）按比例衰减，缓解新手/温暖局期"1 个 close1 就让形状先验向 t/z 漂"。正向 spatialPlanning 不受影响（保留客观规划质量）。\n📈 看图：阶梯 0.3→0.5→1.0 = 新手→温暖局→mid；恒 1.0 = 已离开保护期。'
     },
     {
         key: 'peogBottleneckHits',
-        label: 'PEOG瓶颈累计',
+        label: '瓶颈',
         group: 'relativity',
-        extract: ps => ps.adaptive?.relativity?.peogYieldHits?.bottleneckHits,
+        extract: ps => {
+            const r = ps.adaptive?.relativity;
+            if (!r) return null;
+            return Number.isFinite(Number(r.peogYieldHits?.bottleneckHits))
+                ? Number(r.peogYieldHits.bottleneckHits) : 0;
+        },
         fmt: 'f0',
         tooltip:
-            '§O3 PEOG bottleneck 让位连续计数器（0~N）：bottleneck 信号每出现 1 帧 +1，消失立即归零。连续达到 bottleneckYieldHits（默认 2）才真正让位（_bypassNow），避免瞬时谷值打断 PB 加压窗口。\n📈 看图：尖刺 1（被消化）= 抗抖动生效；累积到 2 后归零 + 出现 bypass=bottleneck = 真正瓶颈让位。仅 PEOG active 时有值。'
+            'PEOG 瓶颈让位连续计数器（0~N）：bottleneck 信号每出现 1 帧 +1，消失立即归零。连续达到 bottleneckYieldHits（默认 2）才真正让位（_bypassNow），避免瞬时谷值打断 PB 加压窗口。\n📈 看图：尖刺 1（被消化）= 抗抖动生效；累积到 2 后归零 + 出现 bypass=bottleneck = 真正瓶颈让位。仅 PEOG active 时有值。'
     },
     {
         key: 'earlyPhaseCapHit',
-        label: '前期上界',
+        label: '上界',
         group: 'relativity',
         /* 布尔→0/1 数字，方便用 stepped sparkline 看触发频率。 */
-        extract: ps => ps.adaptive?.relativity?.earlyPhaseCapHit === true ? 1 : 0,
+        extract: ps => ps.adaptive?.relativity ? (ps.adaptive.relativity.earlyPhaseCapHit === true ? 1 : 0) : null,
         fmt: 'f0',
         tooltip:
-            '§O5 b* 早期上界触发标志（0/1）：低 d* 阶段（d* < earlyPhaseDStar，默认 0.40）即便 θ 偏高也把 b* 钳制在 d + earlyPhaseBStarCap（默认 0.10）内。1=本帧至少一维 b* 被钳住。\n📈 看图：高 PB 玩家局初密集 1 → 前期保护正在工作（不被喂偏难三连）；中后段恒 0 = 上界自动让位给主公式。'
+            'b* 早期上界触发标志（0/1）：低 d* 阶段（d* < earlyPhaseDStar，默认 0.40）即便 θ 偏高也把 b* 钳制在 d + earlyPhaseBStarCap（默认 0.10）内。1=本帧至少一维 b* 被钳住。\n📈 看图：高 PB 玩家局初密集 1 → 前期保护正在工作（不被喂偏难三连）；中后段恒 0 = 上界自动让位给主公式。'
     }
 ];
 

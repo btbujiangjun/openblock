@@ -21,14 +21,26 @@ Generated mapping policy:
 - External files are research overrides; code falls back to procedural SFX when missing or disabled.
 - Current theme remap manifest: `theme_audio_mapping_manifest.json`; latest audit output: `theme_audio_audit_report.json`.
 
-PB chase BGM research import:
+PB chase cue research import:
 - Purpose: game-level personal-best chase motif, independent of skins.
+- v1.71 note: the old long loop BGM files were replaced by ~3.05s short WAV cues
+  sourced from OpenGameArt research audio. The cue plays once when entering a PB
+  phase instead of looping while the phase persists.
 - Runtime mapping:
-  - `pb_near.ogg` <- `A Brand New Wisdom.ogg`, plays at 80%-95% of run-start PB.
-  - `pb_sprint.ogg` <- `Just Saying Tho.ogg`, plays at 95%-100% of run-start PB.
-  - `pb_release.ogg` <- `Swinging Sweet.ogg`, plays once after breaking run-start PB.
+  - `pb_near.wav` <- OpenGameArt `simple_battle_fanfare.wav` from "Simple Battle Fanfare"
+    (`https://opengameart.org/content/simple-battle-fanfare`, CC0 notice: "do whatever you want with it").
+    Trimmed/faded to 3.05s; plays once at 80%-95% of run-start PB.
+  - `pb_sprint.wav` <- OpenGameArt `Heavy_ConceptB.wav` from "Victory Fanfare Short"
+    (`https://opengameart.org/content/victory-fanfare-short`, listed in OpenGameArt CC0 audio collection).
+    Trimmed/faded to 3.05s; plays once at 95%-100% of run-start PB.
+  - `pb_release.wav` <- OpenGameArt `fanfare1.wav` from "Victory Fanfare"
+    (`https://opengameart.org/content/victory-fanfare`, OpenGameArt commercial-use-OK listing).
+    Trimmed/faded to 3.05s; plays once after breaking run-start PB.
 - Bundled paths:
   - Web: `web/public/audio/game/pb_chase/`
   - Mini Program: `miniprogram/assets/audio/game/pb_chase/`
   - Cocos: `cocos/assets/resources/audio/game/pb_chase/`
-- Policy: these are research files downloaded from the web for validation. Replace with commissioned or final licensed masters before production if product policy requires exclusive music identity.
+- Processing policy: source files are network-downloaded research assets; local processing is limited to
+  trimming the head segment, applying a short fade-out, and normalizing to 44.1kHz/16-bit/stereo WAV.
+  No melody is synthesized locally.
+- Policy: these are research validation files. Replace with commissioned or final licensed masters before production if product policy requires exclusive music identity.

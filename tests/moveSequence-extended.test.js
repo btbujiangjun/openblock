@@ -164,9 +164,9 @@ describe('formatPlayerStateForReplay 冷启动徽标', () => {
         expect(formatPlayerStateForReplay(legacyPs)).toContain('🌱 冷启动');
     });
 
-    /* §O1/O2/O3/O5：落库 schema 自检——insight.relativity.* 必须穿透 buildPlayerStateSnapshot 的
+    /* 相位保护链路：落库 schema 自检——insight.relativity.* 必须穿透 buildPlayerStateSnapshot 的
      * slim.adaptive.relativity，pv≥5，且旧 insight 缺字段时 slim 端自动 null/false。 */
-    describe('§O1/O2/O3/O5 落库 schema (pv=5+)', () => {
+    describe('相位保护链路 落库 schema (pv=5+)', () => {
         const _baseInsight = {
             stress: 0.5, fillRatio: 0.2, skillLevel: 0.5,
             relativity: {
@@ -214,10 +214,10 @@ describe('formatPlayerStateForReplay 冷启动徽标', () => {
         });
     });
 
-    /* §O1/O2/O3/O5：回放端必须把"对齐预算 / 几何衰减 / 前期上界 / PEOG 抗抖动"
+    /* 相位保护链路：回放端必须把"对齐预算 / 几何衰减 / 前期上界 / PEOG 抗抖动"
      * 四类相位语义可读化，让设计师/QA 直接从一帧回放看出"系统当时在做什么"。
      * 旧帧（无 relativity 或 enabled=false）不输出（向后兼容）。 */
-    describe('§O1/O2/O3/O5 回放语义可读化', () => {
+    describe('相位保护链路 回放语义可读化', () => {
         const _base = {
             phase: 'spawn', score: 100, boardFill: 0.2,
             metrics: { thinkMs: 800, clearRate: 0.4, comboRate: 0.1, missRate: 0.05, samples: 10 },
@@ -230,7 +230,7 @@ describe('formatPlayerStateForReplay 冷启动徽标', () => {
                 .not.toContain('相对论');
         });
 
-        it('O1 intent=prior_only → 回放显示"只对形状池微偏（顺玩家相位保爽消，禁评分挑选）"', () => {
+        it('相位化对齐预算 intent=prior_only → 回放显示"只对形状池微偏（顺玩家相位保爽消，禁评分挑选）"', () => {
             const ps = { ..._base, adaptive: { stress: 0.5, relativity: { enabled: true, intent: 'prior_only' } } };
             const txt = formatPlayerStateForReplay(ps);
             expect(txt).toContain('对齐预算');
@@ -238,36 +238,36 @@ describe('formatPlayerStateForReplay 冷启动徽标', () => {
             expect(txt).toContain('顺玩家相位保爽消');
         });
 
-        it('O1 intent=full → 显示"完整个性化（mid 段默认）"', () => {
+        it('相位化对齐预算 intent=full → 显示"完整个性化（mid 段默认）"', () => {
             const ps = { ..._base, adaptive: { stress: 0.5, relativity: { enabled: true, intent: 'full' } } };
             expect(formatPlayerStateForReplay(ps)).toContain('完整个性化');
         });
 
-        it('O1 intent=off + bypass=recovery → 显示"恒等标定，行为=未启用"', () => {
+        it('相位化对齐预算 intent=off + bypass=recovery → 显示"恒等标定，行为=未启用"', () => {
             const ps = { ..._base, adaptive: { stress: 0.3, relativity: { enabled: true, intent: 'off', bypass: 'recovery' } } };
             const txt = formatPlayerStateForReplay(ps);
             expect(txt).toContain('对齐预算=关');
             expect(txt).toContain('救济');
         });
 
-        it('O2 phaseGeomGain=0.3 → 显示"几何信号衰减×0.30（新手 0.3 / 温暖局 0.5）"', () => {
+        it('相位化几何增益 phaseGeomGain=0.3 → 显示"几何信号衰减×0.30（新手 0.3 / 温暖局 0.5）"', () => {
             const ps = { ..._base, adaptive: { stress: 0.3, relativity: { enabled: true, intent: 'off', phaseGeomGain: 0.3 } } };
             const txt = formatPlayerStateForReplay(ps);
             expect(txt).toContain('几何信号衰减×0.30');
         });
 
-        it('O2 phaseGeomGain=1.0 → 不输出衰减段（默认无衰减）', () => {
+        it('相位化几何增益 phaseGeomGain=1.0 → 不输出衰减段（默认无衰减）', () => {
             const ps = { ..._base, adaptive: { stress: 0.5, relativity: { enabled: true, intent: 'full', phaseGeomGain: 1.0 } } };
             expect(formatPlayerStateForReplay(ps)).not.toContain('几何信号衰减');
         });
 
-        it('O5 earlyPhaseCapHit=true → 显示"b* 触前期上界（高 PB 玩家前期保护生效）"', () => {
+        it('b* 前期上界 earlyPhaseCapHit=true → 显示"b* 触前期上界（高 PB 玩家前期保护生效）"', () => {
             const ps = { ..._base, adaptive: { stress: 0.2, relativity: { enabled: true, intent: 'full', earlyPhaseCapHit: true } } };
             expect(formatPlayerStateForReplay(ps)).toContain('b* 触前期上界');
             expect(formatPlayerStateForReplay(ps)).toContain('高 PB 玩家前期保护生效');
         });
 
-        it('O3 peogYieldHits.bottleneckHits>0 → 显示"PEOG 抗抖动累计 ... 连续 ≥ 阈值才让位"', () => {
+        it('PEOG 抗抖动 peogYieldHits.bottleneckHits>0 → 显示"PEOG 抗抖动累计 ... 连续 ≥ 阈值才让位"', () => {
             const ps = { ..._base, adaptive: { stress: 0.7, relativity: {
                 enabled: true, intent: 'full',
                 peogYieldHits: { bottleneckHits: 1, nearMissHits: 0, bypassReason: null }
@@ -295,6 +295,36 @@ describe('formatPlayerStateForReplay 冷启动徽标', () => {
             expect(i_cap).toBeGreaterThan(i_geom);
             expect(i_peog).toBeGreaterThan(i_cap);
         });
+    });
+});
+
+describe('§4.17 难度相对论指标缺省值', () => {
+    it('relativity 对象存在但部分诊断缺省时，玩家面板指标不显示空白', () => {
+        const ps = {
+            adaptive: {
+                relativity: {
+                    enabled: true,
+                    lambda: null,
+                    // chosenAlign / targetGap / thetaConfidence / phaseGeomGain / peogYieldHits / intent 故意缺省
+                    earlyPhaseCapHit: false,
+                },
+            },
+        };
+        expect(getMetricFromPS(ps, 'relativityLambda')).toBe(0);
+        expect(getMetricFromPS(ps, 'relativityAlign')).toBe(1);
+        expect(getMetricFromPS(ps, 'relativityTargetGap')).toBe(0);
+        expect(getMetricFromPS(ps, 'thetaConfidence')).toBe(0);
+        expect(getMetricFromPS(ps, 'relativityIntent')).toBe(0);
+        expect(getMetricFromPS(ps, 'phaseGeomGain')).toBe(1);
+        expect(getMetricFromPS(ps, 'peogBottleneckHits')).toBe(0);
+        expect(getMetricFromPS(ps, 'earlyPhaseCapHit')).toBe(0);
+    });
+
+    it('没有 relativity 对象时仍保持旧行为：指标无数据', () => {
+        const ps = { adaptive: {} };
+        expect(getMetricFromPS(ps, 'relativityLambda')).toBeNull();
+        expect(getMetricFromPS(ps, 'relativityAlign')).toBeNull();
+        expect(getMetricFromPS(ps, 'phaseGeomGain')).toBeNull();
     });
 });
 

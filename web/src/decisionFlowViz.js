@@ -175,9 +175,9 @@ const INTENT_RULE_CN = {
 const PRESSURE_PHASE_CN = { low: '低压', mid: '中压', high: '高压' };
 
 const CONSTRUCT_KIND_CN = {
-    completer: 'C1补全',
-    setup: 'C2造势',
-    order: 'C3顺序锚',
+    completer: '单线补全',
+    setup: '先铺后清',
+    order: '高压顺序锚',
 };
 
 const CONSTRUCT_KIND_COLOR = {
@@ -494,7 +494,7 @@ const HINT_SHORT_CN = {
 
 const HINT_TIP = {
     /* —— 已有 5 项的详细化（v1.67：从一行简述扩为"含义 + 触发 + 数值含义"三段式）—— */
-    pressurePhase: 'v1.66 phaseFreq：基于 raw stress + boardFill 计算 → low/mid/high 三档。\n用法：驱动形状池预加权（高压加大块、低压加清屏块）、orderSolutionBudget（高压增预算）、构造式 C1/C2/C3 门控。\n枚举值：低压 / 中压 / 高压。',
+    pressurePhase: 'v1.66 phaseFreq：基于 raw stress + boardFill 计算 → low/mid/high 三档。\n用法：驱动形状池预加权（高压加大块、低压加清屏块）、orderSolutionBudget（高压增预算）、构造式策略门控（单线补全 / 先铺后清 / 高压顺序锚）。\n枚举值：低压 / 中压 / 高压。',
     orderSolutionBudget: '高压段三连块顺序解评估的步数上限（默认 8/12/16 按档抬升）。\n用法：避免在高 fill 时因截断导致 orderRigor 过滤静默跳过，让"逼玩家做顺序规划"真的执行得起。\n数值越大 = 评估越彻底 = 顺序刚性更可信。',
     phaseHighPoolBoost: '高压档（pressurePhase=high）下 cells ≥ phaseLargeCells 的大块在 augmentPool 中的额外权重。\n用法：高压时主动抬大块出现概率（与 sizePreference > 0 协同），让"高压感"通过形状本身传达。\n范围 [0, 1]，0=无加权，1=最强加权。',
     phaseLowPoolClearBoost: '低压档（pressurePhase=low）下"清屏 / 近满线候选块"在 augmentPool 中的额外权重。\n用法：低压时主动放友好出块，与 clearGuarantee 一起兑现"低压 → 多消"承诺。\n范围 [0, 1]。',
@@ -537,8 +537,8 @@ const HINT_TIP = {
         + '详见 docs/player/BEST_SCORE_CHASE_STRATEGY.md §4.16 / ALGORITHMS_SPAWN.md §17.12。',
     /* v1.70.3 构造策略复合 tip（虚拟 hint，来源 spawnDiagnostics.constructive，不在 spawnHints 内）。 */
     constructiveKind: '构造策略（spawnDiagnostics.constructive.kind / kinds[]）：blockSpawn 构造层本轮做了什么。\n'
-        + 'multiClear=拥挤多消（一手 ≥2 行/列爽感峰值）；completer=单线补全（C1 逆向缺口→形状）；'
-        + 'setup=先铺后清造势（C2 跨 dock 续接 pendingClearTarget）；order=高压顺序锚（C3 augmentPool 权重偏置）。\n'
+        + 'multiClear=拥挤多消（一手 ≥2 行/列爽感峰值）；completer=单线补全（逆向缺口→形状）；'
+        + 'setup=先铺后清造势（跨 dock 续接 pendingClearTarget）；order=高压顺序锚（augmentPool 权重偏置）。\n'
         + 'kinds[] 保留同 dock 多路径触发的全部标签（如 high 相位 completer+order 共存）。',
     constructiveCrowd: '拥挤度（constructive.crowding，0-1）：fill×0.4 + contiguousRegions/8×0.25 + enclosedVoidCells/10×0.25 + (rowTrans+colTrans)/40×0.1。\n'
         + '≥ crowdThreshold 时触发拥挤多消构造；阈值在 _delightStarved=true 或 delightBoost≥0.6 时自适应下调（最低 0.30），让爽感饥渴玩家更易命中。',
@@ -550,7 +550,7 @@ const HINT_TIP = {
         + '当 scored 池缺少 multiClear≥2 候选（高 fill 时常见）或缺少补全块时，从全词表用 findMultiClearCompleter / findCompleterShapes 主动搜索并注入 scored 末尾。\n'
         + '不再 100% 依赖采样器是否恰好生成多消候选，是高 fill 成功率优化的核心机制。',
     constructiveCooldown: '构造冷却（constructive.cooldownActive）：上轮成功交付后冷却 cooldownDocks（默认 2）轮不再强供。\n'
-        + '避免「系统连发喂解」的脚本感——拥挤多消 + C1 全部跳过，回退到普通采样器。冷却期内仍可走 phaseHigh/phaseLow 加权与 order anchor。',
+        + '避免「系统连发喂解」的脚本感——拥挤多消 + 单线补全全部跳过，回退到普通采样器。冷却期内仍可走 phaseHigh/phaseLow 加权与高压顺序锚。',
 };
 
 /** 压力驱动策略分量（基于 adaptiveSpawn spawnHints 实际字段） */

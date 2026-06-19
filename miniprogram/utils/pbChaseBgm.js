@@ -1,14 +1,14 @@
 /**
  * PB chase BGM for WeChat Mini Program.
  *
- * Plays real bundled OGG files through InnerAudioContext. The motif is global
+ * Plays real bundled short WAV cue files through InnerAudioContext. The motif is global
  * to the game and does not follow skin audio themes.
  */
 
 const TRACKS = {
-  near: 'assets/audio/game/pb_chase/pb_near.ogg',
-  sprint: 'assets/audio/game/pb_chase/pb_sprint.ogg',
-  release: 'assets/audio/game/pb_chase/pb_release.ogg',
+  near: 'assets/audio/game/pb_chase/pb_near.wav',
+  sprint: 'assets/audio/game/pb_chase/pb_sprint.wav',
+  release: 'assets/audio/game/pb_chase/pb_release.wav',
 };
 
 const MIN_BASELINE = 200;
@@ -39,20 +39,26 @@ function targetPhase({ score, pbBaseline, placements, gameOver }) {
 
 function playPhase(nextPhase, volume) {
   if (typeof wx === 'undefined' || !wx.createInnerAudioContext || !TRACKS[nextPhase]) return;
-  if (phase === nextPhase && audio) {
-    audio.volume = volume;
+  if (phase === nextPhase) {
+    if (audio) audio.volume = volume;
+    // Short cue semantics: announce a PB phase once on entry; do not loop/replay
+    // while the game-loop remains in the same score band after the 3s cue ends.
     return;
   }
   destroyAudio();
   phase = nextPhase;
   audio = wx.createInnerAudioContext();
   audio.obeyMuteSwitch = false;
-  audio.loop = nextPhase !== 'release';
+  audio.loop = false;
   audio.volume = volume;
+  const currentAudio = audio;
   audio.onEnded(() => {
     if (nextPhase === 'release') {
       destroyAudio();
       phase = 'off';
+    } else {
+      try { currentAudio.destroy(); } catch { /* ignore */ }
+      if (audio === currentAudio) audio = null;
     }
   });
   audio.onError((err) => {

@@ -138,8 +138,8 @@ export const SIGNAL_LABELS = {
     runStreakStress:       { label: '连战',       hint: '连胜越久越加压，连败时减压' },
     difficultyBias:        { label: '难度模式',   hint: '玩家选的简单/普通/困难带来的整体偏移' },
     skillAdjust:           { label: '技能',       hint: '技能估计偏高时略加压、偏低时略减压' },
-    flowAdjust:            { label: '心流',       hint: '心流偏移：无聊→加压、焦虑→减压' },
-    pacingAdjust:          { label: '松紧',       hint: '紧张/释放期交替造成的微调（与 rhythmPhase「节奏 收获/中性/搭建」pill 不同——那是相位枚举，本项是数值偏移）' },
+    flowAdjust:            { label: '心流贡',     hint: '心流贡献：F(t) 偏移对 stress 的数值贡献；无聊→加压、焦虑→减压' },
+    pacingAdjust:          { label: '张弛贡',     hint: '张弛贡献：紧张/释放期交替对 stress 的数值贡献（与 rhythmPhase「节奏 收获/中性/搭建」pill 不同——那是相位枚举）' },
     recoveryAdjust:        { label: '恢复',       hint: '近一段挫败/卡顿后压低难度' },
     frustrationRelief:     { label: '挫败救济',   hint: '挫败感超阈值时的强制减压' },
     comboAdjust:           { label: '连击',       hint: 'combo 活跃时的小幅加压' },
@@ -257,7 +257,7 @@ export const SIGNAL_LABELS = {
         hint: 'sessionPhase=late 且 momentum ≤ -0.30 时输出的独立减压脉冲（负值）。\n触发与公式（adaptiveSpawn.js L1374-1381）：\n  · base = -(0.05 + min(0.30, |momentum| - 0.30) × 0.5)\n  · frustrationLevel ≥ 4 时再叠加 -0.06\n  · 最终下限 -0.25（防止过度救济）\n用法：本字段直接进 stress 求和（负值减压），并参与 playerDistress 通道触发 relief.endgame 文案。\n与 sessionArcAdjust 互补：sessionArcAdjust 看 cooldown 弧线档位，本信号看"玩家自己的崩盘强度"，两者同时为负但语义独立。',
     },
     sessionArcAdjust: {
-        label: '会话弧线偏移',
+        label: '会话贡',
         hint: '由 sessionArc（warmup / peak / cooldown）+ 当前 momentum 派生的整体 stress 偏移（adaptiveSpawn.js L1335-1342）：\n  · warmup → 固定 -0.08（开局降压，让玩家熟悉手感）\n  · peak → 默认 0（v1.62.5 起若启用自适应模板，可正向加压）\n  · cooldown 且 momentum < -0.2 → 按 |momentum| 线性放大到 [-0.05, -0.20]\n注意：late 阶段不写本字段，late 崩盘的减压走独立的 endSessionDistress 分量。',
     },
 

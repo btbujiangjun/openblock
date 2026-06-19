@@ -37,7 +37,7 @@ function hashStr(s) {
 }
 
 /**
- * §O1 相位化对齐预算 RelativityIntent —— 把"是否/如何应用难度相对论"按 spawnIntent /
+ * 相位化对齐预算 相位化对齐预算 RelativityIntent —— 把"是否/如何应用难度相对论"按 spawnIntent /
  * sessionArc / pbPhase / inOnboarding / 救济信号四类一阶变量集中决策。
  *
  * 与 resolveRelativityBypass 的关系：
@@ -139,7 +139,7 @@ function solveObjectiveTarget(stress, cfg, ctx = {}) {
     const noiseAmp = num(cfg.noiseAmp, 0);
     const rng = typeof ctx.rng === 'function' ? ctx.rng : null;
 
-    /* §O5 早期相位上界：低 d* 阶段（前期 / 温和段），即便 θ 高也不让 b* 偏离 d* 太多。
+    /* b* 前期上界：低 d* 阶段（前期 / 温和段），即便 θ 高也不让 b* 偏离 d* 太多。
      * 解决"高 PB 玩家前期被喂偏难三连"：θ_combo/θ_clearEff 长期偏高时，b 会被推到
      * (1-λ)·d + λ·(θ+(d-0.5))，d=0.3, θ=0.7, λ=0.3 → b≈0.42（相对 d 抬 +0.12）。
      * 上界 = d + earlyPhaseCap（默认 0.10），只在 d < earlyPhaseDStar 时启用。
@@ -159,7 +159,7 @@ function solveObjectiveTarget(stress, cfg, ctx = {}) {
         b += k * (0.5 - theta);
         /* 受控噪声（仅在显式 rng 时启用，保证测试确定性） */
         if (rng && noiseAmp > 0) b += (rng() * 2 - 1) * noiseAmp;
-        /* §O5 早期相位上界 —— 仅对低 d* 钳制（不对称：只压上限，不抬下限）。 */
+        /* b* 前期上界 —— 仅对低 d* 钳制（不对称：只压上限，不抬下限）。 */
         if (earlyPhaseActive) {
             const cap = d + earlyPhaseCap;
             if (b > cap) b = cap;

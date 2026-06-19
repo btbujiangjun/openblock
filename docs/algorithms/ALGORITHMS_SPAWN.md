@@ -1625,11 +1625,11 @@ dock 颜色改为轻偏置随机：盘面存在近满且已同 icon/同色的行
 
 ---
 
-### §2.10 / §4.17 难度相对论 — 系统性优化 O1–O5（v1.68）
+### §2.10 / §4.17 难度相对论 — 系统性优化 五项系统性优化（v1.68）
 
-> 📍 **背景**：commit `8ff29f4f` 引入难度相对论后实测出现"新手/高 PB 玩家前期出块碎、温暖局/构造式爽消被对齐评分挑掉"等 4 类体感回退。**O1–O5 不是开关**，而是把相对论与现有相位/状态机的耦合做架构级软化，让"等体感不变 × 客观个性化"只在该生效的相位生效。
+> 📍 **背景**：commit `8ff29f4f` 引入难度相对论后实测出现"新手/高 PB 玩家前期出块碎、温暖局/构造式爽消被对齐评分挑掉"等 4 类体感回退。**五项系统性优化 不是开关**，而是把相对论与现有相位/状态机的耦合做架构级软化，让"等体感不变 × 客观个性化"只在该生效的相位生效。
 
-#### O1 相位化对齐预算（`resolveRelativityIntent`）
+#### 相位化对齐预算 相位化对齐预算（`resolveRelativityIntent`）
 
 把"全开 / 关 / 半开"统一抽象为 4 档：
 
@@ -1642,7 +1642,7 @@ dock 颜色改为轻偏置随机：盘面存在近满且已同 icon/同色的行
 
 SSOT：`web/src/difficultyRelativity.js :: resolveRelativityIntent(ctx)`。透出到 `stressBreakdown.relativityIntent / _relativityIntent`，下游 `adaptiveSpawn.applyRelativityShapePrior` 门控 `_allowPrior`、`blockSpawn._alignActive` 门控 `_kbestAllowed`。
 
-#### O2 相位化几何信号增益（`phaseGeomGain`）
+#### 相位化几何增益 相位化几何信号增益（`phaseGeomGain`）
 
 `buildPlayerAbilityVector` 中由真实几何派生的**负向**项（`holePenalty / nearClearScore / lockRiskScore`）在低相位下按系数衰减：
 
@@ -1655,14 +1655,14 @@ holePenalty *= g; nearClearScore *= g; lockRiskScore *= g
 
 配置：`game_rules.json :: adaptiveSpawn.phaseGeomGain.{onboarding,warmRun,default}`。
 
-#### O3 PEOG bottleneck/near_miss 延迟让位（持续阈值）
+#### PEOG 抗抖动 PEOG bottleneck/near_miss 延迟让位（持续阈值）
 
 旧实现：单帧 `hasBottleneckSignal=true` 立刻 `_bypassNow("bottleneck")`，PB 加压窗口被瞬时几何谷值打断。
 新实现：累计计数器 `_bottleneckHits / _nearMissHits`，连续 ≥ 阈值（默认 2）才让位；信号消失立即归零（防累积污染）。
 
 配置：`game_rules.json :: adaptiveSpawn.earlyOvershootGuard.{bottleneckYieldHits, nearMissYieldHits}`。
 
-#### O4 `difficultyVec` 真实化（三新 term + 缺省自动重分配）
+#### difficultyVec 真实信号化 `difficultyVec` 真实化（三新 term + 缺省自动重分配）
 
 为 6 维 `difficultyVec` 引入 3 个由 `solutionMetrics` 派生的真实信号：
 
@@ -1674,7 +1674,7 @@ holePenalty *= g; nearClearScore *= g; lockRiskScore *= g
 
 `projectDifficultyVector` 升级为"`null`/`NaN` 自动从加权和剔除"——`solutionMetrics.truncated=true`（DFS 不完整）时新 term 全 null，回退到原 5 项，scalar `stepDifficulty` 完全向后兼容。
 
-#### O5 b\* 早期上界（低 d\* 阶段保护高 θ 玩家）
+#### b* 前期上界 b\* 早期上界（低 d\* 阶段保护高 θ 玩家）
 
 低 d\* 阶段（`d* < earlyPhaseDStar=0.40`）即便 θ 极高，把任一维 b\* 钳制在 `d + earlyPhaseBStarCap=0.10` 以内。高 PB 玩家前期不被立刻喂到客观偏难三连，让分先立起来。中后段 `d* ≥ earlyPhaseDStar` 自动让位主公式。
 

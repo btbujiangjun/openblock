@@ -598,7 +598,7 @@ class AudioManagerImpl {
         }
         resources.load(`audio/game/pb_chase/pb_${phase}`, AudioClip, (err: Error | null, clip: AudioClip | null) => {
             if (err || !clip) {
-                if (DEBUG_AUDIO) console.warn(`[AudioManager] PB BGM load failed: ${phase}`, err);
+                if (DEBUG_AUDIO) console.warn(`[AudioManager] PB cue load failed: ${phase}`, err);
                 return;
             }
             this.pbBgmClips[phase] = clip;
@@ -608,8 +608,11 @@ class AudioManagerImpl {
 
     private playPbBgmPhase(phase: 'near' | 'sprint' | 'release', volume: number): void {
         if (!this.enabled) return;
-        if (this.pbBgmPhase === phase && this.pbBgmSource?.playing) {
-            this.pbBgmSource.volume = volume;
+        if (this.pbBgmPhase === phase) {
+            if (this.pbBgmSource?.playing) this.pbBgmSource.volume = volume;
+            // Short cue semantics: each PB phase is announced once on entry.
+            // When the 3s cue finishes, keep pbBgmPhase so updatePbChaseBgm does not
+            // replay the same cue every frame while the score remains in that band.
             return;
         }
         this.pbBgmPhase = phase;
@@ -619,11 +622,11 @@ class AudioManagerImpl {
             try {
                 source.stop();
                 source.clip = clip;
-                source.loop = phase !== 'release';
+                source.loop = false;
                 source.volume = volume;
                 source.play();
             } catch (err) {
-                if (DEBUG_AUDIO) console.warn('[AudioManager] PB BGM play failed', err);
+                if (DEBUG_AUDIO) console.warn('[AudioManager] PB cue play failed', err);
             }
         });
     }

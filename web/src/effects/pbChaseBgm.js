@@ -1,14 +1,14 @@
 /**
  * PB chase BGM controller.
  *
- * Uses real OGG assets, not procedural synthesis. This layer is game-level and
+ * Uses real short WAV cue assets, not procedural synthesis. This layer is game-level and
  * intentionally ignores skin/theme so the PB chase becomes an OpenBlock motif.
  */
 
 const TRACKS = {
-    near: '/audio/game/pb_chase/pb_near.ogg',
-    sprint: '/audio/game/pb_chase/pb_sprint.ogg',
-    release: '/audio/game/pb_chase/pb_release.ogg',
+    near: '/audio/game/pb_chase/pb_near.wav',
+    sprint: '/audio/game/pb_chase/pb_sprint.wav',
+    release: '/audio/game/pb_chase/pb_release.wav',
 };
 
 const MIN_BASELINE = 200;
@@ -27,7 +27,7 @@ function _makeAudio(phase) {
     if (!_canUseAudio()) return null;
     const audio = new Audio(TRACKS[phase]);
     audio.preload = 'auto';
-    audio.loop = phase !== 'release';
+    audio.loop = false;
     audio.volume = 0;
     return audio;
 }
@@ -70,8 +70,11 @@ function _stopCurrent({ keepPhase = false } = {}) {
 
 function _playPhase(nextPhase, volume) {
     if (!_canUseAudio() || !TRACKS[nextPhase]) return;
-    if (_phase === nextPhase && _current) {
-        _fadeTo(_current, volume, 160);
+    if (_phase === nextPhase) {
+        if (_current) _fadeTo(_current, volume, 160);
+        /* Short cue semantics: each PB phase is announced once on entry.
+         * After the 3s cue ends, keep _phase so updatePbChaseBgm does not replay
+         * the same cue every game-loop tick while the score remains in the same band. */
         return;
     }
     _stopCurrent({ keepPhase: true });
@@ -81,6 +84,7 @@ function _playPhase(nextPhase, volume) {
     _current = audio;
     audio.onended = () => {
         if (nextPhase === 'release') _stopCurrent();
+        else if (_current === audio) _current = null;
     };
     const p = audio.play();
     if (p && typeof p.catch === 'function') {

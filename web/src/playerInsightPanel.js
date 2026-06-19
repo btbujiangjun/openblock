@@ -222,7 +222,7 @@ const CHARTED_STRESS_BREAKDOWN_KEYS = new Set([
 
 /* v1.46：sparkline 网格按"描述主体"分组的元信息。
  *
- * 顺序固定为「盘面 → 玩家·能力 → 玩家·状态 → 系统·决策 → 系统·压力分量」，
+ * 顺序固定为「盘面 → 玩家·能力 → 玩家·状态 → 系统·决策 → 系统·压力分量 → 难度相对论」，
  * 既符合"先客观后主观、再系统响应"的认知顺序，也与左下 _whyLines 的叙事顺序一致。
  *
  * group 字段直接复用 REPLAY_METRICS[i].group，已稳定的颜色不变（METRIC_GROUP_COLORS）。
@@ -262,7 +262,7 @@ const METRIC_LAYOUT_GROUPS = [
         group: 'relativity',
         title: '🎯 难度相对论',
         color: '#818cf8',
-        desc: '§4.17/§2.10 体感不变×客观个性化：个性化强度 λ、等体感对齐度、客观难度偏差、θ⃗ 置信。默认关/低置信 θ⃗ 时为恒等值。'
+        desc: '出块决策帧上的等体感个性化诊断：λ、等体感对齐、客观偏差、θ⃗ 置信、对齐预算、几何增益、PEOG 累计、前期上界。它随“生成下一组三块”的时刻更新，不是每次放置都连续变化的盘面指标。'
     }
 ];
 
@@ -276,6 +276,9 @@ function _groupMetricsForLayout(metrics) {
     /** @type {Array<{key:string, label:string, group?:string}>} */
     const orphan = [];
     for (const m of metrics) {
+        /* 难度相对论是“生成下一组三块”时的一帧决策快照，很多值在落子过程中
+         * 本来不会变化。玩家面板改用静态摘要卡展示，避免伪装成连续盘面曲线。 */
+        if (m.group === 'relativity') continue;
         const target = byGroup.get(m.group);
         if (target) target.metrics.push(m);
         else orphan.push(m);
@@ -528,7 +531,7 @@ const SPAWN_TOOLTIP = {
         + 'post_pb_release / late_phase（自然到期）/ approach_handoff（pct≥ceiling 移交 challengeBoost）。',
     /* v1.70.3 构造策略：把 constructiveSpawn 的关键诊断字段做面板可视化（kinds/retry/inject/crowding）。 */
     constructiveKind: '本轮构造策略（spawnDiagnostics.constructive.kind / kinds[]）：multiClear=拥挤多消（一手 ≥2 行/列）、'
-        + 'completer=单线补全（C1 逆向缺口→形状）、setup=先铺后清造势（C2 跨 dock 续接）、order=高压顺序锚（C3 权重偏置）。'
+        + 'completer=单线补全（逆向缺口→形状）、setup=先铺后清造势（跨 dock 续接）、order=高压顺序锚（权重偏置）。'
         + 'kinds[] 保留同 dock 多路径触发的全部标签，kind 仅显示末次写入。',
     constructiveCrowd: '盘面拥挤度（constructive.crowding）：fill×0.4 + contiguousRegions/8×0.25 + enclosedVoidCells/10×0.25 + (rowTransitions+colTransitions)/40×0.1。'
         + '≥ crowdThreshold 时触发拥挤多消构造；阈值在 _delightStarved=true 或 delightBoost≥0.6 时自适应下调（最低 0.30）。',
@@ -542,7 +545,7 @@ const SPAWN_TOOLTIP = {
         + 'fill ≥ maxEmptyFillThreshold（默认 0.55）时把 nearFull 检测的 emptyCount 上限从 maxEmpty=2 放宽到 maxEmptyHigh=3，'
         + '让"差 3 格满线"也能进入补全检索，候选源 +50%。',
     constructiveCooldown: '构造冷却（constructive.cooldownActive）：上轮成功交付后冷却 cooldownDocks（默认 2）轮不再强供，'
-        + '避免「系统连发喂解」的脚本感。冷却期内拥挤多消 + C1 全部跳过，回退到普通采样。',
+        + '避免「系统连发喂解」的脚本感。冷却期内拥挤多消 + 单线补全全部跳过，回退到普通采样。',
     socialFairChallenge: '公平挑战模式：异步挑战/固定 seed 场景关闭个体化难度，保证不同玩家面对同一规则。',
     /* v1.18：让玩家直接看到"这一帧 stress 是被哪个救济信号压下去的"，
      * 不必从故事线里倒推 ——」救济 / 恢复 / 近失 三条最常出力的负向信号。 */
@@ -1006,6 +1009,95 @@ function _spawnModeFallbackRowHtml(ins) {
 
 const LIVE_HISTORY_MAX = 160;
 
+function _meanDifficultyVectorGap(a, b) {
+    if (!a || !b) return null;
+    const keys = ['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff'];
+    let sum = 0;
+    let n = 0;
+    for (const k of keys) {
+        const x = Number(a[k]);
+        const y = Number(b[k]);
+        if (Number.isFinite(x) && Number.isFinite(y)) {
+            sum += Math.abs(x - y);
+            n++;
+        }
+    }
+    return n > 0 ? sum / n : null;
+}
+
+function _relativityForLiveSeries(insight) {
+    const r = insight?.relativity;
+    if (!r || typeof r !== 'object') return null;
+    const bStar = r.objectiveTarget && typeof r.objectiveTarget === 'object'
+        ? r.objectiveTarget : null;
+    const chosen = r.chosen && typeof r.chosen === 'object' ? r.chosen : null;
+    const chosenVec = chosen?.chosenVec && typeof chosen.chosenVec === 'object'
+        ? chosen.chosenVec : null;
+    return {
+        enabled: r.enabled === true,
+        bypass: r.bypass ?? null,
+        lambda: Number.isFinite(Number(r.lambda)) ? Number(r.lambda) : 0,
+        intent: typeof r.intent === 'string' ? r.intent : null,
+        phaseGeomGain: Number.isFinite(Number(r.phaseGeomGain)) ? Number(r.phaseGeomGain) : null,
+        earlyPhaseCapHit: r.earlyPhaseCapHit === true,
+        peogYieldHits: r.peogYieldHits && typeof r.peogYieldHits === 'object'
+            ? { ...r.peogYieldHits } : null,
+        dStar: Number.isFinite(Number(r.dStar)) ? Number(r.dStar) : null,
+        objectiveTarget: bStar ? { ...bStar } : null,
+        latentCalibration: r.latentCalibration ? { ...r.latentCalibration } : null,
+        thetaConfidence: r.latent && Number.isFinite(Number(r.latent.confidence))
+            ? Number(r.latent.confidence) : null,
+        thetaN: r.latent && Number.isFinite(Number(r.latent.n)) ? Number(r.latent.n) : null,
+        chosenAlign: chosen && Number.isFinite(Number(chosen.chosenAlign))
+            ? Number(chosen.chosenAlign) : null,
+        chosenVec: chosenVec ? { ...chosenVec } : null,
+        candidatesConsidered: chosen && Number.isFinite(Number(chosen.candidatesConsidered))
+            ? Number(chosen.candidatesConsidered) : null,
+        targetGap: _meanDifficultyVectorGap(chosenVec, bStar),
+    };
+}
+
+function _fmtRelValue(v, digits = 2) {
+    if (v == null || !Number.isFinite(Number(v))) return '—';
+    return Number(v).toFixed(digits);
+}
+
+function _fmtRelPct(v) {
+    if (v == null || !Number.isFinite(Number(v))) return '—';
+    return `${Math.round(Number(v) * 100)}%`;
+}
+
+function _relativityBudgetText(intent) {
+    return {
+        off: '相对论暂停',
+        prior_only: '只调形状池',
+        kbest_only: '只挑评分',
+        full: '完整个性化',
+    }[intent] || '未标注';
+}
+
+function _renderRelativitySnapshotCard(ps) {
+    const r = ps?.adaptive?.relativity;
+    if (!r || r.enabled !== true) return '';
+    const cells = [
+        ['λ', _fmtRelValue(r.lambda, 2), '个性化强度：0=恒等，越高表示越按 θ⃗ 把同一体感翻译成个性化客观难度。'],
+        ['对齐', _fmtRelValue(Number.isFinite(Number(r.chosenAlign)) ? r.chosenAlign : 1, 2), '等体感选块对齐度：1 表示未偏离或完全贴近；低于 1 表示候选受硬约束限制。'],
+        ['偏差', _fmtRelValue(Number.isFinite(Number(r.targetGap)) ? r.targetGap : 0, 2), '选中三连客观难度与目标 b* 的平均偏差，越小越贴近目标。'],
+        ['θ置信', _fmtRelPct(Number.isFinite(Number(r.thetaConfidence)) ? r.thetaConfidence : 0), '玩家潜在能力 θ⃗ 的样本置信度。低置信时退回恒等标定。'],
+        ['预算', _relativityBudgetText(r.intent), '当前相对论参与方式：暂停 / 只调形状池 / 只挑评分 / 完整个性化。'],
+        ['几何', _fmtRelValue(Number.isFinite(Number(r.phaseGeomGain)) ? r.phaseGeomGain : 1, 2), '几何负向信号增益：新手/温暖局会小于 1，默认 1。'],
+        ['瓶颈', String(Number.isFinite(Number(r.peogYieldHits?.bottleneckHits)) ? Number(r.peogYieldHits.bottleneckHits) : 0), 'PEOG 瓶颈连续帧计数，连续达到阈值才让位。'],
+        ['上界', r.earlyPhaseCapHit === true ? '触发' : '未触发', 'b* 前期上界：高 PB 玩家局初不立刻喂偏难三连。'],
+    ];
+    const html = cells.map(([label, value, tip]) => _decisionCell(label, value, tip)).join('');
+    return (
+        `<div class="spawn-decision-card insight-relativity-snapshot" id="insight-relativity-card" title="${_attrTitle('难度相对论：出块决策快照，只在生成下一组三块时更新；不是每次落子都会变化的盘面曲线。')}">` +
+            '<div class="spawn-decision-card__head"><span>🎯 难度相对论 · 出块快照</span></div>' +
+            `<div class="spawn-decision-grid">${html}</div>` +
+        '</div>'
+    );
+}
+
 /**
  * 与 `buildPlayerStateSnapshot` / 回放 `ps` 对齐，供 `REPLAY_METRICS` 抽取
  * @param {import('./game.js').Game} game
@@ -1093,7 +1185,10 @@ function _buildLiveSnapshotForSeries(game) {
             spawnHints: ins.spawnHints ?? null,
             stressBreakdown: ins.stressBreakdown ?? null,
             spawnTargets: ins.spawnTargets ?? null,
-            shapeWeightsTop: ins.shapeWeightsTop ?? null
+            shapeWeightsTop: ins.shapeWeightsTop ?? null,
+            /* 玩家面板曲线读的是 REPLAY_METRICS.extract(ps)，因此 live 路径也必须
+             * 与 buildPlayerStateSnapshot 的 ps.adaptive.relativity schema 对齐。 */
+            relativity: _relativityForLiveSeries(ins)
         };
     }
     if (game.grid) {
@@ -1236,6 +1331,9 @@ function _renderInsightStateSeries(game, elState) {
                 `<span class="series-value">${formatMetricValue(getMetricFromPS(lastPs, m.key), m.fmt)}</span></div>`;
             cellIdx++;
         }
+        if (g.group === 'stress') {
+            html += _renderRelativitySnapshotCard(lastPs);
+        }
     }
     html += '</div>';
     elState.innerHTML = html;
@@ -1301,56 +1399,11 @@ function _buildWhyLines(insight, profile) {
             lines.push(`能力模型：${line}。`);
         }
     }
-    /* §4.17/§2.10 难度相对论：体感不变 × 客观个性化。在面板用玩家可读文字解释 θ⃗ 标定与
-     * 客观目标 b*——同一体感 d* 因能力 θ⃗ 不同被翻译成不同客观难度的题目。 */
+    /* 难度相对论的数值已由上方静态卡承载；whyLines 只保留因果入口，避免重复堆数值。 */
     {
         const rel = relativityViewFromInsight(insight);
         if (rel && rel.enabled) {
-            if (rel.active) {
-                const conf = rel.thetaConfidence != null ? _pct(rel.thetaConfidence) : '—';
-                const align = rel.chosenAlign != null ? rel.chosenAlign.toFixed(2) : '—';
-                const lam = (rel.lambda ?? 0).toFixed(2);
-                lines.push(
-                    `难度相对论已生效（θ⃗ 置信 ${conf}，强度 λ=${lam}）：同一体感 d* 按你的 6 维能力 θ⃗ 标定为个性化客观目标 b*，本轮等体感对齐度 ${align}（越接近 1 越贴合）。`
-                );
-                /* §O1：相位化对齐预算——把"何时全开/何时只开池微偏/何时不评分挑选"
-                 * 翻译为玩家可读的"系统当前在用哪一档对齐预算"。 */
-                if (rel.intent) {
-                    const intentDesc = {
-                        prior_only: '当前为 prior_only 档：只对形状池做轻微相对论偏置，关闭 best-of-K 评分挑选，确保 harvest/warmup/pb_chase 等"顺玩家相位"不被对齐评分把构造式爽消挑走',
-                        kbest_only: '当前为 kbest_only 档：池不偏，仅在候选中按对齐评分挑选',
-                        full: '当前为 full 档：池+评分双开，mid 段标准个性化',
-                    }[rel.intent];
-                    if (intentDesc) lines.push(`对齐预算（§O1）：${intentDesc}。`);
-                }
-                /* §O2：相位化几何信号增益——解释"为什么早局/温暖局 ability 看起来更宽容"。 */
-                if (rel.phaseGeomGain != null && rel.phaseGeomGain < 0.99) {
-                    lines.push(`几何信号衰减（§O2）：本帧 holePenalty/nearClearScore/lockRiskScore × ${rel.phaseGeomGain.toFixed(2)}（新手 0.3 / 温暖局 0.5）——避免 1 个 close1 就把形状先验向 t/z/小碎块漂，保护早期爽感。`);
-                }
-                /* §O5：高 PB 玩家前期 b* 上界生效。 */
-                if (rel.earlyPhaseCapHit === true) {
-                    lines.push('b* 早期上界（§O5）：当前 d* 较低，系统把客观目标 b* 钳制在 d + 0.10 以内——你能力高，但前期不会被立刻喂偏难三连，先让分能立起来。');
-                }
-                /* §O3：PEOG 让位累计（仅 active + 计数 ≥1 时显示）。 */
-                if (rel.peogYieldHits && (rel.peogYieldHits.bottleneckHits > 0 || rel.peogYieldHits.nearMissHits > 0)) {
-                    lines.push(`PEOG 抗抖动（§O3）：bottleneck 累计 ${rel.peogYieldHits.bottleneckHits} 帧 / near_miss 累计 ${rel.peogYieldHits.nearMissHits} 帧——连续 ≥ 阈值才让位 PEOG，避免瞬时谷值打断 PB 加压窗口。`);
-                }
-                const theta = rel.latentCalibration;
-                if (theta && typeof theta === 'object') {
-                    const dimLabel = { spatial: '空间', combo: '连消', order: '顺序', recovery: '回收', tempo: '节奏', clearEff: '清效' };
-                    const parts = ['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff']
-                        .filter((k) => Number.isFinite(Number(theta[k])))
-                        .map((k) => `${dimLabel[k]} ${_pct(theta[k])}`);
-                    if (parts.length) lines.push(`潜在能力 θ⃗：${parts.join(' · ')}（跨局后验，越高表示该考点越擅长 → 同体感下给更难的客观题）。`);
-                }
-            } else {
-                const why = {
-                    disabled: '功能未开启', rollout: '不在灰度名单', low_conf: 'θ⃗ 置信不足（样本累积中）',
-                    warmup: '热身期', recovery: '救济窗口', near_miss: '近失保护', bottleneck: '瓶颈纾解',
-                    post_pb_release: '破纪录释放窗口', error: '本帧安全退化', no_calibration: '尚无 θ⃗ 标定',
-                }[rel.bypass] || rel.bypass || '恒等标定';
-                lines.push(`难度相对论本帧未个性化（${why}）：客观难度按体感目标恒等给出（行为=现状）。`);
-            }
+            lines.push('难度相对论：本轮三块生成时的等体感个性化状态已记录，详见上方“难度相对论 · 出块快照”静态卡。');
         }
     }
     /* v1.21：F(t) / flowState / feedbackBias 与 pill / sparkline 同源（live 优先） */
@@ -1946,21 +1999,15 @@ function _render(game) {
              * / flatness / firstMoveFreedom / tripletSolutionCount），此处不再重复显示，
              * 只保留曲线未覆盖的"近满 / 多消候选 / 清屏候选"等纯候选判定信号。 */
             if (nearFullLines > 0) diagPills.push(_spawnPill(`近满 ${nearFullLines}`, SPAWN_TOOLTIP.nearFull));
-            /* v1.67 空间规划诊断 pill：词表机动性（盘面对整个形状库还剩多少入口）+ 区域熵
-             * （开放空间被切得多碎）。填充率/空洞之外的"可规划性"视角。SSOT=spatialPlanning.js。 */
+            /* v1.67 空间规划诊断 pill：仅保留“词表机动性”（盘面对整个形状库还剩多少入口）。
+             * 区域熵 / 最大开放区 / 小死腔已经在上方盘面指标曲线中展示，避免重复和口径混淆。 */
             if (game.grid?.cells?.length) {
                 try {
                     const sp = ins.spawnDiagnostics?.spatialPlanning || computeSpatialPlanning(game.grid);
                     if (sp && sp.vocabMobility != null) {
                         diagPills.push(_spawnPill(
-                            `机动 ${Math.round(sp.vocabMobility * 100)}%`,
+                            `词表机动 ${Math.round(sp.vocabMobility * 100)}%`,
                             '形状词表机动性：常规 28 形状中当前盘面还能至少放下一处的占比。越高说明盘面对各种形状都留有入口、未来更可规划；越低说明只剩少数形状能落，逼近死局。填充率无法刻画此维度。SSOT=spatialPlanning.js。'
-                        ));
-                    }
-                    if (sp && Number.isFinite(sp.regionEntropy)) {
-                        diagPills.push(_spawnPill(
-                            `熵 ${Math.round(sp.regionEntropy * 100)}%`,
-                            '空白区域熵：空格按 4-连通分量切分后尺寸分布的归一化香农熵。低=开放空间整片（好），高=被切成很多不均匀小岛（碎片化、难规划）。SSOT=spatialPlanning.js。'
                         ));
                     }
                 } catch { /* ignore */ }
@@ -1978,7 +2025,7 @@ function _render(game) {
                 const minStr = tsr.min != null ? tsr.min : '—';
                 const maxStr = tsr.max != null ? tsr.max : '∞';
                 const label = tsr.label ? `${tsr.label} ` : '';
-                diagPills.push(_spawnPill(`区间 ${label}[${minStr}, ${maxStr}]`, SPAWN_TOOLTIP.targetSolutionRange));
+                diagPills.push(_spawnPill(`目标解法 ${label}[${minStr}, ${maxStr}]`, SPAWN_TOOLTIP.targetSolutionRange));
             }
             /* v1.57.2：新空洞区间 pill。与解法区间并列展示，让开发者诊断 stress 双轴投射。
              * 主 HUD 不展示（策略隐性原则），玩家通过出块体感感知"必带空洞 vs 必有干净解"。 */
@@ -1987,7 +2034,7 @@ function _render(game) {
                 const minStr = thi.min != null ? thi.min : '—';
                 const maxStr = thi.max != null ? thi.max : '∞';
                 const label = thi.label ? `${thi.label} ` : '';
-                diagPills.push(_spawnPill(`空洞 ${label}[${minStr}, ${maxStr}]`, SPAWN_TOOLTIP.targetHoleIncrement));
+                diagPills.push(_spawnPill(`目标空洞 ${label}[${minStr}, ${maxStr}]`, SPAWN_TOOLTIP.targetHoleIncrement));
             }
 
             /* v1.57.3：9 项多维难度区间 pill。仅诊断视图展示——玩家从主 HUD 看不到任何
@@ -2351,6 +2398,7 @@ export function enterInsightReplay(frames) {
         '<div class="replay-series-header insight-live-series-head" id="insight-live-series-head"></div>';
     /* v1.46：回放路径与 live 路径用同一套分组布局，避免两边显示割裂。 */
     const grouped = _groupMetricsForLayout(data.metrics);
+    const firstPs = hist.find((ps) => ps && typeof ps === 'object') || null;
     html += '<div class="replay-series-grid insight-live-series-grid">';
     let cellIdx = 0;
     for (const g of grouped) {
@@ -2372,6 +2420,9 @@ export function enterInsightReplay(frames) {
                 `<div class="series-spark-wrap">${sparklineSvg(s.points, data.totalFrames, color)}</div>` +
                 `<span class="series-value">—</span></div>`;
             cellIdx++;
+        }
+        if (g.group === 'stress') {
+            html += `<div id="insight-replay-relativity-host" class="insight-relativity-host">${_renderRelativitySnapshotCard(firstPs)}</div>`;
         }
     }
     html += '</div>';
@@ -2451,6 +2502,9 @@ export function updateInsightReplayFrame(idx) {
         const val = curPs ? getMetricFromPS(curPs, c.key) : null;
         if (c.valueEl) c.valueEl.textContent = formatMetricValue(val, c.fmt);
     }
+
+    const relHost = document.getElementById('insight-replay-relativity-host');
+    if (relHost) relHost.innerHTML = _renderRelativitySnapshotCard(curPs);
 
     // tag 行（flow/release/peak/R{n}）随当前帧切换
     const headTags = document.querySelector('#insight-live-series-head .insight-live-head-tags');

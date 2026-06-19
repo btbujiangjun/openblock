@@ -39,7 +39,7 @@ export const SPAWN_MODEL_CONTEXT_DIM = 24;
  *   缺省 / 低置信 θ⃗ → 中性 0.5（行为退化为现状）。
  * 必须与 rl_pytorch/spawn_model/dataset.py `BEHAVIOR_CONTEXT_DIM` 保持一致，
  * 否则 model-v3 推理时前端拼接维度与后端 `board_proj.in_features`（64+72=136）不符。 */
-/* v1.68（§O1/O2/O5）：72 → 78 维。新增 4 维 relativityIntent one-hot + 1 维 phaseGeomGain + 1 维 earlyPhaseCapHit。
+/* v1.68（对齐预算/几何增益/前期上界）：72 → 78 维。新增 4 维 relativityIntent one-hot + 1 维 phaseGeomGain + 1 维 earlyPhaseCapHit。
  * 旧 checkpoint 兼容：新增维度全部追加在尾部 [72-77]，原 0-71 含义未变；服务端按 dim mismatch
  * 主动拒推（fail-safe），离线管线需重新冻结 .npz 后重训（无破坏性升级路径）。 */
 export const SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM = 78;
@@ -281,7 +281,7 @@ function _spatialPlanningTail(grid, a) {
  * （低置信 → null → 离线 0.5）。若运行时用未门控 μ、离线用门控值，会造成低置信期的训练/推理
  * 特征错位。故顺序：getLatentCalibration()（运行时门控）→ adaptiveInsight.relativity.latentCalibration
  * （回放/离线同源）→ 中性 0.5。 */
-/* §O1：相位化对齐预算 4 维 one-hot（off/prior_only/kbest_only/full）。null/未知 → 全 0（中性）。 */
+/* 相位化对齐预算：相位化对齐预算 4 维 one-hot（off/prior_only/kbest_only/full）。null/未知 → 全 0（中性）。 */
 const _RELATIVITY_INTENT_KEYS = ['off', 'prior_only', 'kbest_only', 'full'];
 function _relativityIntentOneHot(intent) {
     const out = [0, 0, 0, 0];
@@ -290,7 +290,7 @@ function _relativityIntentOneHot(intent) {
     return out;
 }
 
-/* §O1/O2/O5：相对论运行时配置 6 维尾段。
+/* 对齐预算/几何增益/前期上界：相对论运行时配置 6 维尾段。
  * [72-75] intent one-hot · [76] phaseGeomGain · [77] earlyPhaseCapHit
  * 缺省：intent null → 全 0；phaseGeomGain 缺省 1.0（无衰减）；earlyPhaseCapHit 缺省 0。
  * 这些维度让模型显式感知"系统当前在哪一档对齐预算 / 几何信号是否被衰减 / 前期是否被钳上界"，
@@ -381,7 +381,7 @@ function _buildBehaviorContext(grid, profile, adaptiveInsight, topology, ability
         ..._spatialPlanningTail(grid, a),
         // [66-71] §4.17/§2.10 玩家潜在能力 θ⃗（spatial/combo/order/recovery/tempo/clearEff）；缺省/低置信 → 0.5 中性。
         ..._latentThetaTail(profile, a),
-        // [72-77] §O1/O2/O5 相对论运行时配置：intent one-hot(4) + phaseGeomGain(1) + earlyPhaseCapHit(1)。
+        // [72-77] 对齐预算/几何增益/前期上界 相对论运行时配置：intent one-hot(4) + phaseGeomGain(1) + earlyPhaseCapHit(1)。
         ..._relativityRuntimeTail(a),
     ].slice(0, SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM);
 }

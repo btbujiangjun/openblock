@@ -73,7 +73,7 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
     });
 
     it('behaviorContext 维度与 dataset.py BEHAVIOR_CONTEXT_DIM 一致（v1.68 = 78）', () => {
-        /* v1.68（§O1/O2/O5）：72 → 78，尾部追加 6 维相对论运行时配置（intent one-hot + phaseGeomGain + earlyPhaseCapHit）。 */
+        /* v1.68（对齐预算/几何增益/前期上界）：72 → 78，尾部追加 6 维相对论运行时配置（intent one-hot + phaseGeomGain + earlyPhaseCapHit）。 */
         const pyDim = pyInt('BEHAVIOR_CONTEXT_DIM');
         expect(pyDim).toBe(78);
         expect(SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM).toBe(pyDim);
@@ -128,7 +128,7 @@ describe('spawnModel web↔Python 特征契约 parity', () => {
                 },
             },
         });
-        /* v1.68（§O1/O2/O5）：DIM 72→78，尾部新增 intent one-hot(4) + phaseGeomGain(1) + earlyPhaseCapHit(1)。 */
+        /* v1.68（对齐预算/几何增益/前期上界）：DIM 72→78，尾部新增 intent one-hot(4) + phaseGeomGain(1) + earlyPhaseCapHit(1)。 */
         expect(ctx.behaviorContext).toHaveLength(78);
         // [72..75] intent one-hot：未提供 relativity.intent → 全 0（中性）。
         expect(ctx.behaviorContext.slice(72, 76)).toEqual([0, 0, 0, 0]);

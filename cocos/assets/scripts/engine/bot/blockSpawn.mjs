@@ -2596,7 +2596,7 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const _relBypass = strategyConfig._relativityBypass;
     const _relCalib = strategyConfig._latentCalibration || null;
     const _relLambda = Number(strategyConfig._relativityLambda) || 0;
-    /* §O1：相位化对齐预算。intent ∈ {'off','prior_only'} 时禁用 best-of-K（恢复"构造式 completer
+    /* 相位化对齐预算：相位化对齐预算。intent ∈ {'off','prior_only'} 时禁用 best-of-K（恢复"构造式 completer
      * 通过硬约束就定稿"的爽消体感）；intent ∈ {'kbest_only','full'} 时启用。缺省（旧版 strategyConfig
      * 没有该字段）退回旧行为=full，保证向后兼容。 */
     const _relIntent = strategyConfig._relativityIntent || 'full';

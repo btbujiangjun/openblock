@@ -201,7 +201,7 @@ export function buildPeogState(profile, ctx, warmRunState) {
         yieldCapHits: 0,
         decisions: [],
         startedAt: Date.now(),
-        /* §O3 bottleneck 延迟让位：连续 hits 计数器 + 让位后冷却帧（防止"刚让位就重激活"）。
+        /* PEOG 抗抖动：bottleneck 延迟让位：连续 hits 计数器 + 让位后冷却帧（防止"刚让位就重激活"）。
          * 让位策略由"瞬时阈值"改为"持续阈值"——单次 hasBottleneckSignal=true 不再立即终止 PEOG，
          * 而是 hits 累加；连续 ≥ bottleneckYieldHits 帧才真正 _bypassNow('bottleneck')。
          * 同理 hadRecentNearMiss 也走持续阈值（near_miss 是窗口型信号，单帧抖动同样存在）。
@@ -258,7 +258,7 @@ export function evaluatePeogActive(state, ctx, profile) {
     if (profile?.needsRecovery === true)        return _bypassNow(state, 'recovery');
     if (ctx?.postPbReleaseActive === true)      return _bypassNow(state, 'post_pb_release');
 
-    /* §O3 bottleneck / near_miss 改为持续阈值。读取配置（cfg 缺省时退回 1 帧=旧行为）。 */
+    /* PEOG 抗抖动：bottleneck / near_miss 改为持续阈值。读取配置（cfg 缺省时退回 1 帧=旧行为）。 */
     const cfg = readPeogConfig();
     const btHitsThresh = Math.max(1, Number(cfg?.bottleneckYieldHits) || 1);
     const nmHitsThresh = Math.max(1, Number(cfg?.nearMissYieldHits) || 1);

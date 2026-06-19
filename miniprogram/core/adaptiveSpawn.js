@@ -63,7 +63,7 @@ let _softDeps_math = {}; try { _softDeps_math = require('./lib/math'); } catch (
 let _softDeps_warmRun = {}; try { _softDeps_warmRun = require('./spawn/warmRun'); } catch (_e) { /* miniprogram 不分发 spawn/ 子目录，软依赖回退空骨架 */ } const { applyWarmRun } = _softDeps_warmRun;
 let _softDeps_peog = {}; try { _softDeps_peog = require('./spawn/peog'); } catch (_e) { /* miniprogram 不分发 spawn/ 子目录，软依赖回退空骨架 */ } const { applyPeogSpawnHintsCap } = _softDeps_peog;
 /* §4.17/§2.10 难度相对论：体感→客观目标 b* 反解（影子，不改 stress 主线）。
- * §O1：resolveRelativityIntent 把"以什么力度参与"按相位集中决策，与 bypass 互补。 */
+ * 相位化对齐预算：resolveRelativityIntent 把"以什么力度参与"按相位集中决策，与 bypass 互补。 */
 const { solveObjectiveTarget, resolveRelativityIntent, RELATIVITY_INTENT } = require('./difficultyRelativity');
 /* v1.71：11 项 stress→算法多维难度区间派生器 + _deriveRangeByStress 抽至 ./bot/spawnTargets.js。
  * 本文件 import 后通过同名 alias 保持原内部调用名（resolveAdaptiveStrategy 主路径调用点不变）。 */
@@ -1876,7 +1876,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     const runMods = getRunDifficultyModifiers(runStreak);
     const holes = Math.max(0, Number(ctx.holes ?? 0) || 0);
     const holePressure = Math.max(0, Math.min(1, holes / Math.max(1, topoCfg.holePressureMax ?? 8)));
-    /* §O2 相位化几何增益：onboarding / warmRun 期把 ability 中"由真实几何派生的负向项"（holes/
+    /* 相位化几何增益 相位化几何增益：onboarding / warmRun 期把 ability 中"由真实几何派生的负向项"（holes/
      * closeLines/lockRisk）按 phaseGeomGain 衰减，避免 §4.17 几何回灌后新手/温暖局期"1 个 close1
      * 让形状先验向 t/z 漂"的副作用。保留正向 spatialPlanning 不衰减（它是规划质量分，应客观反映）。
      * 配置取自 adaptiveSpawn.phaseGeomGain（缺省值：onboarding=0.3 / warmRun=0.5 / 其它=1.0）。 */
@@ -1891,7 +1891,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         phaseGeomGain = _pgg.default;
     }
     phaseGeomGain = Math.max(0, Math.min(1, phaseGeomGain));
-    /* §O2 透出到 stressBreakdown，供 game.js insight / 透视仪 / 面板诊断"几何信号衰减强度"。
+    /* 相位化几何增益 透出到 stressBreakdown，供 game.js insight / 透视仪 / 面板诊断"几何信号衰减强度"。
      * 注意：stressBreakdown 在本函数稍后才声明（紧随 stress 主线计算）；这里先暂存到一个本地
      * 变量，等下方 stressBreakdown 初始化后再写入。 */
     const _phaseGeomGainOut = phaseGeomGain;
@@ -1906,7 +1906,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
          * 由 _mergeLiveGeometrySignals 实时回灌到 ctx 后在此转交（修复 lockRisk 恒不参与）。 */
         firstMoveFreedom: ctx.firstMoveFreedom,
         placementSolutionScore: ctx.placementSolutionScore,
-        /* §O2：相位化几何增益（缺省=1 时 playerAbilityModel 行为完全不变）。 */
+        /* 相位化几何增益：相位化几何增益（缺省=1 时 playerAbilityModel 行为完全不变）。 */
         phaseGeomGain,
         topology: {
             holes,
@@ -2712,7 +2712,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     stressBreakdown.relativityLambda = relativityLambda;
     stressBreakdown.objectiveTarget = objectiveTarget;
     stressBreakdown.latentCalibration = ctx.latentCalibration || null;
-    /* §O2 透出本帧实际生效的相位化几何增益（onboarding=0.3 / warmRun=0.5 / 默认=1.0）。
+    /* 相位化几何增益 透出本帧实际生效的相位化几何增益（onboarding=0.3 / warmRun=0.5 / 默认=1.0）。
      * 旧帧 / 旧配置缺省时退化为 1.0（行为兼容）。 */
     stressBreakdown.phaseGeomGain = _phaseGeomGainOut;
 
@@ -3670,7 +3670,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         }
     }
 
-    /* §O1 相位化对齐预算：resolveRelativityIntent 集中决策"以什么力度参与难度相对论"，
+    /* 相位化对齐预算 相位化对齐预算：resolveRelativityIntent 集中决策"以什么力度参与难度相对论"，
      * 与 bypass 互补——bypass 是否决型（不该参与），intent 是分级型（参与几道）。
      * 同时被本块（shapePrior）与下游 generateDockShapes(best-of-K)共用，单一 SSOT。
      *
@@ -3872,7 +3872,7 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         _objectiveTarget: objectiveTarget,
         _relativityBypass: relativityBypass,
         _relativityLambda: relativityLambda,
-        /* §O1：相位化对齐预算。generateDockShapes 据此决定是否启用 best-of-K。 */
+        /* 相位化对齐预算：相位化对齐预算。generateDockShapes 据此决定是否启用 best-of-K。 */
         _relativityIntent,
         _latentCalibration: ctx.latentCalibration || null,
         _spawnTargets: spawnTargets,

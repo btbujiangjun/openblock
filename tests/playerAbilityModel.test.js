@@ -257,9 +257,9 @@ describe('playerAbilityModel', () => {
 });
 
 /* ================================================================ */
-/*  §O2 phaseGeomGain — 相位化几何信号增益                            */
+/*  相位化几何增益 phaseGeomGain — 相位化几何信号增益                            */
 /* ================================================================ */
-describe('§O2 phaseGeomGain — onboarding/warmRun 期衰减几何负向项', () => {
+describe('相位化几何增益 phaseGeomGain — onboarding/warmRun 期衰减几何负向项', () => {
     function makeProfileWithMisses() {
         const p = new PlayerProfile(20);
         /* 制造较高 missRate / 高 fill 累积，让 ability 显著反映几何信号。 */

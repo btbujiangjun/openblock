@@ -96,9 +96,9 @@ describe('difficultyRelativity — 对齐乘子', () => {
 function clamp(x) { return Math.max(0, Math.min(1, x)); }
 
 /* ================================================================ */
-/*  §O1：相位化对齐预算 resolveRelativityIntent                       */
+/*  相位化对齐预算：相位化对齐预算 resolveRelativityIntent                       */
 /* ================================================================ */
-describe('§O1 resolveRelativityIntent — 相位化对齐预算', () => {
+describe('相位化对齐预算 resolveRelativityIntent — 相位化对齐预算', () => {
     it('bypass != null → 强制 off（与 resolveRelativityBypass 语义对齐）', () => {
         expect(resolveRelativityIntent({ bypass: 'disabled' })).toBe('off');
         expect(resolveRelativityIntent({ bypass: 'low_conf', spawnIntent: 'maintain' })).toBe('off');
@@ -151,9 +151,9 @@ describe('§O1 resolveRelativityIntent — 相位化对齐预算', () => {
 });
 
 /* ================================================================ */
-/*  §O5：早期相位 b* 上界（解决高 PB 玩家前期被喂偏难三连）           */
+/*  b* 前期上界：早期相位 b* 上界（解决高 PB 玩家前期被喂偏难三连）           */
 /* ================================================================ */
-describe('§O5 solveObjectiveTarget — earlyPhase b* 上界', () => {
+describe('b* 前期上界 solveObjectiveTarget — earlyPhase b* 上界', () => {
     const strongCalib = { spatial: 0.9, combo: 0.9, order: 0.9, recovery: 0.9, tempo: 0.9, clearEff: 0.9 };
 
     it('低 d*（前期）+ 高 θ：b* 被钳制在 d + earlyPhaseBStarCap 以内', () => {

@@ -814,7 +814,7 @@ export class Game {
             relativity: (() => {
                 const sb = layered._stressBreakdown || {};
                 const diag = getLastSpawnDiagnostics();
-                /* §O5：检测 b* 是否触上界（任一维 b ≈ d + earlyPhaseBStarCap 且 d < earlyPhaseDStar）。
+                /* b* 前期上界：检测 b* 是否触上界（任一维 b ≈ d + earlyPhaseBStarCap 且 d < earlyPhaseDStar）。
                  * 仅用于面板/透视仪诊断"是否被前期上界钳住"。容差 1e-6 避免浮点误差误判。 */
                 const _bStar = layered._objectiveTarget ?? sb.objectiveTarget ?? null;
                 const _dStar = Number.isFinite(sb.relativityDStar) ? sb.relativityDStar : null;
@@ -834,19 +834,19 @@ export class Game {
                     enabled: Boolean(GAME_RULES.adaptiveSpawn?.difficultyRelativity?.enabled),
                     bypass: layered._relativityBypass ?? sb.relativityBypass ?? null,
                     lambda: layered._relativityLambda ?? sb.relativityLambda ?? 0,
-                    /* §O1：相位化对齐预算 intent（'off'|'prior_only'|'kbest_only'|'full'）。
+                    /* 相位化对齐预算：相位化对齐预算 intent（'off'|'prior_only'|'kbest_only'|'full'）。
                      * 与 bypass 互补：bypass≠null 时 intent 强制 'off'；顺玩家相位时降为 prior_only。 */
                     intent: layered._relativityIntent ?? sb.relativityIntent ?? null,
-                    /* §O2：本帧 ability 几何信号增益（相位化衰减系数，1=完全消费）。 */
+                    /* 相位化几何增益：本帧 ability 几何信号增益（相位化衰减系数，1=完全消费）。 */
                     phaseGeomGain: Number.isFinite(sb.phaseGeomGain) ? sb.phaseGeomGain : null,
-                    /* §O5：本帧 b* 是否触前期上界（诊断"高 PB 前期保护"是否生效）。 */
+                    /* b* 前期上界：本帧 b* 是否触前期上界（诊断"高 PB 前期保护"是否生效）。 */
                     earlyPhaseCapHit: _earlyPhaseCapHit,
                     dStar: _dStar,
                     objectiveTarget: _bStar,
                     latentCalibration: layered._latentCalibration ?? sb.latentCalibration ?? null,
                     latent: this.playerProfile.getLatentAbilitySnapshot?.() ?? null,
                     chosen: (diag && diag.relativity) ? { ...diag.relativity } : null,
-                    /* §O3：PEOG bottleneck/near_miss 让位计数器快照（仅 PEOG active 时有值）。 */
+                    /* PEOG 抗抖动：PEOG bottleneck/near_miss 让位计数器快照（仅 PEOG active 时有值）。 */
                     peogYieldHits: (() => {
                         const ps = this._spawnContext?.peogState;
                         if (!ps) return null;
@@ -4263,7 +4263,7 @@ export class Game {
                 soundEnabled: window.__audioFx?.getPrefs?.().sound !== false,
                 volume: window.__audioFx?.getPrefs?.().volume ?? 0.55,
             });
-        } catch { /* PB BGM 失败不影响结算 */ }
+        } catch { /* PB cue 失败不影响结算 */ }
         /* v1.63（pv=3，出块数据集补全）：终局 / 死亡信号 —— 区分"被怼死"和"主动结束"，
          * 是保命 / 可解性优化与公平性回归的关键标签。一并落库死亡盘面 + 那组放不下的 dock，
          * 供"死局成因"复盘。写入 gameStats，随 updateSession 持久化到 sessions.game_stats，
@@ -5447,7 +5447,7 @@ export class Game {
                 soundEnabled: audioPrefs.sound !== false,
                 volume: audioPrefs.volume ?? 0.55,
             });
-        } catch { /* PB BGM 降级为静默 */ }
+        } catch { /* PB cue 降级为静默 */ }
         /* v1.55 §4.13：在 best 数字下方加难度标签（仅当玩家在 easy/hard 时显示，
          * normal 默认不显示以减少视觉噪音）。Hard 时显示金色烟火，配合 §4.4 PB 分桶。 */
         const badgeEl = document.getElementById('best-strategy-badge');

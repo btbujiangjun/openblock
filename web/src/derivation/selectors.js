@@ -198,9 +198,9 @@ export function selectRelativity(game) {
 export function relativityViewFromInsight(insight) {
     const base = {
         enabled: false, active: false, bypass: null, lambda: 0,
-        /* §O1/O2/O5：新增三项稳定字段（缺省 null/false）。 */
+        /* 对齐预算/几何增益/前期上界：新增三项稳定字段（缺省 null/false）。 */
         intent: null, phaseGeomGain: null, earlyPhaseCapHit: false,
-        /* §O3：PEOG 让位计数器快照（仅 PEOG active 时有值，否则 null）。 */
+        /* PEOG 抗抖动：PEOG 让位计数器快照（仅 PEOG active 时有值，否则 null）。 */
         peogYieldHits: null,
         dStar: null, objectiveTarget: null, latentCalibration: null,
         thetaConfidence: null, thetaN: null, chosenAlign: null,
@@ -229,13 +229,13 @@ export function relativityViewFromInsight(insight) {
         active: r.enabled === true && bypass == null && lambda > 0,
         bypass,
         lambda,
-        /* §O1 相位化对齐预算：'off'|'prior_only'|'kbest_only'|'full'|null。 */
+        /* 相位化对齐预算 相位化对齐预算：'off'|'prior_only'|'kbest_only'|'full'|null。 */
         intent: typeof r.intent === 'string' ? r.intent : null,
-        /* §O2 本帧 ability 几何信号增益（1=完全消费/默认，<1=onboarding/warmRun 期衰减）。 */
+        /* 相位化几何增益 本帧 ability 几何信号增益（1=完全消费/默认，<1=onboarding/warmRun 期衰减）。 */
         phaseGeomGain: Number.isFinite(Number(r.phaseGeomGain)) ? Number(r.phaseGeomGain) : null,
-        /* §O5 本帧 b* 是否触前期上界。 */
+        /* b* 前期上界：本帧 b* 是否触前期上界。 */
         earlyPhaseCapHit: r.earlyPhaseCapHit === true,
-        /* §O3 PEOG bottleneck/near_miss 让位连续帧计数（含 bypass 原因）。 */
+        /* PEOG 抗抖动：PEOG bottleneck/near_miss 让位连续帧计数（含 bypass 原因）。 */
         peogYieldHits: r.peogYieldHits && typeof r.peogYieldHits === 'object'
             ? { ...r.peogYieldHits } : null,
         dStar: Number.isFinite(Number(r.dStar)) ? Number(r.dStar) : null,

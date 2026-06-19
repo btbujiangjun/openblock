@@ -141,9 +141,9 @@ describe('spawnStepDifficulty — RL 状态特征子向量', () => {
 });
 
 /* ================================================================ */
-/*  §O4 difficultyVec 真实信号化（clearPotential/cleanPath/permVariance）  */
+/*  difficultyVec 真实信号化 difficultyVec 真实信号化（clearPotential/cleanPath/permVariance）  */
 /* ================================================================ */
-describe('§O4 difficultyVec — 真实信号 terms 与缺省自动重分配', () => {
+describe('difficultyVec 真实信号化 difficultyVec — 真实信号 terms 与缺省自动重分配', () => {
     it('缺省 solutionMetrics → 新 terms 全 null，difficultyVec 仍可计算（旧行为兼容）', () => {
         const r = computeSpawnStepDifficulty({
             shapes: [SQ2, BAR, S1], occupiedCount: 10, boardDifficulty: 0.3

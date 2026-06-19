@@ -137,7 +137,7 @@ describe('PEOG · evaluatePeogActive 实时 bypass（6 路）', () => {
         expect(after.bypass).toBe('recovery');
     });
 
-    it('near_miss：连续 nearMissYieldHits 帧才让位（§O3 持续阈值）', () => {
+    it('near_miss：连续 nearMissYieldHits 帧才让位（PEOG 抗抖动 持续阈值）', () => {
         const s = buildPeogState(makeProfile(), midHighCtx(), null);
         /* nearMissYieldHits=2 (默认)：第 1 帧仍 active，第 2 帧才 bypass。 */
         const after1 = evaluatePeogActive(s, { ...midHighCtx(), hadRecentNearMiss: true }, makeProfile());
@@ -148,7 +148,7 @@ describe('PEOG · evaluatePeogActive 实时 bypass（6 路）', () => {
         expect(after2.bypass).toBe('near_miss');
     });
 
-    it('bottleneck：连续 bottleneckYieldHits 帧才让位（§O3 持续阈值）', () => {
+    it('bottleneck：连续 bottleneckYieldHits 帧才让位（PEOG 抗抖动 持续阈值）', () => {
         const s = buildPeogState(makeProfile(), midHighCtx(), null);
         const after1 = evaluatePeogActive(s, { ...midHighCtx(), hasBottleneckSignal: true }, makeProfile());
         expect(after1.active).toBe(true);
@@ -158,7 +158,7 @@ describe('PEOG · evaluatePeogActive 实时 bypass（6 路）', () => {
         expect(after2.bypass).toBe('bottleneck');
     });
 
-    it('§O3 bottleneck 瞬时谷值不触发让位（hits 计数器被信号消失重置）', () => {
+    it('PEOG 抗抖动 bottleneck 瞬时谷值不触发让位（hits 计数器被信号消失重置）', () => {
         const s = buildPeogState(makeProfile(), midHighCtx(), null);
         const a1 = evaluatePeogActive(s, { ...midHighCtx(), hasBottleneckSignal: true }, makeProfile());
         expect(a1.active).toBe(true);

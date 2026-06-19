@@ -722,7 +722,7 @@ Page({
         soundEnabled: prefs.sound !== false,
         volume: prefs.volume ?? 0.55,
       });
-    } catch { /* PB BGM 失败不影响主流程 */ }
+    } catch { /* PB cue 失败不影响主流程 */ }
 
     const dataPatch = {
       score: snap.score,

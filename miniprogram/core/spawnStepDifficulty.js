@@ -57,7 +57,7 @@ const DEFAULT_STEP_DIFFICULTY_CONFIG = Object.freeze({
         fragmentation: 0.12
     },
     /* §2.10 难度相对论：terms → 6 维考点向量 difficultyVec(b⃗) 的确定性投影矩阵。
-     * §O4 真实化升级：combo/clearEff/recovery 三维由"现有 terms 的粗代理"升级为消费真实信号：
+     * difficultyVec 真实信号化升级：combo/clearEff/recovery 三维由"现有 terms 的粗代理"升级为消费真实信号：
      *   - clearPotential（来自 solutionMetrics.meanNearFullDelta）= 本三连放完后离消行更近的程度；
      *   - cleanPath（来自 solutionMetrics.minHoleIncrement 反向归一）= 最优路径的"少添空洞"程度；
      *   - permVariance（来自 solutionMetrics.solutionDiversity）= 6 排列解数差异（顺序敏感性）。
@@ -108,7 +108,7 @@ function projectDifficultyVector(terms, cfg) {
         for (const term in coef) {
             const w = Number(coef[term]) || 0;
             const rawV = t[term];
-            /* §O4：缺省 term（null/undefined/NaN）从加权和里剔除，等比放大其它 term 的有效权重。
+            /* difficultyVec 真实信号化：缺省 term（null/undefined/NaN）从加权和里剔除，等比放大其它 term 的有效权重。
              * 与 computeSpawnStepDifficulty 中 fragmentation 缺省重分配模式一致，保证旧调用路径
              * （只提供 6 原 terms 不提供新 terms）行为完全不变。 */
             if (rawV == null || !Number.isFinite(Number(rawV))) continue;
@@ -385,7 +385,7 @@ function computeSpawnStepDifficulty(input = {}, cfg) {
         + (fragmentationTerm != null ? wFragActive * fragmentationTerm : 0)
     ) / wSum) : 0;
 
-    /* §O4 真实化 terms（用于 difficultyVec 投影）：
+    /* difficultyVec 真实信号化 terms（用于 difficultyVec 投影）：
      *   - clearPotential：每解平均近满行增量，clamp 到 [0, ~1]（>0 表示更接近消行）；
      *   - cleanPath：最优路径新空洞数的反向归一（0 个新空洞=1，≥4 个=0）；
      *   - permVariance：6 排列解数差异（CV）压到 [0,1]（>1 视为 1）；
@@ -415,7 +415,7 @@ function computeSpawnStepDifficulty(input = {}, cfg) {
         solution: solutionTerm,
         killer: killerTerm,
         fragmentation: fragmentationTerm != null ? fragmentationTerm : 0,
-        /* §O4 真实信号 terms（缺省 null → projectDifficultyVector 自动剔除）。 */
+        /* difficultyVec 真实信号 terms（缺省 null → projectDifficultyVector 自动剔除）。 */
         clearPotential: clearPotentialTerm,
         cleanPath: cleanPathTerm,
         permVariance: permVarianceTerm

@@ -281,7 +281,7 @@ export function buildPlayerAbilityVector(profile, ctx = {}) {
         + Math.min(1, perfectClearRate / num(clearCfg.perfectClearRateMax, 0.15)) * num(clearWeights.perfectClear, 0.10)
     );
 
-    /* §O2 相位化几何信号：onboarding/warmup 阶段对"几何派生项"（holePenalty/nearClear/lockRisk）
+    /* 相位化几何增益 相位化几何信号：onboarding/warmup 阶段对"几何派生项"（holePenalty/nearClear/lockRisk）
      * 按比例衰减，缓解 §4.17 提交回灌真实几何后"新手早期 1 个 close1 就让形状先验向 t/z 漂"的
      * 副作用。phaseGeomGain ∈ [0,1]：1=完全消费（默认/mid 段），<1=按比例衰减。
      * 由调用方（adaptiveSpawn.js）按 inOnboarding/sessionArc/pbPhase 决定值。
@@ -355,7 +355,7 @@ export function buildPlayerAbilityVector(profile, ctx = {}) {
         const safety = Math.max(0, Math.min(1, ctx.firstMoveFreedom / Math.max(1, safe)));
         lockRiskScore = 1 - safety;
     }
-    /* §O2 相位化：lockRisk 也按 phaseGeomGain 衰减。这与 holePenalty/nearClearScore 同语义
+    /* 相位化几何增益 相位化：lockRisk 也按 phaseGeomGain 衰减。这与 holePenalty/nearClearScore 同语义
      * ——onboarding/warmup 期即便几何信号真实，也不立即被 risk 路径放大。 */
     lockRiskScore = lockRiskScore * phaseGeomGain;
     const liveRisk = clamp01(

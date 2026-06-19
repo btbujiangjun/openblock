@@ -6578,6 +6578,15 @@ body.doc-visibility-hidden #menu * {
     opacity: 0.65;
 }
 
+.insight-relativity-snapshot,
+.insight-relativity-host {
+    grid-column: 1 / -1;
+}
+
+.insight-relativity-snapshot {
+    margin-top: 3px;
+}
+
 /* v1.46.2 紧凑布局：cell 行高 22→18px、grid 列宽 3.2em/1fr/3.2em → 2.8em/1fr/3em
  *（标签 / 数值列各让出 0.4em 给 sparkline，曲线变更宽更易读）；
  * align-items 从 center 不变，但 line-height 在 .series-label / .series-value 已是 1，
