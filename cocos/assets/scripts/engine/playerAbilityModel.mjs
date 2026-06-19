@@ -281,12 +281,23 @@ export function buildPlayerAbilityVector(profile, ctx = {}) {
         + Math.min(1, perfectClearRate / num(clearCfg.perfectClearRateMax, 0.15)) * num(clearWeights.perfectClear, 0.10)
     );
 
-    const holePenalty = Math.min(1, holes / num(boardCfg.holeMax, 8));
+    /* §O2 相位化几何信号：onboarding/warmup 阶段对"几何派生项"（holePenalty/nearClear/lockRisk）
+     * 按比例衰减，缓解 §4.17 提交回灌真实几何后"新手早期 1 个 close1 就让形状先验向 t/z 漂"的
+     * 副作用。phaseGeomGain ∈ [0,1]：1=完全消费（默认/mid 段），<1=按比例衰减。
+     * 由调用方（adaptiveSpawn.js）按 inOnboarding/sessionArc/pbPhase 决定值。
+     * 缺省=1（向后兼容：所有未传 phaseGeomGain 的调用点行为完全不变）。 */
+    const phaseGeomGain = Number.isFinite(ctx.phaseGeomGain)
+        ? Math.max(0, Math.min(1, ctx.phaseGeomGain))
+        : 1;
+
+    const holePenaltyRaw = Math.min(1, holes / num(boardCfg.holeMax, 8));
+    const holePenalty = holePenaltyRaw * phaseGeomGain;
     const fillPenalty = Math.max(0, (boardFill - num(boardCfg.fillPenaltyStart, 0.58)) / num(boardCfg.fillPenaltySpan, 0.36));
     const mobilityScore = mobility > 0
         ? Math.min(1, mobility / num(boardCfg.mobilityMax, 200))
         : num(boardCfg.fallbackMobilityScore, 0.55);
-    const nearClearScore = Math.min(1, closeLines / num(boardCfg.closeLinesMax, 6));
+    const nearClearScoreRaw = Math.min(1, closeLines / num(boardCfg.closeLinesMax, 6));
+    const nearClearScore = nearClearScoreRaw * phaseGeomGain;
 
     /* v1.67：盘面规划接入"空间规划"——填充率/空洞只看"占多少/有没有洞"，无法刻画
      * "开放空间是否整片、对形状词表是否还留有多种入口"。spatialPlanning 把区域熵、最大开放区
@@ -344,6 +355,9 @@ export function buildPlayerAbilityVector(profile, ctx = {}) {
         const safety = Math.max(0, Math.min(1, ctx.firstMoveFreedom / Math.max(1, safe)));
         lockRiskScore = 1 - safety;
     }
+    /* §O2 相位化：lockRisk 也按 phaseGeomGain 衰减。这与 holePenalty/nearClearScore 同语义
+     * ——onboarding/warmup 期即便几何信号真实，也不立即被 risk 路径放大。 */
+    lockRiskScore = lockRiskScore * phaseGeomGain;
     const liveRisk = clamp01(
         boardFill * num(riskWeights.boardFill, 0.26)
         + holePenalty * num(riskWeights.holes, 0.22)

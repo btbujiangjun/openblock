@@ -137,18 +137,40 @@ describe('PEOG · evaluatePeogActive 实时 bypass（6 路）', () => {
         expect(after.bypass).toBe('recovery');
     });
 
-    it('near_miss：ctx.hadRecentNearMiss=true 时 bypass=near_miss', () => {
+    it('near_miss：连续 nearMissYieldHits 帧才让位（§O3 持续阈值）', () => {
         const s = buildPeogState(makeProfile(), midHighCtx(), null);
-        const after = evaluatePeogActive(s, { ...midHighCtx(), hadRecentNearMiss: true }, makeProfile());
-        expect(after.active).toBe(false);
-        expect(after.bypass).toBe('near_miss');
+        /* nearMissYieldHits=2 (默认)：第 1 帧仍 active，第 2 帧才 bypass。 */
+        const after1 = evaluatePeogActive(s, { ...midHighCtx(), hadRecentNearMiss: true }, makeProfile());
+        expect(after1.active).toBe(true);
+        expect(after1._nearMissHits).toBe(1);
+        const after2 = evaluatePeogActive(after1, { ...midHighCtx(), hadRecentNearMiss: true }, makeProfile());
+        expect(after2.active).toBe(false);
+        expect(after2.bypass).toBe('near_miss');
     });
 
-    it('bottleneck：ctx.hasBottleneckSignal=true 时 bypass=bottleneck', () => {
+    it('bottleneck：连续 bottleneckYieldHits 帧才让位（§O3 持续阈值）', () => {
         const s = buildPeogState(makeProfile(), midHighCtx(), null);
-        const after = evaluatePeogActive(s, { ...midHighCtx(), hasBottleneckSignal: true }, makeProfile());
-        expect(after.active).toBe(false);
-        expect(after.bypass).toBe('bottleneck');
+        const after1 = evaluatePeogActive(s, { ...midHighCtx(), hasBottleneckSignal: true }, makeProfile());
+        expect(after1.active).toBe(true);
+        expect(after1._bottleneckHits).toBe(1);
+        const after2 = evaluatePeogActive(after1, { ...midHighCtx(), hasBottleneckSignal: true }, makeProfile());
+        expect(after2.active).toBe(false);
+        expect(after2.bypass).toBe('bottleneck');
+    });
+
+    it('§O3 bottleneck 瞬时谷值不触发让位（hits 计数器被信号消失重置）', () => {
+        const s = buildPeogState(makeProfile(), midHighCtx(), null);
+        const a1 = evaluatePeogActive(s, { ...midHighCtx(), hasBottleneckSignal: true }, makeProfile());
+        expect(a1.active).toBe(true);
+        expect(a1._bottleneckHits).toBe(1);
+        /* 信号消失：hits 重置为 0，PEOG 不让位。 */
+        const a2 = evaluatePeogActive(a1, { ...midHighCtx(), hasBottleneckSignal: false }, makeProfile());
+        expect(a2.active).toBe(true);
+        expect(a2._bottleneckHits).toBe(0);
+        /* 再次出现单帧信号：从 0 重新计数，仍 active。 */
+        const a3 = evaluatePeogActive(a2, { ...midHighCtx(), hasBottleneckSignal: true }, makeProfile());
+        expect(a3.active).toBe(true);
+        expect(a3._bottleneckHits).toBe(1);
     });
 
     it('post_pb_release：ctx.postPbReleaseActive=true 时 bypass=post_pb_release', () => {

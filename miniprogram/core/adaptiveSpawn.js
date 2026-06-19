@@ -62,8 +62,9 @@ let _softDeps_math = {}; try { _softDeps_math = require('./lib/math'); } catch (
  * 该模块内的 normalizeStress 与本文件同源（B-Clean v1.55.17），由 tests/warmRun.test.js 锁定。 */
 let _softDeps_warmRun = {}; try { _softDeps_warmRun = require('./spawn/warmRun'); } catch (_e) { /* miniprogram 不分发 spawn/ 子目录，软依赖回退空骨架 */ } const { applyWarmRun } = _softDeps_warmRun;
 let _softDeps_peog = {}; try { _softDeps_peog = require('./spawn/peog'); } catch (_e) { /* miniprogram 不分发 spawn/ 子目录，软依赖回退空骨架 */ } const { applyPeogSpawnHintsCap } = _softDeps_peog;
-/* §4.17/§2.10 难度相对论：体感→客观目标 b* 反解（影子，不改 stress 主线）。 */
-const { solveObjectiveTarget } = require('./difficultyRelativity');
+/* §4.17/§2.10 难度相对论：体感→客观目标 b* 反解（影子，不改 stress 主线）。
+ * §O1：resolveRelativityIntent 把"以什么力度参与"按相位集中决策，与 bypass 互补。 */
+const { solveObjectiveTarget, resolveRelativityIntent, RELATIVITY_INTENT } = require('./difficultyRelativity');
 /* v1.71：11 项 stress→算法多维难度区间派生器 + _deriveRangeByStress 抽至 ./bot/spawnTargets.js。
  * 本文件 import 后通过同名 alias 保持原内部调用名（resolveAdaptiveStrategy 主路径调用点不变）。 */
 /* v1.71：applySpawnPrior + applyRelativityShapePrior 抽至 ./bot/spawnPriors.js。
@@ -1875,6 +1876,26 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     const runMods = getRunDifficultyModifiers(runStreak);
     const holes = Math.max(0, Number(ctx.holes ?? 0) || 0);
     const holePressure = Math.max(0, Math.min(1, holes / Math.max(1, topoCfg.holePressureMax ?? 8)));
+    /* §O2 相位化几何增益：onboarding / warmRun 期把 ability 中"由真实几何派生的负向项"（holes/
+     * closeLines/lockRisk）按 phaseGeomGain 衰减，避免 §4.17 几何回灌后新手/温暖局期"1 个 close1
+     * 让形状先验向 t/z 漂"的副作用。保留正向 spatialPlanning 不衰减（它是规划质量分，应客观反映）。
+     * 配置取自 adaptiveSpawn.phaseGeomGain（缺省值：onboarding=0.3 / warmRun=0.5 / 其它=1.0）。 */
+    const _pgg = cfg.phaseGeomGain || {};
+    const _isWarmActive = ctx.warmRunState && ctx.warmRunState.active === true;
+    let phaseGeomGain = 1;
+    if (profile.isInOnboarding === true) {
+        phaseGeomGain = Number.isFinite(_pgg.onboarding) ? _pgg.onboarding : 0.3;
+    } else if (_isWarmActive) {
+        phaseGeomGain = Number.isFinite(_pgg.warmRun) ? _pgg.warmRun : 0.5;
+    } else if (Number.isFinite(_pgg.default)) {
+        phaseGeomGain = _pgg.default;
+    }
+    phaseGeomGain = Math.max(0, Math.min(1, phaseGeomGain));
+    /* §O2 透出到 stressBreakdown，供 game.js insight / 透视仪 / 面板诊断"几何信号衰减强度"。
+     * 注意：stressBreakdown 在本函数稍后才声明（紧随 stress 主线计算）；这里先暂存到一个本地
+     * 变量，等下方 stressBreakdown 初始化后再写入。 */
+    const _phaseGeomGainOut = phaseGeomGain;
+
     const ability = buildPlayerAbilityVector(profile, {
         boardFill: _boardFill ?? 0,
         spawnContext: ctx,
@@ -1885,6 +1906,8 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
          * 由 _mergeLiveGeometrySignals 实时回灌到 ctx 后在此转交（修复 lockRisk 恒不参与）。 */
         firstMoveFreedom: ctx.firstMoveFreedom,
         placementSolutionScore: ctx.placementSolutionScore,
+        /* §O2：相位化几何增益（缺省=1 时 playerAbilityModel 行为完全不变）。 */
+        phaseGeomGain,
         topology: {
             holes,
             fillRatio: _boardFill ?? 0,
@@ -2689,6 +2712,9 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
     stressBreakdown.relativityLambda = relativityLambda;
     stressBreakdown.objectiveTarget = objectiveTarget;
     stressBreakdown.latentCalibration = ctx.latentCalibration || null;
+    /* §O2 透出本帧实际生效的相位化几何增益（onboarding=0.3 / warmRun=0.5 / 默认=1.0）。
+     * 旧帧 / 旧配置缺省时退化为 1.0（行为兼容）。 */
+    stressBreakdown.phaseGeomGain = _phaseGeomGainOut;
 
     /* ---------- v1.32：顺序刚性（orderRigor / orderMaxValidPerms） ----------
      *
@@ -3644,17 +3670,39 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         }
     }
 
-    /* §4.17/§2.10 阶段5：target-aware 形状先验——relativity 激活（无 bypass + λ>0 + 有 b*）时，
-     * 按 gap=b*−θ⃗ 把候选池朝客观目标推（与 best-of-K 选块互补）。困境/救济帧禁用（顺玩家优先），
-     * 不绕过任何下游硬约束 / 不抬高 d*。默认 difficultyRelativity.enabled=false → 恒等。 */
+    /* §O1 相位化对齐预算：resolveRelativityIntent 集中决策"以什么力度参与难度相对论"，
+     * 与 bypass 互补——bypass 是否决型（不该参与），intent 是分级型（参与几道）。
+     * 同时被本块（shapePrior）与下游 generateDockShapes(best-of-K)共用，单一 SSOT。
+     *
+     * - 顺玩家相位（harvest/engage/warm/warmup arc/pbPhase∈chase|release）→ 'prior_only'
+     *   只允许 shapePrior 微偏，禁用 best-of-K（构造式 completer 候选不会被对齐评分挑掉）。
+     * - 救济类紧急信号（needsRecovery/bottleneck/near_miss/onboarding）→ 'off'。
+     * - maintain/flow/sprint/pressure → 'full'，两道偏置都开。
+     * bypass != null 时 intent 强制 'off'，与既有 relativityBypass 语义对齐。 */
+    const _relativityIntent = resolveRelativityIntent({
+        bypass: relativityBypass,
+        spawnIntent,
+        sessionArc,
+        pbPhase: pbCurve?.pbPhase ?? null,
+        inOnboarding,
+        needsRecovery: profile.needsRecovery === true,
+        hadRecentNearMiss: profile.hadRecentNearMiss === true || ctx.hadRecentNearMiss === true,
+        hasBottleneckSignal: ctx.hasBottleneckSignal === true,
+    });
+    stressBreakdown.relativityIntent = _relativityIntent;
+
+    /* §4.17/§2.10 阶段5：target-aware 形状先验——仅当 intent ∈ {'prior_only','full'} 时启用。
+     * 旧 _distressedRel 判定已被 resolveRelativityIntent 内的 'off' 短路覆盖（needsRecovery/
+     * bottleneck/onboarding）。spawnIntent==='relief' / forceReliefIntent 仍在此局部兜底，
+     * 因为 resolveRelativityIntent 不读 forceReliefIntent（保持纯函数签名简洁）。 */
     let _relativityShapePriorApplied = null;
     {
         const drCfg = cfg.difficultyRelativity;
-        const _distressedRel = spawnIntent === 'relief'
-            || ctx.forceReliefIntent === true
-            || profile.needsRecovery === true;
+        const _localReliefGuard = spawnIntent === 'relief' || ctx.forceReliefIntent === true;
+        const _allowPrior = _relativityIntent === RELATIVITY_INTENT.PRIOR_ONLY
+            || _relativityIntent === RELATIVITY_INTENT.FULL;
         if (drCfg && drCfg.enabled === true && relativityBypass == null
-            && objectiveTarget && relativityLambda > 0 && !_distressedRel
+            && objectiveTarget && relativityLambda > 0 && _allowPrior && !_localReliefGuard
             && drCfg.shapePrior && drCfg.shapePrior.enabled !== false) {
             const rr = applyRelativityShapePrior(
                 finalShapeWeights, objectiveTarget, ctx.latentCalibration || null,
@@ -3662,7 +3710,10 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
             );
             if (rr.applied) {
                 finalShapeWeights = rr.shapeWeights;
-                _relativityShapePriorApplied = { lambda: Math.round(rr.lambda * 1000) / 1000 };
+                _relativityShapePriorApplied = {
+                    lambda: Math.round(rr.lambda * 1000) / 1000,
+                    intent: _relativityIntent,
+                };
             }
         }
     }
@@ -3821,6 +3872,8 @@ function resolveAdaptiveStrategy(baseStrategyId, profile, score, runStreak, _boa
         _objectiveTarget: objectiveTarget,
         _relativityBypass: relativityBypass,
         _relativityLambda: relativityLambda,
+        /* §O1：相位化对齐预算。generateDockShapes 据此决定是否启用 best-of-K。 */
+        _relativityIntent,
         _latentCalibration: ctx.latentCalibration || null,
         _spawnTargets: spawnTargets,
         _pbCurve: pbCurve,

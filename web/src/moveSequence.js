@@ -510,6 +510,16 @@ export function buildPlayerStateSnapshot(profile, ctx) {
                 enabled: r.enabled === true,
                 bypass: r.bypass ?? null,
                 lambda: Number.isFinite(Number(r.lambda)) ? Number(r.lambda) : 0,
+                /* §O1（pv=5+）：相位化对齐预算（'off'|'prior_only'|'kbest_only'|'full'|null）。
+                 * 旧帧无该字段，读端按 null 自然兼容；为 null 时离线归类为"未标注"桶。 */
+                intent: typeof r.intent === 'string' ? r.intent : null,
+                /* §O2（pv=5+）：本帧 ability 几何信号增益（1=完全消费=mid 段，<1=onboarding/warmRun 期衰减）。 */
+                phaseGeomGain: Number.isFinite(Number(r.phaseGeomGain)) ? Number(r.phaseGeomGain) : null,
+                /* §O5（pv=5+）：本帧 b* 是否触前期上界（true=高 PB 玩家前期保护生效）。 */
+                earlyPhaseCapHit: r.earlyPhaseCapHit === true,
+                /* §O3（pv=5+）：PEOG bottleneck/near_miss 让位计数器（仅 PEOG active 时有值）。 */
+                peogYieldHits: r.peogYieldHits && typeof r.peogYieldHits === 'object'
+                    ? { ...r.peogYieldHits } : null,
                 dStar: Number.isFinite(Number(r.dStar)) ? Number(r.dStar) : null,
                 objectiveTarget: bStar ? { ...bStar } : null,
                 latentCalibration: r.latentCalibration ? { ...r.latentCalibration } : null,
@@ -863,6 +873,34 @@ export function formatPlayerStateForReplay(ps) {
         lines.push(
             `投放 stress ${num(ad.stress)} · fill ${num(ad.fillRatio)} · 技能(est) ${num(ad.skillLevel)}`
         );
+        /* §O1/O2/O3/O5：把回放帧的相对论一行可读化——回放者能直接看到"这一帧系统在用
+         * 哪一档对齐预算 / 是否在衰减几何信号 / 是否触前期上界 / PEOG 是否在抗抖动"。
+         * 旧帧（pv<5 或 enabled=false）字段全 null，此处自然不输出。 */
+        const r = ad.relativity;
+        if (r && typeof r === 'object' && r.enabled === true) {
+            const segs = [];
+            const intentText = {
+                off: '关（救济/瓶颈/onboarding 优先于个性化）',
+                prior_only: '只对形状池微偏（顺玩家相位保爽消，禁评分挑选）',
+                kbest_only: '只按评分挑（池不偏）',
+                full: '完整个性化（mid 段默认）',
+            };
+            if (r.intent && intentText[r.intent]) {
+                segs.push(`对齐预算=${intentText[r.intent]}`);
+            } else if (r.bypass) {
+                segs.push(`相对论 bypass=${r.bypass}（恒等标定，行为=未启用）`);
+            }
+            if (Number.isFinite(Number(r.phaseGeomGain)) && Number(r.phaseGeomGain) < 0.99) {
+                segs.push(`几何信号衰减×${Number(r.phaseGeomGain).toFixed(2)}（新手 0.3 / 温暖局 0.5）`);
+            }
+            if (r.earlyPhaseCapHit === true) {
+                segs.push('b* 触前期上界（高 PB 玩家前期保护生效）');
+            }
+            if (r.peogYieldHits && (r.peogYieldHits.bottleneckHits > 0 || r.peogYieldHits.nearMissHits > 0)) {
+                segs.push(`PEOG 抗抖动累计 bottleneck=${r.peogYieldHits.bottleneckHits}/near_miss=${r.peogYieldHits.nearMissHits}（连续 ≥ 阈值才让位）`);
+            }
+            if (segs.length) lines.push(`相对论 · ${segs.join(' · ')}`);
+        }
     }
     return lines.join('\n');
 }
@@ -1334,6 +1372,56 @@ export const REPLAY_METRICS = [
         fmt: 'pct',
         tooltip:
             'θ⃗ 潜在能力标定置信度（0~100%）：玩家 6 维能力后验的样本充分度 1−e^(−n/N0)。低于 minConfidence（默认 45%）时难度相对论退回恒等标定（行为=现状）。\n📈 看图：随对局累积单调上升；跨过阈值后等体感个性化才会真正生效。θ⃗ 只吃行为质量不吃绝对分数，故"耐心刷分新手"与"天才"会分化。'
+    },
+    /* ── §O1/O2/O3/O5 相位化对齐预算诊断曲线（pv=5+）─────────────────────────────
+     * 这 4 条曲线把"系统性优化"的运行轨迹可视化，便于离线观察相位切换 / 几何衰减 /
+     * PEOG 让位抗抖动 / 前期上界触发的真实占比。配置缺省时多为恒等值（曲线平直）。
+     */
+    {
+        key: 'relativityIntent',
+        label: '对齐预算',
+        group: 'relativity',
+        /* intent 是字符串枚举，映射为有序数（off=0/prior=1/kbest=2/full=3）便于 sparkline 渲染。
+         * null 视为缺数据（点不绘）。 */
+        extract: ps => {
+            const v = ps.adaptive?.relativity?.intent;
+            if (v === 'off') return 0;
+            if (v === 'prior_only') return 1;
+            if (v === 'kbest_only') return 2;
+            if (v === 'full') return 3;
+            return null;
+        },
+        fmt: 'f0',
+        tooltip:
+            '§O1 相位化对齐预算（0=off / 1=prior_only / 2=kbest_only / 3=full）：bypass 或救济/瓶颈/onboarding 时 off；harvest/engage/warm/warmup arc/pbPhase∈chase|release 时 prior_only（禁 best-of-K，构造式爽消不被对齐评分挑掉）；maintain/flow/sprint/pressure 时 full。\n📈 看图：长时间停在 0/1=系统对相位敏感（顺玩家阶段被保护）；停在 3=mid 段正常个性化。'
+    },
+    {
+        key: 'phaseGeomGain',
+        label: '几何增益',
+        group: 'relativity',
+        extract: ps => ps.adaptive?.relativity?.phaseGeomGain,
+        fmt: 'f2',
+        tooltip:
+            '§O2 相位化几何信号增益（0~1）：onboarding=0.3 / warmRun=0.5 / 默认=1.0。<1 时 ability 中由真实几何派生的负向项（holePenalty/nearClearScore/lockRiskScore）按比例衰减，缓解新手/温暖局期"1 个 close1 就让形状先验向 t/z 漂"。正向 spatialPlanning 不受影响（保留客观规划质量）。\n📈 看图：阶梯 0.3→0.5→1.0 = 新手→温暖局→mid；恒 1.0 = 已离开保护期。'
+    },
+    {
+        key: 'peogBottleneckHits',
+        label: 'PEOG瓶颈累计',
+        group: 'relativity',
+        extract: ps => ps.adaptive?.relativity?.peogYieldHits?.bottleneckHits,
+        fmt: 'f0',
+        tooltip:
+            '§O3 PEOG bottleneck 让位连续计数器（0~N）：bottleneck 信号每出现 1 帧 +1，消失立即归零。连续达到 bottleneckYieldHits（默认 2）才真正让位（_bypassNow），避免瞬时谷值打断 PB 加压窗口。\n📈 看图：尖刺 1（被消化）= 抗抖动生效；累积到 2 后归零 + 出现 bypass=bottleneck = 真正瓶颈让位。仅 PEOG active 时有值。'
+    },
+    {
+        key: 'earlyPhaseCapHit',
+        label: '前期上界',
+        group: 'relativity',
+        /* 布尔→0/1 数字，方便用 stepped sparkline 看触发频率。 */
+        extract: ps => ps.adaptive?.relativity?.earlyPhaseCapHit === true ? 1 : 0,
+        fmt: 'f0',
+        tooltip:
+            '§O5 b* 早期上界触发标志（0/1）：低 d* 阶段（d* < earlyPhaseDStar，默认 0.40）即便 θ 偏高也把 b* 钳制在 d + earlyPhaseBStarCap（默认 0.10）内。1=本帧至少一维 b* 被钳住。\n📈 看图：高 PB 玩家局初密集 1 → 前期保护正在工作（不被喂偏难三连）；中后段恒 0 = 上界自动让位给主公式。'
     }
 ];
 

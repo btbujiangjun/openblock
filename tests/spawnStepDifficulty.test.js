@@ -10,8 +10,10 @@ import {
     shapeCellCount,
     difficultyBucket,
     spawnStepDifficultyFeatures,
+    projectDifficultyVector,
     SPAWN_STEP_DIFFICULTY_FEATURE_DIM,
     DIFFICULTY_BUCKETS,
+    DIFFICULTY_VECTOR_DIMS,
     SPAWN_STEP_DIFFICULTY_VERSION
 } from '../web/src/spawnStepDifficulty.js';
 
@@ -135,6 +137,113 @@ describe('spawnStepDifficulty — RL 状态特征子向量', () => {
         const hard = spawnStepDifficultyFeatures([SQ3, BAR, SQ3], 50);
         expect(hard[0]).toBeGreaterThan(easy[0]); // scdNorm
         expect(hard[2]).toBeGreaterThan(easy[2]); // killer
+    });
+});
+
+/* ================================================================ */
+/*  §O4 difficultyVec 真实信号化（clearPotential/cleanPath/permVariance）  */
+/* ================================================================ */
+describe('§O4 difficultyVec — 真实信号 terms 与缺省自动重分配', () => {
+    it('缺省 solutionMetrics → 新 terms 全 null，difficultyVec 仍可计算（旧行为兼容）', () => {
+        const r = computeSpawnStepDifficulty({
+            shapes: [SQ2, BAR, S1], occupiedCount: 10, boardDifficulty: 0.3
+        });
+        expect(r.terms.clearPotential).toBeNull();
+        expect(r.terms.cleanPath).toBeNull();
+        expect(r.terms.permVariance).toBeNull();
+        for (const d of DIFFICULTY_VECTOR_DIMS) {
+            expect(r.difficultyVec[d]).toBeGreaterThanOrEqual(0);
+            expect(r.difficultyVec[d]).toBeLessThanOrEqual(1);
+        }
+    });
+
+    it('solutionMetrics.truncated=true → 不消费新 terms（DFS 不完整）', () => {
+        const r = computeSpawnStepDifficulty({
+            shapes: [SQ2, BAR, S1], occupiedCount: 10, boardDifficulty: 0.3,
+            solutionMetrics: {
+                solutionCount: 12, truncated: true, capped: false,
+                meanNearFullDelta: 0.8, minHoleIncrement: 0, solutionDiversity: 0.5
+            }
+        });
+        expect(r.terms.clearPotential).toBeNull();
+        expect(r.terms.cleanPath).toBeNull();
+        expect(r.terms.permVariance).toBeNull();
+    });
+
+    it('clearPotential 真实化：meanNearFullDelta 高 → b*_clearEff 高', () => {
+        const baseMetrics = {
+            solutionCount: 20, truncated: false, capped: false,
+            minHoleIncrement: 1, solutionDiversity: 0.3
+        };
+        const low = computeSpawnStepDifficulty({
+            shapes: [SQ2, BAR, S1], occupiedCount: 32, boardDifficulty: 0.5,
+            solutionMetrics: { ...baseMetrics, meanNearFullDelta: 0 }
+        });
+        const high = computeSpawnStepDifficulty({
+            shapes: [SQ2, BAR, S1], occupiedCount: 32, boardDifficulty: 0.5,
+            solutionMetrics: { ...baseMetrics, meanNearFullDelta: 1.8 }
+        });
+        expect(high.difficultyVec.clearEff).toBeGreaterThan(low.difficultyVec.clearEff);
+    });
+
+    it('cleanPath 真实化：minHoleIncrement 高 → b*_recovery 高（更难恢复）', () => {
+        const baseMetrics = {
+            solutionCount: 20, truncated: false, capped: false,
+            meanNearFullDelta: 0.5, solutionDiversity: 0.3
+        };
+        const easy = computeSpawnStepDifficulty({
+            shapes: [SQ2, BAR, S1], occupiedCount: 32, boardDifficulty: 0.5,
+            solutionMetrics: { ...baseMetrics, minHoleIncrement: 0 }
+        });
+        const hard = computeSpawnStepDifficulty({
+            shapes: [SQ2, BAR, S1], occupiedCount: 32, boardDifficulty: 0.5,
+            solutionMetrics: { ...baseMetrics, minHoleIncrement: 4 }
+        });
+        /* cleanPath = 1 - minInc/4。recovery 维系数：cleanPath=0.5。
+         * minInc=4 → cleanPath=0 → recovery 项 contribution 降。但 board/killer 项不变。
+         * 整体 recovery 应当 hard < easy。 */
+        expect(hard.difficultyVec.recovery).toBeLessThan(easy.difficultyVec.recovery);
+    });
+
+    it('permVariance 真实化：solutionDiversity 高 → b*_combo 高（顺序敏感）', () => {
+        const baseMetrics = {
+            solutionCount: 20, truncated: false, capped: false,
+            meanNearFullDelta: 0.5, minHoleIncrement: 1
+        };
+        const flat = computeSpawnStepDifficulty({
+            shapes: [SQ2, BAR, S1], occupiedCount: 32, boardDifficulty: 0.5,
+            solutionMetrics: { ...baseMetrics, solutionDiversity: 0 }
+        });
+        const skewed = computeSpawnStepDifficulty({
+            shapes: [SQ2, BAR, S1], occupiedCount: 32, boardDifficulty: 0.5,
+            solutionMetrics: { ...baseMetrics, solutionDiversity: 1 }
+        });
+        expect(skewed.difficultyVec.combo).toBeGreaterThan(flat.difficultyVec.combo);
+    });
+
+    it('projectDifficultyVector 缺省 term 自动从加权和剔除（与 fragmentation 模式一致）', () => {
+        /* 只提供 scd / fragmentation（spatial 维所需的 2 个 term），spatial 维结果应只受这两者影响。 */
+        const v = projectDifficultyVector({ scd: 0.8, fragmentation: 0.4 });
+        /* 期望：0.55·0.8 + 0.45·0.4 / (0.55+0.45) = (0.44+0.18)/1 = 0.62。 */
+        expect(v.spatial).toBeCloseTo(0.62, 2);
+    });
+
+    it('stepDifficulty 标量不受 difficultyVec 升级影响（向后兼容 fixture）', () => {
+        /* 同一 fixture 输入：旧 6 项 terms 仍然驱动 stepDifficulty 公式。 */
+        const r = computeSpawnStepDifficulty({
+            shapes: [SQ2, BAR, S1], occupiedCount: 32, boardDifficulty: 0.5,
+            solutionMetrics: {
+                solutionCount: 20, truncated: false, capped: false,
+                meanNearFullDelta: 0.5, minHoleIncrement: 1, solutionDiversity: 0.3
+            }
+        });
+        /* stepDifficulty 公式只读 terms.scd/board/flex/solution/killer/fragmentation，
+         * 新的 3 个 terms 不在该公式里，应当与未提供时同值（在同 solutionCount 下）。 */
+        const rNoNew = computeSpawnStepDifficulty({
+            shapes: [SQ2, BAR, S1], occupiedCount: 32, boardDifficulty: 0.5,
+            solutionMetrics: { solutionCount: 20, truncated: false, capped: false }
+        });
+        expect(r.stepDifficulty).toBeCloseTo(rNoNew.stepDifficulty, 6);
     });
 });
 

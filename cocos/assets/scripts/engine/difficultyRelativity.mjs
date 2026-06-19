@@ -40,6 +40,73 @@ function hashStr(s) {
 }
 
 /**
+ * §O1 相位化对齐预算 RelativityIntent —— 把"是否/如何应用难度相对论"按 spawnIntent /
+ * sessionArc / pbPhase / inOnboarding / 救济信号四类一阶变量集中决策。
+ *
+ * 与 resolveRelativityBypass 的关系：
+ *   - bypass 给出"为什么不该参与"（disabled/rollout/low_conf/recovery/...），是**否决型**判定；
+ *   - intent 给出"该以什么力度参与"（off/prior_only/kbest_only/full），是**分级型**判定。
+ * 当 bypass != null 时，intent 强制为 'off'。
+ *
+ * 用途：
+ *   - shapePrior 入口：intent ∈ {'off','kbest_only'} → skip 偏置；
+ *   - best-of-K 入口：intent ∈ {'off','prior_only'} → 退回单 attempt 定稿；
+ *   - 'full' = 两者都开（默认 mid 段 / maintain）。
+ *
+ * 顺玩家相位（harvest/engage/warm/onboarding/pb_chase）只允许 prior_only：
+ *   - 保留"个性化感"（池微偏，与玩家能力相关的形状权重轻量调整）；
+ *   - 禁用 best-of-K（不在硬约束通过的候选里"挑掉爽消组喂对齐组"）；
+ *   - 这是恢复 §4.17 提交前"构造式爽消"体感的核心改造。
+ */
+export const RELATIVITY_INTENT = Object.freeze({
+    OFF: 'off',
+    PRIOR_ONLY: 'prior_only',
+    KBEST_ONLY: 'kbest_only',
+    FULL: 'full'
+});
+
+/**
+ * 解析"应该用什么力度的难度相对论"。
+ *
+ * @param {object} ctx
+ * @param {string|null} [ctx.bypass]              resolveRelativityBypass 结果（短路：非空→off）
+ * @param {string|null} [ctx.spawnIntent]         maintain/harvest/engage/warm/sprint/pressure/relief/flow/...
+ * @param {string|null} [ctx.sessionArc]          warmup/peak/cooldown
+ * @param {string|null} [ctx.pbPhase]             warmup/chase/tension/gate/release/brake/overshoot
+ * @param {boolean} [ctx.inOnboarding]
+ * @param {boolean} [ctx.needsRecovery]
+ * @param {boolean} [ctx.hadRecentNearMiss]
+ * @param {boolean} [ctx.hasBottleneckSignal]
+ * @returns {'off'|'prior_only'|'kbest_only'|'full'}
+ */
+export function resolveRelativityIntent(ctx = {}) {
+    /* bypass 一票否决：解释器返回任何原因 → 整体 off。 */
+    if (ctx.bypass) return RELATIVITY_INTENT.OFF;
+
+    /* 救济类紧急信号（与 PEOG/warmRun 同级优先级）：完全 off，不参与任何对齐。 */
+    if (ctx.needsRecovery === true) return RELATIVITY_INTENT.OFF;
+    if (ctx.hasBottleneckSignal === true) return RELATIVITY_INTENT.OFF;
+    if (ctx.hadRecentNearMiss === true) return RELATIVITY_INTENT.OFF;
+    if (ctx.inOnboarding === true) return RELATIVITY_INTENT.OFF;
+
+    /* 顺玩家相位：只允许 prior_only 微偏，禁 best-of-K 改选构造式 completer。
+     *   - harvest：玩家追求构造式爽消，best-of-K 会把消除型候选挑掉换对齐组；
+     *   - engage：AFK 召回，应给确定性爆点，对齐应让位；
+     *   - warm：意图层 warm 信号（与 intentResolver 同口径，warmup 段或显式 warm hint）；
+     *   - sessionArc==='warmup'：温暖局节奏；
+     *   - pbPhase ∈ {'chase','release'}：高 PB 前期 / 破纪录后温柔窗口。 */
+    const intent = ctx.spawnIntent;
+    if (intent === 'harvest' || intent === 'engage' || intent === 'warm') {
+        return RELATIVITY_INTENT.PRIOR_ONLY;
+    }
+    if (ctx.sessionArc === 'warmup') return RELATIVITY_INTENT.PRIOR_ONLY;
+    if (ctx.pbPhase === 'chase' || ctx.pbPhase === 'release') return RELATIVITY_INTENT.PRIOR_ONLY;
+
+    /* maintain/flow/sprint/pressure：默认 full（两道偏置都开），mid 段相对论收益最大。 */
+    return RELATIVITY_INTENT.FULL;
+}
+
+/**
  * 判定是否 bypass（不应用难度相对论）。返回 bypass 原因字符串或 null（=应用）。
  * @param {object} cfg game_rules.adaptiveSpawn.difficultyRelativity
  * @param {object} ctx { calibration, needsRecovery, hadRecentNearMiss, hasBottleneckSignal, postPbReleaseActive, sessionArc, userId }
@@ -75,6 +142,15 @@ export function solveObjectiveTarget(stress, cfg, ctx = {}) {
     const noiseAmp = num(cfg.noiseAmp, 0);
     const rng = typeof ctx.rng === 'function' ? ctx.rng : null;
 
+    /* §O5 早期相位上界：低 d* 阶段（前期 / 温和段），即便 θ 高也不让 b* 偏离 d* 太多。
+     * 解决"高 PB 玩家前期被喂偏难三连"：θ_combo/θ_clearEff 长期偏高时，b 会被推到
+     * (1-λ)·d + λ·(θ+(d-0.5))，d=0.3, θ=0.7, λ=0.3 → b≈0.42（相对 d 抬 +0.12）。
+     * 上界 = d + earlyPhaseCap（默认 0.10），只在 d < earlyPhaseDStar 时启用。
+     * earlyPhaseDStar=0 时禁用（保留旧行为）。 */
+    const earlyPhaseDStar = num(cfg.earlyPhaseDStar, 0.40);
+    const earlyPhaseCap = num(cfg.earlyPhaseBStarCap, 0.10);
+    const earlyPhaseActive = earlyPhaseDStar > 0 && d < earlyPhaseDStar && earlyPhaseCap > 0;
+
     const bStar = {};
     for (let i = 0; i < DIFFICULTY_VECTOR_DIMS.length; i++) {
         const dim = DIFFICULTY_VECTOR_DIMS[i];
@@ -86,6 +162,11 @@ export function solveObjectiveTarget(stress, cfg, ctx = {}) {
         b += k * (0.5 - theta);
         /* 受控噪声（仅在显式 rng 时启用，保证测试确定性） */
         if (rng && noiseAmp > 0) b += (rng() * 2 - 1) * noiseAmp;
+        /* §O5 早期相位上界 —— 仅对低 d* 钳制（不对称：只压上限，不抬下限）。 */
+        if (earlyPhaseActive) {
+            const cap = d + earlyPhaseCap;
+            if (b > cap) b = cap;
+        }
         bStar[dim] = clamp01(b);
     }
     return { bStar, bypass: null, lambda };

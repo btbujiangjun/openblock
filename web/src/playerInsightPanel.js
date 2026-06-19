@@ -1313,6 +1313,28 @@ function _buildWhyLines(insight, profile) {
                 lines.push(
                     `难度相对论已生效（θ⃗ 置信 ${conf}，强度 λ=${lam}）：同一体感 d* 按你的 6 维能力 θ⃗ 标定为个性化客观目标 b*，本轮等体感对齐度 ${align}（越接近 1 越贴合）。`
                 );
+                /* §O1：相位化对齐预算——把"何时全开/何时只开池微偏/何时不评分挑选"
+                 * 翻译为玩家可读的"系统当前在用哪一档对齐预算"。 */
+                if (rel.intent) {
+                    const intentDesc = {
+                        prior_only: '当前为 prior_only 档：只对形状池做轻微相对论偏置，关闭 best-of-K 评分挑选，确保 harvest/warmup/pb_chase 等"顺玩家相位"不被对齐评分把构造式爽消挑走',
+                        kbest_only: '当前为 kbest_only 档：池不偏，仅在候选中按对齐评分挑选',
+                        full: '当前为 full 档：池+评分双开，mid 段标准个性化',
+                    }[rel.intent];
+                    if (intentDesc) lines.push(`对齐预算（§O1）：${intentDesc}。`);
+                }
+                /* §O2：相位化几何信号增益——解释"为什么早局/温暖局 ability 看起来更宽容"。 */
+                if (rel.phaseGeomGain != null && rel.phaseGeomGain < 0.99) {
+                    lines.push(`几何信号衰减（§O2）：本帧 holePenalty/nearClearScore/lockRiskScore × ${rel.phaseGeomGain.toFixed(2)}（新手 0.3 / 温暖局 0.5）——避免 1 个 close1 就把形状先验向 t/z/小碎块漂，保护早期爽感。`);
+                }
+                /* §O5：高 PB 玩家前期 b* 上界生效。 */
+                if (rel.earlyPhaseCapHit === true) {
+                    lines.push('b* 早期上界（§O5）：当前 d* 较低，系统把客观目标 b* 钳制在 d + 0.10 以内——你能力高，但前期不会被立刻喂偏难三连，先让分能立起来。');
+                }
+                /* §O3：PEOG 让位累计（仅 active + 计数 ≥1 时显示）。 */
+                if (rel.peogYieldHits && (rel.peogYieldHits.bottleneckHits > 0 || rel.peogYieldHits.nearMissHits > 0)) {
+                    lines.push(`PEOG 抗抖动（§O3）：bottleneck 累计 ${rel.peogYieldHits.bottleneckHits} 帧 / near_miss 累计 ${rel.peogYieldHits.nearMissHits} 帧——连续 ≥ 阈值才让位 PEOG，避免瞬时谷值打断 PB 加压窗口。`);
+                }
                 const theta = rel.latentCalibration;
                 if (theta && typeof theta === 'object') {
                     const dimLabel = { spatial: '空间', combo: '连消', order: '顺序', recovery: '回收', tempo: '节奏', clearEff: '清效' };

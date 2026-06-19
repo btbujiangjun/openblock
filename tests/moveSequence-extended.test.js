@@ -163,6 +163,139 @@ describe('formatPlayerStateForReplay 冷启动徽标', () => {
         };
         expect(formatPlayerStateForReplay(legacyPs)).toContain('🌱 冷启动');
     });
+
+    /* §O1/O2/O3/O5：落库 schema 自检——insight.relativity.* 必须穿透 buildPlayerStateSnapshot 的
+     * slim.adaptive.relativity，pv≥5，且旧 insight 缺字段时 slim 端自动 null/false。 */
+    describe('§O1/O2/O3/O5 落库 schema (pv=5+)', () => {
+        const _baseInsight = {
+            stress: 0.5, fillRatio: 0.2, skillLevel: 0.5,
+            relativity: {
+                enabled: true, bypass: null, lambda: 0.3,
+                dStar: 0.5, objectiveTarget: { spatial: 0.5, combo: 0.5, order: 0.5, recovery: 0.5, tempo: 0.5, clearEff: 0.5 },
+                latent: { confidence: 0.6, n: 10 }, latentCalibration: null,
+                chosen: { chosenAlign: 0.9, candidatesConsidered: 4, chosenVec: null },
+            },
+        };
+
+        it('新插入 4 字段端到端：intent/phaseGeomGain/earlyPhaseCapHit/peogYieldHits 落入 slim', () => {
+            const profile = new PlayerProfile(10);
+            const insight = {
+                ..._baseInsight,
+                relativity: {
+                    ..._baseInsight.relativity,
+                    intent: 'prior_only',
+                    phaseGeomGain: 0.5,
+                    earlyPhaseCapHit: true,
+                    peogYieldHits: { bottleneckHits: 1, nearMissHits: 0, bypassReason: null },
+                },
+            };
+            const ps = buildPlayerStateSnapshot(profile, {
+                score: 100, boardFill: 0.2, runStreak: 0, strategyId: 'normal',
+                phase: 'spawn', adaptiveInsight: insight,
+            });
+            expect(ps.adaptive.relativity.intent).toBe('prior_only');
+            expect(ps.adaptive.relativity.phaseGeomGain).toBe(0.5);
+            expect(ps.adaptive.relativity.earlyPhaseCapHit).toBe(true);
+            expect(ps.adaptive.relativity.peogYieldHits).toEqual({
+                bottleneckHits: 1, nearMissHits: 0, bypassReason: null,
+            });
+        });
+
+        it('insight 缺新字段（如旧 game.js 写入路径）→ slim 端补 null/false（向后兼容）', () => {
+            const profile = new PlayerProfile(10);
+            const ps = buildPlayerStateSnapshot(profile, {
+                score: 100, boardFill: 0.2, runStreak: 0, strategyId: 'normal',
+                phase: 'spawn', adaptiveInsight: _baseInsight,
+            });
+            expect(ps.adaptive.relativity.intent).toBeNull();
+            expect(ps.adaptive.relativity.phaseGeomGain).toBeNull();
+            expect(ps.adaptive.relativity.earlyPhaseCapHit).toBe(false);
+            expect(ps.adaptive.relativity.peogYieldHits).toBeNull();
+        });
+    });
+
+    /* §O1/O2/O3/O5：回放端必须把"对齐预算 / 几何衰减 / 前期上界 / PEOG 抗抖动"
+     * 四类相位语义可读化，让设计师/QA 直接从一帧回放看出"系统当时在做什么"。
+     * 旧帧（无 relativity 或 enabled=false）不输出（向后兼容）。 */
+    describe('§O1/O2/O3/O5 回放语义可读化', () => {
+        const _base = {
+            phase: 'spawn', score: 100, boardFill: 0.2,
+            metrics: { thinkMs: 800, clearRate: 0.4, comboRate: 0.1, missRate: 0.05, samples: 10 },
+        };
+
+        it('enabled=false / 无 relativity → 不输出相对论段（向后兼容）', () => {
+            expect(formatPlayerStateForReplay({ ..._base, adaptive: { stress: 0.5, relativity: { enabled: false } } }))
+                .not.toContain('相对论');
+            expect(formatPlayerStateForReplay({ ..._base, adaptive: { stress: 0.5 } }))
+                .not.toContain('相对论');
+        });
+
+        it('O1 intent=prior_only → 回放显示"只对形状池微偏（顺玩家相位保爽消，禁评分挑选）"', () => {
+            const ps = { ..._base, adaptive: { stress: 0.5, relativity: { enabled: true, intent: 'prior_only' } } };
+            const txt = formatPlayerStateForReplay(ps);
+            expect(txt).toContain('对齐预算');
+            expect(txt).toContain('只对形状池微偏');
+            expect(txt).toContain('顺玩家相位保爽消');
+        });
+
+        it('O1 intent=full → 显示"完整个性化（mid 段默认）"', () => {
+            const ps = { ..._base, adaptive: { stress: 0.5, relativity: { enabled: true, intent: 'full' } } };
+            expect(formatPlayerStateForReplay(ps)).toContain('完整个性化');
+        });
+
+        it('O1 intent=off + bypass=recovery → 显示"恒等标定，行为=未启用"', () => {
+            const ps = { ..._base, adaptive: { stress: 0.3, relativity: { enabled: true, intent: 'off', bypass: 'recovery' } } };
+            const txt = formatPlayerStateForReplay(ps);
+            expect(txt).toContain('对齐预算=关');
+            expect(txt).toContain('救济');
+        });
+
+        it('O2 phaseGeomGain=0.3 → 显示"几何信号衰减×0.30（新手 0.3 / 温暖局 0.5）"', () => {
+            const ps = { ..._base, adaptive: { stress: 0.3, relativity: { enabled: true, intent: 'off', phaseGeomGain: 0.3 } } };
+            const txt = formatPlayerStateForReplay(ps);
+            expect(txt).toContain('几何信号衰减×0.30');
+        });
+
+        it('O2 phaseGeomGain=1.0 → 不输出衰减段（默认无衰减）', () => {
+            const ps = { ..._base, adaptive: { stress: 0.5, relativity: { enabled: true, intent: 'full', phaseGeomGain: 1.0 } } };
+            expect(formatPlayerStateForReplay(ps)).not.toContain('几何信号衰减');
+        });
+
+        it('O5 earlyPhaseCapHit=true → 显示"b* 触前期上界（高 PB 玩家前期保护生效）"', () => {
+            const ps = { ..._base, adaptive: { stress: 0.2, relativity: { enabled: true, intent: 'full', earlyPhaseCapHit: true } } };
+            expect(formatPlayerStateForReplay(ps)).toContain('b* 触前期上界');
+            expect(formatPlayerStateForReplay(ps)).toContain('高 PB 玩家前期保护生效');
+        });
+
+        it('O3 peogYieldHits.bottleneckHits>0 → 显示"PEOG 抗抖动累计 ... 连续 ≥ 阈值才让位"', () => {
+            const ps = { ..._base, adaptive: { stress: 0.7, relativity: {
+                enabled: true, intent: 'full',
+                peogYieldHits: { bottleneckHits: 1, nearMissHits: 0, bypassReason: null }
+            } } };
+            const txt = formatPlayerStateForReplay(ps);
+            expect(txt).toContain('PEOG 抗抖动累计 bottleneck=1');
+            expect(txt).toContain('连续 ≥ 阈值才让位');
+        });
+
+        it('多档同时触发 → 单段内用 · 分隔，按 intent / 几何 / 上界 / PEOG 顺序', () => {
+            const ps = { ..._base, adaptive: { stress: 0.2, relativity: {
+                enabled: true, intent: 'prior_only',
+                phaseGeomGain: 0.5, earlyPhaseCapHit: true,
+                peogYieldHits: { bottleneckHits: 2, nearMissHits: 1, bypassReason: null },
+            } } };
+            const txt = formatPlayerStateForReplay(ps);
+            const segLine = txt.split('\n').find((ln) => ln.startsWith('相对论 · '));
+            expect(segLine).toBeTruthy();
+            const i_intent = segLine.indexOf('对齐预算');
+            const i_geom = segLine.indexOf('几何信号衰减');
+            const i_cap = segLine.indexOf('b* 触前期上界');
+            const i_peog = segLine.indexOf('PEOG 抗抖动');
+            expect(i_intent).toBeGreaterThan(-1);
+            expect(i_geom).toBeGreaterThan(i_intent);
+            expect(i_cap).toBeGreaterThan(i_geom);
+            expect(i_peog).toBeGreaterThan(i_cap);
+        });
+    });
 });
 
 describe('buildReplayAnalysis 冷启动统计', () => {

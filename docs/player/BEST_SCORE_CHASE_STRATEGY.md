@@ -887,6 +887,30 @@ spawnHints   = f(stress)                                   # clearGuarantee / mu
 
 **研究参考**：Yannakakis & Togelius (2011) *Experience-Driven PCG*；Togelius et al. (2011) *Search-Based PCG*；Pasqualotto et al. (2024) *Multidimensional DDA / Legends of Hoa'Manu*（EPFL/UNIGE）；Antal (2013) *Elo Rating for Adaptive Assessment*；IJSG (2025) *Adaptive Puzzle-Level Generation for GBA*；Bengio et al. (2009) *Curriculum Learning*。
 
+#### §4.17.x 系统性优化 O1–O5（v1.68，✅ 已落地）
+
+> 📍 **修复目标**：commit `8ff29f4f` 首版相对论上线后 4 类体感回退——新手出块碎/高 PB 早期得分慢/构造式爽消被对齐评分挑掉/温暖局策略被覆盖。**O1–O5 不是开关**，是相对论与既有相位/状态机的架构级耦合软化。
+
+| 编号 | 名称 | 解决问题 | 关键改动 | 配置位 |
+|---|---|---|---|---|
+| **O1** | 相位化对齐预算 `relativityIntent` | 顺玩家相位（harvest/warmup/pb_chase）被对齐评分挑掉爽消 | 4 档分级：`off / prior_only / kbest_only / full`。bypass + recovery/onboarding/bottleneck/near_miss → off；harvest/warm/warmup/pb_chase/release → prior_only；其它 full | `difficultyRelativity.js :: resolveRelativityIntent` |
+| **O2** | 相位化几何信号增益 `phaseGeomGain` | 新手/温暖局期 1 个 close1 就把 ability riskLevel 拉高、形状漂向 t/z | onboarding=0.3 / warmRun=0.5 / 默认 1.0。仅衰减负向项（holePenalty/nearClearScore/lockRiskScore），正向 spatialPlanning 不变 | `game_rules.json :: adaptiveSpawn.phaseGeomGain` |
+| **O3** | PEOG bottleneck/near_miss 延迟让位 | 瞬时几何谷值打断 PB 加压窗口 | `_bottleneckHits / _nearMissHits` 累计，连续 ≥ 阈值（默认 2）才 `_bypassNow`；信号消失立即归零 | `pbChase.earlyOvershootGuard.{bottleneckYieldHits, nearMissYieldHits}` |
+| **O4** | `difficultyVec` 真实化 | 6 维客观难度被旧 5 项 term 平均，clearEff/recovery/combo 与玩家爽点 / 回收能力错位 | 新增 `clearPotential / cleanPath / permVariance`（由 `solutionMetrics` 派生），`projectDifficultyVector` 缺省 term 自动从加权和剔除（向后兼容） | `spawnStepDifficulty.vectorWeights` + `difficultyRelativity.shapePrior.dimAffinity` |
+| **O5** | b\* 早期上界 `earlyPhaseBStarCap` | 高 PB 玩家局初被高 θ 拉到客观偏难，得分慢、进不去 PB 调整状态 | 低 d\* 阶段（< `earlyPhaseDStar=0.40`）把任一维 b\* 钳制在 `d + earlyPhaseBStarCap=0.10` 以内；中后段自动让位 | `adaptiveSpawn.difficultyRelativity.{earlyPhaseDStar, earlyPhaseBStarCap}` |
+
+**优先级（同帧多生效时的语义层级，由高到低）**：
+1. 硬约束/救济链（不变，**始终最高**）；
+2. O3 PEOG 延迟让位（达到累计阈值时直接 bypass 相对论）；
+3. O5 b\* 早期上界（在 b\* 公式内钳制）；
+4. O1 intent 门控（决定是否走 shapePrior / best-of-K）；
+5. O2 phaseGeomGain（影响 ability 输入，间接影响 b\*/intent）；
+6. O4 difficultyVec 升级（影响 best-of-K 评分尺度）。
+
+**回归红线（与 §4.17 主条款共享 + 新增）**：① O2 全 1.0 时 ability 行为完全等价旧版（向后兼容）；② O3 单帧瞬时信号不让位（hits 计数器被信号消失重置）；③ O4 `solutionMetrics.truncated=true` 时新 term 全 null，scalar `stepDifficulty` fixture 不变；④ O5 高 d\* 阶段（≥ `earlyPhaseDStar`）b\* 不受钳制；⑤ O1 `off` 档下完全等价"未启用相对论"行为。
+
+**数据流接入**：`insight.relativity` / `frames[].ps.adaptive.relativity` 透出新字段 `intent / phaseGeomGain / earlyPhaseCapHit / peogYieldHits`；REPLAY_METRICS 新增 4 条 sparkline；playerInsightPanel / algorithmDynamicsCard / DFV / spawn-signal-explorer.html 同步消费；RL `behaviorContext` 72→78（intent one-hot 4 + phaseGeomGain 1 + earlyPhaseCapHit 1）。详见 `docs/algorithms/ALGORITHMS_SPAWN.md §2.10/§4.17`。
+
 ---
 
 ## 六、验证清单（用于评审 / QA）

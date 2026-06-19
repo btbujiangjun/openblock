@@ -60,14 +60,19 @@ export const DEFAULT_STEP_DIFFICULTY_CONFIG = Object.freeze({
         fragmentation: 0.12
     },
     /* §2.10 难度相对论：terms → 6 维考点向量 difficultyVec(b⃗) 的确定性投影矩阵。
-     * 每个 b 维 = clamp01(Σ coef·term)（每维系数和≈1）。combo/tempo/clearEff 暂为现有 terms 的粗代理。 */
+     * §O4 真实化升级：combo/clearEff/recovery 三维由"现有 terms 的粗代理"升级为消费真实信号：
+     *   - clearPotential（来自 solutionMetrics.meanNearFullDelta）= 本三连放完后离消行更近的程度；
+     *   - cleanPath（来自 solutionMetrics.minHoleIncrement 反向归一）= 最优路径的"少添空洞"程度；
+     *   - permVariance（来自 solutionMetrics.solutionDiversity）= 6 排列解数差异（顺序敏感性）。
+     * 这些 terms 在 solutionMetrics 缺省时退回 0，配合"权重和"自动重分配（参考 fragmentation 模式），
+     * 保证旧调用路径行为不变。每个 b 维系数和≈1。 */
     vectorWeights: {
-        spatial: { scd: 0.6, fragmentation: 0.4 },
-        combo: { killer: 0.5, scd: 0.3, board: 0.2 },
-        order: { solution: 0.6, flexibility: 0.4 },
-        recovery: { board: 0.7, killer: 0.3 },
-        tempo: { scd: 0.4, board: 0.3, flexibility: 0.3 },
-        clearEff: { solution: 0.5, flexibility: 0.3, fragmentation: 0.2 }
+        spatial: { scd: 0.55, fragmentation: 0.45 },
+        combo: { permVariance: 0.40, killer: 0.30, scd: 0.20, board: 0.10 },
+        order: { solution: 0.50, flexibility: 0.30, permVariance: 0.20 },
+        recovery: { cleanPath: 0.50, board: 0.30, killer: 0.20 },
+        tempo: { scd: 0.40, board: 0.30, flexibility: 0.30 },
+        clearEff: { clearPotential: 0.50, cleanPath: 0.25, solution: 0.15, flexibility: 0.10 }
     }
 });
 
@@ -105,7 +110,12 @@ export function projectDifficultyVector(terms, cfg) {
         let wsum = 0;
         for (const term in coef) {
             const w = Number(coef[term]) || 0;
-            const v = clamp01(Number(t[term]) || 0);
+            const rawV = t[term];
+            /* §O4：缺省 term（null/undefined/NaN）从加权和里剔除，等比放大其它 term 的有效权重。
+             * 与 computeSpawnStepDifficulty 中 fragmentation 缺省重分配模式一致，保证旧调用路径
+             * （只提供 6 原 terms 不提供新 terms）行为完全不变。 */
+            if (rawV == null || !Number.isFinite(Number(rawV))) continue;
+            const v = clamp01(Number(rawV));
             sum += w * v;
             wsum += w;
         }
@@ -378,13 +388,40 @@ export function computeSpawnStepDifficulty(input = {}, cfg) {
         + (fragmentationTerm != null ? wFragActive * fragmentationTerm : 0)
     ) / wSum) : 0;
 
+    /* §O4 真实化 terms（用于 difficultyVec 投影）：
+     *   - clearPotential：每解平均近满行增量，clamp 到 [0, ~1]（>0 表示更接近消行）；
+     *   - cleanPath：最优路径新空洞数的反向归一（0 个新空洞=1，≥4 个=0）；
+     *   - permVariance：6 排列解数差异（CV）压到 [0,1]（>1 视为 1）；
+     * solutionMetrics 缺/truncated 时这 3 项为 null，projectDifficultyVector 会自动剔除并重分配权重。 */
+    let clearPotentialTerm = null;
+    let cleanPathTerm = null;
+    let permVarianceTerm = null;
+    if (solutionMetrics && typeof solutionMetrics === 'object' && !solutionMetrics.truncated) {
+        if (Number.isFinite(solutionMetrics.meanNearFullDelta)) {
+            /* meanNearFullDelta 范围经验值约 [0, 2]（消行机会期望增量）→ 除以 2 归一。 */
+            clearPotentialTerm = clamp01(solutionMetrics.meanNearFullDelta / 2);
+        }
+        if (Number.isFinite(solutionMetrics.minHoleIncrement) && solutionMetrics.minHoleIncrement !== Infinity) {
+            /* minHoleIncrement: 0=完美无空洞=clearEff 最佳；≥4 = clearEff 最差。
+             * cleanPath = 1 - clamp01(minInc/4)。 */
+            cleanPathTerm = clamp01(1 - solutionMetrics.minHoleIncrement / 4);
+        }
+        if (Number.isFinite(solutionMetrics.solutionDiversity)) {
+            permVarianceTerm = clamp01(solutionMetrics.solutionDiversity);
+        }
+    }
+
     const terms = {
         scd: scdNorm,
         board: boardTerm,
         flexibility: flexTerm,
         solution: solutionTerm,
         killer: killerTerm,
-        fragmentation: fragmentationTerm != null ? fragmentationTerm : 0
+        fragmentation: fragmentationTerm != null ? fragmentationTerm : 0,
+        /* §O4 真实信号 terms（缺省 null → projectDifficultyVector 自动剔除）。 */
+        clearPotential: clearPotentialTerm,
+        cleanPath: cleanPathTerm,
+        permVariance: permVarianceTerm
     };
 
     return {

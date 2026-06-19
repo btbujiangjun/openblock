@@ -1625,6 +1625,75 @@ dock 颜色改为轻偏置随机：盘面存在近满且已同 icon/同色的行
 
 ---
 
+### §2.10 / §4.17 难度相对论 — 系统性优化 O1–O5（v1.68）
+
+> 📍 **背景**：commit `8ff29f4f` 引入难度相对论后实测出现"新手/高 PB 玩家前期出块碎、温暖局/构造式爽消被对齐评分挑掉"等 4 类体感回退。**O1–O5 不是开关**，而是把相对论与现有相位/状态机的耦合做架构级软化，让"等体感不变 × 客观个性化"只在该生效的相位生效。
+
+#### O1 相位化对齐预算（`resolveRelativityIntent`）
+
+把"全开 / 关 / 半开"统一抽象为 4 档：
+
+| intent | shapePrior（池微偏） | best-of-K（评分挑选） | 触发条件（优先级降序） |
+|---|---|---|---|
+| `off` | ❌ | ❌ | `bypass≠null` ∨ `needsRecovery` ∨ `hasBottleneckSignal` ∨ `hadRecentNearMiss` ∨ `inOnboarding` |
+| `prior_only` | ✅ 轻微 | ❌ | `spawnIntent∈{harvest,engage,warm}` ∨ `sessionArc=warmup` ∨ `pbPhase∈{chase,release}` |
+| `kbest_only` | ❌ | ✅ | （保留位，当前规则不主动派发） |
+| `full` | ✅ | ✅ | 其它（mid 段 maintain/flow/sprint/pressure 默认） |
+
+SSOT：`web/src/difficultyRelativity.js :: resolveRelativityIntent(ctx)`。透出到 `stressBreakdown.relativityIntent / _relativityIntent`，下游 `adaptiveSpawn.applyRelativityShapePrior` 门控 `_allowPrior`、`blockSpawn._alignActive` 门控 `_kbestAllowed`。
+
+#### O2 相位化几何信号增益（`phaseGeomGain`）
+
+`buildPlayerAbilityVector` 中由真实几何派生的**负向**项（`holePenalty / nearClearScore / lockRiskScore`）在低相位下按系数衰减：
+
+```
+phaseGeomGain = isInOnboarding ? 0.3 : warmRun.active ? 0.5 : 1.0
+holePenalty *= g; nearClearScore *= g; lockRiskScore *= g
+```
+
+**正向** `spatialPlanningScore` 不受影响（保留"客观规划质量"信号）。修复"1 个 close1 就把 ability 中 riskLevel 拉高、形状先验滑向 t/z/小碎块"的新手早期僵化。
+
+配置：`game_rules.json :: adaptiveSpawn.phaseGeomGain.{onboarding,warmRun,default}`。
+
+#### O3 PEOG bottleneck/near_miss 延迟让位（持续阈值）
+
+旧实现：单帧 `hasBottleneckSignal=true` 立刻 `_bypassNow("bottleneck")`，PB 加压窗口被瞬时几何谷值打断。
+新实现：累计计数器 `_bottleneckHits / _nearMissHits`，连续 ≥ 阈值（默认 2）才让位；信号消失立即归零（防累积污染）。
+
+配置：`game_rules.json :: adaptiveSpawn.earlyOvershootGuard.{bottleneckYieldHits, nearMissYieldHits}`。
+
+#### O4 `difficultyVec` 真实化（三新 term + 缺省自动重分配）
+
+为 6 维 `difficultyVec` 引入 3 个由 `solutionMetrics` 派生的真实信号：
+
+| term | 计算 | 主消费维 |
+|---|---|---|
+| `clearPotential` | `clamp01(meanNearFullDelta / 2)` | `clearEff` 0.50 |
+| `cleanPath` | `clamp01(1 − minHoleIncrement / 4)` | `recovery` 0.50 |
+| `permVariance` | `clamp01(solutionDiversity)` | `combo` 0.40 / `order` 0.20 |
+
+`projectDifficultyVector` 升级为"`null`/`NaN` 自动从加权和剔除"——`solutionMetrics.truncated=true`（DFS 不完整）时新 term 全 null，回退到原 5 项，scalar `stepDifficulty` 完全向后兼容。
+
+#### O5 b\* 早期上界（低 d\* 阶段保护高 θ 玩家）
+
+低 d\* 阶段（`d* < earlyPhaseDStar=0.40`）即便 θ 极高，把任一维 b\* 钳制在 `d + earlyPhaseBStarCap=0.10` 以内。高 PB 玩家前期不被立刻喂到客观偏难三连，让分先立起来。中后段 `d* ≥ earlyPhaseDStar` 自动让位主公式。
+
+配置：`game_rules.json :: adaptiveSpawn.difficultyRelativity.{earlyPhaseDStar, earlyPhaseBStarCap}`。
+
+#### 数据流落库（pv=5+）
+
+`game.js :: _captureAdaptiveInsight → insight.relativity` 新增字段：`intent / phaseGeomGain / earlyPhaseCapHit / peogYieldHits`。
+经 `moveSequence.js` 落 `frames[].ps.adaptive.relativity.*`；
+`derivation/selectors.js :: relativityViewFromInsight` 提供稳定纯函数视图（缺省 null/false）；
+`REPLAY_METRICS` 新增 4 条 sparkline：`relativityIntent / phaseGeomGain / peogBottleneckHits / earlyPhaseCapHit`；
+`playerInsightPanel / algorithmDynamicsCard / DFV / spawn-signal-explorer.html` 均消费上述字段（无口径漂移）。
+
+#### RL 行为上下文（v1.68）
+
+`SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM` 由 72 → 78：尾部追加 `[72-75] intent one-hot + [76] phaseGeomGain + [77] earlyPhaseCapHit`。旧 0-71 含义不变；服务端按 dim mismatch 主动拒推，离线管线需重新冻结。
+
+---
+
 ## 十三、出块建模：双轨实现与设计 rationale
 
 > 📍 **本文档定位**：`L1 · SpawnPolicy` 双轨建模 rationale（`SpawnPolicyRules` 与 `SpawnPolicyNet`）  

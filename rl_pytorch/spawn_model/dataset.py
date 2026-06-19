@@ -101,9 +101,42 @@ CONTEXT_DIM = 24
 #          来自 playerLatentAbility 跨局后验 μ，落库于 ps.adaptive.relativity.latentCalibration）。
 #          配合 b*（客观难度目标）标签，模型学"同一体感按能力给不同客观难度"的等体感映射；
 #          缺省 / 低置信 θ⃗ → 中性 0.5（行为退化为现状）。θ/几何/空间规划切片不变。
-BEHAVIOR_CONTEXT_DIM = 72
+# v1.68（§O1/O2/O5）：DIM 72 → 78。尾部新增 6 维相对论运行时配置：
+#   [72-75] relativityIntent one-hot（off/prior_only/kbest_only/full）；缺省 → 全 0；
+#   [76]    phaseGeomGain（onboarding=0.3 / warmRun=0.5 / 默认 1.0），缺省 → 1.0；
+#   [77]    earlyPhaseCapHit（§O5 b* 早期上界触发标志，0/1），缺省 → 0。
+# 让模型显式感知"系统当前在哪一档对齐预算 / 几何信号是否被衰减 / 前期是否被钳上界"。
+# 旧 checkpoint 因 input shape 变化需重训；服务端按 dim mismatch 主动拒推（fail-safe）。
+BEHAVIOR_CONTEXT_DIM = 78
 # §4.17：θ⃗ 6 维顺序（必须与 web/src/spawnModel.js SPAWN_MODEL_LATENT_THETA_KEYS / spawnStepDifficulty.DIFFICULTY_VECTOR_DIMS 一致）。
 _LATENT_THETA_KEYS = ['spatial', 'combo', 'order', 'recovery', 'tempo', 'clearEff']
+# §O1：relativityIntent one-hot 键序（必须与 web/src/spawnModel.js _RELATIVITY_INTENT_KEYS 一致）。
+_RELATIVITY_INTENT_KEYS = ['off', 'prior_only', 'kbest_only', 'full']
+
+
+def _relativity_intent_one_hot(intent):
+    """§O1：4 维 one-hot。null/未知 → 全 0（中性）。"""
+    out = [0.0, 0.0, 0.0, 0.0]
+    if intent in _RELATIVITY_INTENT_KEYS:
+        out[_RELATIVITY_INTENT_KEYS.index(intent)] = 1.0
+    return out
+
+
+def _relativity_runtime_tail(relativity):
+    """§O1/O2/O5：6 维尾段 [72-77]。
+    intent one-hot(4) + phaseGeomGain(1) + earlyPhaseCapHit(1)。
+    缺省 relativity → intent=None / phaseGeomGain=1.0 / earlyPhaseCapHit=0。"""
+    if not relativity or not isinstance(relativity, dict):
+        return [0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+    intent = relativity.get('intent')
+    gain_raw = relativity.get('phaseGeomGain')
+    try:
+        gain = float(gain_raw) if gain_raw is not None else 1.0
+    except (TypeError, ValueError):
+        gain = 1.0
+    gain = max(0.0, min(1.0, gain))
+    cap_hit = 1.0 if relativity.get('earlyPhaseCapHit') is True else 0.0
+    return [*_relativity_intent_one_hot(intent), gain, cap_hit]
 # 客观几何归一化分母（必须与 shared/game_rules.json actionNorm.maxEmptyRegions/maxConcaveCorners 一致）。
 _GEO_REGIONS_MAX = 16
 _GEO_CONCAVE_MAX = 32
@@ -342,6 +375,8 @@ def _parse_behavior_context(ps):
         # [66-71] §4.17/§2.10 玩家潜在能力 θ⃗（spatial/combo/order/recovery/tempo/clearEff）。
         #   来自 ps.adaptive.relativity.latentCalibration（θ⃗ μ）；缺省 / 低置信 → 中性 0.5。
         *_latent_theta_tail(adaptive.get('relativity')),
+        # [72-77] §O1/O2/O5 相对论运行时配置：intent one-hot(4) + phaseGeomGain(1) + earlyPhaseCapHit(1)。
+        *_relativity_runtime_tail(adaptive.get('relativity')),
     ]
     return np.asarray(values[:BEHAVIOR_CONTEXT_DIM], dtype=np.float32)
 

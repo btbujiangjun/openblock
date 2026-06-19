@@ -2593,7 +2593,12 @@ export function generateDockShapes(grid, strategyConfig, spawnContext) {
     const _relBypass = strategyConfig._relativityBypass;
     const _relCalib = strategyConfig._latentCalibration || null;
     const _relLambda = Number(strategyConfig._relativityLambda) || 0;
-    const _alignActive = !!(_relCfg && _relCfg.enabled === true && _bStar && _relBypass == null);
+    /* §O1：相位化对齐预算。intent ∈ {'off','prior_only'} 时禁用 best-of-K（恢复"构造式 completer
+     * 通过硬约束就定稿"的爽消体感）；intent ∈ {'kbest_only','full'} 时启用。缺省（旧版 strategyConfig
+     * 没有该字段）退回旧行为=full，保证向后兼容。 */
+    const _relIntent = strategyConfig._relativityIntent || 'full';
+    const _kbestAllowed = _relIntent === 'kbest_only' || _relIntent === 'full';
+    const _alignActive = !!(_relCfg && _relCfg.enabled === true && _bStar && _relBypass == null && _kbestAllowed);
     const _alignK = Math.max(1, Math.min(8, Number(_relCfg && _relCfg.candidateK) || 4));
     /* §改进：等体感选块的"软化 + 爽点预算"旋钮（恢复体感波动性 / 爽感）。
      *   burstReleaseProb：以该概率直接放行缓冲里"最偏离 b*"的候选（align 最低=被等体感

@@ -158,6 +158,34 @@ const _RELATIVITY_BYPASS_TEXT = {
     no_calibration: '尚无 θ⃗ 标定',
 };
 
+/* §O1 相位化对齐预算 intent → 人话短语 + 长解释（tooltip）。徽标只显示短语，
+ * 解释通过 title 提示，避免把内部枚举名直接暴露给运营/QA。 */
+const _RELATIVITY_INTENT_BADGE = {
+    off: {
+        short: '相对论暂停',
+        long: '§O1 相对论暂停：当前帧落在救济窗口/瓶颈纾解/近失保护/onboarding 之一，'
+            + '系统让位给"救爽快爽"的优先级——不做形状池偏置、不按客观难度评分挑选三连，'
+            + '与"未启用相对论"完全等价。',
+    },
+    prior_only: {
+        short: '只调形状池',
+        long: '§O1 只调形状池（顺玩家相位）：当前是 harvest/warm/温暖局/PB 追赶或破纪录释放窗口，'
+            + '为保护构造式爽消不被对齐评分挑走，系统只对形状池做轻微偏置（让对应考点的形状概率略升），'
+            + '关掉 best-of-K 评分挑选——你的爽块不会因为"客观难度不贴 b*"而被踢出候选。',
+    },
+    kbest_only: {
+        short: '只挑评分',
+        long: '§O1 只挑评分（不动形状池）：保留位，当前规则不主动派发。'
+            + '形状池保持中性分布，只在候选三连中按"客观难度对齐 b*"评分挑出最贴合者。',
+    },
+    full: {
+        short: '完整个性化',
+        long: '§O1 完整个性化（mid 段默认）：形状池微偏 + 评分挑选双开。'
+            + '系统按 θ⃗ 把同一体感目标 d* 翻译为该玩家的客观目标 b*，并在候选中挑最贴合的三连——'
+            + '能力高 → 同体感下客观更难，能力弱 → 更易，体感一致。',
+    },
+};
+
 /**
  * §4.17/§2.10 难度相对论卡片：把「体感目标 d* → θ⃗ 标定 → 客观目标 b* → 等体感选块」
  * 一帧链路可视化。S 曲线主线（stress）不被改变；本卡只解释"同一体感对该玩家意味着什么客观难度"。
@@ -185,6 +213,43 @@ export function renderDifficultyRelativityCard(insight) {
     if (r.chosenAlign != null) meta.push(`对齐 ${_fmt(r.chosenAlign)}`);
     if (r.targetGap != null) meta.push(`偏差 ${_fmt(r.targetGap, 3)}`);
     if (r.candidatesConsidered != null) meta.push(`候选 ${r.candidatesConsidered}`);
+    /* §O1：相位化对齐预算 → 人话短语徽标（"相对论暂停 / 只调形状池 / 完整个性化"）。 */
+    if (r.intent && _RELATIVITY_INTENT_BADGE[r.intent]) {
+        const b = _RELATIVITY_INTENT_BADGE[r.intent];
+        const color = r.intent === 'off' ? '#94a3b8'
+            : r.intent === 'prior_only' ? '#34d399'
+            : r.intent === 'full' ? '#818cf8' : '#a78bfa';
+        meta.push(`<span title="${_attr(b.long)}" style="color:${color}">${b.short}</span>`);
+    }
+    /* §O2：相位化几何信号增益 → 触发时显示"新手保护 / 温暖局保护"+ 倍率。 */
+    if (r.phaseGeomGain != null && r.phaseGeomGain < 0.99) {
+        const g = Number(r.phaseGeomGain);
+        const phaseName = g <= 0.35 ? '新手保护'
+            : g <= 0.55 ? '温暖局保护'
+            : '相位衰减';
+        const ggTip = _attr(`§O2 ${phaseName}（geom×${g.toFixed(2)}）：把 ability 中由几何派生的 3 个负向项`
+            + '（holePenalty 空洞惩罚 / nearClearScore 临满压力 / lockRiskScore 锁死风险）'
+            + `按 ${g.toFixed(2)} 倍衰减——避免"1 个 close1 就把 ability 拉高、形状先验滑向 t/z 小碎块"，`
+            + '保护新手/温暖局期的爽感。正向 spatialPlanning 不受影响（保留客观规划质量）。');
+        meta.push(`<span title="${ggTip}" style="color:#fbbf24">${phaseName} ×${g.toFixed(2)}</span>`);
+    }
+    /* §O5：b* 早期上界触发徽标——直接说"前期不喂偏难"。 */
+    if (r.earlyPhaseCapHit === true) {
+        const capTip = _attr('§O5 高分玩家前期不喂偏难：当前 d* 偏低（局初），即便你 θ⃗ 能力高，'
+            + '系统也把 6 维客观目标 b* 钳制在 d* + 0.10 以内——避免高 PB 玩家局初被立刻喂客观偏难三连，'
+            + '让"分先立起来"。中后段 d* ≥ 0.40 后自动让位主公式。');
+        meta.push(`<span title="${capTip}" style="color:#60a5fa">前期不喂偏难</span>`);
+    }
+    /* §O3：PEOG bottleneck 让位累计——徽标显示"PB 加压中（抗抖动）"+ 计数。 */
+    if (r.peogYieldHits && (r.peogYieldHits.bottleneckHits > 0 || r.peogYieldHits.nearMissHits > 0)) {
+        const bh = r.peogYieldHits.bottleneckHits || 0;
+        const nh = r.peogYieldHits.nearMissHits || 0;
+        const pTip = _attr(`§O3 PB 加压窗口抗抖动：PEOG（PB 早期超越守卫）正在压制 b*，`
+            + `但本帧出现 ${bh > 0 ? `瓶颈信号（已累计 ${bh} 帧）` : ''}${bh > 0 && nh > 0 ? ' + ' : ''}${nh > 0 ? `近失信号（已累计 ${nh} 帧）` : ''}——`
+            + '必须连续 ≥ 2 帧才真正让位 PEOG，避免单帧瞬时几何谷值就把 PB 加压窗口打断。'
+            + '信号一消失，计数立即清零。');
+        meta.push(`<span title="${pTip}" style="color:#a78bfa">PB 加压抗抖动 ${bh}+${nh}/2</span>`);
+    }
 
     const rows = RELATIVITY_DIMS.map(([key, label, tip]) => {
         const th = theta && Number.isFinite(Number(theta[key])) ? Number(theta[key]) : null;

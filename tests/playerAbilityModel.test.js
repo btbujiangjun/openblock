@@ -255,3 +255,77 @@ describe('playerAbilityModel', () => {
         expect(data[0].labels.tags).toContain('steady');
     });
 });
+
+/* ================================================================ */
+/*  §O2 phaseGeomGain — 相位化几何信号增益                            */
+/* ================================================================ */
+describe('§O2 phaseGeomGain — onboarding/warmRun 期衰减几何负向项', () => {
+    function makeProfileWithMisses() {
+        const p = new PlayerProfile(20);
+        /* 制造较高 missRate / 高 fill 累积，让 ability 显著反映几何信号。 */
+        for (let i = 0; i < 6; i++) p.recordMiss();
+        const climb = [0.30, 0.45, 0.55, 0.65, 0.72];
+        climb.forEach((f) => p.recordPlace(false, 0, f));
+        return p;
+    }
+
+    it('phaseGeomGain=1（默认）= 旧行为完全等价', () => {
+        const p = makeProfileWithMisses();
+        /* 高 holes/closeLines，让 holePenalty/nearClearScore 显著。 */
+        const ctxBase = {
+            boardFill: 0.7,
+            topology: { holes: 5, fillRatio: 0.7, close1: 3, close2: 2, mobility: 100 },
+            firstMoveFreedom: 1,  /* 高 lockRisk */
+            gameStats: { placements: 11 }
+        };
+        const vDefault = buildPlayerAbilityVector(p, ctxBase);
+        const vGain1 = buildPlayerAbilityVector(p, { ...ctxBase, phaseGeomGain: 1 });
+        expect(vGain1.boardPlanning).toBeCloseTo(vDefault.boardPlanning, 6);
+        expect(vGain1.riskLevel).toBeCloseTo(vDefault.riskLevel, 6);
+    });
+
+    it('phaseGeomGain=0 → 几何负向项被完全抑制：boardPlanning 上升、riskLevel 下降', () => {
+        const p = makeProfileWithMisses();
+        const ctxBase = {
+            boardFill: 0.7,
+            topology: { holes: 5, fillRatio: 0.7, close1: 3, close2: 2, mobility: 100 },
+            firstMoveFreedom: 1,
+            gameStats: { placements: 11 }
+        };
+        const vDefault = buildPlayerAbilityVector(p, ctxBase);
+        const vZero = buildPlayerAbilityVector(p, { ...ctxBase, phaseGeomGain: 0 });
+        /* holePenalty=0 → boardPlanning 项 (1-holePenalty)·wbHoles 满分参与 → boardPlanning ↑ */
+        expect(vZero.boardPlanning).toBeGreaterThanOrEqual(vDefault.boardPlanning);
+        /* lockRisk/holes 项归零 → riskLevel ↓ */
+        expect(vZero.riskLevel).toBeLessThanOrEqual(vDefault.riskLevel);
+        /* lockRisk features 输出也按衰减后值 */
+        expect(vZero.features.lockRisk).toBe(0);
+    });
+
+    it('phaseGeomGain=0.3（onboarding 默认）：衰减强度介于 0 与 1 之间', () => {
+        const p = makeProfileWithMisses();
+        const ctxBase = {
+            boardFill: 0.7,
+            topology: { holes: 5, fillRatio: 0.7, close1: 3, close2: 2, mobility: 100 },
+            firstMoveFreedom: 1,
+            gameStats: { placements: 11 }
+        };
+        const vFull = buildPlayerAbilityVector(p, { ...ctxBase, phaseGeomGain: 1 });
+        const vSoft = buildPlayerAbilityVector(p, { ...ctxBase, phaseGeomGain: 0.3 });
+        const vZero = buildPlayerAbilityVector(p, { ...ctxBase, phaseGeomGain: 0 });
+        /* lockRisk 单调：1 > 0.3 > 0 各对应严格不增。 */
+        expect(vSoft.features.lockRisk).toBeLessThanOrEqual(vFull.features.lockRisk);
+        expect(vSoft.features.lockRisk).toBeGreaterThanOrEqual(vZero.features.lockRisk);
+    });
+
+    it('正向项 spatialPlanningScore 不受 phaseGeomGain 影响（保留客观规划质量）', () => {
+        const p = makeProfileWithMisses();
+        const grid = new Grid(8);
+        /* 加些占用块，让 spatialPlanning 有真实信号。 */
+        for (let x = 0; x < 4; x++) grid.cells[7][x] = { colorIdx: 0 };
+        const v1 = buildPlayerAbilityVector(p, { grid, boardFill: 0.2, gameStats: { placements: 11 }, phaseGeomGain: 1 });
+        const v0 = buildPlayerAbilityVector(p, { grid, boardFill: 0.2, gameStats: { placements: 11 }, phaseGeomGain: 0 });
+        /* spatialPlanningScore 由 grid 独立计算，两次应相等。 */
+        expect(v1.features.spatialPlanningScore).toBe(v0.features.spatialPlanningScore);
+    });
+});
