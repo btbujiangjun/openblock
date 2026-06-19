@@ -271,6 +271,56 @@ if _HAS_NUMBA:
             almost_full_rows, almost_full_cols, close1, close2,
         )
 
+    @_njit(cache=True)
+    def _place_and_clear_kernel(grid, shape, gx, gy):
+        """放置 shape（占用置 0）后整行/整列消除，返回 (新棋盘 int32, 消行数)。
+
+        与 numpy 版 place_and_clear_np 逐位等价：occupied = (值≥0)，满行/满列各计一次，
+        交叉格只清一次，最后整体置 -1。形状逐格在原生代码内遍历，免去 wrapper 的 argwhere。
+        """
+        n = grid.shape[0]
+        g = grid.copy()
+        h = shape.shape[0]
+        w = shape.shape[1]
+        for sy in range(h):
+            for sx in range(w):
+                if shape[sy, sx]:
+                    g[gy + sy, gx + sx] = 0
+        row_full = np.zeros(n, np.uint8)
+        col_full = np.zeros(n, np.uint8)
+        clears = 0
+        for y in range(n):
+            full = True
+            for x in range(n):
+                if g[y, x] < 0:
+                    full = False
+                    break
+            if full:
+                row_full[y] = 1
+                clears += 1
+        for x in range(n):
+            full = True
+            for y in range(n):
+                if g[y, x] < 0:
+                    full = False
+                    break
+            if full:
+                col_full[x] = 1
+                clears += 1
+        if clears:
+            for y in range(n):
+                if row_full[y]:
+                    for x in range(n):
+                        g[y, x] = -1
+            for x in range(n):
+                if col_full[x]:
+                    for y in range(n):
+                        g[y, x] = -1
+        return g, clears
+
+else:
+    _place_and_clear_kernel = None
+
 
 def warmup_numba_kernels() -> bool:
     """在父进程中预触发 numba 热核编译并写入磁盘缓存（cache=True）。
@@ -287,6 +337,7 @@ def warmup_numba_kernels() -> bool:
     pos = get_legal_positions(dummy, shp)
     batch_count_clears(dummy, shp, pos)
     fast_board_features(dummy)
+    place_and_clear_np(dummy, shp, 0, 0)
     return True
 
 
@@ -477,7 +528,15 @@ def place_and_clear_np(
     清行数 = 满行数 + 满列数（交叉格只清一次），再把满行满列整体置空。
     替代 spawn_construction 里 clone()+place()+check_lines() 的纯 Python 热路径。
     """
-    n = grid_np.shape[0]
+    if _place_and_clear_kernel is not None:
+        g_out, clears = _place_and_clear_kernel(
+            np.ascontiguousarray(grid_np, dtype=np.int32),
+            np.ascontiguousarray(shape_np, dtype=np.uint8),
+            int(gx),
+            int(gy),
+        )
+        return g_out.astype(grid_np.dtype, copy=False), int(clears)
+
     g = grid_np.copy()
     cells = np.argwhere(shape_np > 0)
     if len(cells):
