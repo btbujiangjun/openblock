@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import os
+import random as _random
 
 import numpy as np
 
@@ -441,6 +442,36 @@ class OpenBlockSimulator:
                 _spawn_online.warn_legacy_fallback_once(e)
         self._spawn_dock_legacy()
 
+    def _spawn_dock_cheap(self) -> None:
+        """search_mode（MCTS/beam/lookahead）专用的廉价 dock 重抽。
+
+        搜索分支跨越 dock 边界时需要一副新 dock 才能继续展开，但**真实对局到达该
+        局面时才会用构造式求解器生成 dock**——搜索里的未来 dock 纯属假想。构造式
+        spawner（generate_dock_shapes + 难度课程重抽）每次 ~0.2s，profile 显示它在
+        MCTS×12 下占采集 90% 耗时。这里改为「按类别权重随机采可放置形状」，~100x 更快，
+        且对价值估计无偏（随机采样≈真实未知出块的期望，而非构造式的乐观偏置）。
+        """
+        all_shapes = get_all_shapes(include_special=False)
+        weights = self.strategy_config.get("shape_weights") or {}
+        gnp = self._ensure_grid_np()
+        placeable = [
+            s for s in all_shapes
+            if len(_fg.get_legal_positions(gnp, _fg.shape_to_np(s["data"]))) > 0
+        ]
+        pool = placeable if placeable else all_shapes
+        ws = [max(1e-6, float(weights.get(shape_category(s["id"]), 1.0))) for s in pool]
+        chosen = _random.choices(pool, weights=ws, k=3)
+        n_colors = max(1, int(self.strategy_config.get("color_count", 8)))
+        self.dock = [
+            {
+                "id": shape["id"],
+                "shape": copy.deepcopy(shape["data"]),
+                "color_idx": i % n_colors,
+                "placed": False,
+            }
+            for i, shape in enumerate(chosen)
+        ]
+
     def _ensure_grid_np(self) -> np.ndarray:
         if self._grid_np is None:
             self._grid_np = _fg.grid_to_np(self.grid)
@@ -720,7 +751,12 @@ class OpenBlockSimulator:
                 ) + 1
             self._remember_recent_categories()
             if not self._skip_dock_respawn:
-                self._spawn_dock()
+                # search_mode 下用廉价随机重抽（未来 dock 是假想的，构造式求解器纯属浪费）；
+                # 真实采集路径（_search_mode=False）仍用构造式 spawner 保证对局 dock 质量。
+                if self._search_mode:
+                    self._spawn_dock_cheap()
+                else:
+                    self._spawn_dock()
 
         self._invalidate_grid_np()
 
