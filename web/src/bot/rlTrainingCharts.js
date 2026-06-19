@@ -777,6 +777,148 @@ function fillSummary(el, rows) {
     el.innerHTML = `<span class="rl-dash-summary-line">${parts.join('')}</span>${buildInsightHtml(rows)}`;
 }
 
+/** 各指标 panel 的稳定 id，用于刷新时原地更新 canvas 而不重建 #rl-chart-root */
+const CHART_PANEL_IDS = {
+    LOSS_POLICY: 'loss_policy',
+    LOSS_VALUE: 'loss_value',
+    ENTROPY: 'entropy',
+    STEP_COUNT: 'step_count',
+    WIN_RATE: 'win_rate',
+    SCORE: 'score',
+    TEACHER: 'teacher',
+    REPLAY: 'replay',
+    CURRICULUM: 'curriculum',
+};
+
+/**
+ * @param {HTMLElement} root
+ * @param {number} rowsLen
+ * @param {HTMLElement | null} sumEl
+ */
+function syncChartRootEmptyState(root, rowsLen, sumEl) {
+    if (sumEl) {
+        sumEl.innerHTML =
+            '<span class="rl-dash-note" title="训练指标曲线需要至少 2 个回合点才能画折线。请完成自博弈或 PyTorch 训练并写入 train_episode 日志后刷新。">运行状态：数据不足，至少需要 2 条 train_episode 记录。继续训练或刷新日志后，本卡片会同步更新摘要与解读。</span>';
+    }
+    if (root.querySelector('.rl-chart-panel')) {
+        return;
+    }
+    let emptyP = root.querySelector('.rl-dash-empty');
+    if (!emptyP) {
+        emptyP = document.createElement('p');
+        emptyP.className = 'rl-dash-empty';
+        root.appendChild(emptyP);
+    }
+    emptyP.title =
+        rowsLen === 0
+            ? '训练日志中尚无 train_episode 事件。请启动带 PyTorch 后端的训练并确保服务端写入 JSONL，或使用浏览器内训练将指标写入本机后再点「刷新图表」。'
+            : '折线图至少需要两个数据点。请继续训练几局或拉取更多历史日志后再刷新。';
+    emptyP.textContent =
+        rowsLen === 0
+            ? '暂无 train_episode 记录。勾选 PyTorch 后端训练并刷新，或使用浏览器训练（指标写入本机后自动出曲线）。'
+            : '至少需要 2 条训练记录才能绘制曲线。';
+}
+
+/**
+ * @param {HTMLElement} root
+ * @param {string} chartId
+ * @param {number} panelIdx
+ * @param {string} title
+ * @param {number[]} x
+ * @param {{ label: string, color: string, y: number[], lineWidth?: number, dash?: number[], legendHint?: string }[]} series
+ * @param {{ yMinFloor?: number, yMaxCeil?: number, yTick?: (v: number) => string, cssH?: number, robustClip?: boolean, emptyMessage?: string, showCanvasTitle?: boolean } | undefined} chartOpts
+ * @param {string} [hint]
+ */
+function upsertChartPanel(root, chartId, panelIdx, title, x, series, chartOpts, hint = '') {
+    let panel = root.querySelector(`.rl-chart-panel[data-chart-id="${chartId}"]`);
+    const isNew = !panel;
+    if (isNew) {
+        panel = document.createElement('details');
+        panel.className = 'rl-chart-panel rl-help';
+        panel.dataset.chartId = chartId;
+        panel.open = true;
+
+        const summary = document.createElement('summary');
+        summary.className = 'rl-chart-panel-head';
+        const label = document.createElement('span');
+        label.className = 'rl-chart-panel-title';
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'rl-chart-toggle';
+        const syncToggle = () => {
+            toggle.textContent = panel.open ? '收起' : '展开';
+            toggle.setAttribute('aria-label', `${panel.open ? '收起' : '展开'} ${title}`);
+        };
+        syncToggle();
+        toggle.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            panel.open = !panel.open;
+            syncToggle();
+        });
+        panel.addEventListener('toggle', syncToggle);
+        summary.append(label, toggle);
+
+        const wrap = document.createElement('div');
+        wrap.className = 'rl-chart-wrap';
+        panel.append(summary, wrap);
+        root.appendChild(panel);
+    }
+
+    panel.title = hint || '';
+    panel.dataset.helpKey = `rl.chart.${panelIdx}`;
+    const label = panel.querySelector('.rl-chart-panel-title');
+    if (label) {
+        label.textContent = `${panelIdx}. ${title}`;
+        if (hint) {
+            label.classList.add('rl-help');
+            label.dataset.helpKey = `rl.chart.${panelIdx}.title`;
+            label.title = hint;
+        }
+    }
+    const toggle = panel.querySelector('.rl-chart-toggle');
+    if (toggle) {
+        toggle.textContent = panel.open ? '收起' : '展开';
+        toggle.setAttribute('aria-label', `${panel.open ? '收起' : '展开'} ${title}`);
+    }
+
+    const wrap = panel.querySelector('.rl-chart-wrap');
+    if (!wrap) {
+        return;
+    }
+
+    const emptyMsg = chartOpts?.emptyMessage;
+    let canvas = wrap.querySelector('.rl-chart-canvas');
+    let emptyInline = wrap.querySelector('.rl-chart-empty-inline');
+
+    if (emptyMsg) {
+        if (canvas) {
+            canvas.remove();
+        }
+        if (!emptyInline) {
+            emptyInline = document.createElement('p');
+            emptyInline.className = 'rl-chart-empty-inline';
+            wrap.appendChild(emptyInline);
+        }
+        emptyInline.textContent = emptyMsg;
+        return;
+    }
+
+    if (emptyInline) {
+        emptyInline.remove();
+    }
+    if (!canvas) {
+        canvas = document.createElement('canvas');
+        canvas.className = 'rl-chart-canvas';
+        wrap.appendChild(canvas);
+    }
+    if (hint) {
+        canvas.classList.add('rl-help');
+        canvas.dataset.helpKey = `rl.chart.${panelIdx}.canvas`;
+    }
+    paint(canvas, title, x, series, chartOpts, hint);
+}
+
 /**
  * @param {HTMLElement | null} root
  * @param {object[]} entries
@@ -793,30 +935,17 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
         }
         return;
     }
-    root.replaceChildren();
     let rows = extractTrainEpisodeRows(entries);
     if (maxEpisodes > 0 && rows.length > 0) {
         const cutoff = rows[rows.length - 1].episodes - maxEpisodes;
         rows = rows.filter((r) => r.episodes >= cutoff);
     }
     if (rows.length < 2) {
-        if (sumEl) {
-            sumEl.innerHTML =
-                '<span class="rl-dash-note" title="训练指标曲线需要至少 2 个回合点才能画折线。请完成自博弈或 PyTorch 训练并写入 train_episode 日志后刷新。">运行状态：数据不足，至少需要 2 条 train_episode 记录。继续训练或刷新日志后，本卡片会同步更新摘要与解读。</span>';
-        }
-        const p = document.createElement('p');
-        p.className = 'rl-dash-empty';
-        p.title =
-            rows.length === 0
-                ? '训练日志中尚无 train_episode 事件。请启动带 PyTorch 后端的训练并确保服务端写入 JSONL，或使用浏览器内训练将指标写入本机后再点「刷新图表」。'
-                : '折线图至少需要两个数据点。请继续训练几局或拉取更多历史日志后再刷新。';
-        p.textContent =
-            rows.length === 0
-                ? '暂无 train_episode 记录。勾选 PyTorch 后端训练并刷新，或使用浏览器训练（指标写入本机后自动出曲线）。'
-                : '至少需要 2 条训练记录才能绘制曲线。';
-        root.appendChild(p);
+        syncChartRootEmptyState(root, rows.length, sumEl);
         return;
     }
+
+    root.querySelector('.rl-dash-empty')?.remove();
 
     if (sumEl) {
         fillSummary(sumEl, rows);
@@ -880,73 +1009,14 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     const C_SC_RAW = 'rgba(255, 112, 67, 0.82)';
 
     let panelIdx = 0;
-    /**
-     * @param {HTMLElement} target
-     * @param {string} title
-     * @param {{ label: string, color: string, y: number[], lineWidth?: number, dash?: number[] }[]} series
-     * @param {{ yMinFloor?: number, yMaxCeil?: number, yTick?: (v: number) => string, cssH?: number, robustClip?: boolean, emptyMessage?: string, showCanvasTitle?: boolean } | undefined} chartOpts
-     * @param {string} [hint] 鼠标悬停整块图表时的说明
-     */
-    const mkInto = (target, title, series, chartOpts, hint) => {
+    /** @param {string} chartId @param {string} title @param {object[]} series @param {object} [chartOpts] @param {string} [hint] */
+    const mk = (chartId, title, series, chartOpts, hint) => {
         panelIdx += 1;
-        const panel = document.createElement('details');
-        panel.className = 'rl-chart-panel rl-help';
-        panel.dataset.helpKey = `rl.chart.${panelIdx}`;
-        panel.open = true;
-        if (hint) {
-            panel.title = hint;
-        }
-        const summary = document.createElement('summary');
-        summary.className = 'rl-chart-panel-head';
-        const label = document.createElement('span');
-        label.className = 'rl-chart-panel-title';
-        label.textContent = `${panelIdx}. ${title}`;
-        if (hint) {
-            label.classList.add('rl-help');
-            label.dataset.helpKey = `rl.chart.${panelIdx}.title`;
-            label.title = hint;
-        }
-        const toggle = document.createElement('button');
-        toggle.type = 'button';
-        toggle.className = 'rl-chart-toggle';
-        const syncToggle = () => {
-            toggle.textContent = panel.open ? '收起' : '展开';
-            toggle.setAttribute('aria-label', `${panel.open ? '收起' : '展开'} ${title}`);
-        };
-        syncToggle();
-        toggle.addEventListener('click', (ev) => {
-            ev.preventDefault();
-            ev.stopPropagation();
-            panel.open = !panel.open;
-            syncToggle();
-        });
-        panel.addEventListener('toggle', syncToggle);
-        summary.append(label, toggle);
-        const wrap = document.createElement('div');
-        wrap.className = 'rl-chart-wrap';
-        const c = document.createElement('canvas');
-        if (chartOpts?.emptyMessage) {
-            const empty = document.createElement('p');
-            empty.className = 'rl-chart-empty-inline';
-            empty.textContent = chartOpts.emptyMessage;
-            wrap.appendChild(empty);
-        } else {
-            c.className = 'rl-chart-canvas';
-            if (hint) {
-                c.classList.add('rl-help');
-                c.dataset.helpKey = `rl.chart.${panelIdx}.canvas`;
-            }
-            wrap.appendChild(c);
-        }
-        panel.append(summary, wrap);
-        target.appendChild(panel);
-        if (!chartOpts?.emptyMessage) {
-            requestAnimationFrame(() => paint(c, title, x, series, chartOpts, hint || ''));
-        }
+        upsertChartPanel(root, chartId, panelIdx, title, x, series, chartOpts, hint);
     };
-    const mk = (title, series, chartOpts, hint) => mkInto(root, title, series, chartOpts, hint);
 
     mk(
+        CHART_PANEL_IDS.LOSS_POLICY,
         `Lπ 策略损失（细=逐局，粗=MA${MA_LOSS}）`,
         [
             {
@@ -969,6 +1039,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     );
 
     mk(
+        CHART_PANEL_IDS.LOSS_VALUE,
         `Lv 价值损失（细=逐局，粗=MA${MA_LOSS}）`,
         [
             {
@@ -991,6 +1062,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     );
 
     mk(
+        CHART_PANEL_IDS.ENTROPY,
         '策略熵 H(π)',
         [
             {
@@ -1008,6 +1080,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     );
 
     mk(
+        CHART_PANEL_IDS.STEP_COUNT,
         '轨迹长度 step_count（批量为当批均值）',
         [
             {
@@ -1042,6 +1115,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
         updatedAt
     );
     mk(
+        CHART_PANEL_IDS.WIN_RATE,
         `近${MA_PERF}局滑动胜率（0–1；批量为窗口内平均）`,
         [
             {
@@ -1067,6 +1141,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
         updatedAt
     );
     mk(
+        CHART_PANEL_IDS.SCORE,
         `对局得分（细=逐局，粗=MA${MA_PERF} 趋势）`,
         [
             {
@@ -1128,6 +1203,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     );
 
     mk(
+        CHART_PANEL_IDS.TEACHER,
         'Teacher 覆盖与目标形态',
         [
             {
@@ -1195,6 +1271,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     );
 
     mk(
+        CHART_PANEL_IDS.REPLAY,
         '蒸馏吸收与 Replay 占比',
         [
             {
@@ -1270,6 +1347,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     );
 
     mk(
+        CHART_PANEL_IDS.CURRICULUM,
         '课程门槛与得分分位（v11.2）',
         [
             {

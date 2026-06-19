@@ -478,11 +478,13 @@ export function initRLPanel(game) {
             const data = await fetchTrainingLog(fetchLines);
             updateRlTrainingCharts(chartRoot, data.entries || [], null, maxEpisodes, { path: data.path });
         } catch {
-            chartRoot.replaceChildren();
-            const p = document.createElement('p');
-            p.className = 'rl-dash-empty';
-            p.textContent = '无法加载服务端曲线（请启动 Flask 并勾选 PyTorch 后端）';
-            chartRoot.appendChild(p);
+            if (!chartRoot.querySelector('.rl-chart-panel')) {
+                chartRoot.replaceChildren();
+                const p = document.createElement('p');
+                p.className = 'rl-dash-empty';
+                p.textContent = '无法加载服务端曲线（请启动 Flask 并勾选 PyTorch 后端）';
+                chartRoot.appendChild(p);
+            }
             if (dashSummary) {
                 dashSummary.textContent = '运行状态：本次刷新未拉到服务端训练日志；请确认 Flask 后端可用，恢复后本卡片会随下一次刷新更新。';
             }

@@ -503,8 +503,17 @@ def mcts_q_proxy(
     if env_bs:
         eval_batch_size = int(env_bs)
 
-    # 大模拟量：切换批量模式
-    if n_simulations >= 50:
+    # P3：批量叶子评估的触发阈值可配。默认 50（高模拟量才值得攒批），但在 MPS/GPU 上
+    # 即便中等模拟量，批量叶子前向也能显著提升设备利用率（单样本前向受 kernel launch
+    # 与 host↔device 同步开销主导）。quality 预设可设 RL_MCTS_BATCH_THRESHOLD=12 让
+    # 12 次模拟也走批量路径，把闲置的 GPU/MPS 喂满。
+    try:
+        _batch_threshold = int(os.environ.get("RL_MCTS_BATCH_THRESHOLD", "50"))
+    except ValueError:
+        _batch_threshold = 50
+
+    # 大模拟量（或显式降低阈值）：切换批量模式
+    if n_simulations >= _batch_threshold:
         visit_pi = run_mcts_batched(
             net, device, sim,
             n_simulations=n_simulations,

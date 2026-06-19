@@ -224,6 +224,13 @@ class OpenBlockSimulator:
         # （generate_dock_shapes 每次 ~0.34s）。这些路径放完最后一块即返回，永远不会用到新 dock，
         # 重抽是纯浪费且被 restore_state 丢弃。profile 显示这是采集耗时的最大放大器。
         self._skip_dock_respawn: bool = False
+        # 早期高吞吐路径（performance 预设 / RL_SPAWN_CHEAP=1）：真实对局出块也用廉价随机
+        # spawner，跳过构造引擎 v3（generate_blocks_for_grid + 难度桶重抽，每次 ~0.34s）与
+        # 线上同源 IPC。随机采样对价值估计无偏，单局采集快一个数量级；代价是放弃构造式
+        # "爽感"出块质量（throughput 优先训练可接受，需要质量时用 balanced/quality 预设）。
+        self._spawn_cheap_real: bool = (
+            os.environ.get("RL_SPAWN_CHEAP", "0").strip().lower() in ("1", "true", "yes", "on")
+        )
         self.reset()
 
     def _difficulty_target_for_spawn(self) -> float:
@@ -417,6 +424,9 @@ class OpenBlockSimulator:
         self._grid_np = None
 
     def _spawn_dock(self) -> None:
+        if self._spawn_cheap_real:
+            self._spawn_dock_cheap()
+            return
         if _spawn_online.spawn_online_enabled():
             try:
                 self._profile.record_spawn()

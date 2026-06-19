@@ -114,6 +114,7 @@ def _emit_train_progress_heartbeat(global_ep: int, ep_data: dict) -> None:
 _pool_net: AnyNet | None = None
 _pool_device = torch.device("cpu")
 _pool_shared_table = None   # SharedZobristTable 附加对象（worker 端）
+_pool_w_version: int = -1   # P2：worker 端已加载权重的版本号，避免同批内重复 load_state_dict
 
 
 def _pool_worker_init(
@@ -166,13 +167,22 @@ def _pool_worker_init(
 def _pool_worker_collect(args: tuple) -> list[dict]:
     """Worker：加载最新权重 → 采集若干局 → 返回轨迹。
 
+    P2：args = (weight_version, weight_bytes, configs)。
+    - weight_bytes 为主进程 torch.save 一次得到的字节（pickle bytes ≈ memcpy，廉价）；
+    - 同批次所有 per-episode 任务共享同一 weight_version，worker 仅在版本变化时
+      torch.load + load_state_dict 一次，其余任务直接复用 _pool_net，省去重复反序列化。
+
     config tuple: (global_ep, temp_floor, explore_first_moves, explore_temp_mult,
                    dirichlet_epsilon, dirichlet_alpha, win_threshold_override)
     第 7 个元素 win_threshold_override 为可选（None 表示使用线性课程）。
     """
-    global _pool_net, _pool_device
-    state_dict, configs = args
-    _pool_net.load_state_dict(state_dict)
+    global _pool_net, _pool_device, _pool_w_version
+    weight_version, weight_bytes, configs = args
+    if weight_bytes is not None and weight_version != _pool_w_version:
+        import io as _io
+        sd = torch.load(_io.BytesIO(weight_bytes), map_location="cpu")
+        _pool_net.load_state_dict(sd)
+        _pool_w_version = weight_version
     episodes_out: list[dict] = []
     for cfg in configs:
         ep_data = collect_episode(
@@ -398,6 +408,15 @@ def _outcome_value_target(score: float, threshold: float | None = None) -> float
     else:
         val = float(np.log1p(max(float(score), 0.0)) / np.log1p(denom))
     return float(np.clip(val, 0.0, max(max_value, 1.0)))
+
+
+# P0：监督被跳过时填入的中性默认（与 update 消费端的 .get 默认一致，不影响 aux 损失）。
+_SUP_NEUTRAL: dict = {
+    "board_quality": 0.0,
+    "feasibility": 1.0,
+    "topology_after": None,
+    "spawn_difficulty_after": None,
+}
 
 
 def _board_quality_coef() -> float:
@@ -1213,6 +1232,22 @@ def collect_episode(
     _feasibility_budget = int(_preset.get("feasibilityNodeBudget", 200))
     _risk_budget = int(_preset.get("riskNodeBudget", 150))
 
+    # P0：监督税开关化。get_supervision_signals 每步跑可行性 DFS + 棋盘势能 + 拓扑，
+    # 仅当对应辅助头系数 > 0 时才有意义。系数全为 0（如 performance 预设）时整段跳过，
+    # 复刻早期纯 PPO 的轻量热路径。RL_SUPERVISION 可显式覆盖（0 强制关 / 1 强制开）。
+    _sup_env = os.environ.get("RL_SUPERVISION", "").strip().lower()
+    if _sup_env in ("0", "false", "no", "off"):
+        _need_sup = False
+    elif _sup_env in ("1", "true", "yes", "on"):
+        _need_sup = True
+    else:
+        _need_sup = (
+            _board_quality_coef() > 1e-9
+            or _feasibility_coef() > 1e-9
+            or _topology_aux_coef() > 1e-9
+            or _spawn_diff_aux_coef() > 1e-9
+        )
+
     # --- 搜索策略选择（优先级：MCTS > 3-ply beam > 2-ply beam > 1-step）---
     _mcts_cfg = RL_REWARD_SHAPING.get("lightMCTS") or {}
     # preset 可覆盖 enabled / numSimulations 等
@@ -1407,7 +1442,10 @@ def collect_episode(
         if _mcts_tree is not None:
             _mcts_tree.advance(chosen)
 
-        sup = sim.get_supervision_signals(feasibility_node_budget=_feasibility_budget)
+        if _need_sup:
+            sup = sim.get_supervision_signals(feasibility_node_budget=_feasibility_budget)
+        else:
+            sup = _SUP_NEUTRAL
         trajectory.append({
             "state": state_np.copy(),
             "action_feats": phi_np[:, STATE_FEATURE_DIM:].copy(),
@@ -2535,22 +2573,35 @@ def train_loop(
     t_collect_ms = 0.0
     t_train_ms = 0.0
 
+    _weight_version_holder = [0]
+
     def _make_pool_args(ep_start: int, count: int, win_thr: int | None = None):
-        """构建 pool worker 的参数列表。
+        """构建 pool worker 的参数列表（P2：每局一个任务，动态分发）。
+
+        早期静态分发把 count 局按 i%actual_workers 预切成 actual_workers 个大块，
+        每个 worker 领固定一块；局长差异大时严重负载不均（实测 99/33/19/3/0/0/0/0）。
+        改为「每局一个任务 + chunksize=1」后，空闲 worker 动态领下一局，自然均衡。
+
+        权重只 torch.save 一次为 bytes（同批所有任务共享、版本号一致），worker 端按
+        版本号缓存，仅首个任务真正反序列化，避免 per-episode 重复传输/加载的开销。
 
         每个 config 为 7-tuple：(global_ep, temp_floor, explore_first_moves,
             explore_temp_mult, dirichlet_epsilon, dirichlet_alpha, win_threshold_override)
         """
+        import io as _io
         configs = [
             (ep_start + i + 1, temp_floor, explore_first_moves, explore_temp_mult,
              dirichlet_epsilon, dirichlet_alpha, win_thr)
             for i in range(count)
         ]
-        chunks: list[list] = [[] for _ in range(actual_workers)]
-        for i, cfg in enumerate(configs):
-            chunks[i % actual_workers].append(cfg)
         cpu_sd = {k: v.detach().cpu() for k, v in net.state_dict().items()}
-        return [(cpu_sd, chunk) for chunk in chunks if chunk]
+        _buf = _io.BytesIO()
+        torch.save(cpu_sd, _buf)
+        wbytes = _buf.getvalue()
+        _weight_version_holder[0] += 1
+        version = _weight_version_holder[0]
+        # 每局一个任务：(version, weight_bytes, [single_config])
+        return [(version, wbytes, [cfg]) for cfg in configs]
 
     ep_cursor = start_ep
     try:
@@ -2609,7 +2660,8 @@ def train_loop(
                     batch = [ep for worker_eps in results for ep in worker_eps]
                 else:
                     args_list = _make_pool_args(ep_cursor, bs, cur_win_thr)
-                    results = pool.map(_pool_worker_collect, args_list)
+                    # chunksize=1：每局一个任务，空闲 worker 动态领取，治负载不均
+                    results = pool.map(_pool_worker_collect, args_list, chunksize=1)
                     batch = [ep for worker_eps in results for ep in worker_eps]
 
                 tc1 = time.perf_counter()
@@ -2620,7 +2672,7 @@ def train_loop(
                 next_bs = min(batch_episodes, start_ep + episodes - next_ep)
                 if next_bs > 0:
                     next_args = _make_pool_args(next_ep, next_bs, cur_win_thr)
-                    _pending_async = pool.map_async(_pool_worker_collect, next_args)
+                    _pending_async = pool.map_async(_pool_worker_collect, next_args, chunksize=1)
                 else:
                     _pending_async = None
             else:

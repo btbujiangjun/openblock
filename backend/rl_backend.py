@@ -1593,26 +1593,62 @@ def create_rl_blueprint() -> Blueprint:
         # 让 checkpoint 尽早保存“近期最好”而不是退化中的最后权重。
         env.setdefault("RL_BEST_GUARD_WINDOW", "80")
         env.setdefault("RL_BEST_GUARD_EVERY", "40")
-        if mcts_sims <= 0:
-            env.pop("RL_MCTS", None)
-        # lookahead=false：强制关闭所有每步搜索（最大吞吐）。每步搜索的真正瓶颈是
-        # 模拟器内循环（数百次 step/restore，纯 Python），关闭后单局采集快 1~2 个数量级。
+        # P1：决定性设置每步搜索相关 env，绝不沿用继承自常驻 Flask 进程 os.environ 的脏值。
+        # 历史 bug：performance 预设留下的 RL_LOOKAHEAD=0 会泄漏给后续 balanced+MCTS 启动，
+        # 而 MCTS/beam 整段都包在 `if use_lookahead:` 内 → use_lookahead=False 时被静默跳过，
+        # 表现为 banner 显示「MCTS×N」实则一步搜索都没跑。这里按请求+预设强制覆盖。
+        _want_beam = bool(
+            data.get("beam3ply")
+            or data.get("beam2ply")
+            or preset_beam3.get("enabled", False)
+            or preset_beam2.get("enabled", False)
+        )
         if force_no_lookahead:
+            # 纯策略采集（每步一次前向），最大吞吐；瓶颈是纯 Python 模拟器内循环。
             env["RL_MCTS"] = "0"
             env["RL_BEAM3PLY"] = "0"
             env["RL_BEAM2PLY"] = "0"
             env["RL_LOOKAHEAD"] = "0"
-        # 无 MCTS 且 preset/请求均未启用 beam 时，才关闭搜索以最大化采集吞吐。
-        elif (
-            mcts_sims <= 0
-            and not data.get("beam3ply")
-            and not data.get("beam2ply")
-            and not preset_beam3.get("enabled", False)
-            and not preset_beam2.get("enabled", False)
-        ):
+        elif mcts_sims > 0:
+            # 显式启用 MCTS：必须强制 RL_LOOKAHEAD=1，否则被泄漏的 0 静默禁用整段搜索。
+            env["RL_MCTS"] = "1"
+            env["RL_LOOKAHEAD"] = "1"
+            # P3：MCTS 在 GPU/MPS 上把叶子评估攒批前向，吃满闲置算力。把批量触发阈值
+            # 降到本次模拟次数，使中等模拟量（如 quality 默认 12~20）也走 run_mcts_batched。
+            try:
+                _dev = resolve_training_device(os.environ.get("RL_DEVICE", "auto"))
+                if _dev.type in ("cuda", "mps"):
+                    env.setdefault("RL_MCTS_BATCH_THRESHOLD", str(max(2, mcts_sims)))
+            except Exception:
+                pass
+        elif _want_beam:
+            # 启用 beam 搜索：清掉可能泄漏的 RL_MCTS / RL_BEAM*=0，回落到预设配置。
+            env.pop("RL_MCTS", None)
+            env.pop("RL_BEAM3PLY", None)
+            env.pop("RL_BEAM2PLY", None)
+            env["RL_LOOKAHEAD"] = "1"
+        else:
+            # 无 MCTS、无 beam：纯策略 1 次前向，关闭所有搜索以最大化采集吞吐。
+            env.pop("RL_MCTS", None)
             env["RL_BEAM3PLY"] = "0"
             env["RL_BEAM2PLY"] = "0"
-            env.setdefault("RL_LOOKAHEAD", "0")
+            env["RL_LOOKAHEAD"] = "0"
+
+        # P1：performance 预设 = 复刻早期纯 PPO 的轻量热路径。实测单局耗时由两部分主导：
+        #   (1) 每步监督税（可行性 DFS + 棋盘势能 + 拓扑）→ RL_SUPERVISION=0 关闭；
+        #   (2) 每次出块的构造引擎 v3 / 线上 IPC（~0.34s/次，占采集大头）→ RL_SPAWN_CHEAP=1
+        #       改为廉价随机出块（比关 online 回落到本地构造式更快一个数量级）。
+        # 调用方仍可在请求 body 显式传 supervision/spawn_cheap 覆盖。
+        if preset == "performance":
+            if "supervision" in data:
+                env["RL_SUPERVISION"] = "1" if data.get("supervision") else "0"
+            else:
+                env["RL_SUPERVISION"] = "0"
+            if "spawn_cheap" in data:
+                env["RL_SPAWN_CHEAP"] = "1" if data.get("spawn_cheap") else "0"
+            else:
+                env["RL_SPAWN_CHEAP"] = "1"
+                env["RL_SPAWN_ONLINE"] = "0"
         # 即便启用评估门，也默认关闭双路搜索评估（per-step per-action 子模拟，开销极大），
         # 避免后台训练触发门控时长时间冻结、日志停更。
         if eval_gate_every > 0:
