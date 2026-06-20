@@ -75,9 +75,81 @@ import torch.nn.functional as F
 
 from .device import tensor_to_device
 from .features import build_phi_batch, extract_state_features
+from .game_rules import RL_REWARD_SHAPING, WIN_SCORE_THRESHOLD, rl_active_preset_config
+
+_LIGHT_MCTS_CFG = dict(RL_REWARD_SHAPING.get("lightMCTS") or {})
 
 if TYPE_CHECKING:
     from .spawn_predictor import SpawnPredictor
+
+
+def _active_light_mcts_cfg() -> dict:
+    """合并全局 lightMCTS 与当前训练预设里的 mcts 覆盖项。"""
+    cfg = dict(_LIGHT_MCTS_CFG)
+    try:
+        cfg.update((rl_active_preset_config().get("mcts") or {}))
+    except Exception:
+        pass
+    return cfg
+
+
+def _mcts_q_normalize() -> bool:
+    """是否启用 MuZero 式 Q 值动态归一化（默认开，RL_MCTS_Q_NORMALIZE=0 回退）。"""
+    raw = os.environ.get("RL_MCTS_Q_NORMALIZE", "").strip().lower()
+    if raw:
+        return raw not in ("0", "false", "no", "off")
+    return bool(_active_light_mcts_cfg().get("qNormalize", True))
+
+
+def _mcts_fpu() -> float:
+    """First-Play-Urgency：归一化空间内未访问动作的 Q 基线（默认 0.5 中性）。"""
+    raw = os.environ.get("RL_MCTS_FPU", "").strip()
+    if raw:
+        return float(raw)
+    return float(_active_light_mcts_cfg().get("fpu", 0.5))
+
+
+class _MinMaxStats:
+    """MuZero 式 Q 值动态归一化器。
+
+    单人模式下折扣回报量纲可达数百~数千，会把 PUCT 的探索项
+    ``c_puct·P·√N/(1+n)`` 压成可忽略量，使搜索退化为纯 exploit —— 正是
+    1000 分平台的成因之一。这里跟踪整棵树 backup 出的 Q 的 running min/max，
+    在 UCB 里把 Q 线性映射到 [0,1]，让探索项重新与利用项同量纲。
+    """
+
+    __slots__ = ("minimum", "maximum", "enabled", "fpu")
+
+    def __init__(self, enabled: bool = True, fpu: float = 0.5):
+        self.minimum = float("inf")
+        self.maximum = float("-inf")
+        self.enabled = enabled
+        self.fpu = fpu
+
+    def update(self, value: float) -> None:
+        if value < self.minimum:
+            self.minimum = value
+        if value > self.maximum:
+            self.maximum = value
+
+    def initialized(self) -> bool:
+        return self.maximum > self.minimum
+
+    def normalize(self, value: float) -> float:
+        if not self.enabled:
+            return value
+        if self.maximum > self.minimum:
+            return (value - self.minimum) / (self.maximum - self.minimum)
+        return value
+
+
+def _seed_minmax_from_tree(root: "_MCTSNode", mm: "_MinMaxStats") -> None:
+    """复用树时用现有根子节点 Q 预热 min-max，避免首次选择量纲失真。"""
+    if not mm.enabled:
+        return
+    for child in root.children.values():
+        if child.N > 0:
+            mm.update(child.Q)
 
 
 # ---------------------------------------------------------------------------
@@ -211,11 +283,202 @@ class MCTSTreeState:
 # UCB 选择
 # ---------------------------------------------------------------------------
 
-def _ucb_score(child: _MCTSNode, parent_N: int, c_puct: float) -> float:
-    """UCB 分数；未被访问的子节点给极大分（确保全部探索至少一次）。"""
-    if child.N == 0:
-        return 1e9 + child.P   # 用先验打破并列
-    return child.Q + c_puct * child.P * math.sqrt(parent_N) / (1 + child.N)
+def _ucb_score(
+    child: _MCTSNode,
+    parent_N: int,
+    c_puct: float,
+    mm: "_MinMaxStats | None" = None,
+) -> float:
+    """PUCT 分数。
+
+    旧实现给未访问动作极大分，会在 30~120 个合法动作下把少量模拟摊到大量
+    低质量落点上。这里回到 AlphaZero 风格 PUCT：未访问动作靠先验探索项进入，
+    不再强制全动作至少访问一次。
+
+    Q 经 ``mm`` 归一化到 [0,1]（MuZero 单人 value normalization）；未访问动作
+    用 FPU 基线，避免在 min>0 时被 ``normalize(0)`` 误判为劣于已访问动作。
+    """
+    if child.P <= 0.0:
+        return -1e18
+    if mm is None:
+        q = child.Q
+    elif child.N == 0 and mm.initialized():
+        q = mm.fpu
+    else:
+        q = mm.normalize(child.Q)
+    return q + c_puct * child.P * math.sqrt(parent_N) / (1 + child.N)
+
+
+def _mcts_prior_topk(n_legal: int) -> int:
+    """每个节点保留的候选动作数；0/负数表示不裁剪。"""
+    raw = os.environ.get("RL_MCTS_PRIOR_TOPK", "").strip()
+    if raw:
+        topk = int(raw)
+    else:
+        topk = int(_active_light_mcts_cfg().get("priorTopK", 32))
+    if topk <= 0 or topk >= n_legal:
+        return n_legal
+    return max(1, topk)
+
+
+def _mcts_root_topk(n_legal: int) -> int:
+    """根节点候选动作数；根比深层更重要，单独给开关。"""
+    raw = os.environ.get("RL_MCTS_ROOT_TOPK", "").strip()
+    if raw:
+        topk = int(raw)
+    else:
+        topk = int(_active_light_mcts_cfg().get("rootTopK", _mcts_prior_topk(n_legal)))
+    if topk <= 0 or topk >= n_legal:
+        return n_legal
+    return max(1, topk)
+
+
+def _mcts_root_reward_mix() -> float:
+    """根候选筛选时一步真实奖励的权重。"""
+    raw = os.environ.get("RL_MCTS_ROOT_REWARD_MIX", "").strip()
+    if raw:
+        return max(0.0, float(raw))
+    return max(0.0, float(_active_light_mcts_cfg().get("rootRewardMix", 0.75)))
+
+
+def _mcts_root_prior_floor() -> float:
+    """根候选保留集上的均匀先验下限（FPU 之外的第二道探索保险）。"""
+    raw = os.environ.get("RL_MCTS_ROOT_PRIOR_FLOOR", "").strip()
+    if raw:
+        return float(np.clip(float(raw), 0.0, 1.0))
+    return float(np.clip(float(_active_light_mcts_cfg().get("rootPriorFloor", 0.1)), 0.0, 1.0))
+
+
+def _apply_prior_floor(priors: np.ndarray, floor: float) -> np.ndarray:
+    """在已归一化先验的非零支撑集上混入均匀分布。
+
+    根筛选会保留「网络先验低但一步真实奖励高」的候选，但它们带着极小的
+    P 进树，PUCT 探索项 ``c_puct·P·√N/(1+n)`` 太小、几乎不会被再次访问 =
+    被饿死。混入 floor 比例的均匀先验，保证每个被保留动作都有最低探索权重。
+    """
+    if floor <= 0.0:
+        return priors
+    support = np.nonzero(priors > 0.0)[0]
+    k = int(support.shape[0])
+    if k == 0:
+        return priors
+    uniform = np.zeros_like(priors)
+    uniform[support] = 1.0 / k
+    out = (1.0 - floor) * priors + floor * uniform
+    s = float(out.sum())
+    return out / s if s > 1e-12 else out
+
+
+def _zscore_np(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=np.float64)
+    std = float(x.std())
+    if std < 1e-8:
+        return np.zeros_like(x)
+    return (x - float(x.mean())) / std
+
+
+def _prune_priors_topk(priors: np.ndarray, topk: int) -> np.ndarray:
+    """仅保留 topK 先验并重新归一化；其余动作 P=0，不参与 PUCT。"""
+    priors = np.asarray(priors, dtype=np.float64)
+    n = int(priors.shape[0])
+    if n == 0 or topk <= 0 or topk >= n:
+        s = float(priors.sum())
+        return priors / s if s > 1e-12 else np.full(n, 1.0 / max(n, 1), dtype=np.float64)
+    keep = np.argpartition(priors, -topk)[-topk:]
+    out = np.zeros(n, dtype=np.float64)
+    out[keep] = np.clip(priors[keep], 0.0, None)
+    s = float(out.sum())
+    if s <= 1e-12:
+        out[keep] = 1.0 / topk
+        return out
+    return out / s
+
+
+def _filter_root_priors(sim, legal: list[dict], priors: np.ndarray) -> np.ndarray:
+    """根节点候选筛选：策略先验 + 一步真实奖励（清线、空洞、贴合等）。"""
+    n = len(legal)
+    topk = _mcts_root_topk(n)
+    floor = _mcts_root_prior_floor()
+    if topk >= n:
+        return _apply_prior_floor(_prune_priors_topk(priors, _mcts_prior_topk(n)), floor)
+
+    rewards = np.zeros(n, dtype=np.float64)
+    saved = sim.save_state()
+    with sim.search_mode():
+        for i, a in enumerate(legal):
+            rewards[i] = float(sim.step(a["block_idx"], a["gx"], a["gy"]))
+            sim.restore_state(saved)
+    sim.restore_state(saved)
+
+    prior_score = _zscore_np(np.log(np.clip(priors, 1e-12, 1.0)))
+    reward_score = _zscore_np(rewards)
+    score = prior_score + _mcts_root_reward_mix() * reward_score
+    keep = np.argpartition(score, -topk)[-topk:]
+
+    out = np.zeros(n, dtype=np.float64)
+    out[keep] = np.clip(priors[keep], 0.0, None)
+    s = float(out.sum())
+    if s <= 1e-12:
+        out[keep] = 1.0 / topk
+        return out
+    return _apply_prior_floor(out / s, floor)
+
+
+def _set_node_priors(node: _MCTSNode, priors: np.ndarray) -> None:
+    """用给定先验初始化节点 children。P=0 的动作会被 PUCT 跳过。"""
+    node.children.clear()
+    for j, p in enumerate(priors):
+        node.children[j] = _MCTSNode(prior=float(p))
+
+
+def _expand_root_with_filtered_priors(root: _MCTSNode, net, device: torch.device, sim, legal_root: list[dict]) -> bool:
+    """初始化根节点先验，并用一步真实奖励筛出高价值候选。"""
+    with torch.no_grad():
+        _, phi_np = build_phi_batch(sim, legal_root)
+        if phi_np.shape[0] == 0:
+            return False
+        phi = tensor_to_device(torch.from_numpy(phi_np), device)
+        logits = net.forward_policy_logits(phi)
+        priors = F.softmax(logits, dim=-1).cpu().numpy()
+    priors = _filter_root_priors(sim, legal_root, priors)
+    root.is_expanded = True
+    root.n_legal = len(legal_root)
+    _set_node_priors(root, priors)
+    return True
+
+
+def _terminal_value(sim) -> float:
+    """终局叶子价值；失败局补上训练口径的 stuckPenalty。"""
+    try:
+        score = float(getattr(sim, "score", 0.0))
+        threshold = float(getattr(sim, "win_score_threshold", WIN_SCORE_THRESHOLD))
+        if score < threshold:
+            return float(RL_REWARD_SHAPING.get("stuckPenalty") or 0.0)
+    except Exception:
+        pass
+    return 0.0
+
+
+def _backup_discounted(
+    root: _MCTSNode,
+    path: list[tuple[_MCTSNode, int]],
+    rewards: list[float],
+    leaf_value: float,
+    gamma: float,
+    mm: "_MinMaxStats | None" = None,
+) -> float:
+    """按 r + gamma * V 反向更新，使清线、空洞、贴合等 step reward 进入 MCTS Q。"""
+    value = float(leaf_value)
+    for (parent, a_idx), reward in zip(reversed(path), reversed(rewards)):
+        value = float(reward) + gamma * value
+        child_node = parent.children.setdefault(a_idx, _MCTSNode())
+        child_node.N += 1
+        child_node.W += value
+        child_node.Q = child_node.W / child_node.N
+        if mm is not None:
+            mm.update(child_node.Q)
+    root.N += 1
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -231,10 +494,12 @@ def _simulate(
     max_depth: int,
     spawn_predictor: "SpawnPredictor | None",
     gamma: float,
+    mm: "_MinMaxStats | None" = None,
 ) -> float:
     """执行一次 Selection→Expansion→Evaluation→Backup，返回叶子节点价值。"""
     node = root
     path: list[tuple[_MCTSNode, int]] = []
+    rewards: list[float] = []
     depth = 0
 
     # ---- Selection + Expansion ----
@@ -251,8 +516,8 @@ def _simulate(
                     phi_t = tensor_to_device(torch.from_numpy(phi_leaf), device)
                     lg = net.forward_policy_logits(phi_t)
                     pr = F.softmax(lg, dim=-1).cpu().numpy()
-                    for j in range(len(legal)):
-                        node.children[j] = _MCTSNode(prior=float(pr[j]))
+                    pr = _prune_priors_topk(pr, _mcts_prior_topk(len(legal)))
+                    _set_node_priors(node, pr)
             node.is_expanded = True
             node.n_legal = len(legal)
 
@@ -264,7 +529,7 @@ def _simulate(
             if child is None:
                 child = _MCTSNode()
                 node.children[i] = child
-            sc = _ucb_score(child, pN, c_puct)
+            sc = _ucb_score(child, pN, c_puct, mm)
             if sc > best_sc:
                 best_sc = sc
                 best_i = i
@@ -274,18 +539,18 @@ def _simulate(
 
         path.append((node, best_i))
         a = legal[best_i]
-        sim.step(a["block_idx"], a["gx"], a["gy"])
+        rewards.append(float(sim.step(a["block_idx"], a["gx"], a["gy"])))
         node = node.children.setdefault(best_i, _MCTSNode())
         depth += 1
 
     # ---- Evaluation ----
     if sim.is_terminal():
-        leaf_value = 0.0
+        leaf_value = _terminal_value(sim)
     else:
         legal_leaf = sim.get_legal_actions()
         if not legal_leaf:
-            leaf_value = 0.0
-        elif spawn_predictor is not None and os.environ.get("RL_MCTS_STOCHASTIC", "0") not in ("0", "false"):
+            leaf_value = _terminal_value(sim)
+        elif spawn_predictor is not None:
             # 随机出块评估：对若干 dock 样本求期望 V
             leaf_value = spawn_predictor.expected_value(sim, net, device, n_samples=3)
         else:
@@ -295,12 +560,7 @@ def _simulate(
                 leaf_value = float(net.forward_value(s_t).item())
 
     # ---- Backup ----
-    for parent, a_idx in reversed(path):
-        child_node = parent.children.setdefault(a_idx, _MCTSNode())
-        child_node.N += 1
-        child_node.W += leaf_value
-        child_node.Q = child_node.W / child_node.N
-    root.N += 1
+    _backup_discounted(root, path, rewards, leaf_value, gamma, mm)
 
     return leaf_value
 
@@ -347,25 +607,16 @@ def run_mcts(
         return None
     n_root = len(legal_root)
 
-    with torch.no_grad():
-        _, phi_np = build_phi_batch(sim, legal_root)
-        if phi_np.shape[0] == 0:
-            return None
-        phi = tensor_to_device(torch.from_numpy(phi_np), device)
-        logits = net.forward_policy_logits(phi)
-        priors = F.softmax(logits, dim=-1).cpu().numpy()
-
-    root = _MCTSNode()
-    root.is_expanded = True
-    root.n_legal = n_root
-    for i in range(n_root):
-        root.children[i] = _MCTSNode(prior=float(priors[i]))
-
     root_saved = sim.save_state()
+    root = _MCTSNode()
+    if not _expand_root_with_filtered_priors(root, net, device, sim, legal_root):
+        return None
+
+    mm = _MinMaxStats(_mcts_q_normalize(), _mcts_fpu())
     with sim.search_mode():
         for _ in range(n_simulations):
             sim.restore_state(root_saved)
-            _simulate(root, sim, net, device, c_puct, max_depth, spawn_predictor, gamma)
+            _simulate(root, sim, net, device, c_puct, max_depth, spawn_predictor, gamma, mm)
         sim.restore_state(root_saved)
 
     return _extract_visit_pi(root, n_root)
@@ -405,24 +656,15 @@ def run_mcts_reuse(
     if not legal_root:
         return None
     n_root = len(legal_root)
+    root_saved = sim.save_state()
 
     # ---- 复用或重建根节点 ----
     root = tree_state.root
     if root is None or root.n_legal != n_root:
         # 树不存在或动作数变化（dock 刷新/不同局面）→ 重建
-        with torch.no_grad():
-            _, phi_np = build_phi_batch(sim, legal_root)
-            if phi_np.shape[0] == 0:
-                return None
-            phi = tensor_to_device(torch.from_numpy(phi_np), device)
-            logits = net.forward_policy_logits(phi)
-            priors = F.softmax(logits, dim=-1).cpu().numpy()
-
         root = _MCTSNode()
-        root.is_expanded = True
-        root.n_legal = n_root
-        for i in range(n_root):
-            root.children[i] = _MCTSNode(prior=float(priors[i]))
+        if not _expand_root_with_filtered_priors(root, net, device, sim, legal_root):
+            return None
         tree_state.root = root
         # 复用场景下已有访问统计；追加模拟数量按复用程度缩减
         extra_sims = n_simulations
@@ -431,11 +673,12 @@ def run_mcts_reuse(
         already = root.N
         extra_sims = max(0, n_simulations - already)
 
-    root_saved = sim.save_state()
+    mm = _MinMaxStats(_mcts_q_normalize(), _mcts_fpu())
+    _seed_minmax_from_tree(root, mm)
     with sim.search_mode():
         for _ in range(extra_sims):
             sim.restore_state(root_saved)
-            _simulate(root, sim, net, device, c_puct, max_depth, spawn_predictor, gamma)
+            _simulate(root, sim, net, device, c_puct, max_depth, spawn_predictor, gamma, mm)
         sim.restore_state(root_saved)
 
     return _extract_visit_pi(root, n_root)
@@ -519,6 +762,7 @@ def mcts_q_proxy(
             n_simulations=n_simulations,
             c_puct=c_puct,
             max_depth=max_depth,
+            gamma=gamma,
             eval_batch_size=eval_batch_size,
             tree_state=tree_state,
             spawn_predictor=spawn_predictor,
@@ -704,12 +948,15 @@ def _select_leaf_for_batch(
     c_puct: float,
     max_depth: int,
     defer_policy: bool = False,
-) -> "tuple[list[tuple[_MCTSNode, int]], np.ndarray | None, bool, _MCTSNode | None, np.ndarray | None, int]":
-    """Selection + Expansion（不做 value GPU 评估），返回 6 元组：
+    mm: "_MinMaxStats | None" = None,
+) -> "tuple[list[tuple[_MCTSNode, int]], list[float], np.ndarray | None, bool, float, _MCTSNode | None, np.ndarray | None, int]":
+    """Selection + Expansion（不做 value GPU 评估），返回 7 元组：
 
     - path         : [(parent_node, action_idx), ...]
+    - rewards      : path 上每条边的即时 step reward
     - leaf_feat    : 叶子状态特征 numpy array，或 None（终局时）
     - is_term      : 是否为终局节点
+    - terminal_v   : 终局叶子价值；非终局为 0
     - expand_node  : 本次新展开的叶子节点（需批量回填 prior），否则 None
     - expand_phi   : 该叶子合法动作的 phi 矩阵（shape=(n_legal, F)），否则 None
     - expand_n     : 该叶子合法动作数，否则 0
@@ -720,6 +967,7 @@ def _select_leaf_for_batch(
     """
     node = root
     path: list[tuple[_MCTSNode, int]] = []
+    rewards: list[float] = []
     depth = 0
 
     while not sim.is_terminal() and depth < max_depth:
@@ -736,20 +984,25 @@ def _select_leaf_for_batch(
             phi_slice = np.ascontiguousarray(phi_leaf[:n_legal])
             if defer_policy:
                 # 占位均匀先验，批量前向后由调用方覆盖
-                for j in range(n_legal):
-                    node.children[j] = _MCTSNode(prior=1.0 / n_legal)
+                _set_node_priors(
+                    node,
+                    _prune_priors_topk(
+                        np.full(n_legal, 1.0 / max(n_legal, 1), dtype=np.float64),
+                        _mcts_prior_topk(n_legal),
+                    ),
+                )
                 node.is_expanded = True
                 node.n_legal = n_legal
                 leaf_feat = sim.extract_state()
-                return path, leaf_feat, False, node, phi_slice, n_legal
+                return path, rewards, leaf_feat, False, 0.0, node, phi_slice, n_legal
             with torch.no_grad():
                 phi_t = tensor_to_device(torch.from_numpy(phi_slice), device)
                 logits = net.forward_policy_logits(phi_t).cpu().numpy()
             block_logits = logits[:n_legal]
             priors = np.exp(block_logits - block_logits.max())
             priors /= priors.sum()
-            for j, p in enumerate(priors):
-                node.children[j] = _MCTSNode(prior=float(p))
+            priors = _prune_priors_topk(priors, _mcts_prior_topk(n_legal))
+            _set_node_priors(node, priors)
             node.is_expanded = True
             node.n_legal = n_legal
             break   # 这是新叶子，停止 selection
@@ -762,7 +1015,7 @@ def _select_leaf_for_batch(
             if child is None:
                 child = _MCTSNode()
                 node.children[i] = child
-            sc = _ucb_score(child, pN, c_puct)
+            sc = _ucb_score(child, pN, c_puct, mm)
             if sc > best_sc:
                 best_sc = sc
                 best_i = i
@@ -770,15 +1023,15 @@ def _select_leaf_for_batch(
         best_i = min(best_i, len(legal) - 1)
         path.append((node, best_i))
         a = legal[best_i]
-        sim.step(a["block_idx"], a["gx"], a["gy"])
+        rewards.append(float(sim.step(a["block_idx"], a["gx"], a["gy"])))
         node = node.children.setdefault(best_i, _MCTSNode())
         depth += 1
 
     is_term = sim.is_terminal() or not sim.get_legal_actions()
     if is_term:
-        return path, None, True, None, None, 0
+        return path, rewards, None, True, _terminal_value(sim), None, None, 0
     leaf_feat = sim.extract_state()
-    return path, leaf_feat, False, None, None, 0
+    return path, rewards, leaf_feat, False, 0.0, None, None, 0
 
 
 def _mcts_batch_policy_enabled() -> bool:
@@ -817,6 +1070,7 @@ def _flush_expand_policy(
             priors = priors / s
         else:
             priors = np.full(n_legal, 1.0 / max(n_legal, 1), dtype=np.float64)
+        priors = _prune_priors_topk(priors, _mcts_prior_topk(n_legal))
         for j in range(n_legal):
             child = node.children.get(j)
             if child is None:
@@ -832,6 +1086,7 @@ def run_mcts_batched(
     n_simulations: int = 100,
     c_puct: float = 1.5,
     max_depth: int = 8,
+    gamma: float = 0.99,
     eval_batch_size: int = 8,
     tree_state: "MCTSTreeState | None" = None,
     spawn_predictor: "SpawnPredictor | None" = None,
@@ -873,7 +1128,6 @@ def run_mcts_batched(
         return None
     if (
         spawn_predictor is not None
-        and os.environ.get("RL_MCTS_STOCHASTIC", "0") not in ("0", "false")
         and spawn_predictor.available
     ):
         # 随机出块叶子需要精确叶子局面；批量路径只保存 leaf features，无法恢复对应 sim。
@@ -885,6 +1139,7 @@ def run_mcts_batched(
                 n_simulations=n_simulations,
                 c_puct=c_puct,
                 max_depth=max_depth,
+                gamma=gamma,
                 spawn_predictor=spawn_predictor,
             )
         return run_mcts(
@@ -892,6 +1147,7 @@ def run_mcts_batched(
             n_simulations=n_simulations,
             c_puct=c_puct,
             max_depth=max_depth,
+            gamma=gamma,
             spawn_predictor=spawn_predictor,
         )
 
@@ -909,19 +1165,28 @@ def run_mcts_batched(
         if tree_state is not None:
             tree_state.root = root
 
+    if not root.is_expanded:
+        if not _expand_root_with_filtered_priors(root, net, device, sim, legal_root):
+            sim.restore_state(root_saved)
+            return None
+
     if n_simulations <= 0:
         sim.restore_state(root_saved)
         return _extract_visit_pi(root, len(legal_root))
 
     # ---- 批量模拟 ----
+    mm = _MinMaxStats(_mcts_q_normalize(), _mcts_fpu())
+    _seed_minmax_from_tree(root, mm)
     _defer_policy = _mcts_batch_policy_enabled()
     done = 0
     while done < n_simulations:
         batch = min(eval_batch_size, n_simulations - done)
 
         paths_list: list[list[tuple[_MCTSNode, int]]] = []
+        rewards_list: list[list[float]] = []
         feats_list: list[np.ndarray] = []
         term_flags: list[bool] = []
+        term_values: list[float] = []
         leaf_feat_idx: list[int] = []   # 非终局样本在 feats_list 中的索引
         expand_nodes: list[_MCTSNode] = []
         expand_phi: list[np.ndarray] = []
@@ -931,12 +1196,14 @@ def run_mcts_batched(
         for _ in range(batch):
             sim.restore_state(root_saved)
             with sim.search_mode():
-                path, feat, is_term, ex_node, ex_phi, ex_n = _select_leaf_for_batch(
+                path, rewards, feat, is_term, term_v, ex_node, ex_phi, ex_n = _select_leaf_for_batch(
                     root, sim, net, device, c_puct, max_depth,
-                    defer_policy=_defer_policy,
+                    defer_policy=_defer_policy, mm=mm,
                 )
             paths_list.append(path)
+            rewards_list.append(rewards)
             term_flags.append(is_term)
+            term_values.append(term_v)
             if not is_term and feat is not None:
                 leaf_feat_idx.append(len(feats_list))
                 feats_list.append(feat)
@@ -965,20 +1232,15 @@ def run_mcts_batched(
                 )
 
         # Phase 3: 移除虚拟 loss + 反向传播
-        for idx, (path, is_term) in enumerate(zip(paths_list, term_flags)):
+        for idx, (path, rewards, is_term, term_v) in enumerate(zip(paths_list, rewards_list, term_flags, term_values)):
             _remove_virtual_loss(path)
             if is_term:
-                v = 0.0
+                v = term_v
             else:
                 fi = leaf_feat_idx[idx]
                 v = float(values_arr[fi]) if (values_arr is not None and fi >= 0) else 0.0
 
-            for parent, a_idx in reversed(path):
-                child = parent.children.setdefault(a_idx, _MCTSNode())
-                child.N += 1
-                child.W += v
-                child.Q = child.W / child.N
-            root.N += 1
+            _backup_discounted(root, path, rewards, v, gamma, mm)
 
         done += batch
 
@@ -1243,6 +1505,14 @@ def run_mcts_adaptive(
             tree_state.root = root
         already_done = 0
 
+    if not root.is_expanded:
+        if not _expand_root_with_filtered_priors(root, net, device, sim, legal_root):
+            sim.restore_state(root_saved)
+            return None, 0
+
+    mm = _MinMaxStats(_mcts_q_normalize(), _mcts_fpu())
+    _seed_minmax_from_tree(root, mm)
+
     def _run_batch(n: int) -> None:
         """执行 n 次模拟（批量或单步）。search_mode 跳过 eval shaping。"""
         if n <= 0:
@@ -1254,17 +1524,19 @@ def run_mcts_adaptive(
             done = 0
             while done < n:
                 batch = min(bs, n - done)
-                paths_list, feats_list, term_flags, leaf_feat_idx = [], [], [], []
+                paths_list, rewards_list, feats_list, term_flags, term_values, leaf_feat_idx = [], [], [], [], [], []
                 expand_nodes, expand_phi, expand_n = [], [], []
                 for _ in range(batch):
                     sim.restore_state(root_saved)
                     with sim.search_mode():
-                        path, feat, is_term, ex_node, ex_phi, ex_n = _select_leaf_for_batch(
+                        path, rewards, feat, is_term, term_v, ex_node, ex_phi, ex_n = _select_leaf_for_batch(
                             root, sim, net, device, c_puct, max_depth,
-                            defer_policy=_defer_policy,
+                            defer_policy=_defer_policy, mm=mm,
                         )
                     paths_list.append(path)
+                    rewards_list.append(rewards)
                     term_flags.append(is_term)
+                    term_values.append(term_v)
                     if not is_term and feat is not None:
                         leaf_feat_idx.append(len(feats_list))
                         feats_list.append(feat)
@@ -1285,23 +1557,18 @@ def run_mcts_adaptive(
                     with torch.no_grad():
                         values_arr = net.forward_value(batch_t).cpu().numpy().flatten()
 
-                for idx, (path, is_term) in enumerate(zip(paths_list, term_flags)):
+                for idx, (path, rewards, is_term, term_v) in enumerate(zip(paths_list, rewards_list, term_flags, term_values)):
                     _remove_virtual_loss(path)
                     fi = leaf_feat_idx[idx]
-                    v = 0.0 if is_term else (float(values_arr[fi]) if values_arr is not None and fi >= 0 else 0.0)
-                    for parent, a_idx in reversed(path):
-                        child = parent.children.setdefault(a_idx, _MCTSNode())
-                        child.N += 1
-                        child.W += v
-                        child.Q = child.W / child.N
-                    root.N += 1
+                    v = term_v if is_term else (float(values_arr[fi]) if values_arr is not None and fi >= 0 else 0.0)
+                    _backup_discounted(root, path, rewards, v, gamma, mm)
                 done += batch
         else:
             with sim.search_mode():
                 for _ in range(n):
                     sim.restore_state(root_saved)
                     _simulate(root, sim, net, device, c_puct, max_depth,
-                              spawn_predictor=spawn_predictor, gamma=gamma)
+                              spawn_predictor=spawn_predictor, gamma=gamma, mm=mm)
 
     def _confidence() -> float:
         """计算当前 top1/top2 访问比；根动作数 < 2 时返回无穷大。"""

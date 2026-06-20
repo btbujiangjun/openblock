@@ -768,25 +768,65 @@ def _replay_config() -> dict:
         "maxEpisodes": 256,
         "sampleRatio": 0.5,
         "maxSamples": 8,
+        "keepTopRatio": 0.5,
+        "scorePower": 1.5,
+        "minScorePercentile": 0.55,
         "minPriority": 0.0,
         # 高分优先回放（防退化锚）：保留/采样改为偏好高分局，并对其 chosen 动作做
         # 轻量行为克隆（"记住有效打法"），抵抗灾难性遗忘。默认开启。
         "highScoreReplay": True,
         "bcCoef": 0.1,
+        # BC 退火：强行为锚定早期防遗忘、后期让位策略继续上探，避免被历史分布绑死。
+        # bcAnnealEpisodes<=0 或 bcCoefEnd==bcCoef 时不退火（向后兼容）。
+        "bcCoefEnd": 0.1,
+        "bcAnnealEpisodes": 0,
     }
     cfg.update(RL_REWARD_SHAPING.get("searchReplay") or {})
+    cfg.setdefault("bcCoefEnd", cfg.get("bcCoef", 0.1))
     if (raw_hs := os.environ.get("RL_HIGH_SCORE_REPLAY", "").strip().lower()) in ("1", "true", "yes", "on"):
         cfg["highScoreReplay"] = True
     elif raw_hs in ("0", "false", "no", "off"):
         cfg["highScoreReplay"] = False
     if (raw_bc := os.environ.get("RL_REPLAY_BC_COEF", "").strip()) != "":
         cfg["bcCoef"] = float(raw_bc)
+    if (raw_bce := os.environ.get("RL_REPLAY_BC_COEF_END", "").strip()) != "":
+        cfg["bcCoefEnd"] = float(raw_bce)
+    if (raw_bca := os.environ.get("RL_REPLAY_BC_ANNEAL_EP", "").strip()) != "":
+        cfg["bcAnnealEpisodes"] = int(raw_bca)
+    for key, env_key, cast in (
+        ("sampleRatio", "RL_REPLAY_SAMPLE_RATIO", float),
+        ("maxSamples", "RL_REPLAY_MAX_SAMPLES", int),
+        ("keepTopRatio", "RL_REPLAY_KEEP_TOP_RATIO", float),
+        ("scorePower", "RL_REPLAY_SCORE_POWER", float),
+        ("minScorePercentile", "RL_REPLAY_MIN_SCORE_PCT", float),
+    ):
+        if (raw_v := os.environ.get(env_key, "").strip()) != "":
+            cfg[key] = cast(raw_v)
     raw = os.environ.get("RL_SEARCH_REPLAY", "").strip().lower()
     if raw in ("1", "true", "yes", "on"):
         cfg["enabled"] = True
     elif raw in ("0", "false", "no", "off"):
         cfg["enabled"] = False
+    cfg["sampleRatio"] = float(np.clip(float(cfg.get("sampleRatio", 0.5)), 0.0, 2.0))
+    cfg["maxSamples"] = max(0, int(cfg.get("maxSamples", 8)))
+    cfg["keepTopRatio"] = float(np.clip(float(cfg.get("keepTopRatio", 0.5)), 0.0, 1.0))
+    cfg["scorePower"] = max(0.0, float(cfg.get("scorePower", 1.5)))
+    cfg["minScorePercentile"] = float(np.clip(float(cfg.get("minScorePercentile", 0.55)), 0.0, 1.0))
+    cfg["bcCoef"] = max(0.0, float(cfg.get("bcCoef", 0.1)))
+    cfg["bcCoefEnd"] = max(0.0, float(cfg.get("bcCoefEnd", cfg["bcCoef"])))
+    cfg["bcAnnealEpisodes"] = max(0, int(cfg.get("bcAnnealEpisodes", 0)))
     return cfg
+
+
+def _replay_bc_coef_at(cfg: dict, episode: int) -> float:
+    """按训练进度线性退火 BC 系数：start→end，over bcAnnealEpisodes。"""
+    start = float(cfg.get("bcCoef", 0.1))
+    end = float(cfg.get("bcCoefEnd", start))
+    horizon = int(cfg.get("bcAnnealEpisodes", 0))
+    if horizon <= 0 or abs(end - start) < 1e-9:
+        return start
+    frac = min(1.0, max(0.0, float(episode) / float(horizon)))
+    return start + (end - start) * frac
 
 
 def _episode_replay_priority(ep: dict) -> float:
@@ -1349,7 +1389,14 @@ def collect_episode(
     )
     _mcts_train_temp = float(os.environ.get("RL_MCTS_TRAIN_TEMP", "1.0"))
     _spawn_pred: "SpawnPredictor | None" = None
-    if use_mcts and os.environ.get("RL_MCTS_STOCHASTIC", "0") not in ("0", "false", "no"):
+    _stoch_env = os.environ.get("RL_MCTS_STOCHASTIC", "").strip().lower()
+    if _stoch_env in ("1", "true", "yes", "on"):
+        _mcts_stochastic = True
+    elif _stoch_env in ("0", "false", "no", "off"):
+        _mcts_stochastic = False
+    else:
+        _mcts_stochastic = bool(_mcts_cfg_eff.get("stochastic", False))
+    if use_mcts and _mcts_stochastic:
         from .spawn_predictor import SpawnPredictor as _SP
         _spawn_pred = _SP.load(device=device)
     # v8.3：渐进式模拟次数（默认跟 game_rules lightMCTS.adaptiveSims；显式 RL_MCTS_ADAPTIVE 覆盖）
@@ -1954,6 +2001,14 @@ def _reevaluate_and_update(
     # --- 价值目标：outcome-based（纯终局得分） + GAE advantage ---
     _vtc = float(os.environ.get("RL_VALUE_TARGET_CLIP", "512"))
     _gae_dc = float(os.environ.get("RL_GAE_DELTA_CLIP", "80"))
+    # 价值目标缩放（实验，默认 1.0=不变=零回归）：单独压缩 GAE/MC returns 分量的
+    # 量纲，缓解长局 G_t 达数千导致 loss_value 过大、价值估计滞后。注意一致性：
+    # 缩放后 V 与 sim.step() 原始奖励不同尺度，会影响 lookahead/beam 的 r+γV teacher
+    # （MCTS 路径已用 MinMaxStats Q 归一化，对尺度免疫）。启用前建议灰度观察。
+    _vrs = float(os.environ.get(
+        "RL_VALUE_RETURN_SCALE",
+        str(RL_REWARD_SHAPING.get("valueReturnScale", 1.0)),
+    ))
     vals_np = values_init.detach().cpu().numpy()
     adv_np = np.empty(total_steps, dtype=np.float32)
     rets_np = np.empty(total_steps, dtype=np.float32)
@@ -1992,6 +2047,10 @@ def _reevaluate_and_update(
                 g = float(r[i]) + gamma * g
                 rets_np[v_off + i] = g
             adv_np[v_off : v_off + ep_len] = rets_np[v_off : v_off + ep_len] - v
+
+        # 价值目标缩放（仅缩放 returns 分量，不动 advantage/策略梯度）
+        if _vrs != 1.0:
+            rets_np[v_off : v_off + ep_len] *= _vrs
 
         # outcome 价值目标（替换 GAE returns 用于 value loss）
         if outcome_mix > 1e-8:
@@ -2068,19 +2127,48 @@ def _reevaluate_and_update(
         probs_2d = lp_2d.exp() * mask.float()
         ent_t = -(probs_2d * lp_2d.masked_fill(~mask, 0.0)).sum(dim=1)
 
+        # ─── MPS reduction 防御层 ───────────────────────────────────────────
+        # 背景：MPS 设备 .sum()/.mean() 已知偶发返回 1e21 量级的"假大数"或 0（同文件 line 1810
+        # pg_weight_sum 注释即对该 bug 做了 Python 兜底）。最近 906 局 92% 的 approx_kl
+        # 落在 ≥1e10，导致 target_kl 早停被错误触发 93%；policy_loss/entropy 也被同样
+        # 静默 0 化（看板 π=N/A H=N/A）。
+        #
+        # 策略：把最终 reduction 搬到 CPU（.to('cpu').sum()）—— .to() 是可微算子，梯度
+        # 仍能流回 MPS 上的输入张量，反向传播不受影响；仅多一次 ~KB 级别的设备搬移，
+        # 单步 <0.5ms，可忽略。元素级先 nan_to_num+clamp，再 reduce，双重保险。
+        def _mps_safe_weighted_mean(values: torch.Tensor, weights: torch.Tensor,
+                                    denom: float, elem_clip: float) -> torch.Tensor:
+            """device 上元素 clamp+nan，搬 CPU 求和并除常数 denom，保留梯度。"""
+            x = torch.nan_to_num(values * weights, nan=0.0, posinf=0.0, neginf=0.0)
+            x = x.clamp(min=-elem_clip, max=elem_clip)
+            return x.to("cpu", non_blocking=False).sum() / max(1.0, float(denom))
+
         approx_kl = 0.0
         if n_epochs > 1:
             log_ratio = (new_lp - old_lp_t).clamp(-10.0, 10.0)
             ratio = torch.exp(log_ratio)
             surr1 = ratio * adv_cat
             surr2 = torch.clamp(ratio, 1.0 - ppo_clip, 1.0 + ppo_clip) * adv_cat
-            policy_loss = -(torch.min(surr1, surr2) * pg_weight_t).sum() / pg_weight_sum
+            # policy_loss 在反向链上：CPU reduce 保留 grad，避免 MPS sum 静默置 0
+            policy_loss = -_mps_safe_weighted_mean(
+                torch.min(surr1, surr2), pg_weight_t, pg_weight_sum, elem_clip=1e4
+            )
             # Schulman 近似 KL：E[(r-1) - log r] ≥ 0，比 -log r 方差更低、恒非负
             with torch.no_grad():
-                kl_t = ((ratio - 1.0) - log_ratio) * pg_weight_t
-                approx_kl = float((kl_t.sum() / pg_weight_sum).item())
+                # 元素级裁到数学上界（log_ratio 已 clamp[-10,10] → 元素 ≤ e^10-1+10≈22035），
+                # 再到 CPU reduce：MPS .sum() 偶发返回 inf/1e21（line 1810 即此 bug 兜底），
+                # 否则日志会出现 approx_kl=1e21 这种非物理值并 99% 触发 early_stop_kl。
+                kl_t = torch.nan_to_num(
+                    ((ratio - 1.0) - log_ratio) * pg_weight_t,
+                    nan=0.0, posinf=0.0, neginf=0.0,
+                ).clamp_(min=0.0, max=2.5e4)
+                approx_kl = float(kl_t.detach().to("cpu").sum().item()) / max(1.0, pg_weight_sum)
+                if not math.isfinite(approx_kl):
+                    approx_kl = 1e3
         else:
-            policy_loss = -((new_lp * adv_cat) * pg_weight_t).sum() / pg_weight_sum
+            policy_loss = -_mps_safe_weighted_mean(
+                new_lp * adv_cat, pg_weight_t, pg_weight_sum, elem_clip=1e4
+            )
 
         v_clipped = values_old_for_clip + torch.clamp(
             values_flat - values_old_for_clip, -ppo_clip, ppo_clip
@@ -2089,12 +2177,12 @@ def _reevaluate_and_update(
         vl_clipped = F.smooth_l1_loss(v_clipped, rets_cat, reduction="none", beta=max(value_huber_beta, 1e-6))
         value_loss = torch.max(vl_unclipped, vl_clipped).mean()
 
-        entropy_mean = torch.nan_to_num(
-            (ent_t * pg_weight_t).sum() / pg_weight_sum,
-            nan=0.0,
-            posinf=0.0,
-            neginf=0.0,
+        # entropy_mean：既参与反向（熵奖励），又落盘日志；同样走 CPU reduce 抗 MPS sum bug
+        # ent_t 元素 ≤ ln(action_dim)，通常 ≤ 5；放宽 elem_clip=20 防极端
+        entropy_mean = _mps_safe_weighted_mean(
+            ent_t, pg_weight_t, pg_weight_sum, elem_clip=20.0
         )
+        entropy_mean = torch.nan_to_num(entropy_mean, nan=0.0, posinf=0.0, neginf=0.0)
 
         # KL-to-reference：KL(π_ref‖π) 在有效动作上求和，拉当前策略回历史最优附近（防漂移）
         kl_ref_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
@@ -2577,7 +2665,7 @@ def train_loop(
     _replay_cfg = _replay_config()
     _use_replay = bool(_replay_cfg.get("enabled", False))
     _high_score_replay = bool(_replay_cfg.get("highScoreReplay", True))
-    _replay_bc_coef = float(_replay_cfg.get("bcCoef", 0.1)) if _high_score_replay else 0.0
+    # BC 系数随 ep_cursor 退火，实际取值见 _replay_bc_coef_at()（在 update 调用处计算）。
     _replay_buffer: collections.deque = collections.deque(maxlen=int(_replay_cfg.get("maxEpisodes", 256)))
 
     start_ep = 0
@@ -3184,8 +3272,12 @@ def train_loop(
                 )
                 _buf_list = list(_replay_buffer)
                 if _high_score_replay:
-                    # 按 score 加权无放回采样：高分局更可能被回放（行为锚）
-                    _w = [max(1e-3, float(ep.get("score", 0.0))) for ep in _buf_list]
+                    # 按 score^power 加权无放回采样：高分局更可能被回放（行为锚）。
+                    _score_power = float(_replay_cfg.get("scorePower", 1.5))
+                    _w = [
+                        max(1e-3, float(ep.get("score", 0.0))) ** _score_power
+                        for ep in _buf_list
+                    ]
                     _picked: list = []
                     _pool = list(range(len(_buf_list)))
                     for _ in range(min(replay_n, len(_pool))):
@@ -3207,7 +3299,7 @@ def train_loop(
                 ppo_epochs=ppo_epochs, ppo_clip=ppo_clip, global_ep=ep_cursor,
                 target_kl=target_kl,
                 ref_net=_ref_net, kl_ref_coef=_kl_ref_coef,
-                bc_replay_coef=_replay_bc_coef,
+                bc_replay_coef=(_replay_bc_coef_at(_replay_cfg, ep_cursor) if _high_score_replay else 0.0),
             )
             tt1 = time.perf_counter()
             t_train_ms = (tt1 - tt0) * 1000
@@ -3229,12 +3321,24 @@ def train_loop(
                 # 高分模式：按 score 保留高分局（"好例锚"）；否则按难例优先级保留（难例挖掘）
                 _key = (lambda e: float(e.get("score", 0.0))) if _high_score_replay else _episode_replay_priority
                 ranked_batch = sorted(batch, key=_key, reverse=True)
-                keep_n = min(len(ranked_batch), max(1, int(_replay_cfg.get("keepPerBatch", max(1, len(batch) // 2)))))
+                if _high_score_replay:
+                    keep_ratio = float(_replay_cfg.get("keepTopRatio", 0.5))
+                    keep_default = max(1, int(math.ceil(len(batch) * keep_ratio)))
+                else:
+                    keep_default = max(1, len(batch) // 2)
+                keep_n = min(len(ranked_batch), max(1, int(_replay_cfg.get("keepPerBatch", keep_default))))
                 for ep in ranked_batch[:keep_n]:
-                    if _high_score_replay or _episode_replay_priority(ep) >= min_pri:
-                        ep_copy = copy.deepcopy(ep)
-                        ep_copy["_replay_added_ep"] = ep_cursor
-                        _replay_buffer.append(ep_copy)
+                    if _high_score_replay:
+                        pct = ep.get("ranked_percentile")
+                        min_pct = float(_replay_cfg.get("minScorePercentile", 0.55))
+                        ranked_ready = len(_rank_history) >= int(_rank_cfg.get("warmup", 0))
+                        if ranked_ready and pct is not None and float(pct) < min_pct:
+                            continue
+                    elif _episode_replay_priority(ep) < min_pri:
+                        continue
+                    ep_copy = copy.deepcopy(ep)
+                    ep_copy["_replay_added_ep"] = ep_cursor
+                    _replay_buffer.append(ep_copy)
             batch_count += 1
             if mps_sync:
                 maybe_mps_synchronize(device)

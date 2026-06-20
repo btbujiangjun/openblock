@@ -1,6 +1,7 @@
 /**
  * RL 训练日志可视化：纯 Canvas，无第三方依赖。
  * 摘要条：近 N 局均分 / 胜率 / 均熵（诊断优先看趋势，非单局 Lv 尖峰）。
+ * 点击任一曲线 → openRlTrainingChartModal 放大详读（对齐玩家洞察面板交互）。
  */
 
 /**
@@ -297,7 +298,7 @@ function wireLegendHover(canvas) {
             const fb = canvas._rlCanvasHint || '';
             if (!hits?.length) {
                 canvas.title = fb;
-                canvas.style.cursor = '';
+                canvas.style.cursor = canvas.classList.contains('rl-chart-canvas--clickable') ? 'zoom-in' : '';
                 return;
             }
             for (const h of hits) {
@@ -308,7 +309,7 @@ function wireLegendHover(canvas) {
                 }
             }
             canvas.title = fb;
-            canvas.style.cursor = '';
+            canvas.style.cursor = canvas.classList.contains('rl-chart-canvas--clickable') ? 'zoom-in' : '';
         },
         { passive: true }
     );
@@ -316,7 +317,7 @@ function wireLegendHover(canvas) {
         'mouseleave',
         () => {
             canvas.title = canvas._rlCanvasHint || '';
-            canvas.style.cursor = '';
+            canvas.style.cursor = canvas.classList.contains('rl-chart-canvas--clickable') ? 'zoom-in' : '';
         },
         { passive: true }
     );
@@ -331,7 +332,7 @@ function wireLegendHover(canvas) {
  * @param {{ label: string, color: string, y: number[], lineWidth?: number, dash?: number[], legendHint?: string }[]} series
  * @param {{ yMinFloor?: number, yMaxCeil?: number, yTick?: (v: number) => string, cssH?: number, robustClip?: boolean, emptyMessage?: string, showCanvasTitle?: boolean } | undefined} chartOpts
  * @param {string} [panelHint] 整张图说明；与每条 legendHint 合并后写入图例悬停 title
- * @returns {{ x: number, y: number, w: number, h: number, hint: string }[]}
+ * @returns {{ legendHits: { x: number, y: number, w: number, h: number, hint: string }[], plotMeta: object | null }}
  */
 function drawLineChart(ctx, cssW, cssH, title, x, series, chartOpts, panelHint = '') {
     const compact = cssH <= 96;
@@ -371,7 +372,7 @@ function drawLineChart(ctx, cssW, cssH, title, x, series, chartOpts, panelHint =
         if (line) {
             ctx.fillText(line, padL, y);
         }
-        return [];
+        return { legendHits: [], plotMeta: null };
     }
 
     let clip = null;
@@ -471,7 +472,59 @@ function drawLineChart(ctx, cssW, cssH, title, x, series, chartOpts, panelHint =
         ctx.setLineDash([]);
     }
 
-    return drawInlineLegendStrip(ctx, series, padL, padT, plotW, plotH, compact, panelHint);
+    const legendHits = drawInlineLegendStrip(ctx, series, padL, padT, plotW, plotH, compact, panelHint);
+    return {
+        legendHits,
+        plotMeta: {
+            padL,
+            padT,
+            plotW,
+            plotH,
+            xmin,
+            xmax,
+            ymin,
+            ymax,
+        },
+    };
+}
+
+/**
+ * 把 combinePanelHelp 输出拆为「指标说明 / 当前解读」，供放大浮层展示。
+ * @param {string} hint
+ */
+export function splitRlPanelHelp(hint) {
+    const t = String(hint || '').trim();
+    if (!t) return { meaning: '', analysis: '' };
+    const marker = '\n\n【当前面板解读';
+    const idx = t.indexOf(marker);
+    if (idx < 0) return { meaning: t, analysis: '' };
+    return {
+        meaning: t.slice(0, idx).trim(),
+        analysis: t.slice(idx).replace(/^【当前面板解读[^】]*】/, '').trim(),
+    };
+}
+
+/** @param {number[]} values */
+export function summarizeSeriesValues(values) {
+    const finite = (values || []).filter((v) => typeof v === 'number' && Number.isFinite(v));
+    if (!finite.length) {
+        return { count: 0, min: null, max: null, avg: null, last: null };
+    }
+    let min = Infinity;
+    let max = -Infinity;
+    let sum = 0;
+    for (const v of finite) {
+        if (v < min) min = v;
+        if (v > max) max = v;
+        sum += v;
+    }
+    return {
+        count: finite.length,
+        min,
+        max,
+        avg: sum / finite.length,
+        last: finite[finite.length - 1],
+    };
 }
 
 /**
@@ -479,13 +532,17 @@ function drawLineChart(ctx, cssW, cssH, title, x, series, chartOpts, panelHint =
  * @param {string} title
  * @param {number[]} x
  * @param {{ label: string, color: string, y: number[], lineWidth?: number, dash?: number[], legendHint?: string }[]} series
- * @param {{ yMinFloor?: number, yMaxCeil?: number, yTick?: (v: number) => string, cssH?: number } | undefined} chartOpts
+ * @param {{ yMinFloor?: number, yMaxCeil?: number, yTick?: (v: number) => string, cssH?: number, robustClip?: boolean, emptyMessage?: string, showCanvasTitle?: boolean } | undefined} chartOpts
  * @param {string} [canvasHint] 悬停空白处 canvas.title；图例项为 legendHint 与本字符串合并后的完整说明
+ * @param {number} [cssWOverride]
+ * @returns {{ plotMeta: object | null }}
  */
-function paint(canvas, title, x, series, chartOpts, canvasHint = '') {
+export function paintRlChartCanvas(canvas, title, x, series, chartOpts, canvasHint = '', cssWOverride) {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const parent = canvas.parentElement;
-    const cssW = Math.max(260, parent?.clientWidth || canvas.clientWidth || 320);
+    const cssW = typeof cssWOverride === 'number'
+        ? cssWOverride
+        : Math.max(260, parent?.clientWidth || canvas.clientWidth || 320);
     const cssH = typeof chartOpts?.cssH === 'number' ? chartOpts.cssH : CHART_CSS_H;
     canvas.style.width = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
@@ -493,14 +550,20 @@ function paint(canvas, title, x, series, chartOpts, canvasHint = '') {
     canvas.height = Math.floor(cssH * dpr);
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-        return;
+        return { plotMeta: null };
     }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
-    const legendHits = drawLineChart(ctx, cssW, cssH, title, x, series, chartOpts, canvasHint);
+    const { legendHits, plotMeta } = drawLineChart(ctx, cssW, cssH, title, x, series, chartOpts, canvasHint);
     canvas._rlLegendHits = legendHits;
     canvas._rlCanvasHint = canvasHint;
     canvas.title = canvasHint;
     wireLegendHover(canvas);
+    return { plotMeta };
+}
+
+function paint(canvas, title, x, series, chartOpts, canvasHint = '') {
+    paintRlChartCanvas(canvas, title, x, series, chartOpts, canvasHint);
 }
 
 /** 策略/价值损失滑动窗口 */
@@ -509,6 +572,8 @@ const MA_LOSS = 20;
 const MA_PERF = 40;
 /** 摘要条统计用的最近局数 */
 const SUMMARY_N = 40;
+/** 「近期训练进度摘要」窗口（比 SUMMARY_N 长，便于看趋势/吞吐/PPO 健康） */
+const PROGRESS_N = 100;
 
 /** @param {string} s */
 function escapeHtmlAttr(s) {
@@ -731,6 +796,115 @@ function buildInsightHtml(rows) {
     return `<span class="rl-dash-insight-line">${html} <time datetime="${new Date().toISOString()}">更新 ${escapeHtmlText(updatedAt)}</time></span>`;
 }
 
+/** @param {number[]} vals */
+function avgFiniteSimple(vals) {
+    const f = vals.filter((v) => typeof v === 'number' && Number.isFinite(v));
+    return f.length ? f.reduce((a, b) => a + b, 0) / f.length : null;
+}
+
+/**
+ * 进度趋势箭头：↑/↓/→，并按"越高越好/越低越好"上色。
+ * @param {number | null} cur
+ * @param {number | null} prev
+ * @param {number} minDelta
+ * @param {boolean} higherBetter
+ */
+function progressArrow(cur, prev, minDelta, higherBetter = true) {
+    if (cur == null || prev == null) {
+        return '<span class="rl-prog-flat">→</span>';
+    }
+    const d = cur - prev;
+    if (Math.abs(d) < minDelta) {
+        return '<span class="rl-prog-flat">→</span>';
+    }
+    const up = d > 0;
+    const good = higherBetter ? up : !up;
+    return `<span class="${good ? 'rl-prog-up' : 'rl-prog-down'}">${up ? '↑' : '↓'}</span>`;
+}
+
+/**
+ * 近期训练进度摘要：近窗 vs 上窗的均分/胜率/熵/Lv 趋势、采样吞吐、PPO 健康，
+ * 并基于阈值给出自动诊断告警（熵塌缩 / KL 早停 / KL 数值爆炸 / 价值损失高位）。
+ * @param {object[]} rows sorted train_episode rows
+ * @returns {string}
+ */
+function buildProgressHtml(rows) {
+    if (!Array.isArray(rows) || rows.length < 4) {
+        return '';
+    }
+    const cur = rows.slice(-PROGRESS_N);
+    const prev = rows.slice(-PROGRESS_N * 2, -PROGRESS_N);
+    const now = summarizeRows(cur);
+    const before = summarizeRows(prev);
+    const fmt = (v, d = 1) => (v == null ? '—' : v.toFixed(d));
+    const fmtPct = (v) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
+    const val = (v) => `<strong>${escapeHtmlText(v)}</strong>`;
+
+    // 采样吞吐（局/分）：用窗口内 ts(秒) 跨度与 episodes 跨度估算
+    const tsv = cur.map((r) => r.ts).filter((v) => typeof v === 'number' && Number.isFinite(v));
+    const epv = cur.map((r) => r.episodes).filter((v) => typeof v === 'number' && Number.isFinite(v));
+    let throughput = null;
+    if (tsv.length >= 2 && epv.length >= 2) {
+        const span = tsv[tsv.length - 1] - tsv[0];
+        const dEp = epv[epv.length - 1] - epv[0];
+        if (span > 0 && dEp > 0) {
+            throughput = (dEp / span) * 60;
+        }
+    }
+    const lastEp = rows[rows.length - 1].episodes;
+
+    // PPO 健康：KL 早停占比、epoch 利用率、approx_kl 均值与数值爆炸计数
+    const kls = cur.map((r) => r.approx_kl).filter((v) => typeof v === 'number' && Number.isFinite(v));
+    const klExplode = kls.filter((v) => Math.abs(v) > 1e3).length;
+    const klSane = avgFiniteSimple(kls.filter((v) => Math.abs(v) <= 1e3));
+    const skipKl = cur.filter(
+        (r) => typeof r.optimizer_skip_reason === 'string' && r.optimizer_skip_reason.includes('kl')
+    ).length;
+    const ppoUtil = avgFiniteSimple(cur.map((r) => {
+        const run = r.ppo_epochs_run;
+        const tot = r.ppo_epochs;
+        return (typeof run === 'number' && typeof tot === 'number' && tot > 0) ? run / tot : NaN;
+    }));
+
+    const windowLabel = now.size < PROGRESS_N ? `最近${now.size}局` : `近${PROGRESS_N}局`;
+    const lines = [];
+    lines.push(
+        `<span class="rl-prog-line">进度 末局 ${val(lastEp)} · 吞吐 ${val(throughput == null ? '—' : `${throughput.toFixed(0)}/分`)} · 窗口 ${val(windowLabel)}</span>`
+    );
+    lines.push(
+        `<span class="rl-prog-line">均分 ${val(fmt(now.avgScore, 0))} ${progressArrow(now.avgScore, before.avgScore, 15, true)}` +
+        ` · 胜率 ${val(fmtPct(now.winRate))} ${progressArrow(now.winRate, before.winRate, 0.03, true)}` +
+        ` · 熵 ${val(fmt(now.avgEnt, 2))} ${progressArrow(now.avgEnt, before.avgEnt, 0.05, true)}` +
+        ` · Lv ${val(fmt(now.avgLv, 1))} ${progressArrow(now.avgLv, before.avgLv, 2, false)}</span>`
+    );
+    lines.push(
+        `<span class="rl-prog-line">PPO epoch 利用 ${val(fmtPct(ppoUtil))} · KL 早停 ${val(`${skipKl}/${now.size}`)}` +
+        ` · 均KL ${val(fmt(klSane, 3))}${klExplode ? ` · 数值爆炸 ${val(klExplode)}` : ''}</span>`
+    );
+
+    const warns = [];
+    if (now.avgEnt != null && now.avgEnt < 0.2) {
+        warns.push('策略熵偏低（趋于确定/疑似塌缩）：可抬高 RL_ENTROPY_COEF_MIN 或软化蒸馏目标');
+    }
+    if (ppoUtil != null && ppoUtil < 0.5) {
+        warns.push('多数批次因 KL 早停（epoch 利用率低）：可上调 RL_TARGET_KL 或裁剪重要性比');
+    }
+    if (klExplode > 0) {
+        warns.push('approx_kl 数值爆炸（重要性比溢出）：建议在 KL/ratio 上加 clamp');
+    }
+    const lvFalling = (now.avgLv != null && before.avgLv != null && now.avgLv < before.avgLv - 2);
+    if (now.avgLv != null && now.avgLv > 25 && !lvFalling) {
+        warns.push('价值损失高位未降：可灰度开启 RL_VALUE_RETURN_SCALE=0.5 压低 critic 目标量纲');
+    }
+    const warnHtml = warns.length
+        ? `<span class="rl-prog-line rl-prog-warn">诊断 ⚠ ${warns.map((w) => escapeHtmlText(w)).join('；')}</span>`
+        : '<span class="rl-prog-line rl-prog-ok">诊断 ✓ 近窗关键指标未见异常</span>';
+
+    const updatedAt = new Date().toLocaleTimeString();
+    return `<div class="rl-dash-progress"><span class="rl-prog-title">近期训练进度摘要</span>${lines.join('')}${warnHtml}` +
+        `<time datetime="${new Date().toISOString()}">更新 ${escapeHtmlText(updatedAt)}</time></div>`;
+}
+
 /**
  * @param {HTMLElement | null} el
  * @param {object[]} rows sorted train_episode rows
@@ -774,7 +948,7 @@ function fillSummary(el, rows) {
     if (stats.avgQH != null) {
         parts.push(` · <span class="rl-dash-metric" title="${escapeHtmlAttr(tipQH)}">qH <strong>${fmt(stats.avgQH, 2)}</strong></span>`);
     }
-    el.innerHTML = `<span class="rl-dash-summary-line">${parts.join('')}</span>${buildInsightHtml(rows)}`;
+    el.innerHTML = `<span class="rl-dash-summary-line">${parts.join('')}</span>${buildInsightHtml(rows)}${buildProgressHtml(rows)}`;
 }
 
 /** 各指标 panel 的稳定 id，用于刷新时原地更新 canvas 而不重建 #rl-chart-root */
@@ -817,6 +991,46 @@ function syncChartRootEmptyState(root, rowsLen, sumEl) {
         rowsLen === 0
             ? '暂无 train_episode 记录。勾选 PyTorch 后端训练并刷新，或使用浏览器训练（指标写入本机后自动出曲线）。'
             : '至少需要 2 条训练记录才能绘制曲线。';
+}
+
+/** @type {WeakSet<HTMLElement>} */
+const _chartModalWired = new WeakSet();
+
+/**
+ * @param {HTMLElement} panel
+ * @param {HTMLElement} wrap
+ */
+function wireChartClickToModal(panel, wrap) {
+    if (_chartModalWired.has(wrap)) {
+        return;
+    }
+    _chartModalWired.add(wrap);
+    wrap.classList.add('rl-chart-wrap--clickable');
+    wrap.setAttribute('role', 'button');
+    wrap.setAttribute('tabindex', '0');
+    wrap.setAttribute('aria-label', '点击放大查看训练曲线');
+
+    const open = async () => {
+        const snap = panel._rlChartSnapshot;
+        if (!snap || snap.chartOpts?.emptyMessage) {
+            return;
+        }
+        const { openRlTrainingChartModal } = await import('./rlTrainingChartModal.js');
+        openRlTrainingChartModal(snap);
+    };
+
+    wrap.addEventListener('click', (ev) => {
+        if (ev.target.closest('.rl-chart-toggle')) {
+            return;
+        }
+        open();
+    });
+    wrap.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            open();
+        }
+    });
 }
 
 /**
@@ -862,6 +1076,7 @@ function upsertChartPanel(root, chartId, panelIdx, title, x, series, chartOpts, 
         const wrap = document.createElement('div');
         wrap.className = 'rl-chart-wrap';
         panel.append(summary, wrap);
+        wireChartClickToModal(panel, wrap);
         root.appendChild(panel);
     }
 
@@ -892,6 +1107,11 @@ function upsertChartPanel(root, chartId, panelIdx, title, x, series, chartOpts, 
     let emptyInline = wrap.querySelector('.rl-chart-empty-inline');
 
     if (emptyMsg) {
+        wrap.classList.remove('rl-chart-wrap--clickable');
+        wrap.removeAttribute('role');
+        wrap.removeAttribute('tabindex');
+        wrap.removeAttribute('aria-label');
+        panel._rlChartSnapshot = null;
         if (canvas) {
             canvas.remove();
         }
@@ -909,14 +1129,27 @@ function upsertChartPanel(root, chartId, panelIdx, title, x, series, chartOpts, 
     }
     if (!canvas) {
         canvas = document.createElement('canvas');
-        canvas.className = 'rl-chart-canvas';
+        canvas.className = 'rl-chart-canvas rl-chart-canvas--clickable';
         wrap.appendChild(canvas);
+    } else {
+        canvas.classList.add('rl-chart-canvas--clickable');
+    }
+    if (!wrap.classList.contains('rl-chart-wrap--clickable')) {
+        wireChartClickToModal(panel, wrap);
     }
     if (hint) {
         canvas.classList.add('rl-help');
         canvas.dataset.helpKey = `rl.chart.${panelIdx}.canvas`;
     }
     paint(canvas, title, x, series, chartOpts, hint);
+    panel._rlChartSnapshot = {
+        chartId,
+        title,
+        x,
+        series,
+        chartOpts: { ...chartOpts, emptyMessage: undefined },
+        hint,
+    };
 }
 
 /**

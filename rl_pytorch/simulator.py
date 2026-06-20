@@ -431,8 +431,14 @@ class OpenBlockSimulator:
 
     def save_state(self) -> dict:
         """Snapshot for 1-step lookahead. v12: 同时保存评估反馈累计，避免 search 中
-        临时 step() 污染主路径的 ΔΦ_eval（否则前瞻评估结果会反向流入真实奖励 = 泄漏）。"""
-        return {
+        临时 step() 污染主路径的 ΔΦ_eval（否则前瞻评估结果会反向流入真实奖励 = 泄漏）。
+
+        性能：profile / spawn_context 的 deepcopy 较重，而它们只影响真实出块。
+        search/probe 路径（MCTS / beam / feasibility DFS）下 step() 不更新二者，
+        故在 search_mode 时跳过其快照，避免 DFS(node_budget≤1200)、MCTS 每模拟、
+        beam 每节点的高频 deepcopy 拖慢采集。combo 等标量恒为轻量快照（修复
+        search 期间 combo_count 被污染、回写真实奖励的旧 bug）。"""
+        snap = {
             "cells": [row[:] for row in self.grid.cells],
             "dock": [
                 {
@@ -447,7 +453,15 @@ class OpenBlockSimulator:
             "total_clears": self.total_clears,
             "steps": self.steps,
             "placements": self.placements,
+            "last_clears": self._last_clears,
+            "last_bonus_lines": self._last_bonus_lines,
+            "combo_count": self._combo_count,
+            "rounds_since_last_clear": self._rounds_since_last_clear,
         }
+        if not self._search_mode:
+            snap["spawn_context"] = copy.deepcopy(self._spawn_context)
+            snap["profile"] = copy.deepcopy(self._profile)
+        return snap
 
     def restore_state(self, s: dict) -> None:
         n = self.grid.size
@@ -467,6 +481,17 @@ class OpenBlockSimulator:
         self.total_clears = s["total_clears"]
         self.steps = s["steps"]
         self.placements = s["placements"]
+        self._last_clears = int(s.get("last_clears", 0))
+        self._last_bonus_lines = int(s.get("last_bonus_lines", 0))
+        self._combo_count = int(s.get("combo_count", 0))
+        self._rounds_since_last_clear = s.get("rounds_since_last_clear", float("inf"))
+        # search_mode 下 step() 不改动 profile / spawn_context，故无需恢复（live 值即
+        # 根状态值），跳过昂贵 deepcopy；真实路径才按快照恢复。
+        if not self._search_mode:
+            if "spawn_context" in s:
+                self._spawn_context = copy.deepcopy(s["spawn_context"])
+            if "profile" in s:
+                self._profile = copy.deepcopy(s["profile"])
         self._holes_cache = None
         self._grid_np = None
 
@@ -789,26 +814,32 @@ class OpenBlockSimulator:
                 combo_count=self._combo_count,
             )
             self.score += gain
-            self._spawn_context["lastClearCount"] = clears
-            self._spawn_context["roundsSinceClear"] = 0
+            if not self._search_mode:
+                self._spawn_context["lastClearCount"] = clears
+                self._spawn_context["roundsSinceClear"] = 0
         else:
             self._last_clears = 0
             # 未清线 → 累加 grace 计数；_combo_count 不归零（由下次清线判定）
             if self._rounds_since_last_clear != float("inf"):
                 self._rounds_since_last_clear += 1
-            self._spawn_context["lastClearCount"] = 0
+            if not self._search_mode:
+                self._spawn_context["lastClearCount"] = 0
 
         b["placed"] = True
-        fill_after = sum(
-            1 for row in self.grid.cells for cell in row if cell is not None
-        ) / max(self.grid.size * self.grid.size, 1)
-        self._profile.record_place(clears > 0, clears, fill_after)
+        # profile / spawn_context 仅服务真实出块路径；search/probe 下跳过更新，
+        # 同时省去 fill_after 的 O(n²) 满格扫描（MCTS/beam/DFS 高频调用）。
+        if not self._search_mode:
+            fill_after = sum(
+                1 for row in self.grid.cells for cell in row if cell is not None
+            ) / max(self.grid.size * self.grid.size, 1)
+            self._profile.record_place(clears > 0, clears, fill_after)
         if all(x["placed"] for x in self.dock):
-            if self._spawn_context.get("lastClearCount", 0) == 0:
-                self._spawn_context["roundsSinceClear"] = int(
-                    self._spawn_context.get("roundsSinceClear", 0)
-                ) + 1
-            self._remember_recent_categories()
+            if not self._search_mode:
+                if self._spawn_context.get("lastClearCount", 0) == 0:
+                    self._spawn_context["roundsSinceClear"] = int(
+                        self._spawn_context.get("roundsSinceClear", 0)
+                    ) + 1
+                self._remember_recent_categories()
             if not self._skip_dock_respawn:
                 # search_mode 下用廉价随机重抽（未来 dock 是假想的，构造式求解器纯属浪费）；
                 # 真实采集路径（_search_mode=False）仍用构造式 spawner 保证对局 dock 质量。

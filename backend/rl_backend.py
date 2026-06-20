@@ -198,6 +198,12 @@ _RL_TRAIN_ENV_ALLOWLIST = {
     "RL_WORKER_THREADS",
     "RL_MPS_SYNC",
     "RL_MPS_HIGH_WATERMARK_RATIO",
+    # 稳定性调参旋钮：由 scripts/restart-openblock.sh 显式 pin，需透传到后台
+    # rl_pytorch.train 子进程，否则会回退到 train.py 内的硬编码默认（0.03/1.0/0.005），
+    # 启动脚本里的调参根本不生效（看板曲线即出自该子进程）。
+    "RL_TARGET_KL",            # PPO 信任域早停阈值（放宽至 0.1，提升 epoch 利用率）
+    "RL_VALUE_RETURN_SCALE",   # 价值头 returns 目标缩放（灰度 0.5，压 loss_value 量纲）
+    "RL_ENTROPY_COEF_MIN",     # 残局熵系数下限（抬到 0.02，抗熵塌缩）
 }
 
 

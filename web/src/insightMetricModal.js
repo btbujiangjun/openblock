@@ -865,6 +865,11 @@ function _escape(text) {
  * 注入一次轻量样式（结构与色值；细节排版由 main.css 接管）。
  * main.css 没加载时（如单测）依然能看到正常结构；与 main.css 同名 class 由后者覆盖更精细的视觉。
  */
+/** 确保浮层样式已注入（玩家洞察 / RL 训练曲线放大详读共用）。 */
+export function ensureInsightMetricModalStyles() {
+    _injectStyles();
+}
+
 function _injectStyles() {
     if (typeof document === 'undefined' || !document.head) return;
     if (document.getElementById('insight-metric-modal-fallback-styles')) return;
