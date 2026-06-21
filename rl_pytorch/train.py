@@ -314,11 +314,11 @@ def _sanitize_grads(net: torch.nn.Module) -> bool:
 
 
 def _safe_metric(v, *, max_abs: float = 1e6, min_value: float | None = None, max_value: float | None = None) -> float | None:
-    """Tensor/scalar → clean float（带上下界）。
+    """Tensor/scalar -> clean float.
 
-    MPS bug 兜底：torch.Tensor.item() 在 MPS device 上对 reduce 后的标量偶发返回
-    极端伪值（已多次实测：BCE mean 出 -110440、approx_kl sum 出 1e21）。先 .to('cpu')
-    把 reduce 后的标量搬回 CPU 再 .item()，绕开 MPS reduction 路径上的 driver 缓冲坏字。
+    MPS 上 reduce 后的 scalar `.item()` 偶发读到 driver 缓冲坏字，表现为
+    policy_loss/bonus_clear_loss 出现 ±1e4~1e5 伪值。统一先搬 CPU 再 item，
+    避免伪指标污染 BestGuard、KL 早停和训练看板。
     """
     if hasattr(v, "detach"):
         try:
@@ -2188,12 +2188,9 @@ def _reevaluate_and_update(
             )
             # Schulman 近似 KL：E[(r-1) - log r] ≥ 0，比 -log r 方差更低、恒非负
             with torch.no_grad():
-                # 元素级裁到合理物理上界：原 2.5e4 是 log_ratio∈[-10,10] 数学上界（≈22035），
-                # 但实测训练中 approx_kl mean 偶发 ~169 / ~96（jsonl 实证），单步元素若蹿到
-                # 22035 一次就足以把 mean 拉爆 → 触发误判 early_stop_kl 让 PPO 退化为 1 epoch。
-                # 真实 PPO ratio 健康区间 ratio∈[0.5, 2]，单步 kl_term≈|ratio-1-log_ratio|≤1；
-                # ratio=10 时 kl_term≈11；ratio>20 已属策略真发散，单步 clamp 50 仍允许早停
-                # 触发（mean 即便 50/N 也常 >target_kl=4），但不再被极端 outlier 单点污染。
+                # 元素级裁到合理物理上界：ratio>20 已属策略真发散，单步 clamp 50
+                # 仍足以触发早停，但避免某一个 MPS/exp outlier 把整批 approx_kl 拉到
+                # 100+ 甚至 1e21，导致 PPO 长期退化为 1 epoch。
                 kl_t = torch.nan_to_num(
                     ((ratio - 1.0) - log_ratio) * pg_weight_t,
                     nan=0.0, posinf=0.0, neginf=0.0,
@@ -2252,9 +2249,9 @@ def _reevaluate_and_update(
         bonus_clear_loss = torch.tensor(0.0, device=device, dtype=torch.float32)
         if use_bonus_clear_aux and bonus_clear_target_t is not None:
             bonus_logits = net.forward_bonus_clear_aux(states_t, chosen_action_feats)
-            # MPS BCE-with-logits 偶发返回非物理值（jsonl 实证 ±100k）：BCE 数学上恒 ≥ 0，
-            # 出 -110440 说明 reduce 路径上有 driver-buffer 坏字。这里先 logits clamp
-            # 防 sigmoid 饱和数值爆，loss 再 nan_to_num 保护 backward。
+            # BCE-with-logits 数学上恒 >=0；日志曾出现 bonus=-83211/26362 等非物理值，
+            # 本质是 MPS reduce/饱和输出被坏字污染。先 clamp logits，再 nan_to_num，
+            # 后续 _clip_aux 只负责总 loss，不负责让日志指标干净。
             bonus_logits = torch.nan_to_num(
                 bonus_logits.clamp(min=-30.0, max=30.0),
                 nan=0.0, posinf=30.0, neginf=-30.0,
@@ -2550,9 +2547,9 @@ def train_loop(
     _guard_every = int(os.environ.get("RL_BEST_GUARD_EVERY", "200"))
     _guard_window = int(os.environ.get("RL_BEST_GUARD_WINDOW", "200"))
     _guard_margin = float(os.environ.get("RL_BEST_GUARD_MARGIN", "0.02"))
-    # 0.85 太严：avg100 在 best 附近自然波动 ±15-20%（jsonl 实证 best=5603 后
-    # avg100 散布 3500-4700），导致频繁回滚-震荡-再回滚。0.78 给恢复期更宽窗口，
-    # 让模型在 best 附近 ±22% 内做策略调整而不被强制回滚到老权重。
+    # 自博弈 avg100 在 best 附近自然波动可达 ±15-20%；0.85 在当前日志中导致
+    # best=5603.8 后 45 次回滚，模型几乎无法在 best 附近继续探索。0.78 保留
+    # 明显退化保护，同时减少“好模型附近抖动 -> 频繁回滚 -> lr 衰减”的死循环。
     _guard_regress = float(os.environ.get("RL_BEST_GUARD_REGRESS", "0.78"))
     _guard_scores: collections.deque = collections.deque(maxlen=max(1, _guard_window))
     _guard_best_avg: float = 0.0
@@ -2953,9 +2950,9 @@ def train_loop(
     t0 = time.perf_counter()
     return_scale = float(os.environ.get("RL_RETURN_SCALE", "1.0"))
     last_update: dict | None = None
-    # P0-B · MPS 显存监控字段跨批持久存储：last_update 每批被 `last_update = result`
-    # 整体替换，旧字段会被丢；这个 dict 独立于 result 生命周期，写 _jsonl_row 时合并
-    _persistent_mps_stats: dict = {}
+    # MPS 显存监控跨批持久化：empty_cache 分支只每 N batch 更新一次，
+    # 而 last_update 每批被 result 整体替换，字段挂在 last_update 上会被下一批丢掉。
+    _persistent_mps_stats: dict[str, float] = {}
     last_log_ep = start_ep
     mps_sync = device.type == "mps" and os.environ.get("RL_MPS_SYNC", "").lower() in ("1", "true", "yes")
 
@@ -3404,11 +3401,8 @@ def train_loop(
                         torch.mps.empty_cache()
                         if hasattr(torch.mps, "synchronize"):
                             torch.mps.synchronize()
-                        # P0-A+ · 显存监控：driver/current 占用打到 jsonl，看板可观测
-                        # 修 bug：原代码把字段挂到 last_update dict 上，但下一批
-                        # `last_update = result` 会**整个替换** dict，导致字段每 batch
-                        # 都被覆盖丢失 → 21 万行 jsonl 全无该字段。这里改成跨批持久变量
-                        # `_persistent_mps_stats`，写 _jsonl_row 时显式拷贝过去。
+                        # P0-A+ · 显存监控：把 driver/current 占用打到 jsonl，看板可观测
+                        # 同时一旦 driver_allocated > 高水位 80% 触发额外 trim
                         try:
                             _drv_alloc = float(torch.mps.driver_allocated_memory()) / (1024 ** 3) if hasattr(torch.mps, "driver_allocated_memory") else 0.0
                             _cur_alloc = float(torch.mps.current_allocated_memory()) / (1024 ** 3) if hasattr(torch.mps, "current_allocated_memory") else 0.0
@@ -3714,7 +3708,9 @@ def train_loop(
                             "guard_best_avg": round(_guard_best_avg, 1),
                             "guard_rollbacks": int(_guard_rollbacks),
                         })
-                    # MPS 显存监控（_persistent_mps_stats 由 empty_cache 分支跨批写入）
+                    # MPS 显存监控（在 last_update 由 P0-A empty_cache 分支挂载；
+                    # 历史 bug：曾仅 last_update["mps_*"]=... 而未拷贝到 _jsonl_row，
+                    # 导致 21 万行 jsonl 全无该字段，看板曲线永远为空）
                     if _persistent_mps_stats:
                         _jsonl_row.update(_persistent_mps_stats)
                     # 课程模式特定字段

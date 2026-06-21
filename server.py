@@ -6255,10 +6255,11 @@ _DOC_CATEGORIES = [
     # 1. 按目标受众分组，便于各角色快速定位
     # 2. 不包含归档/过渡性内容（已移除）
     # 3. 同一文档只出现在最相关的分类中
-    {"name": "文档中心", "docs": ["README.md"]},
+    {"name": "文档中心", "docs": ["README.md", {"file": "PRESENTATION.html", "type": "tool", "title": "OpenBlock 全链路实践演示文稿"}]},
     {
         "name": "面向管理者 / 新成员",
         "docs": [
+            {"file": "PRESENTATION.html", "type": "tool", "title": "🎭 全链路实践演示文稿（策划×算法对话体）"},
             "player/EXPERIENCE_DESIGN_FOUNDATIONS.md",
             "domain/DOMAIN_KNOWLEDGE.md",
             "domain/COMPETITOR_USER_ANALYSIS.md",

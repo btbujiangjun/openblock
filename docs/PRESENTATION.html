@@ -1,0 +1,1526 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenBlock 全链路算法实践</title>
+<style>
+:root {
+  --primary: #2563eb; --primary-light: #dbeafe; --primary-dark: #1e40af;
+  --accent: #f59e0b; --accent-light: #fef3c7;
+  --green: #10b981; --green-light: #d1fae5;
+  --red: #ef4444; --red-light: #fee2e2;
+  --purple: #8b5cf6; --purple-light: #ede9fe;
+  --gray-50: #f8fafc; --gray-100: #f1f5f9; --gray-200: #e2e8f0;
+  --gray-300: #cbd5e1; --gray-400: #94a3b8; --gray-500: #64748b;
+  --gray-600: #475569; --gray-700: #334155; --gray-800: #1e293b; --gray-900: #0f172a;
+  --font-sans: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans SC",sans-serif;
+  --font-mono: "SF Mono","Fira Code",Menlo,Consolas,monospace;
+  --bg: #ffffff; --bg-section: var(--gray-50); --text: var(--gray-800); --card-bg: #ffffff;
+  --card-border: var(--gray-200); --nav-bg: rgba(255,255,255,.92);
+}
+.dark {
+  --bg: #0f172a; --bg-section: #1e293b; --text: #e2e8f0;
+  --card-bg: #1e293b; --card-border: #334155; --nav-bg: rgba(15,23,42,.92);
+  --gray-50: #0f172a; --gray-100: #1e293b; --gray-200: #334155;
+  --gray-300: #475569; --gray-800: #e2e8f0; --gray-900: #f1f5f9;
+  --primary-light: #1e3a5f; --accent-light: #3d2e00; --green-light: #0a3d2e;
+  --red-light: #3d0a0a; --purple-light: #1e1a3d;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:var(--font-sans); background:var(--bg); color:var(--text); line-height:1.8; scroll-behavior:smooth; transition:background .3s,color .3s; }
+
+/* progress bar */
+#progress-bar { position:fixed; top:0; left:0; height:3px; background:linear-gradient(90deg,var(--primary),var(--purple)); z-index:200; transition:width .1s; width:0; }
+
+/* nav */
+.nav-bar { position:fixed; top:3px; left:0; right:0; z-index:100; background:var(--nav-bg); backdrop-filter:blur(12px); border-bottom:1px solid var(--gray-200); padding:0 24px; height:52px; display:flex; align-items:center; gap:8px; overflow-x:auto; transition:background .3s; }
+.nav-bar a { color:var(--gray-500); text-decoration:none; font-size:13px; white-space:nowrap; padding:4px 10px; border-radius:6px; transition:all .2s; position:relative; }
+.nav-bar a:hover { color:var(--primary); background:var(--primary-light); }
+.nav-bar a.active { color:var(--primary); font-weight:700; }
+.nav-bar .nav-spacer { flex:1; }
+.nav-bar #dark-toggle { cursor:pointer; padding:4px 10px; border-radius:6px; border:none; background:transparent; color:var(--gray-500); font-size:16px; transition:all .2s; }
+.nav-bar #dark-toggle:hover { background:var(--gray-100); color:var(--primary); }
+
+/* hero */
+.hero { margin-top:55px; padding:80px 24px 60px; text-align:center; background:linear-gradient(135deg,#1e3a8a 0%,#3b82f6 50%,#6366f1 100%); color:#fff; position:relative; overflow:hidden; }
+.hero::after { content:''; position:absolute; top:-50%; left:-50%; width:200%; height:200%; background:radial-gradient(circle,rgba(255,255,255,.03) 0%,transparent 60%); animation:heroPulse 8s ease-in-out infinite; }
+@keyframes heroPulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.1)} }
+.hero h1 { font-size:clamp(28px,5vw,48px); font-weight:800; letter-spacing:-.02em; margin-bottom:12px; position:relative; z-index:1; }
+.hero .subtitle { font-size:clamp(15px,2vw,20px); opacity:.85; max-width:640px; margin:0 auto; line-height:1.6; position:relative; z-index:1; }
+.hero .meta { margin-top:20px; font-size:14px; opacity:.7; position:relative; z-index:1; }
+.hero .meta span { margin:0 12px; }
+
+/* scroll reveal */
+.reveal { opacity:0; transform:translateY(30px); transition:opacity .6s ease,transform .6s ease; }
+.reveal.visible { opacity:1; transform:translateY(0); }
+
+.container { max-width:960px; margin:0 auto; padding:0 24px; }
+section { padding:64px 0; border-bottom:1px solid var(--gray-200); }
+section:last-child { border-bottom:none; }
+.section-number { display:inline-block; font-size:12px; font-weight:700; letter-spacing:.08em; color:var(--primary); background:var(--primary-light); padding:2px 14px; border-radius:20px; margin-bottom:12px; }
+h2 { font-size:clamp(24px,3vw,34px); font-weight:800; color:var(--gray-900); margin-bottom:28px; line-height:1.3; }
+h3 { font-size:clamp(18px,2vw,24px); font-weight:700; color:var(--gray-800); margin:40px 0 16px; }
+h4 { font-size:16px; font-weight:700; color:var(--gray-700); margin:28px 0 10px; }
+p { margin-bottom:16px; font-size:15px; }
+
+/* dialog */
+.dialog { margin:20px 0; }
+.dialog-p,.dialog-a { position:relative; padding:20px 24px 16px 60px; border-radius:12px; margin-bottom:12px; font-size:15px; line-height:1.7; transition:box-shadow .2s; }
+.dialog-p { background:var(--primary-light); border-left:4px solid var(--primary); }
+.dialog-a { background:var(--purple-light); border-left:4px solid var(--purple); }
+.dialog-p::before,.dialog-a::before { position:absolute; left:18px; top:18px; font-size:22px; font-weight:800; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; }
+.dialog-p::before { content:"P"; background:var(--primary); }
+.dialog-a::before { content:"A"; background:var(--purple); }
+.dialog-p strong:first-child,.dialog-a strong:first-child { display:none; }
+
+/* cards */
+.card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; padding:24px; margin:20px 0; box-shadow:0 1px 3px rgba(0,0,0,.04); transition:transform .2s,box-shadow .2s; }
+.card:hover { transform:translateY(-2px); box-shadow:0 8px 25px rgba(0,0,0,.08); }
+.card-title { font-weight:700; font-size:16px; margin-bottom:12px; color:var(--gray-900); }
+.card-sub { font-size:13px; color:var(--gray-500); margin-bottom:12px; }
+.card-edge-red { border-left:4px solid var(--red); }
+.card-edge-green { border-left:4px solid var(--green); }
+.card-edge-yellow { border-left:4px solid var(--accent); }
+.card-edge-purple { border-left:4px solid var(--purple); }
+
+/* stats */
+.stats-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:16px; margin:20px 0; }
+.stat-card { background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px; padding:20px 16px; text-align:center; transition:transform .2s,box-shadow .2s; }
+.stat-card:hover { transform:translateY(-2px); box-shadow:0 8px 25px rgba(0,0,0,.08); }
+.stat-card .stat-value { font-size:26px; font-weight:800; color:var(--primary); }
+.stat-card .stat-label { font-size:13px; color:var(--gray-500); margin-top:4px; }
+
+/* tables */
+.table-wrap { overflow-x:auto; margin:20px 0; border-radius:10px; border:1px solid var(--card-border); }
+table { width:100%; border-collapse:collapse; font-size:14px; }
+th { background:var(--gray-100); color:var(--gray-700); font-weight:700; padding:12px 14px; text-align:left; border-bottom:2px solid var(--gray-300); }
+td { padding:12px 14px; border-bottom:1px solid var(--gray-200); vertical-align:top; }
+tr:last-child td { border-bottom:none; }
+tr:hover td { background:var(--gray-50); }
+
+/* pull quote */
+.pull-quote { margin:28px 0; padding:24px 28px; background:linear-gradient(135deg,var(--accent-light),#fff7e6); border-left:4px solid var(--accent); border-radius:0 12px 12px 0; font-size:17px; font-weight:600; color:var(--gray-900); line-height:1.6; }
+
+/* callout */
+.callout { margin:20px 0; padding:16px 20px; border-radius:10px; font-size:14px; line-height:1.6; }
+.callout-info { background:var(--primary-light); border:1px solid #93c5fd; }
+.callout-warn { background:var(--red-light); border:1px solid #fca5a5; }
+
+/* img */
+.img-wrap { margin:24px 0; text-align:center; }
+.img-wrap img { max-width:100%; height:auto; border-radius:10px; border:1px solid var(--gray-200); box-shadow:0 4px 12px rgba(0,0,0,.06); transition:transform .3s,box-shadow .3s; }
+.img-wrap img:hover { transform:scale(1.01); box-shadow:0 8px 30px rgba(0,0,0,.1); }
+.img-wrap .img-caption { font-size:13px; color:var(--gray-500); margin-top:8px; }
+
+/* QA */
+.qa-item { margin:16px 0; padding:16px 20px; background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px; transition:box-shadow .2s; }
+.qa-item:hover { box-shadow:0 4px 12px rgba(0,0,0,.06); }
+.qa-item .qa-q { font-weight:700; color:var(--gray-800); margin-bottom:6px; }
+.qa-item .qa-a { font-size:14px; color:var(--gray-600); }
+
+/* footer */
+.footer { text-align:center; padding:40px 24px; font-size:13px; color:var(--gray-400); border-top:1px solid var(--gray-200); }
+.footer a { color:var(--primary); text-decoration:none; }
+
+/* grid layouts */
+.two-col { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin:20px 0; }
+.three-col { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin:20px 0; }
+@media (max-width:640px) { .two-col,.three-col { grid-template-columns:1fr; } section { padding:40px 0; } .dialog-p,.dialog-a { padding:16px 16px 12px 48px; } .dialog-p::before,.dialog-a::before { left:12px; font-size:18px; width:24px; height:24px; } }
+
+/* badge */
+.badge { display:inline-block; font-size:12px; font-weight:700; padding:2px 10px; border-radius:20px; margin-right:4px; }
+.badge-blue { background:var(--primary-light); color:var(--primary); }
+.badge-green { background:var(--green-light); color:var(--green); }
+.badge-red { background:var(--red-light); color:var(--red); }
+.badge-yellow { background:var(--accent-light); color:#b45309; }
+
+/* formula */
+.formula { font-family:var(--font-mono); font-size:15px; padding:12px 16px; background:var(--gray-100); border-radius:6px; margin:12px 0; text-align:center; letter-spacing:.5px; }
+
+/* tabs */
+.tabs { margin:20px 0; }
+.tab-bar { display:flex; gap:4px; border-bottom:2px solid var(--gray-200); padding-bottom:0; margin-bottom:16px; }
+.tab-btn { padding:10px 20px; border:none; background:transparent; color:var(--gray-500); font-size:14px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; transition:all .2s; }
+.tab-btn:hover { color:var(--primary); }
+.tab-btn.active { color:var(--primary); border-bottom-color:var(--primary); }
+.tab-content { display:none; }
+.tab-content.active { display:block; animation:fadeIn .3s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+/* accordion */
+.accordion { margin:20px 0; }
+.accordion-item { border:1px solid var(--card-border); border-radius:8px; margin-bottom:8px; overflow:hidden; }
+.accordion-header { padding:14px 20px; background:var(--gray-50); cursor:pointer; font-weight:600; font-size:14px; display:flex; justify-content:space-between; align-items:center; transition:background .2s; }
+.accordion-header:hover { background:var(--gray-100); }
+.accordion-header .arrow { transition:transform .3s; font-size:12px; }
+.accordion-item.open .accordion-header .arrow { transform:rotate(180deg); }
+.accordion-body { max-height:0; overflow:hidden; transition:max-height .4s ease,padding .3s; padding:0 20px; }
+.accordion-item.open .accordion-body { max-height:800px; padding:14px 20px; }
+
+/* SVG network diagram */
+.nn-svg { width:100%; max-width:860px; margin:20px auto; display:block; border-radius:10px; }
+.nn-svg text { font-family:var(--font-mono); font-size:11px; }
+.nn-svg .layer-box { stroke:var(--gray-300); stroke-width:1.5; rx:6; }
+.nn-svg .label-text { fill:var(--gray-700); font-weight:600; }
+.nn-svg .arrow { stroke:var(--gray-400); stroke-width:1.5; fill:none; marker-end:url(#arrowhead); }
+
+/* section-break */
+.section-break { text-align:center; margin:24px 0; color:var(--gray-300); font-size:20px; letter-spacing:8px; }
+
+/* algo-box */
+.algo-box { background:#0f172a; color:#e2e8f0; border-radius:10px; padding:20px; margin:16px 0; overflow-x:auto; font-family:var(--font-mono); font-size:13px; line-height:1.6; }
+.algo-box .kw { color:#93c5fd; }
+.algo-box .cm { color:#94a3b8; }
+.algo-box .num { color:#fbbf24; }
+.algo-box .str { color:#6ee7b7; }
+.algo-box .fn { color:#c4b5fd; }
+
+/* stress signal grid */
+.signal-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:16px 0; }
+.signal-card { padding:14px 16px; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); cursor:pointer; transition:all .2s; }
+.signal-card:hover { border-color:var(--primary); box-shadow:0 2px 10px rgba(37,99,235,.1); }
+.signal-card .signal-name { font-weight:700; font-size:13px; color:var(--primary); }
+.signal-card .signal-desc { font-size:12px; color:var(--gray-500); margin-top:4px; }
+@media (max-width:640px) { .signal-grid { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+
+<div id="progress-bar"></div>
+
+<nav class="nav-bar">
+  <a href="#intro">开场</a>
+  <a href="#act1">体验建模</a>
+  <a href="#act2">出块引擎</a>
+  <a href="#act3">画像建模</a>
+  <a href="#act4">强化学习</a>
+  <a href="#act5">商业化</a>
+  <a href="#final">架构</a>
+  <a href="#qa">QA</a>
+  <span class="nav-spacer"></span>
+  <button id="dark-toggle" title="切换暗色模式">🌙</button>
+</nav>
+
+<header class="hero" id="intro">
+  <h1>OpenBlock 全链路算法实践</h1>
+  <div class="subtitle">自适应出块 · 玩家画像 · 强化学习 · 商业化算法——四位一体的建模与实现</div>
+  <div class="meta"><span>算法工程师 &amp; 游戏策划 双角色对话</span><span>60–90 分钟</span></div>
+</header>
+
+<div class="container">
+
+<!-- ════════════════ INTRO ════════════════ -->
+<section>
+<div class="reveal">
+<span class="section-number">开场</span>
+<h2>研究平台定位与系统总览</h2>
+</div>
+
+<div class="reveal">
+<h3>定位差异：研究平台 vs 商业产品</h3>
+<div class="dialog dialog-p"><strong>P</strong> OpenBlock 不是一个"做来赚钱"的游戏，它是一个<strong>研究平台</strong>。这个定位从第一天起就决定了我们所有的技术选型——每套算法都要可解释、可审计、可独立替换。商业产品追求黑盒优化——"能跑就行，赚钱就行"。我们追求白盒透明——"每一步都要能回答为什么"。</div>
+<div class="dialog dialog-a"><strong>A</strong> 这个定位让我们做了很多商业产品"没必要"的事：把所有 12 个压力信号暴露在玩家调试面板上、RL 训练和真人对走同一份特征编码、每次出块决策的 fallback 原因都记录到日志里、全部游戏规则写成 JSON 配置（策划可以直接编辑而不用找开发改代码）。透明带来了可研究性，但也带来了更复杂的工程挑战——每个算法模块都要同时满足"实时运行"和"可审计"两个看似矛盾的要求。</div>
+</div>
+
+<div class="reveal">
+<h3>关键约束及其连锁影响</h3>
+<div class="card card-edge-red">
+<div class="card-title">一条红线引发的连锁工程决策</div>
+<p><strong>红线：浏览器打开就能玩全部核心功能，零后端依赖。</strong>这条红线从架构层面彻底决定了整个系统的设计走向——它不是一个"可以加后端的架构"，而是一个"以无后端为前提、后端作为可选项的架构"。</p>
+<p><strong>连锁影响 1——出块引擎：</strong>所有出块逻辑必须在浏览器 JS 中实时完成。这意味着我们不能用 Python 做推理（PyTorch 模型推理需要加载权重、建立计算图），也不能调用云端 API（网络延迟不可接受）。最终方案是一套全浏览器端运行的规则引擎，辅以可选的服务端生成式模型。</p>
+<p><strong>连锁影响 2——玩家画像：</strong>画像如果依赖 ML 模型，就需要远端推理或者加载大权重文件。我们选择纯 JS 的 EMA 规则模型——虽然个体差异表达有限，但第 1 步就开始工作、零延迟、全透明。</p>
+<p><strong>连锁影响 3——难度决策：</strong>12 个压力信号的融合必须全部在浏览器内完成。信号来源不能依赖后端数据服务，只能从浏览器端已有的上下文提取——棋盘状态、玩家历史（localStorage）、当前局内统计。</p>
+<p><strong>连锁影响 4——商业化决策：</strong>广告弹窗的判断逻辑必须本地完成，不能等待云端决策。商业模型向量完全基于本地画像构建。</p>
+</div>
+</div>
+
+<div class="reveal">
+<h3>四支柱架构：统一玩家画像驱动的生态闭环</h3>
+<div class="img-wrap">
+<img src="/docs/asset/architecture/assets/business-architecture.png" alt="四支柱架构">
+<div class="img-caption">游戏引擎 · 自适应出块 AI · 强化学习训练 · 商业化框架 — 共享同一张玩家画像表</div>
+</div>
+<div class="dialog dialog-p"><strong>P</strong> 四支柱架构的核心设计思想是<strong>统一玩家画像</strong>。不是四个模块各自维护一套用户数据，而是所有模块读写同一张画像表——体验读它调节难度，商业化读它决定广告时机，RL 读它做状态编码。画像既是系统的输入，也是系统持续修正的目标——这是一个正反馈循环：画像越准 → 体验越好 → 玩家越多 → 数据越多 → 画像越准。</div>
+<div class="dialog dialog-a"><strong>A</strong> 从架构上看，四支柱不是对等关系。游戏引擎是"入口"——没有它就没有玩家数据。自适应出块 AI 是"核心算法的落脚点"——它直接决定了玩家的主观体验。RL 是"研究模块"——它离线学习最优策略，不直接参与对局。商业化是"价值兑现层"——它利用画像在不损害体验的前提下变现。这种非对等的耦合方式使得任何一个支柱都可以被独立替换或移除。</div>
+</div>
+
+<div class="reveal">
+<h3>算法体系总览</h3>
+<div class="algo-box">
+┌──────────────────────────────────────────────────────────────────┐
+│                    OpenBlock 算法体系总览                          │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐ │
+│  │  出块引擎        │  │  玩家画像        │  │  强化学习          │ │
+│  │                  │  │                  │  │                  │ │
+│  │ • 12 信号融合    │  │ • 5 维 EMA 技能  │  │ • PPO + GAE      │ │
+│  │ • 意图优先级仲裁 │  │ • F(t) 心流三态  │  │ • DockBoardAttn  │ │
+│  │ • 双轨生成/规则  │  │ • 挫败度建模     │  │ • 课程学习       │ │
+│  │ • 序贯可解性 DFS │  │ • PB 冲刺检测    │  │ • 搜索蒸馏       │ │
+│  │ • Warm Run 保护  │  │ • 7 维向量输出   │  │ • 评估门控       │ │
+│  │ • RoR 局间调制   │  │ • 跨局历史融合   │  │ • 3 路径架构     │ │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘ │
+│           │                      │                      │          │
+│           └──────────────────────┼──────────────────────┘          │
+│                                  │                                 │
+│  ┌───────────────────────────────┴─────────────────────────────┐   │
+│  │  商业化引擎                                                   │   │
+│  │  Whale/Dolphin/Minnow · 广告决策 4 步 · 零侵入事件总线         │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  共享基础设施：                                                     │
+│  game_rules.json (单一数据源) · localStorage (无后端持久化)         │
+│  四个支柱共享同一张玩家画像表 (统一状态空间)                           │
+└──────────────────────────────────────────────────────────────────┘
+</div>
+</div>
+</section>
+
+<div class="section-break">· · ·</div>
+
+<!-- ════════════════ ACT 1 ════════════════ -->
+<section id="act1">
+<div class="reveal">
+<span class="section-number">第一章</span>
+<h2>体验建模——从心理学理论到工程可执行阈值的完整推导</h2>
+</div>
+
+<div class="reveal">
+<h3>问题提出：试试看的模式行不通——参数耦合的连锁效应</h3>
+<div class="dialog dialog-a"><strong>A</strong> 假设我们要调一个参数——"挫败救济的触发阈值"。直觉上这是一个 0 到 1 之间的数，调大一点或调小一点试试看。但在这个系统中，这个单一的阈值会引发连锁反应：它通过 stress 加权影响所有 28 个形状的选中概率分配、影响三块中有几块保证能消行、影响出块意图的优先级排序（可能从 harvest 变成 relief）、影响温暖局预算的消耗速率……累计约 30+ 个下游变量。更关键的是这些下游变量之间还存在互相抑制的关系——"试试看"在这种耦合系统中不可行。</div>
+<div class="dialog dialog-p"><strong>P</strong> 因此我们需要一个<strong>顶层方法论</strong>——任何参数的调整都能从理论出发找到合理的起始点，而不是靠"跑两局感觉一下"。我们把 9 条心理学经验研究串成一条从理论到工程阈值的完整推导链。</div>
+</div>
+
+<div class="reveal">
+<h3>心理学根基：四条理论的交叉约束</h3>
+<div class="dialog dialog-p"><strong>P</strong> 当犹豫"压力设到 0.6 还是 0.7"时，有四条心理学研究帮你锁定答案。</div>
+
+<div class="two-col">
+<div class="card card-edge-blue">
+<div class="card-title">心流理论 (Csikszentmihalyi, 1990)</div>
+<div class="card-sub">最优体验 = 挑战与能力匹配</div>
+<p><strong>核心主张：</strong>当任务的挑战水平与执行者的技能水平恰好匹配时，个体会进入"心流"状态——完全沉浸、时间感扭曲、内在愉悦。挑战过高→焦虑，挑战过低→无聊。</p>
+<p><strong>工程映射：</strong>F(t) = |boardPressure / max(ε, skill) − 1| 量化匹配度。F(t) &lt; 0.2 且 boardPressure &lt; 0.3 → 无聊区，F(t) &gt; 0.5 或 boardPressure &gt; 0.7 → 焦虑区，中间为心流带。</p>
+<p><strong>对压力阈值的影响：</strong>stress &gt; 0.45 时玩家会持续感受到焦虑信号。stress 典型工作区间不能长期超过 0.45——它只能作为短暂峰值出现。</p>
+</div>
+<div class="card card-edge-yellow">
+<div class="card-title">Yerkes-Dodson 定律 (1908)</div>
+<div class="card-sub">复杂任务需要更低的唤醒水平</div>
+<p><strong>核心主张：</strong>唤醒水平与任务表现之间呈倒 U 形关系，任务复杂度越高，最优唤醒水平越低。简单任务（如冲刺跑）可以高唤醒，复杂任务（如解题）需要低唤醒。</p>
+<p><strong>工程映射：</strong>8×8 方块消除是中等复杂度任务——最优唤醒带偏左，stress 的稳态区间应比一般游戏更低。</p>
+<p><strong>对压力阈值的影响：</strong>心流带上限进一步压低——设定 0.45 为"进入焦虑"触发线，稳态心流带实际范围是 [0.20, 0.45)。</p>
+</div>
+</div>
+
+<div class="two-col">
+<div class="card card-edge-green">
+<div class="card-title">峰终定律 (Kahneman, 1993)</div>
+<div class="card-sub">体验记忆 = f(最强时刻, 结束时刻)</div>
+<p><strong>核心主张：</strong>人们对一段体验的记忆并非整段体验的平均，而是由两个关键时刻决定——体验过程中最强烈的时刻（峰值）和结束时的感受（终点）。</p>
+<p><strong>工程映射：</strong>单局游戏的最后几步必须受控。如果玩家在"濒死状态"下结束（高填充率、无消行空间、连续多步被迫差手），即使整局表现不错，记忆也会被"崩溃结尾"污染。</p>
+<p><strong>对压力阈值的影响：</strong>局末阶段需要对压力做特殊处理——引入 endSessionDistress 分量，末段压力权重提高，避免累积均值稀释末段痛苦。</p>
+</div>
+<div class="card card-edge-purple">
+<div class="card-title">MDA 框架 (Hunicke, 2004)</div>
+<div class="card-sub">算法正确 ≠ 体验正确</div>
+<p><strong>核心主张：</strong>游戏设计分为三个层次——Mechanics（机制）、Dynamics（动态）、Aesthetics（体验）。三层因果关系是 M→D→A，但玩家只能感知到 A 层。</p>
+<p><strong>工程映射：</strong>M 层计算出"stress=0.04，应判定为放松状态"——完全正确。D 层涌现的模式是"stress 累积均值被末段痛苦稀释"——也正确。但 A 层玩家感受是"我快死了，系统还在庆祝"——严重错位。这就是 A 层 bug：M 和 D 都对，但玩家感知错了。</p>
+<p><strong>对设计流程的影响：</strong>任何新功能上线前必须经历 A 层审查——"玩家会怎么感受？"而不仅是"算法会怎么算？"</p>
+</div>
+</div>
+
+<div class="pull-quote">四条理论交叉锁定关键阈值：心流兑现上限 = 0.79。不是拍脑袋的数值——Csikszentmihalyi 告诉我们心流的上边界在 0.45、Yerkes-Dodson 进一步压低稳态区间、Kahneman 要求结尾可控、Hunicke 要求感知层同步。0.79 是这四组约束的工程平衡点：在不超过 0.79 的前提下允许短暂的高压力峰值，但保证绝大部分时间在心流带内且结尾可控。</div>
+</div>
+
+<div class="reveal">
+<h3>真实案例：MDA 层错位的修复</h3>
+<div class="card card-edge-red">
+<div class="card-title" style="color:var(--red);">场景还原——"压力 0.04 但玩家濒死"</div>
+<p><strong>场景：</strong>玩家在一局中后期表现良好（stress 累积均值很低），但最近 8 步内连续 0 消行，棋盘填充率已达 0.76，momentum = −0.53（负动量，状态快速恶化）。系统判定 current stress = 0.04（极低）→ flowState = bored → spawnIntent = harvest（"我在给你创造消行机会"）。</p>
+<p><strong>玩家真实感受：</strong>"我马上就要死了，你告诉我你在给我创造消行机会？"</p>
+<p><strong>根因诊断：</strong>stress 用累积均值计算，前 20 步的低压力摊平了后 8 步的高密度痛苦。M 层（出块权重计算）没问题，D 层（stress → intent 映射）也没问题，但 A 层（玩家感知到的叙事与体验）完全错位。按照 MDA 框架的定义，这就是 A 层的 bug。</p>
+</div>
+
+<div class="dialog dialog-a"><strong>A</strong> 修复涉及 6 个改动，每个对应 MDA 的一个层次：</div>
+
+<div class="tabs">
+<div class="tab-bar">
+<button class="tab-btn active" data-tab="mda-m">M 层修复</button>
+<button class="tab-btn" data-tab="mda-d">D 层修复</button>
+<button class="tab-btn" data-tab="mda-a">A 层修复</button>
+</div>
+<div class="tab-content active" id="mda-m">
+<table>
+<tr><th>#</th><th>修复</th><th>目的</th></tr>
+<tr><td>1</td><td>flowState 加入 momentum 硬触发：momentum &lt; −0.2 → 不能判定为 bored</td><td>负动量说明体验正在恶化，即使当前 F 值低也不应判定为"无聊"</td></tr>
+<tr><td>2</td><td>_burstStruggleSignals 末段窗口加权：最近 N 步的 stress 信号权重 ×2</td><td>末段痛苦不应被均值稀释</td></tr>
+<tr><td>3</td><td>endSessionDistress stress 分量：加入"基于结尾感知"的独立分量</td><td>让 stress 感知到"这是结尾了"</td></tr>
+</table>
+</div>
+<div class="tab-content" id="mda-d">
+<table>
+<tr><th>#</th><th>修复</th><th>目的</th></tr>
+<tr><td>4</td><td>sessionArcAdjust 按 |momentum| 放大：动量越大，调节幅度越大</td><td>快速恶化需要快速响应</td></tr>
+<tr><td>5</td><td>forceReliefIntent 濒死强制：当 boardFill &gt; 0.7 且 momentum &lt; −0.3 时强制切换 intent</td><td>系统不应继续"收割"，应立即"救济"</td></tr>
+</table>
+</div>
+<div class="tab-content" id="mda-a">
+<table>
+<tr><th>#</th><th>修复</th><th>目的</th></tr>
+<tr><td>6</td><td>stressMeter 叙事分级：区分"紧张"(可控)和"挣扎"(失控)两种叙事档位</td><td>玩家看到的不再是泛化的"紧张"，而是精准的"挣扎"</td></tr>
+</table>
+</div>
+</div>
+</div>
+
+<div class="reveal">
+<h3>设计审查 8 问——从案例中提炼的通用检查清单</h3>
+<div class="dialog dialog-p"><strong>P</strong> 这个反例让我们建立了<strong>设计审查 8 问</strong>。任何新功能——不管看起来多么简单——上线前必须逐项核对这 8 个问题。</div>
+
+<div class="two-col">
+<div class="card">
+<div class="card-title">第一组：体验维度</div>
+<ul style="list-style:none;padding:0;">
+<li style="padding:8px 0;border-bottom:1px solid var(--gray-100);">☐ <strong>Q1 多轴影响：</strong>这个改动会影响几个 C 轴？是否需要 cross-system 的联合审查？<br><span style="font-size:12px;color:var(--gray-500);">例：改 stress 阈值 → 影响 C-1(挑战) + C-4(情感) → 至少审 adaptiveSpawn + stressMeter</span></li>
+<li style="padding:8px 0;border-bottom:1px solid var(--gray-100);">☐ <strong>Q2 叙事一致性：</strong>玩家当下的实际感受和系统给出的叙事描述一致吗？<br><span style="font-size:12px;color:var(--gray-500);">例：harvest 意图 + 紧张档 → harvest 密度需要 3 档分级避免语义膨胀</span></li>
+<li style="padding:8px 0;border-bottom:1px solid var(--gray-100);">☐ <strong>Q3 DDA 隐蔽性：</strong>单帧 stress 变化是否 ≤ 0.05？超出则玩家可能感知到"系统在搞我"<br><span style="font-size:12px;color:var(--gray-500);">参考：smoothStress() 中的 immediateRelief 短路机制</span></li>
+<li style="padding:8px 0;">☐ <strong>Q4 玩家自主权：</strong>玩家还有策略选择的空间吗？还是被系统推到唯一路径？<br><span style="font-size:12px;color:var(--gray-500);">例：hint top3 全 survival → 强制 applyTipCategoryDiversity 保证策略多样性</span></li>
+</ul>
+</div>
+<div class="card">
+<div class="card-title">第二组：工程质量</div>
+<ul style="list-style:none;padding:0;">
+<li style="padding:8px 0;border-bottom:1px solid var(--gray-100);">☐ <strong>Q5 峰终设计：</strong>单局至少包含一个"高潮"和一个体面"结尾"吗？<br><span style="font-size:12px;color:var(--gray-500);">检查：_maybeCelebrateNewBest + endGame 总结 + 近失叙事</span></li>
+<li style="padding:8px 0;border-bottom:1px solid var(--gray-100);">☐ <strong>Q6 商业化时机：</strong>弹窗发生在高意愿时刻吗？（低意愿区域接受度差 6×）<br><span style="font-size:12px;color:var(--gray-500);">行业基准：game_over &gt; 激励视频 &gt; 挫败中 &gt; 局中强行弹窗</span></li>
+<li style="padding:8px 0;border-bottom:1px solid var(--gray-100);">☐ <strong>Q7 抗成瘾守卫：</strong>有 confidenceGate（低置信收窄）和 immediateRelief（短路救济）吗？<br><span style="font-size:12px;color:var(--gray-500);">两个独立闸门：一个防止数据不足时乱调，一个防止极端情况反应过慢</span></li>
+<li style="padding:8px 0;">☐ <strong>Q8 三层测试覆盖：</strong>M 层、D 层、A 层都有对应的测试覆盖吗？<br><span style="font-size:12px;color:var(--gray-500);">M → grid.test | D → adaptiveSpawn.test | A → stressMeter.test</span></li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="reveal">
+<h3>5 轴体验结构在单局生命周期中的协同</h3>
+<div class="dialog dialog-a"><strong>A</strong> 5 个轴不是分层关系，而是<strong>正交关注点</strong>。同一帧出块决策可能同时影响其中 4 个轴。例如，一次"追求最终 combo"的决策会同时作用于 C-2（兑现——制造 high payoff）、C-4（情感——制造高潮峰值）和 C-5（成长——peak 阶段的自然推进）。这种正交性意味着调参时不能"一次只调一个轴"——必须先确认五个轴在生命周期各阶段的目标曲线，再找参数组合同时满足它们。</div>
+
+<div class="table-wrap">
+<table>
+<tr><th>时间 →</th><th>开局 (0–30s)</th><th>中段 (30–180s)</th><th>结尾 (180s+)</th><th>全程约束</th></tr>
+<tr>
+<td><strong>C-1 挑战</strong></td>
+<td>引导期上限：fillRatio=0，不主动加压，让玩家适应操作</td>
+<td>心流带 [0.20, 0.45)：normalizeStress 维持稳态，不跳变</td>
+<td>可达 tense 制造峰值：flowPayoffCap=0.79 硬钳制</td>
+<td>单帧变化 ≤ 0.05，不暴露 DDA 存在</td>
+</tr>
+<tr>
+<td><strong>C-2 兑现</strong></td>
+<td>保证 ≥1 次消行：clearGuarantee=2（三块中至少两块可消）</td>
+<td>payoff/setup 交替：deriveRhythmPhase 控制节奏</td>
+<td>final combo / PC 机会：analyzePerfectClearSetup 检测</td>
+<td>连续 payoff 次数 ≤ N</td>
+</tr>
+<tr>
+<td><strong>C-3 掌控</strong></td>
+<td>引导完全隐藏：isInOnboarding 阶段不显示复杂 UI</td>
+<td>hint 按需出现：strategyAdvisor 动态生成</td>
+<td>复活弹窗保留"放弃"选项</td>
+<td>hint 同类推荐 ≤ 连续 N 次</td>
+</tr>
+<tr>
+<td><strong>C-4 情感</strong></td>
+<td>友好欢迎叙事：level.vibe 设定初印象</td>
+<td>紧张/兑现交替守卫：score-push 检测正向 momentum</td>
+<td>局末总结 + 近失叙事</td>
+<td>叙事档位与 stress 联动</td>
+</tr>
+<tr>
+<td><strong>C-5 成长</strong></td>
+<td>warmup 热身：sessionArc=warmup</td>
+<td>peak 高峰：_spawnCounter 递增推进</td>
+<td>cooldown 冷却：自然衰减</td>
+<td>跨局 RoR 跟踪</td>
+</tr>
+</table>
+</div>
+</div>
+
+<div class="reveal">
+<h3>轴间互抑守卫</h3>
+<div class="dialog dialog-p"><strong>P</strong> 这些守卫不是一次性设计出来的——每一个都是在线上翻车后追加的。C-1 过度压榨 → 玩家流失 → 加 immediateRelief；C-4 叙事错位 → 信任崩塌 → 加 score-push 守卫。系统是在不断"翻车—诊断—修复"的循环中进化到当前状态的。</div>
+
+<div class="table-wrap">
+<table>
+<tr><th>过度优化</th><th>反噬症状</th><th>数据信号</th><th>守卫机制</th></tr>
+<tr><td>C-1 挑战压顶</td><td>玩家"被卷"流失</td><td>单局时长 &lt; 30s 比例 ↑</td><td>immediateRelief 短路</td></tr>
+<tr><td>C-2 兑现过频</td><td>玩家"被宠"无成就感</td><td>平均消行间隔 &lt; 5s</td><td>clearGuarantee 物理回钳</td></tr>
+<tr><td>C-3 掌控过强</td><td>自主感丧失→弃游</td><td>hint 采纳率 &gt; 90%</td><td>applyTipCategoryDiversity</td></tr>
+<tr><td>C-4 情感过激</td><td>叙事与盘面错位</td><td>濒死下叙事仍为"放松"</td><td>score-push 守卫</td></tr>
+<tr><td>C-5 推进过快</td><td>后期无事可做</td><td>单局数/日 ↑ 但单局分 ↓</td><td>sessionArc 衰减 + RoR 冷却</td></tr>
+</table>
+</div>
+</div>
+</section>
+
+<div class="section-break">· · ·</div>
+
+<!-- ════════════════ ACT 2 ════════════════ -->
+<section id="act2">
+<div class="reveal">
+<span class="section-number">第二章</span>
+<h2>出块引擎——从问题形式化到工程实现</h2>
+</div>
+
+<div class="reveal">
+<h3>问题形式化：从"出什么形状"到"为什么这么出"</h3>
+<div class="dialog dialog-a"><strong>A</strong> 先准确描述我们要解决的问题。每轮需要从形状池中选出三个不重复形状 (s₁, s₂, s₃) 展示给玩家，决策依据是当前棋盘状态、玩家画像和历史记录。真正重要的是约束条件——</div>
+
+<div class="formula">(s₁, s₂, s₃) ~ P(s₁, s₂, s₃ | board, profile, history) · 𝟙_ℱ</div>
+
+<div class="dialog dialog-p"><strong>P</strong> 其中 ℱ 是可行域约束，它的定义直接决定了出块的"良心"。最简单的 ℱ 是"每块各自有至少一个合法放置位置"——但这是不够的。三块都偏大→各自有位置但第二块放下后第三块就没位置了；三块都偏小→都能放但消行效率低、节奏单调；形状同质→缺乏策略多样性。真正的 ℱ 应该是<strong>存在某种排列 π ∈ S₃ 使得三块按顺序依次放置后最后一块仍有合法位置</strong>。这是个联合概率问题，不是三个独立问题。</div>
+</div>
+
+<div class="reveal">
+<h3>双轨出块架构：可靠性与个性化的权衡</h3>
+<div class="img-wrap">
+<img src="/docs/asset/algorithms/assets/spawn-architecture.png" alt="出块算法 9 层流水线">
+<div class="img-caption">完整 9 层流水线：L0 输入 → L1 盘面感知 → L2 评分构建 → L3 优先选拔 → L4 加权补齐 → L5 约束验证 → L6 注入优化 → L7 输出 → L8 染色绑定</div>
+</div>
+<div class="dialog dialog-a"><strong>A</strong> 双轨架构的核心设计思想是<strong>"可靠默认路径 + 个性化增强"</strong>。规则轨永远可运行、零外部依赖、必定输出合法结果——这是系统的底线保证。生成式轨需要服务端模型推理，输出必须通过护栏验证才生效。如果生成式轨因为任何原因（网络超时、模型推理失败、护栏不通）不能给出合法结果，系统静默回退到规则轨，同时记录 fallback 原因。</div>
+
+<div class="two-col">
+<div class="card">
+<div class="card-title">规则轨（默认路径）</div>
+<p><strong>设计思路：</strong>基于 28 个形状的加权概率采样，每一层解决一个特定问题并独立回退。</p>
+<p><strong>L0 输入：</strong>棋盘 grid、玩家画像 profile、出块上下文 spawnContext。</p>
+<p><strong>L1 盘面感知：</strong>计算填充率、拓扑复杂度、clear deficit、cogLoad。</p>
+<p><strong>L2 评分构建：</strong>对 28 个形状每个从 12 个维度评分，得到 28×12 评分矩阵。</p>
+<p><strong>L3 优先选拔：</strong>按当前 intent 对 28 个形状排序，取 top-K 候选池。</p>
+<p><strong>L4 加权补齐：</strong>从 top-K 中用 shapeWeights 概率采样补齐到 3 个。</p>
+<p><strong>L5 约束验证：</strong>DFS 穷举 6 种排列序贯可解性验证。</p>
+<p><strong>L6 注入优化：</strong>Warm Run / RoR 调制。</p>
+<p><strong>L7 输出：</strong>返回 3 个形状。</p>
+<p><strong>L8 染色绑定：</strong>颜色分配逻辑。</p>
+</div>
+<div class="card card-edge-purple">
+<div class="card-title" style="color:var(--purple);">生成式轨</div>
+<p><strong>设计思路：</strong>SpawnTransformer 网络端到端推理，用神经网络替代规则引擎的个性化能力。</p>
+<p><strong>输入：</strong>棋盘特征 + 玩家画像 embedding + 历史出块序列。</p>
+<p><strong>输出：</strong>3 个形状的联合分布 logits。</p>
+<p><strong>护栏验证：</strong>validateSpawnTriplet 三重校验——(1) 序贯可解性，(2) 难度匹配度，(3) 形状多样性。</p>
+<p><strong>回退机制：</strong>任一校验不通 → 记录 fallbackReason → 转入规则轨。</p>
+</div>
+</div>
+</div>
+
+<div class="reveal">
+<h3>12 信号 Stress 融合引擎</h3>
+<div class="dialog dialog-a"><strong>A</strong> 压力不是单一数值——它是 4 组 12 个从不同维度评估局面的信号的加权合成。每个信号的设计都有其特定的"为什么要加它"的理由。</div>
+
+<div class="formula">stress = clamp( Σ wᵢ · signalᵢ , −0.2, 1.0 )</div>
+
+<div class="accordion">
+<div class="accordion-item">
+<div class="accordion-header" onclick="toggleAccordion(this)">
+<span>盘面压力（客观物理量）</span><span class="arrow">▼</span>
+</div>
+<div class="accordion-body">
+<div class="signal-grid">
+<div class="signal-card"><div class="signal-name">scoreStress</div><div class="signal-desc">当前分 / PB 的 sigmoid 映射。接近 PB 的 80% 才开始显著提升。</div></div>
+<div class="signal-card"><div class="signal-name">topologyChance</div><div class="signal-desc">棋盘拓扑可解性评估——连续空洞数、孤立区域数、平均列高度差。</div></div>
+<div class="signal-card"><div class="signal-name">recoveryAdjust</div><div class="signal-desc">从高压状态回落的反弹速度。峰值后给予恢复时间。</div></div>
+</div>
+</div>
+</div>
+<div class="accordion-item">
+<div class="accordion-header" onclick="toggleAccordion(this)">
+<span>玩家状态（推理量）</span><span class="arrow">▼</span>
+</div>
+<div class="accordion-body">
+<div class="signal-grid">
+<div class="signal-card"><div class="signal-name">skillAdjust</div><div class="signal-desc">EMA 平滑后的综合技能值。强技能玩家需要更高出块压力。</div></div>
+<div class="signal-card"><div class="signal-name">flowAdjust</div><div class="signal-desc">F(t) 三态到压力值的映射。心流中不干扰——DDA 隐蔽性核心原则。</div></div>
+<div class="signal-card"><div class="signal-name">abilityRisk</div><div class="signal-desc">近期表现波动率。高波动期收窄调节幅度。</div></div>
+</div>
+</div>
+</div>
+<div class="accordion-item">
+<div class="accordion-header" onclick="toggleAccordion(this)">
+<span>历史趋势（时序量）</span><span class="arrow">▼</span>
+</div>
+<div class="accordion-body">
+<div class="signal-grid">
+<div class="signal-card"><div class="signal-name">runStreakStress</div><div class="signal-desc">今日已玩局数的疲劳曲线。第 10 局 baseline 压力应低于第 1 局。</div></div>
+<div class="signal-card"><div class="signal-name">trendAdjust</div><div class="signal-desc">最近 N 局的难度走向趋势。上升→平台期；下降→恢复信号。</div></div>
+<div class="signal-card"><div class="signal-name">confidenceGate</div><div class="signal-desc">数据量不足时收窄调节幅度。新手前 5 局：调节幅度 ×0.5。</div></div>
+</div>
+</div>
+</div>
+<div class="accordion-item">
+<div class="accordion-header" onclick="toggleAccordion(this)">
+<span>体验节奏（交互动态量）</span><span class="arrow">▼</span>
+</div>
+<div class="accordion-body">
+<div class="signal-grid">
+<div class="signal-card"><div class="signal-name">pacingAdjust</div><div class="signal-desc">当前 setup/payoff 阶段。不同阶段对压力敏感度不同。</div></div>
+<div class="signal-card"><div class="signal-name">frustrationRelief</div><div class="signal-desc">挫败触发后的强制救济信号。挫败是流失的前置信号。</div></div>
+<div class="signal-card"><div class="signal-name">comboReward</div><div class="signal-desc">连消节奏维持信号。combo 中不干扰——心流沉浸行为。</div></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+
+<div class="reveal">
+<h3>意图优先级仲裁系统</h3>
+<div class="dialog dialog-p"><strong>P</strong> 每次出块前，系统先问自己一个策略问题："当前玩家最需要什么？"然后根据答案决定出块的类型和难度。这个策略问题通过意图优先级系统回答。</div>
+<div class="dialog dialog-a"><strong>A</strong> 每个意图对应一组参数配置——shapeWeights 的 10 档插值基底、clearGuarantee 的值、难度调制系数。高优先级意图会覆盖低优先级。暖温局保护以全场最高优先级 115 运行——这意味着无论在什么状态下，系统检测到暖温局触发器后，都会优先执行保护逻辑。</div>
+
+<div class="table-wrap">
+<table>
+<tr><th>优先级</th><th>意图</th><th>触发条件</th><th>出块策略</th><th>设计动机</th></tr>
+<tr style="background:#fef3c7;"><td><strong>115</strong><br>最高</td><td>warm 温暖</td><td>T1-T7 触发器</td><td>爽感主动编排</td><td>接缝场景体验基线低，需主动拉升</td></tr>
+<tr style="background:#dbeafe;"><td><strong>102</strong></td><td>pressure 追分</td><td>score/bestScore ≥ 0.8</td><td>提升压力，可冲刺但不过分</td><td>接近 PB 时心流高发窗口</td></tr>
+<tr style="background:#dbeafe;"><td><strong>100</strong></td><td>relief 救济</td><td>playerDistress &lt; −0.10</td><td>推送易消形状，降低填充率</td><td>挫败即时干预</td></tr>
+<tr style="background:#dbeafe;"><td><strong>95</strong></td><td>delight 爽感弥补</td><td>连续 N 轮无 multiClear</td><td>主动创造 multi/perfect clear</td><td>长时间无高光→注入峰值</td></tr>
+<tr><td><strong>90</strong></td><td>engage 召回</td><td>AFK ≥4h</td><td>温和开局，恢复型出块</td><td>再上手需适应期</td></tr>
+<tr><td><strong>80</strong></td><td>harvest 收割</td><td>近满线≥2 / pcSetup≥1</td><td>配合棋盘布局送形状</td><td>已有好布局→不浪费</td></tr>
+<tr><td><strong>70</strong></td><td>pressure 施压</td><td>challengeBoost &gt; 0</td><td>增加形状复杂度</td><td>玩家表现太好→适度加码</td></tr>
+<tr><td><strong>60</strong></td><td>sprint 过渡</td><td>中间过渡带</td><td>中性过渡</td><td>默认状态</td></tr>
+<tr><td><strong>50</strong></td><td>flow 流动</td><td>flow_payoff 窗口</td><td>维持节奏，不干扰</td><td>心流最高原则</td></tr>
+<tr><td><strong>0</strong></td><td>maintain 维持</td><td>以上全不满足</td><td>全局加权随机</td><td>兜底安全态</td></tr>
+</table>
+</div>
+</div>
+
+<div class="reveal">
+<h3>Warm Run 接缝保护算法</h3>
+<div class="dialog dialog-p"><strong>P</strong> Warm Run 不是拍脑袋扔进来的功能——它是从线上数据中"长"出来的。三组数据触发了这个设计：</div>
+
+<div class="stats-row">
+<div class="stat-card" style="border-color:var(--red);"><div class="stat-value" style="color:var(--red);">−40%</div><div class="stat-label">新手前 3 局 × 无保护 → D7<br>留存比有保护的低 40%</div></div>
+<div class="stat-card" style="border-color:var(--accent);"><div class="stat-value" style="color:#b45309;">−60%</div><div class="stat-label">回流玩家（≥7 天未活跃）<br>首局平均分下降 60%</div></div>
+<div class="stat-card" style="border-color:var(--red);"><div class="stat-value" style="color:var(--red);">−70%</div><div class="stat-label">连挫 ≥5 局的用户<br>第 6 局 DAU 下降 70%</div></div>
+</div>
+
+<div class="dialog dialog-p"><strong>P</strong> 根因分析：stress 系统是为"正常流动"设计的——它假设玩家在正常游玩过程中压力信号能准确反映状态。但新手（还没建立 skill model）、回流（skill 模型过期）、连挫（情绪干扰了正常状态判断）这些"接缝场景"不在正常流动中。接缝中的玩家信号不可靠，用不可靠的信号推导不可靠的 stress → 不可靠的出块 → 体验恶化 → 玩家流失。这是个负向雪崩。</div>
+
+<div class="dialog dialog-a"><strong>A</strong> Warm Run 是三层结构的专门算法，独立于 stress 系统运行，通过注入层（L6）影响出块决策。</div>
+
+<div class="three-col">
+<div class="card">
+<div class="card-title">检测层：7 种触发器</div>
+<p><strong>T1</strong> 新手（前 3 局）</p>
+<p><strong>T2</strong> 回流（≥7 天未活跃）</p>
+<p><strong>T3/T4</strong> 连挫（连续 N 局低于期望分）</p>
+<p><strong>T5</strong> 流失前兆（近期会话频次下降）</p>
+<p><strong>T6</strong> winback 活动</p>
+<p><strong>T7</strong> 远端预设</p>
+<p><span style="font-size:13px;color:var(--gray-500);">多条件逻辑组合，防误触发。</span></p>
+</div>
+<div class="card">
+<div class="card-title">强度层：3 档递进</div>
+<p><strong> mild（强度 1）</strong><br>shapeWeights 适度倾斜。clearGuarantee=1。预算消耗：慢。</p>
+<p><strong> strong（强度 2）</strong><br>显著倾斜。clearGuarantee=2。强制覆盖 intent=relief。预算消耗：中。</p>
+<p><strong> rescue（强度 3）</strong><br>紧急救援。绕过常规流程，直接推送能消行的形状。预算消耗：快。</p>
+</div>
+<div class="card card-edge-yellow">
+<div class="card-title" style="color:#b45309;">编排层：爽感主动编排</div>
+<p><strong>核心创新：</strong>不是被动降低难度，而是主动制造高光时刻。</p>
+<p><strong>multi_clear_now：</strong>保证下一手能多消</p>
+<p><strong>mono_flush：</strong>推送单色形状完成同色清屏</p>
+<p><strong>perfect_clear：</strong>检查全消可能性并推送关键形状</p>
+<p><strong>setup_for_multi：</strong>先推布局，再推兑现</p>
+<p><strong>combo_extend：</strong>combo 中断前推送延续形状</p>
+<p><span style="font-size:13px;color:var(--gray-500);">传统 DDA：让玩家不死。Warm Run：让玩家觉得自己很强。</span></p>
+</div>
+</div>
+
+<h4>预算渐退机制</h4>
+<div class="card">
+<div class="card-title">warmBudget 渐退曲线</div>
+<p><strong>设计思路：</strong>保护不应永久持续——接管时间过长反而让玩家产生依赖或感知到"系统在放水"。warmBudget 在激活时分配，每次"编排"消耗一定预算，随 recovery 进度自然衰减。</p>
+<p><strong>预算分配：</strong>新手→高预算；回流→中预算；连挫→看连挫深度。</p>
+<p><strong>消耗策略：</strong>每次编排消耗 budget × 强度系数。rescue 模式消耗最快。</p>
+<p><strong>衰减曲线：</strong>预算随局数指数衰减——第 N 局预算 = 初始 × 0.7^(N−1)。约 5 局后基本消耗完毕。</p>
+<p><strong>退出条件：</strong>预算 &lt; 阈值 || 玩家连续 N 局正常表现 → 平滑退出，不跳变。</p>
+</div>
+</div>
+
+<div class="reveal">
+<h3>RoR 局间难度调制算法</h3>
+<div class="dialog dialog-a"><strong>A</strong> 第 1 局和第 10 局——玩家看似相同（skill model 可能一样），但实际可用认知资源完全不同。第 1 局注意力集中、体力充沛、决策质量高。第 10 局可能已经疲劳、开始犯低级错误、反应变慢。但出块引擎如果不引入"这是第几局"的信息，它对两局的对待是一样的——这不对。"跨局疲劳"是一个实际存在但被大多数游戏忽略的维度。</div>
+
+<div class="formula">Difficulty(arc, session#, D₀) = D₀ · α(arc) · β(session#) · γ(arc, D₀)</div>
+
+<div class="three-col">
+<div class="card">
+<div class="card-title">维度 1：arc 阶段</div>
+<p><strong>onboarding</strong> (第 1-2 局)：适应期，整体压力偏缓</p>
+<p><strong>warmup</strong> (第 3-5 局)：逐渐升温</p>
+<p><strong>peak</strong> (第 6-15 局)：认知资源最充沛，可承受最高挑战</p>
+<p><strong>cooldown</strong> (第 16-20 局)：疲劳出现，开始降温</p>
+<p><strong>rest</strong> (第 21+ 局)：需要休息建议，压力主动降低</p>
+</div>
+<div class="card">
+<div class="card-title">维度 2：连战曲线 β</div>
+<p>humped 形状：</p>
+<p>β = 1.0 + 0.3·sin(π·n/N) − 0.1·(n/N)²</p>
+<p>前几局 n↑ → β↑ (能力提升，可承受更高挑战)</p>
+<p>中间维持峰值</p>
+<p>后期 n↑ → β↓ (疲劳超过能力提升)</p>
+<p>峰值位置随总局数自适应。</p>
+</div>
+<div class="card">
+<div class="card-title">维度 3：D 曲线形变 γ</div>
+<p>每 arc 阶段对应不同的 D₀→D 形变函数：</p>
+<p><strong>onboarding:</strong> γ = 0.7（压缩）</p>
+<p><strong>peak:</strong> γ = 1.0（不形变）</p>
+<p><strong>rest:</strong> γ = 0.5（大幅压缩）</p>
+<p>连续过渡，非刚性跳变。</p>
+</div>
+</div>
+</div>
+
+<div class="reveal">
+<h3>序贯可解性验证：公平性保证算法</h3>
+<div class="dialog dialog-a"><strong>A</strong> 这可能是整个出块引擎中最重要的一个函数——它数学上保证了玩家永远不会收到"不可能完成"的组合。没有这个保证，其他所有算法（stress、intent、Warm Run）都可能在"公平性"上翻车。</div>
+
+<div class="algo-box">
+<span class="kw">function</span> <span class="fn">tripletSequentiallySolvable</span>(grid, shapes):
+    <span class="cm">// 输入：当前棋盘 + 3 个候选形状</span>
+    <span class="cm">// 输出：是否存在某种放置顺序使得三块都能放进去</span>
+    <span class="cm">// 穷举所有 6 种排列（3! = 6），每种用贪心策略尝试放置</span>
+
+    <span class="kw">for each</span> permutation π <span class="kw">in</span> permutations(shapes):
+        tempGrid = deepCopy(grid)
+        allPlacements = []
+
+        <span class="kw">for</span> i = 0; i < 3; i++:
+            shape = π[i]
+            positions = findAllLegalPositions(tempGrid, shape)
+
+            <span class="kw">if</span> positions <span class="kw">is</span> empty:
+                <span class="kw">break</span>  <span class="cm">// 当前排列不可行</span>
+
+            <span class="cm">// 贪心选择：优先选能消除的位置，其次选填充率低的位置</span>
+            best = selectByHeuristic(positions, tempGrid)
+            placeShape(tempGrid, shape, best)
+            cleared = clearFullLines(tempGrid)
+            allPlacements.push({shape, best, cleared})
+
+        <span class="kw">if</span> allPlacements.length == 3:
+            <span class="kw">return</span> {ok: <span class="kw">true</span>, path: π, placements: allPlacements}
+
+    <span class="kw">return</span> {ok: <span class="kw">false</span>}
+    <span class="cm">// 没有任何排列可行 → 这组形状有问题，需要重新采样</span>
+</div>
+
+<div class="callout callout-info"><strong>算法复杂度：</strong>最坏情况下 6 种排列 × 每种最多尝试 64 个位置 × 消行判定 = O(6·64·28) ≈ 10752 次操作。在浏览器端约 &lt; 1ms 完成——性能可以接受。<strong>与"简单可放性"的本质区别：</strong>简单可放性只检查"每块各自至少有一个位置"，不检查"三块在一起会不会互相堵死"。序贯可解性是严格的数学保证。</div>
+</div>
+
+<div class="reveal">
+<h3>出块引擎算法总览</h3>
+<div class="table-wrap">
+<table>
+<tr><th>模块</th><th>算法方法</th><th>输入</th><th>输出</th><th>关键约束</th></tr>
+<tr><td>Stress 融合</td><td>12 信号加权和 + clamp(−0.2, 1.0)</td><td>board + profile + history</td><td>stress ∈ [−0.2, 1.0]</td><td>单帧变化 ≤ 0.05</td></tr>
+<tr><td>意图仲裁</td><td>优先级表（0–115）+ 条件触发</td><td>10 个意图条件</td><td>1 个 active intent</td><td>温暖 115 不可覆盖</td></tr>
+<tr><td>形状评分</td><td>10 档 shapeWeights 概率插值</td><td>28 shapes × 12 scores</td><td>28 维概率分布</td><td>颜色多样性 ≥ 2 色</td></tr>
+<tr><td>可解性验证</td><td>DFS(6 排列) + 贪心 placement</td><td>grid(8×8) + 3 shapes(5×5)</td><td>{ok, path?, placements?}</td><td>&lt;1ms 执行</td></tr>
+<tr><td>Warm Run</td><td>7 触发 × 3 强度 × 编排 + 预算衰减</td><td>profile + history + session</td><td>pipeline 注入参数</td><td>第 1 局起效，约 5 局退出</td></tr>
+<tr><td>RoR</td><td>5×5×5 三维调制矩阵</td><td>arc + session# + D₀</td><td>D₀ modifier α·β·γ</td><td>5 阶段连续过渡</td></tr>
+</table>
+</div>
+</div>
+</section>
+
+<div class="section-break">· · ·</div>
+
+<!-- ════════════════ ACT 3 ════════════════ -->
+<section id="act3">
+<div class="reveal">
+<span class="section-number">第三章</span>
+<h2>玩家画像——从表层事件到深层隐状态的推断建模</h2>
+</div>
+
+<div class="reveal">
+<h3>问题陈述：从表层事件回答深层问题</h3>
+<div class="dialog dialog-a"><strong>A</strong> 游戏每步能记录的是："思考时间 3200ms，消行 2 行，填充率 0.43，miss=false"。但这些表层事件回答不了四句关键的"我想知道"——</div>
+<div class="dialog dialog-p"><strong>P</strong> 第一，"我想知道他的真实技能水平现在是多少，不是只看他这局得了多少分。"<br>第二，"我想知道他当前是在心流状态还是已经焦虑了，是应该加压还是减压。"<br>第三，"我想知道他是不是快摔手机了，需要给他一个救济出块。"<br>第四，"我想知道他是不是在冲个人最佳，如果是，今天的广告就别弹了。"</div>
+<div class="dialog dialog-a"><strong>A</strong> 这四句"我想知道"本质上是在要求一个<strong>隐状态推断系统</strong>——从可观测的表层事件（observations）推断不可观测的玩家状态（hidden states）。这就是玩家画像系统的定位。</div>
+</div>
+
+<div class="reveal">
+<h3>选型推演：规则模型优于机器学习的四条假设</h3>
+<div class="dialog dialog-a"><strong>A</strong> 这个问题的答案不是"规则模型更好"，而是"在当前约束下规则模型比 ML 更优"。以下是经过四次迭代的完整推演。</div>
+
+<div class="table-wrap">
+<table>
+<tr><th>方案</th><th>延迟</th><th>冷启动</th><th>可解释性</th><th>可回调性</th><th>端侧可部署</th><th>结论</th></tr>
+<tr>
+<td style="color:var(--green);font-weight:700;">✅ 规则+EMA</td>
+<td><strong>0ms</strong></td>
+<td><strong>第 1 步即工作</strong></td>
+<td><strong>全透明</strong></td>
+<td><strong>改 JSON</strong></td>
+<td><strong>零依赖</strong></td>
+<td><strong>← 当前选型</strong></td>
+</tr>
+<tr>
+<td>LightGBM</td>
+<td>~5ms</td>
+<td>❌ 需积累标签</td>
+<td>⚠️ 需 SHAP</td>
+<td>❌ 需重新训练</td>
+<td>⚠️ ONNX/WASM</td>
+<td>候选——数据充足后可加</td>
+</tr>
+<tr>
+<td>RNN/Transformer</td>
+<td>~20ms</td>
+<td>❌ 需大量数据</td>
+<td>❌ 弱</td>
+<td>❌ 需重训+部署</td>
+<td>❌ 需远端推理</td>
+<td>冷启动阶段收益为负</td>
+</tr>
+</table>
+</div>
+
+<div class="card">
+<div class="card-title">四条约束假设（写在算法手册中）</div>
+<p><strong>假设 1：冷启动友好优先。</strong>很多玩家只玩 1-3 局就流失了。任何需要 &gt;3 局才能收敛的模型，对这 55-70% 的 minnow 用户无用。EMA 从第 1 步就开始输出可用估计——虽然精度不高，但够用。</p>
+<p><strong>假设 2：错误解释成本高。</strong>画像直接影响出块压力（C-1 挑战轴）和商业化决策（弹不弹广告）。一次错误的 ML 预测导致"不该加压的时候加压"或"不该弹广告的时候弹广告"——直接损伤留存。规则模型的行为边界完全可知，不会出现"意想不到的模型行为"。</p>
+<p><strong>假设 3：弱网可用。</strong>Web 端有大量用户在中国二三线城市，网络不稳定。画像如果是远端模型推理，弱网下画像不可用→体验无法调节→比没有画像更差。</p>
+<p><strong>假设 4：可回调性决定迭代速度。</strong>策划说"挫败阈值调高试试"——改一行 game_rules.json，跑回放 5 分钟出对比图。LightGBM 需要标注数据、重新训练、部署，一天起步。在快速迭代期，可回调性的价值大于模型精度增益。</p>
+</div>
+</div>
+
+<div class="reveal">
+<h3>技能评估三重流水线</h3>
+<div class="dialog dialog-a"><strong>A</strong> 从原始步事件到最终 skillLevel，经历三层逐步抽象的加工流水线。每一层解决一个特定的推断问题。</div>
+
+<div class="algo-box">
+<span class="hl3">第一层：5 维即时评分</span>
+  <span class="cm">// 对每步放置操作从 5 个正交维度独立评分，反映不同能力侧面</span>
+  raw = w₁·thinkScore + w₂·clearScore + w₃·comboScore + w₄·missScore + w₅·loadScore
+
+  thinkScore  = f(thinkMs)       <span class="cm">// 思考时间越短分越高，用分位数映射</span>
+  clearScore  = cleared ? lines/4 : 0  <span class="cm">// 消行效率，4 行全消给满分</span>
+  comboScore  = comboLength / 8       <span class="cm">// 连消长度，8 连消以上满分</span>
+  missScore   = miss ? 0 : 1          <span class="cm">// 是否"下了没法消的步"——关键负信号</span>
+  loadScore   = 1 − abs(fill − 0.3)  <span class="cm">// 棋盘填充控制——0.3 是理想填充率</span>
+
+  权重：w=[0.15, 0.30, 0.20, 0.20, 0.15]
+  <span class="cm">// clearScore 权重最高因为"消行"是核心能力指标</span>
+  <span class="cm">// missScore 权重和 comboScore 并列第二</span>
+
+<span class="hl3">第二层：双阶段 EMA 平滑</span>
+  <span class="cm">// 单步 raw 波动太大，需要平滑</span>
+  smooth_t = smooth_{t-1} + α·(raw_t − smooth_{t-1})
+
+  α = 0.35  (如果 t ≤ 5)    <span class="cm">// 快速收敛期：前 5 步大 α 快速接近真实水平</span>
+  α = 0.15  (如果 t > 5)    <span class="cm">// 稳定跟踪期：小 α 防止单步异常波动干扰</span>
+
+<span class="hl3">第三层：跨局历史融合</span>
+  <span class="cm">// 单局内的平滑分代表了"当前这局的发挥"，跨局的 skill 是历史+当下的加权</span>
+  histSkill = Σ β^{n-1-i} · skill_i / Σ β^{n-1-i},  β = 0.85
+
+  <span class="cm">// β=0.85 的指数衰减：第 10 局权重 ≈ 第 1 局的 20%</span>
+  skillLevel = (1 − W_hist) · smooth + W_hist · histSkill
+  W_hist = min(n / (n + K), 0.7)  <span class="cm">// K=10: 历史权重随局数增长但封顶 0.7</span>
+  <span class="cm">// 封顶 0.7：即使玩了 1000 局，当局发挥仍占 30% 权重</span>
+  <span class="cm">// 防止"历史太好→系统认为永远很强，但今天状态确实差"</span>
+</div>
+</div>
+
+<div class="reveal">
+<h3>心流工程化：F(t) 三态判定</h3>
+<div class="dialog dialog-a"><strong>A</strong> 心流的工程定义基于 Csikszentmihalyi 的理论——挑战与能力匹配。量化方式：</div>
+
+<div class="formula">F(t) = | boardPressure / max(ε, skill) − 1 |,  ε = 0.05</div>
+<div class="formula">boardPressure = 0.45·avgFill + 0.35·clearDeficit + 0.2·cogLoad</div>
+
+<div class="three-col">
+<div class="stat-card" style="border-color:#93c5fd;"><div class="stat-value" style="color:#3b82f6;">F &lt; 0.2</div><div class="stat-label">无聊 压力过低<br>→ 应逐渐提升难度</div></div>
+<div class="stat-card" style="border-color:var(--green);"><div class="stat-value" style="color:var(--green);">F ∈ [0.2, 0.5)</div><div class="stat-label">心流 最佳带<br>→ 维持当前难度</div></div>
+<div class="stat-card" style="border-color:var(--red);"><div class="stat-value" style="color:var(--red);">F ≥ 0.5</div><div class="stat-label">焦虑 压力过高<br>→ 应降低难度或触发救济</div></div>
+</div>
+
+<div class="dialog dialog-p"><strong>P</strong> 三个阈值（0.2 和 0.5）不是拍脑袋的——是 5 轮 A/B 测试逐步校准的。早期的阈值太高（0.3/0.7），导致"已经在焦虑了但系统判定还在心流"的问题。后来加入了 momentum 修正——F(t) 不能只看绝对值：如果 ΔF/Δt &gt; 0.1/步（状态快速恶化），即使当前 F &lt; 0.5，也不应判定为心流。这个补丁直接来自那个"压力 0.04 但濒死"的反例。</div>
+</div>
+
+<div class="reveal">
+<h3>AbilityVector：7 维标准化隐状态输出</h3>
+<div class="dialog dialog-a"><strong>A</strong> 最终的画像输出是一个 7 维标准化向量 [0,1]⁷。设计的关键原则是<strong>每个消费方只读自己需要的维度</strong>——不把"玩家画像"作为一个黑盒输出一个标量，而是解耦为多个独立侧面。这样出块引擎、商业化、UI 面板各自读自己关心的维度，互不干扰。</div>
+
+<div class="table-wrap">
+<table>
+<tr><th>维度</th><th>含义</th><th>消费方</th></tr>
+<tr>
+<td>topology</td>
+<td>盘面拓扑理解——玩家是否能看懂棋盘走势</td>
+<td rowspan="3"><strong>出块引擎</strong><br>纳入 stress 信号的 skillAdjust 分量</td>
+</tr>
+<tr><td>survival</td><td>存活能力——玩家是否会把自己"堵死"</td></tr>
+<tr><td>planning</td><td>前瞻规划——玩家会为后续步骤做布局吗</td></tr>
+<tr>
+<td>execution</td><td>操作精度——放置的准确率</td>
+<td rowspan="2"><strong>商业化</strong><br>低→高挫败风险→降低广告频率</td>
+</tr>
+<tr><td>reaction</td><td>高压下的操作稳定性</td></tr>
+<tr>
+<td>scoring</td><td>消行效率</td>
+<td rowspan="2"><strong>UI 面板</strong><br>可视化反馈："你的弱项在前瞻规划"</td>
+</tr>
+<tr><td>consistency</td><td>发挥稳定度</td></tr>
+</table>
+</div>
+</div>
+
+<div class="reveal">
+<h3>画像系统总览</h3>
+<div class="table-wrap">
+<table>
+<tr><th>子模块</th><th>建模方法</th><th>更新时机</th><th>输出类型</th></tr>
+<tr><td>技能评估</td><td>5 维评分 + 双 α EMA + 指数衰减历史融合</td><td>每步</td><td>skillLevel ∈ [0,1]</td></tr>
+<tr><td>心流检测</td><td>F(t) = |P/S − 1| + momentum 修正</td><td>每步</td><td>{bored, flow, anxious}</td></tr>
+<tr><td>挫败建模</td><td>frustration = g(连败次数, 分差, 末段密度)</td><td>每局末</td><td>frustration ∈ {0,1,2,3}</td></tr>
+<tr><td>PB 冲刺检测</td><td>score / bestScore + 趋势线性预测</td><td>每步</td><td>pbProbability ∈ [0,1]</td></tr>
+<tr><td>AbilityVector</td><td>7 维独立平滑 + 归一化</td><td>每局末</td><td>ℝ⁷ normalized</td></tr>
+</table>
+</div>
+</div>
+</section>
+
+<div class="section-break">· · ·</div>
+
+<!-- ════════════════ ACT 4 ════════════════ -->
+<section id="act4">
+<div class="reveal">
+<span class="section-number">第四章</span>
+<h2>强化学习——当规则写不出最优解，让网络自己学</h2>
+</div>
+
+<div class="reveal">
+<h3>RL 与自适应出块的分工</h3>
+<div class="dialog dialog-p"><strong>P</strong> 这是一个经常被混淆的问题。自适应出块和强化学习解决的是<strong>两个不同的问题</strong>——不是替代关系，是互补关系。</div>
+
+<div class="two-col">
+<div class="card">
+<div class="card-title">自适应出块</div>
+<p><strong>解决的问题：</strong>系统给玩家出什么题。</p>
+<p><strong>方法：</strong>规则驱动（显式知识）——每条决策可追踪到心理学研究和一行配置。</p>
+<p><strong>约束：</strong>必须可解释、实时（每步 &lt;16ms）、稳定。</p>
+<p><strong>输入→输出：</strong>玩家状态 + 棋盘 → 3 个形状。</p>
+</div>
+<div class="card card-edge-purple">
+<div class="card-title" style="color:var(--purple);">强化学习</div>
+<p><strong>解决的问题：</strong>玩家应该怎么解题。</p>
+<p><strong>方法：</strong>神经网络（隐式知识）——从大量对局数据中自动发现最优落子策略。</p>
+<p><strong>约束：</strong>追求近似最优解、离线训练、超越规则策略。</p>
+<p><strong>输入→输出：</strong>棋盘 + 3 个候选形状 → 落子位置。</p>
+</div>
+</div>
+<div class="callout callout-info">互补关系：RL 评估出块难度（spawn_step_difficulty 特征可被 RL 学习），自适应出块为 RL 提供训练环境（出块分布）。共享 game_rules 但走不同执行路径。</div>
+</div>
+
+<div class="reveal">
+<h3>算法选型推演：PPO + GAE 在棋盘环境中的特殊优势</h3>
+<div class="dialog dialog-a"><strong>A</strong> 选型过程是排除法——不是 PPO 在所有任务上都最好，而是在这个特定任务特性下 PPO 是最合适的。</div>
+
+<div class="table-wrap">
+<table>
+<tr><th>任务特性</th><th>数值</th><th>对算法选型的影响</th></tr>
+<tr><td>状态空间</td><td>8×8 ≈ 2⁶⁴，编码后 201 维</td><td>需要 CNN 做空间特征提取——排除纯 MLP</td></tr>
+<tr><td>动作空间</td><td>合法动作 0–120 个（每步不同）</td><td><span class="badge badge-red">❌ DQN</span> 假设固定 |A|，输出层维度不能动态变化</td></tr>
+<tr><td>轨迹长度</td><td>单局平均 30 步（短）</td><td><span class="badge badge-red">❌ A3C/A2C</span> 异步多线程优势在短轨迹中体现不出来</td></tr>
+<tr><td>奖励稀疏度</td><td>高——多数步不消行</td><td><span class="badge badge-red">❌ 纯 REINFORCE</span> 方差大——梯度震荡严重</td></tr>
+<tr><td>策略敏感性</td><td>极高——一步放错可能让整局崩盘</td><td><span class="badge badge-green">✅ PPO</span> clip 机制防止策略突变</td></tr>
+</table>
+</div>
+
+<div class="formula">PPO 核心损失：L(θ) = 𝔼[ min(r_t(θ)Â_t, clip(r_t(θ), 1−ε, 1+ε)Â_t) ]</div>
+
+<div class="dialog dialog-p"><strong>P</strong> 如果只能用一句话解释为什么选 PPO——棋盘放置不像 Atari 游戏。Atari 里按错一个键下一帧可以补救，但棋盘中一个错误放置直接改变了整个棋盘的拓扑结构，后续所有决策都基于这个错误的棋盘。这种"错误不可逆"的特性要求策略更新极其保守——PPO 的 clip 正好保证每次更新只走一小步，不会因为一次好的采样就大幅改变策略。</div>
+</div>
+
+<div class="reveal">
+<h3>DockBoardAttention：让每块形状独立"看"棋盘</h3>
+<div class="dialog dialog-a"><strong>A</strong> 早期网络把三块 dock 形状展平为 75 维向量（3×5×5），输入 MLP(75→32)。网络失去了一个关键的空间信息——"哪个形状对应棋盘上的哪个位置"。具体来说，MLP 不知道 1 号形状是"长条"和棋盘右侧有"竖缝"的对应关系。它只能看到"三块拼图"和"棋盘"的无序拼接。</div>
+
+<!-- SVG: DockBoardAttention -->
+<svg class="nn-svg" viewBox="0 0 800 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#64748b"/>
+    </marker>
+    <linearGradient id="gradQ" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#6366f1"/></linearGradient>
+    <linearGradient id="gradK" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#059669"/></linearGradient>
+    <linearGradient id="gradV" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#d97706"/></linearGradient>
+    <linearGradient id="gradAttn" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#7c3aed"/></linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="400" fill="var(--card-bg)" rx="10" stroke="var(--card-border)" stroke-width="1"/>
+
+  <!-- Title -->
+  <text x="400" y="28" text-anchor="middle" font-size="15" font-weight="700" fill="var(--gray-800)">DockBoardAttention 计算流程</text>
+
+  <!-- Dock Masks Input -->
+  <rect x="60" y="55" width="120" height="36" rx="6" class="layer-box" fill="var(--primary-light)"/>
+  <text x="120" y="78" text-anchor="middle" font-size="12" font-weight="700" fill="var(--primary-dark)">dock_masks</text>
+  <text x="120" y="105" text-anchor="middle" font-size="10" fill="var(--gray-500)">Tensor[B, 3, 25]</text>
+
+  <!-- Grid Features Input -->
+  <rect x="620" y="55" width="120" height="36" rx="6" class="layer-box" fill="var(--green-light)"/>
+  <text x="680" y="78" text-anchor="middle" font-size="12" font-weight="700" fill="var(--green-dark)" style="fill:#065f46;">grid_feat</text>
+  <text x="680" y="105" text-anchor="middle" font-size="10" fill="var(--gray-500)">Tensor[B, C, 8, 8]</text>
+
+  <!-- Q Linear -->
+  <rect x="80" y="140" width="80" height="36" rx="6" class="layer-box" fill="url(#gradQ)"/>
+  <text x="120" y="163" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">Linear → Q</text>
+  <text x="120" y="190" text-anchor="middle" font-size="10" fill="var(--gray-500)">[B, 3, d_k=16]</text>
+
+  <!-- K Conv1×1 -->
+  <rect x="540" y="140" width="80" height="36" rx="6" class="layer-box" fill="url(#gradK)"/>
+  <text x="580" y="163" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">Conv → K</text>
+  <text x="580" y="190" text-anchor="middle" font-size="10" fill="var(--gray-500)">[B, 16, 64]</text>
+
+  <!-- V Conv1×1 -->
+  <rect x="640" y="140" width="80" height="36" rx="6" class="layer-box" fill="url(#gradV)"/>
+  <text x="680" y="163" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">Conv → V</text>
+  <text x="680" y="190" text-anchor="middle" font-size="10" fill="var(--gray-500)">[B, 16, 64]</text>
+
+  <!-- Arrows from inputs -->
+  <path d="M120,91 L120,140" class="arrow"/>
+  <path d="M580,91 L580,140" class="arrow"/>
+  <path d="M680,91 L680,140" class="arrow"/>
+
+  <!-- Attention Score Computation -->
+  <rect x="220" y="220" width="360" height="50" rx="8" class="layer-box" fill="url(#gradAttn)"/>
+  <text x="400" y="240" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Attention Scores</text>
+  <text x="400" y="258" text-anchor="middle" font-size="11" fill="#e9d5ff">Q @ Kᵀ / √16 → softmax → weights</text>
+  <text x="400" y="280" text-anchor="middle" font-size="10" fill="#c4b5fd">attn_weights ∈ ℝ^(B, 3, 64)</text>
+
+  <!-- Arrows to attention -->
+  <path d="M120,176 Q120,210 220,245" class="arrow"/>
+  <path d="M580,176 Q580,210 400,220" class="arrow"/>
+
+  <!-- Context Output -->
+  <rect x="300" y="310" width="200" height="36" rx="6" class="layer-box" fill="var(--purple-light)"/>
+  <text x="400" y="333" text-anchor="middle" font-size="12" font-weight="700" fill="var(--purple-dark)" style="fill:#5b21b6;">context = attn @ Vᵀ</text>
+  <text x="400" y="358" text-anchor="middle" font-size="10" fill="var(--gray-500)">Tensor[B, 3, 48]</text>
+
+  <path d="M400,270 L400,310" class="arrow"/>
+  <path d="M680,176 Q680,240 500,328" class="arrow"/>
+
+  <!-- Explanation text -->
+  <text x="400" y="385" text-anchor="middle" font-size="11" fill="var(--gray-400)">每个 dock 形状独立获得棋盘上对该块最相关区域的上下文向量</text>
+</svg>
+
+<div class="stats-row">
+<div class="stat-card"><div class="stat-value">34% → 47%</div><div class="stat-label">Top-1 准确率（+13pp）</div></div>
+<div class="stat-card"><div class="stat-value">61% → 79%</div><div class="stat-label">Top-3 准确率（+18pp）</div></div>
+</div>
+
+<div class="dialog dialog-p"><strong>P</strong> 注意力机制还有一个附加价值——它的热区可以可视化。我们可以在面板上画出每块 dock 形状"看"了棋盘的哪些位置，告诉策划"网络觉得长条应该放在右下角的竖缝里"。这填补了 RL 最被诟病的"黑盒不可解释"的 gap——至少我们能看注意力权重来理解网络在关注什么。</div>
+</div>
+
+<div class="reveal">
+<h3>ConvSharedPolicyValueNet 完整架构</h3>
+
+<!-- SVG: ConvSharedPolicyValueNet -->
+<svg class="nn-svg" viewBox="0 0 800 560" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrowhead2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#64748b"/>
+    </marker>
+    <linearGradient id="gInput" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#64748b"/><stop offset="100%" stop-color="#475569"/></linearGradient>
+    <linearGradient id="gConv" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#2563eb"/></linearGradient>
+    <linearGradient id="gAttn2" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#7c3aed"/></linearGradient>
+    <linearGradient id="gTrunk" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#059669"/></linearGradient>
+    <linearGradient id="gPolicy" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#d97706"/></linearGradient>
+    <linearGradient id="gValue" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ef4444"/><stop offset="100%" stop-color="#dc2626"/></linearGradient>
+    <linearGradient id="gAux" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ec4899"/><stop offset="100%" stop-color="#db2777"/></linearGradient>
+  </defs>
+
+  <rect width="800" height="560" fill="var(--card-bg)" rx="10" stroke="var(--card-border)" stroke-width="1"/>
+
+  <text x="400" y="28" text-anchor="middle" font-size="15" font-weight="700" fill="var(--gray-800)">ConvSharedPolicyValueNet 完整架构</text>
+
+  <!-- Input Layer -->
+  <rect x="30" y="50" width="180" height="90" rx="8" class="layer-box" fill="var(--gray-100)" stroke="var(--gray-300)"/>
+  <text x="120" y="70" text-anchor="middle" font-size="12" font-weight="700" fill="var(--gray-700)">Input Features</text>
+  <line x1="45" y1="80" x2="195" y2="80" stroke="var(--gray-200)" stroke-width="1"/>
+  <text x="120" y="96" text-anchor="middle" font-size="10" fill="var(--gray-500)">Board: 8×8 tiles (64)</text>
+  <text x="120" y="110" text-anchor="middle" font-size="10" fill="var(--gray-500)">Dock: 3×5×5 masks (75)</text>
+  <text x="120" y="124" text-anchor="middle" font-size="10" fill="var(--gray-500)">Scalar: score, step, profile (62)</text>
+
+  <!-- Conv Stem -->
+  <rect x="280" y="55" width="160" height="80" rx="8" class="layer-box" fill="url(#gConv)"/>
+  <text x="360" y="77" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">Conv Stem</text>
+  <line x1="295" y1="87" x2="425" y2="87" stroke="rgba(255,255,255,.3)" stroke-width="1"/>
+  <text x="360" y="103" text-anchor="middle" font-size="10" fill="#bfdbfe">Conv2d(32) → ReLU</text>
+  <text x="360" y="117" text-anchor="middle" font-size="10" fill="#bfdbfe">2× ResConv → Conv1×1</text>
+
+  <!-- Dock Embed -->
+  <rect x="560" y="55" width="120" height="50" rx="8" class="layer-box" fill="url(#gInput)"/>
+  <text x="620" y="80" text-anchor="middle" font-size="11" font-weight="700" fill="#fff">Dock Embed</text>
+  <text x="620" y="96" text-anchor="middle" font-size="10" fill="#cbd5e1">Linear(75→16) → Q</text>
+
+  <!-- Scalar Embed -->
+  <rect x="560" y="120" width="120" height="30" rx="8" class="layer-box" fill="url(#gInput)"/>
+  <text x="620" y="140" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">Scalar Linear(62→64)</text>
+
+  <!-- Arrow: Input → Conv -->
+  <path d="M210,80 L280,80" class="arrow"/>
+  <!-- Arrow: Input → Dock Embed -->
+  <path d="M210,90 Q280,90 300,70 Q420,60 560,70" class="arrow"/>
+  <path d="M210,110 Q350,120 560,135" class="arrow"/>
+
+  <!-- DockBoardAttention -->
+  <rect x="280" y="170" width="240" height="70" rx="8" class="layer-box" fill="url(#gAttn2)"/>
+  <text x="400" y="195" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">DockBoardAttention</text>
+  <text x="400" y="215" text-anchor="middle" font-size="10" fill="#e9d5ff">CrossAttn(Q [3,16], K/V [16,64]) → context [3,48]</text>
+  <text x="400" y="230" text-anchor="middle" font-size="10" fill="#c4b5fd">每个 dock 独立获取棋盘相关区域信息</text>
+
+  <!-- Arrow: Conv → Attn Q -->
+  <path d="M360,135 L360,170" class="arrow"/>
+  <path d="M620,105 Q620,140 520,205" class="arrow"/>
+
+  <!-- Shared Trunk -->
+  <rect x="280" y="275" width="240" height="50" rx="8" class="layer-box" fill="url(#gTrunk)"/>
+  <text x="400" y="298" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">Shared Trunk</text>
+  <text x="400" y="315" text-anchor="middle" font-size="10" fill="#a7f3d0">FC(128) × 2 → 共享特征提取层</text>
+
+  <path d="M400,240 L400,275" class="arrow"/>
+
+  <!-- Branch arrows -->
+  <path d="M400,325 L400,350" class="arrow"/>
+  <line x1="400" y1="350" x2="150" y2="350" stroke="var(--gray-400)" stroke-width="1.5"/>
+  <line x1="400" y1="350" x2="400" y2="350" stroke="var(--gray-400)" stroke-width="1.5"/>
+  <line x1="400" y1="350" x2="650" y2="350" stroke="var(--gray-400)" stroke-width="1.5"/>
+
+  <!-- Policy Head -->
+  <rect x="60" y="360" width="180" height="55" rx="8" class="layer-box" fill="url(#gPolicy)"/>
+  <text x="150" y="382" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Policy Head</text>
+  <text x="150" y="400" text-anchor="middle" font-size="10" fill="#fef3c7">softmax(0–120)</text>
+  <text x="150" y="414" text-anchor="middle" font-size="10" fill="#fde68a">动作概率分布</text>
+  <path d="M150,350 L150,360" class="arrow"/>
+
+  <!-- Value Head -->
+  <rect x="310" y="360" width="180" height="55" rx="8" class="layer-box" fill="url(#gValue)"/>
+  <text x="400" y="382" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Value Head</text>
+  <text x="400" y="400" text-anchor="middle" font-size="10" fill="#fecaca">scalar V(s)</text>
+  <text x="400" y="414" text-anchor="middle" font-size="10" fill="#fca5a5">预期得分</text>
+  <path d="M400,350 L400,360" class="arrow"/>
+
+  <!-- Aux Heads -->
+  <rect x="550" y="360" width="200" height="100" rx="8" class="layer-box" fill="url(#gAux)"/>
+  <text x="650" y="380" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">6 Aux Heads</text>
+  <line x1="565" y1="390" x2="735" y2="390" stroke="rgba(255,255,255,.3)" stroke-width="1"/>
+  <text x="650" y="406" text-anchor="middle" font-size="10" fill="#fbcfe8">• board_quality (reg)</text>
+  <text x="650" y="420" text-anchor="middle" font-size="10" fill="#fbcfe8">• feasibility (binary)</text>
+  <text x="650" y="434" text-anchor="middle" font-size="10" fill="#fbcfe8">• survival (binary)</text>
+  <text x="650" y="448" text-anchor="middle" font-size="10" fill="#fbcfe8">• topology_aux / spawn_diff / clear_pred</text>
+  <path d="M650,350 L650,360" class="arrow"/>
+
+  <!-- Bottom note -->
+  <text x="400" y="500" text-anchor="middle" font-size="11" fill="var(--gray-400)">多任务学习：主任务 (Policy + Value) + 6 个辅助任务，迫使主干学到更通用的棋盘表征</text>
+</svg>
+
+<div class="callout callout-info"><strong>辅助头的设计原理：</strong>多任务学习——让网络同时预测盘面质量、可行棋数量、存活概率、10 维拓扑特征、4 维难度特征、消行数。这些"副任务"迫使主干网络学到更通用的棋盘表征，而不是只过拟合到策略任务。消融实验显示移除辅助头后 Top-1 下降约 6%。</div>
+</div>
+
+<div class="reveal">
+<h3>奖励函数设计：四分量可解释架构</h3>
+<div class="dialog dialog-a"><strong>A</strong> 奖励函数是 RL 训练中最关键也最难设计的部分。当前奖励函数是四分量加权和——每个分量解决一个特定的训练问题，设计动机可以追溯到具体的训练失败案例。</div>
+
+<div class="formula">r = ΔScore + 0.8·ΔΦ_topology + 0.6·r_eval + winBonus(35)</div>
+
+<div class="accordion">
+<div class="accordion-item">
+<div class="accordion-header" onclick="toggleAccordion(this)">
+<span>分量 1：ΔScore（分数增量）</span><span class="arrow">▼</span>
+</div>
+<div class="accordion-body">
+<p><strong>动机：</strong>最直接的奖励——消行得分越高越好。不加这个分量网络会学出"不消行只移动"的退化策略。</p>
+<p><strong>问题：</strong>只看 score 会导致棋盘堆很高但分数还在涨——网络学会了"牺牲长远可玩性换短期分数"。</p>
+<p><strong>解决方案：</strong>需要拓扑势分量来制衡。</p>
+</div>
+</div>
+<div class="accordion-item">
+<div class="accordion-header" onclick="toggleAccordion(this)">
+<span>分量 2：ΔΦ_topology（拓扑势差）</span><span class="arrow">▼</span>
+</div>
+<div class="accordion-body">
+<p><strong>动机：</strong>盘面健康度的变化量。Φ = Σ (可消线数²) / max(棋盘填充, ε)。可消线多 + 填充率低 → Φ 高。势函数的<strong>差值</strong>（而非绝对值）作为瞬时信号——奖励"把棋盘整干净"的行为，惩罚"把棋盘堆乱"的行为。</p>
+<p><strong>设计细节：</strong>用势函数差的原因是不随时间步漂移。如果用填充率绝对值作为负奖励，前期天然容易获得负奖励（开局填充率高），后期天然容易获得正奖励（消行后填充率低）。势差消除了这种时间偏差。</p>
+</div>
+</div>
+<div class="accordion-item">
+<div class="accordion-header" onclick="toggleAccordion(this)">
+<span>分量 3：r_eval（评估反馈）</span><span class="arrow">▼</span>
+</div>
+<div class="accordion-body">
+<p><strong>动机：</strong>这是训练中最关键的信号。消行得分是稀疏的（很多步不消行），但"这步放得好不好"是密集的（每步都有质量）。r_eval 让网络感知"这步放得好不好"而不只是"这局赢了没"。</p>
+<p>r_eval = w_reg·(−regret) + w_opt·optim + w_fb·(−forced_bad) + w_sv·salvage</p>
+<p><strong>regret：</strong>如果放置后棋盘可解性变差，regret 高。网络被惩罚去"让局面变差的位置"。</p>
+<p><strong>optim：</strong>当前放置是否是最优选择（或接近最优）。通过比较其他可选位置的预期结果计算。</p>
+<p><strong>forced_bad：</strong>当所有合法位置都会导致棋盘恶化时，网络被惩罚的次数越少越好。</p>
+<p><strong>salvage：</strong>在 forced_bad 不可避免的情况下，能否选择"伤害最小"的位置。</p>
+</div>
+</div>
+<div class="accordion-item">
+<div class="accordion-header" onclick="toggleAccordion(this)">
+<span>分量 4：winBonus(35)</span><span class="arrow">▼</span>
+</div>
+<div class="accordion-body">
+<p><strong>动机：</strong>稀疏但明确的终极目标——整局结束时如果存活（未死局），+35 奖励。虽然只在结束时出现一次，但它提供了 vs"只优化短视行为"的方向信号。</p>
+<p><strong>数值 35 的设计：</strong>约等于一波 2 消的 score 增量（3×3 消块约得 30-40 分）。winBonus 的重要性大致等于"一次中等水平的消行"——不会压制所有其他信号，但也不可忽略。</p>
+</div>
+</div>
+</div>
+
+<div class="callout callout-info"><strong>v12 最新改进：</strong>注入 style condition token（arc 阶段 + spawnIntent）。网络在推理时多接收一个"当前场景"的 embedding。peak 阶段+pressure intent → 策略更激进；cooldown 阶段+relief intent → 策略更保守。这让一个训练好的模型能自适应不同场景。</div>
+</div>
+
+<div class="reveal">
+<h3>自适应课程学习</h3>
+<div class="dialog dialog-p"><strong>P</strong> RL 训练中最痛苦的教训——让模型打太难的局，它开局就死，啥也学不到。但太容易的局一直打到平台期，也上不去。难的是一边训练一边动态维持"刚刚好"的难度。</div>
+
+<div class="two-col">
+<div class="card">
+<div class="card-title">分位数自适应（核心）</div>
+<p><strong>设定：</strong>取 p=60 分位数作为 winThreshold。</p>
+<p>每 100 局窗口，取 recent 分数的第 60 百分位数。</p>
+<p>模型变强 → 分数普遍上涨 → p60 自动上升 → 要求更高分才能"赢"。</p>
+<p>模型变弱 → p60 自动下降 → 更容易"赢"。</p>
+<p><strong>结果：</strong>win_rate 数学上恒等于 40%。</p>
+<p><strong>为什么是 40%：</strong>前 40% 的局能赢就够了——模型在 60% 的局中"学习挑战"，在 40% 的局中"获得奖励"。完全均衡。</p>
+</div>
+<div class="card">
+<div class="card-title">难度桶（正交辅助）</div>
+<p>与阈值正交的难度维度——控制出块难度上限，保证先学基础再学复杂。</p>
+<p>Stage 1 (0–2000 局): maxScd ≤ 0.4</p>
+<p>Stage 2 (2000–6000): maxScd ≤ 0.6</p>
+<p>Stage 3 (6000–15000): maxScd ≤ 0.8</p>
+<p>Stage 4 (15000+): maxScd ≤ 1.0</p>
+</div>
+</div>
+</div>
+
+<div class="reveal">
+<h3>平台期突破三层信号</h3>
+<div class="dialog dialog-a"><strong>A</strong> 训练中最痛苦的时刻——模型停在 400-500 分平台期，怎么也上不去。根源是基础策略已经学到极致，但高阶策略还没掌握。加了三层信号来跨越这个 gap。</div>
+
+<div class="three-col">
+<div class="card">
+<div class="card-title">Ranked Reward</div>
+<p><strong>问题：</strong>绝对分受出块难度影响太大。</p>
+<p><strong>方案：</strong>不看绝对分，看相对排名。450 分在 100 局分布中排第 40 百分位→正奖励 vs 排第 70 百分位→负奖励。迫使模型不断自我超越。</p>
+</div>
+<div class="card">
+<div class="card-title">Search Distill</div>
+<p><strong>问题：</strong>模型在困难局面中不知道"好棋"长什么样。</p>
+<p><strong>方案：</strong>3-ply beam search 搜索更好落子作为 expert 轨迹蒸馏到策略网络。从 replay buffer 筛选高 regret 步做重放。</p>
+</div>
+<div class="card">
+<div class="card-title">EvalGate</div>
+<p><strong>问题：</strong>训练震荡——无监督的回滚机制是必要的。</p>
+<p><strong>方案：</strong>固定间隔用多个随机 seed 评估候选模型 vs 基线模型。50 局评估中候选模型显著高于基线才更新 checkpoint。</p>
+</div>
+</div>
+
+<div class="stats-row">
+<div class="stat-card"><div class="stat-value">400 → 600+</div><div class="stat-label">平台期突破后平均分</div></div>
+</div>
+</div>
+
+<div class="reveal">
+<h3>三条执行路径</h3>
+<div class="algo-box">
+┌─────────────────────────────────────────────────────────────────┐
+│  路径 A：Python 自博弈（主力训练）                                │
+│  python -m rl_pytorch.train                                       │
+│  ┌──────────────────────────────────────────────────────┐        │
+│  │  MCTS Teacher + 同源出块 + 多 Worker = 高吞吐训练    │        │
+│  │  产出 checkpoint → 评估 → 最佳 checkpoint → 推理部署  │        │
+│  └──────────────────────────────────────────────────────┘        │
+├─────────────────────────────────────────────────────────────────┤
+│  路径 B：浏览器自博弈（快速原型）                                  │
+│  RlGameplayEnvironment + self-play                              │
+│  ┌──────────────────────────────────────────────────────┐        │
+│  │  Flask API → PyTorch 推理 → 5 分钟搭端到端 Demo       │        │
+│  │  不产 checkpoint，适合原型验证、面板展示               │        │
+│  └──────────────────────────────────────────────────────┘        │
+├─────────────────────────────────────────────────────────────────┤
+│  路径 C：线上推理（不影响真人对局）                                │
+│  game.js → adaptiveSpawn / spawnModel                           │
+│  ┌──────────────────────────────────────────────────────┐        │
+│  │  RL 只用于 Bot 下棋和出块难度评估                      │        │
+│  │  关键边界：真人对局和 RL Bot 不直接耦合                │        │
+│  │  共享 game_rules 但走不同执行路径                     │        │
+│  │  RL 模型永远不会影响真人的出块体验                    │        │
+│  └──────────────────────────────────────────────────────┘        │
+└─────────────────────────────────────────────────────────────────┘
+</div>
+</div>
+</section>
+
+<div class="section-break">· · ·</div>
+
+<!-- ════════════════ ACT 5 ════════════════ -->
+<section id="act5">
+<div class="reveal">
+<span class="section-number">第五章</span>
+<h2>商业化算法——体验无损的价值兑现</h2>
+</div>
+
+<div class="reveal">
+<h3>三条红线</h3>
+<div class="dialog dialog-p"><strong>P</strong> 商业化最容易走偏的方向就是把玩家当成"收入单元"。三条红线确保商业化不反噬体验。</div>
+
+<div class="three-col">
+<div class="card card-edge-green">
+<div class="card-title" style="color:var(--green);">红线 1：不剥夺自主权</div>
+<p>广告弹窗不能强制，必须保留"关闭"选项。每次弹窗前检查上下文——如果玩家正在濒死挣扎，不弹。</p>
+</div>
+<div class="card card-edge-yellow">
+<div class="card-title" style="color:#b45309;">红线 2：不在低意愿时刻变现</div>
+<p>行业基准：高意愿时刻（game_over 后、PB 后）的商业接受度比低意愿时刻（挫败中、焦虑中）高 6×。在低意愿时刻弹广告 = 加速流失。</p>
+</div>
+<div class="card card-edge-red">
+<div class="card-title" style="color:var(--red);">红线 3：付费用户受保护</div>
+<p>Whale 用户不弹插屏广告。订阅用户默认所有广告降频。核心理念：<strong>付费买的是更好的体验，不是更少的广告</strong>。</p>
+</div>
+</div>
+</div>
+
+<div class="reveal">
+<h3>零侵入事件总线</h3>
+<div class="dialog dialog-a"><strong>A</strong> 商业化模块不修改核心 game.js 一行代码。通过包装 logBehavior 函数实现的发布-订阅事件总线——game.js 像往常一样调用 logBehavior('game_over', data)，总线自动分发给所有注册的监听器。</div>
+<div class="algo-box">
+game.logBehavior('game_over', data)
+        │
+        ▼
+┌──────────────────────────────────┐
+│ MonetizationEventBus             │
+│ 不修改 game.js 一行代码           │
+│ 通过 wrapper 拦截 logBehavior    │
+│ 发布-订阅模式，可插拔             │
+└──────┬──────┬──────┬──────┬─────┘
+       │      │      │      │
+       ▼      ▼      ▼      ▼
+┌──────┐ ┌──────┐ ┌──────┐ ┌──────────┐
+│ 广告  │ │ 赛季  │ │ 任务  │ │ 分享/个性  │
+│ 系统  │ │ 系统  │ │ 系统  │ │ 化更新    │
+└──────┘ └──────┘ └──────┘ └──────────┘
+</div>
+</div>
+
+<div class="reveal">
+<h3>Whale/Dolphin/Minnow 分群模型</h3>
+<div class="dialog dialog-a"><strong>A</strong> 分群不是简单的付费金额分层——用的是行为 + 价值的综合评分。评分公式的设计原则是<strong>可解释、可校准、可干预</strong>。</div>
+
+<div class="formula">whale_score = 0.4·bestScoreNorm + 0.3·totalGamesNorm + 0.3·sessionTimeNorm</div>
+
+<div class="three-col">
+<div class="stat-card" style="border-color:var(--accent);"><div class="stat-value" style="color:#b45309;">Whale ≥ 0.60</div><div class="stat-label">2–5% 核心付费用户<br>无插屏 + IAP 礼包</div></div>
+<div class="stat-card" style="border-color:var(--primary);"><div class="stat-value" style="color:var(--primary);">Dolphin ≥ 0.30</div><div class="stat-label">25–40% 可转化用户<br>有限插屏 + 激励 + 礼包</div></div>
+<div class="stat-card"><div class="stat-value">Minnow &lt; 0.30</div><div class="stat-label">55–70% 轻型用户<br>激励为主 + 低频插屏</div></div>
+</div>
+
+<div class="card">
+<div class="card-title">校准方法：分位数对齐</div>
+<p><strong>问题：</strong>whale_score 的分数分布是连续的，但分群阈值（0.60 / 0.30）需要使三群的比例匹配行业基准（2-5% / 25-40% / 55-70%）。</p>
+<p><strong>方法：</strong>先在回放数据上计算所有用户的 whale_score，取 p95 和 p60 分位数作为初始阈值。上线后根据实际付费数据的反馈微调——whale 群付费率低于预期 → 下移阈值让更多用户进入 whale。</p>
+<p><strong>三个数值的含义：</strong>bestScoreNorm 加权最高（0.4）是因为"玩得好"是"愿意付费"的最强信号——高分段用户的付费转化率是低分段用户的 5×。</p>
+</div>
+</div>
+
+<div class="reveal">
+<h3>广告决策四步流水线</h3>
+<div class="dialog dialog-a"><strong>A</strong> 每次是否弹广告、弹什么类型，经过四步可审计的决策流水线。这是为了确保商业化是可解释的——"为什么弹了/为什么没弹"都可以回答。</div>
+
+<div class="algo-box">
+<span class="hl">Step 1：构建商业向量</span>
+  ┌─────────────────────────────────────────────────────┐
+  │ payerScore      ← whale_score + 近期消费记录         │
+  │ churnRisk       ← 近期活跃度 + 挫败频率 + 趋势       │
+  │ adFatigueRisk   ← 24h 滑动窗口广告曝光次数            │
+  │ ltvEstimate     ← 基于历史行为预估 LTV               │
+  └─────────────────────────────────────────────────────┘
+
+<span class="hl">Step 2：Guardrail 硬性检查</span>
+  ┌─────────────────────────────────────────────────────┐
+  │ Whale → suppressInterstitial（不可绕过）              │
+  │ Over daily cap → suppressAll（不可绕过）              │
+  │ High churn risk → 降低频率（不可绕过）                │
+  └─────────────────────────────────────────────────────┘
+
+<span class="hl">Step 3：场景匹配</span>
+  ┌─────────────────────────────────────────────────────┐
+  │ GAME_OVER:   Whale → none / Dolphin → interstitial  │
+  │             Minnow → rewarded video                  │
+  │ NO_MOVES:    优先 rewarded video（高意愿→续命）      │
+  │ STAMINA_EMPTY: rewarded video（高意愿→继续玩）       │
+  └─────────────────────────────────────────────────────┘
+
+<span class="hl">Step 4：频率控制</span>
+  ┌─────────────────────────────────────────────────────┐
+  │ 四层独立控制：                                        │
+  │ 硬上限：激励 12x/天, 插屏 6x/天                       │
+  │ 时间间隔：两次广告 ≥ 60s                              │
+  │ 疲劳度：24h 内超过 N 次 → 自然降频                    │
+  │ 流失保护：churnRisk > 0.7 → 今天不再弹              │
+  └─────────────────────────────────────────────────────┘
+</div>
+</div>
+</section>
+
+<div class="section-break">· · ·</div>
+
+<!-- ════════════════ FINAL ════════════════ -->
+<section id="final">
+<div class="reveal">
+<span class="section-number">终章</span>
+<h2>架构总览与开放研究问题</h2>
+
+<div class="img-wrap">
+<img src="/docs/asset/architecture/assets/architecture-overview.png" alt="全栈架构">
+<div class="img-caption">每层右侧"层内约束" + 底部 6 条全局设计原则</div>
+</div>
+</div>
+
+<div class="reveal">
+<h3>关键架构决策</h3>
+<div class="table-wrap">
+<table>
+<tr><th>决策</th><th>选择</th><th>放弃</th><th>原理</th><th>事后评价</th></tr>
+<tr><td>事件总线</td><td>包装 logBehavior</td><td>改 game.js</td><td>零侵入，可独立移除商业化</td><td>✅ 正确——赛季/任务/分享系统直接复用</td></tr>
+<tr><td>功能开关</td><td>localStorage 持久化</td><td>远端配置</td><td>不依赖网络，无后端也能调试</td><td>✅ 正确——加快了调参迭代</td></tr>
+<tr><td>游戏规则</td><td>game_rules.json 单源真相</td><td>各端独立硬编码</td><td>改一处四端同步</td><td>✅ 正确——降低跨端不一致 bug</td></tr>
+<tr><td>外部依赖</td><td>默认 stub 模拟模式</td><td>强制真实 SDK</td><td>CI 不依赖外部服务</td><td>✅ 正确——新人上手从 1 天到 5 分钟</td></tr>
+<tr><td>配置安全</td><td>缺 key 抛 ConfigError</td><td>默认值兜底</td><td>安全问题开发期暴露</td><td>✅ 正确——catch 过 3 次上线前漏配</td></tr>
+</table>
+</div>
+</div>
+
+<div class="reveal">
+<div class="card card-edge-green">
+<div class="card-title">性能优化：核心包 500KB → 230KB（-54%）</div>
+<p>通过 Vite manualChunks 将 RL 训练、商业化面板等非核心路径拆为独立异步 chunk。CI 强制预算：核心 ≤ 360KB | 商业 ≤ 360KB | RL ≤ 100KB。</p>
+</div>
+</div>
+
+<div class="reveal">
+<h3>开放研究点</h3>
+<div class="two-col">
+<div class="card"><div class="card-title">Spawn 个性化 LoRA</div><p>每个玩家学一组出块偏好权重，在 SpawnTransformerV3 backbone 上加 LoRA adapter，成本低、不干扰主模型。</p></div>
+<div class="card"><div class="card-title">Feasibility 可微化</div><p>当前 DFS 序贯可解性验证不可微——不能端到端训练。目标是训练一个 learned feasibility predictor，使出块网络能梯度回传可解性目标。</p></div>
+<div class="card"><div class="card-title">Contextual Bandit 广告</div><p>当前广告决策是固定规则引擎。用 contextual bandit 做在线探索 vs 利用——但需要严格护栏，不能伤害体验。</p></div>
+<div class="card"><div class="card-title">Uplift 付费预测</div><p>当前 whale_score 是静态分群。uplift model 能回答"这个用户推这个礼包能增加多少付费概率"——需要随机实验数据。</p></div>
+</div>
+</div>
+
+<div class="reveal">
+<div class="pull-quote" style="margin-top:40px;">
+OpenBlock 是一个将自适应出块 AI、玩家画像、强化学习和商业化算法深度融合的开源研究平台。不是"拿来玩"的游戏——是拿来研究、拿来改、拿来验证算法想法的工作台。每个子系统都可解释、可修改、可独立验证。
+</div>
+
+<div class="dialog dialog-a"><strong>A</strong> 从心理学研究到深度训练网络，从实时 EMA 画像到 PPO 收敛技巧——把这套全链路的算法栈完全开源了。20+ 文档、万行代码、完整的训练脚本，就是为了让下一个想做方块游戏 AI 的人，不用从零开始。</div>
+</div>
+</section>
+
+<div class="section-break">· · ·</div>
+
+<!-- ════════════════ QA ════════════════ -->
+<section id="qa">
+<div class="reveal">
+<span class="section-number">附录</span>
+<h2>QA</h2>
+
+<div class="qa-item"><div class="qa-q">Q: 玩家画像为什么不用机器学习？有没有计划换？</div><div class="qa-a">A: 当前不用 ML 的四大假设：冷启动（1-3 局即工作）、零延迟（0ms 端侧）、全可解释（改 JSON 即生效）、弱网可用。未来计划：在回放数据充足后，引入 LightGBM 作为融合 baseline——但保持 confidence 门控，低置信时退回规则模型。目标是"融合"而非"替换"。</div></div>
+
+<div class="qa-item"><div class="qa-q">Q: RL 双路径如何保证训练结果互通？</div><div class="qa-a">A: 浏览器路径和 Python 路径共享同一份 network architecture 定义和超参数配置。浏览器路径调通网络结构后，Python 路径直接用同一个 config 文件启动大规模训练。checkpoint 可以在两端互载——浏览器端加载 Python 训练的 checkpoint 做演示推理。</div></div>
+
+<div class="qa-item"><div class="qa-q">Q: 自适应出块的效果怎么衡量？有没有单一指标？</div><div class="qa-a">A: 没有单一指标——因为单一指标优化会导致其他维度恶化（Goodhart's Law）。我们跟踪一组平衡指标：30 天留存（行业研究 DDA 可提升 22%）、心流率 F(t) flow 占比、单局平均挫败频率、单局时长分布变异系数、PB 更新间隔。调参时必须同时检视所有指标。</div></div>
+
+<div class="qa-item"><div class="qa-q">Q: 双轨出块在线上是并行还是主备？回退频率多高？</div><div class="qa-a">A: 并行但不对称。规则轨永远是默认路径——即便生成式轨完全不可用，系统 100% 功能正常。生成式轨输出必须通过 validateSpawnTriplet 护栏（可解性 + 难度匹配度 + 多样性三重校验）才生效。当前线上回退率约 3-5%（护栏不通）。所有 fallback 原因记录到日志用于改进生成式模型。</div></div>
+
+<div class="qa-item"><div class="qa-q">Q: 最有成就感的一个修复是什么？</div><div class="qa-a">A: "压力 0.04 但玩家濒死"的反例。它教会我们的核心原则贯穿了后续所有设计：<strong>算法正确 ≠ 体验正确</strong>。MDA 框架告诉我们 Aesthetics 层错位就是 bug——不论 M 和 D 对不对。这个认知让我们在设计审查中增加了 Q2（叙事一致性）和 Q5（峰终设计），并且使"A 层测试"成为 QA 的必选项。</div></div>
+</div>
+</section>
+
+</div>
+
+<footer class="footer">
+<p>根据 OpenBlock v1.15 撰写 | <a href="https://github.com/btbujiangjun/openblock">GitHub</a> | 启动后访问 <strong>/docs</strong> 浏览全部文档</p>
+</footer>
+
+<script>
+// ── Reading progress bar ──
+window.addEventListener('scroll', () => {
+  const docH = document.documentElement.scrollHeight - window.innerHeight;
+  const progress = Math.min(docH > 0 ? (window.scrollY / docH) * 100 : 0, 100);
+  document.getElementById('progress-bar').style.width = progress + '%';
+});
+
+// ── Dark mode ──
+(function() {
+  const toggle = document.getElementById('dark-toggle');
+  const stored = localStorage.getItem('openblock-dark');
+  if (stored === 'true') {
+    document.body.classList.add('dark');
+    toggle.textContent = '☀️';
+  }
+  toggle.addEventListener('click', () => {
+    document.body.classList.toggle('dark');
+    const isDark = document.body.classList.contains('dark');
+    localStorage.setItem('openblock-dark', isDark);
+    toggle.textContent = isDark ? '☀️' : '🌙';
+  });
+})();
+
+// ── Scroll reveal ──
+(function() {
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.1 });
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+})();
+
+// ── Tabs ──
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const parent = btn.closest('.tabs');
+    parent.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    parent.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Accordion ──
+function toggleAccordion(header) {
+  const item = header.closest('.accordion-item');
+  const wasOpen = item.classList.contains('open');
+  // close all siblings
+  item.closest('.accordion').querySelectorAll('.accordion-item.open').forEach(sib => {
+    if (sib !== item) sib.classList.remove('open');
+  });
+  item.classList.toggle('open', !wasOpen);
+}
+</script>
+
+</body>
+</html>

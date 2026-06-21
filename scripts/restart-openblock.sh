@@ -227,16 +227,38 @@ _stop_pid_file logs/dev.pid
 # 多个训练写同一 checkpoint/training.jsonl 会互相回滚、交错日志、注入旧代码的异常值
 # （如 approx_kl=1e29）。重启前必须先全部杀掉，确保只剩本次拉起的单一训练进程。
 _kill_orphan_trainers() {
-  command -v pgrep >/dev/null 2>&1 || return 0
-  local pids
-  pids=$(pgrep -f "rl_pytorch.train" 2>/dev/null || true)
+  local pids pgids
+  pids=""
+  if command -v pgrep >/dev/null 2>&1; then
+    pids=$(pgrep -f "[r]l_pytorch.train" 2>/dev/null || true)
+  fi
+  # macOS pgrep 在长命令/沙箱边界下偶尔漏报；用 ps 再做一次兜底。
+  # 只匹配训练入口 `-m rl_pytorch.train`，避免误杀 server.py / 普通 python。
+  if [[ -z "${pids//[$' \t\n']}" ]]; then
+    pids=$(ps -axo pid=,command= 2>/dev/null | awk '/-m rl_pytorch[.]train/ {print $1}' || true)
+  fi
   [[ -z "${pids//[$' \t\n']}" ]] && return 0
   echo "==> 收割孤儿训练进程: $(echo "$pids" | tr '\n' ' ')"
+  pgids=$(ps -o pgid= -p "$(echo "$pids" | paste -sd, -)" 2>/dev/null | awk '{print $1}' | sort -u || true)
+  # 训练进程由后端 start_new_session=True 启动，按 PGID 杀可连同 multiprocessing worker
+  # 和 resource_tracker 一并回收，避免只杀主进程后 worker 继续占内存。
+  while IFS= read -r pgid; do
+    [[ -n "$pgid" ]] && kill "-${pgid}" 2>/dev/null || true
+  done <<<"$pgids"
   while IFS= read -r pid; do
     [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
   done <<<"$pids"
   sleep 0.6
-  pids=$(pgrep -f "rl_pytorch.train" 2>/dev/null || true)
+  if command -v pgrep >/dev/null 2>&1; then
+    pids=$(pgrep -f "[r]l_pytorch.train" 2>/dev/null || true)
+  else
+    pids=""
+  fi
+  [[ -n "${pids//[$' \t\n']}" ]] || pids=$(ps -axo pid=,command= 2>/dev/null | awk '/-m rl_pytorch[.]train/ {print $1}' || true)
+  pgids=$(ps -o pgid= -p "$(echo "$pids" | paste -sd, -)" 2>/dev/null | awk '{print $1}' | sort -u || true)
+  while IFS= read -r pgid; do
+    [[ -n "$pgid" ]] && kill -9 "-${pgid}" 2>/dev/null || true
+  done <<<"$pgids"
   while IFS= read -r pid; do
     [[ -n "$pid" ]] && kill -9 "$pid" 2>/dev/null || true
   done <<<"$pids"
@@ -271,7 +293,7 @@ export RL_AUX_LOSS_CLIP="${RL_AUX_LOSS_CLIP:-20.0}"    # P1-1 · 辅助损失单
 export RL_VALUE_RETURN_SCALE="${RL_VALUE_RETURN_SCALE:-0.5}"  # 灰度压低价值头 returns 目标量纲，缓解 loss_value 高位不降（MCTS 已 Q 归一化对尺度免疫）
 export RL_BEST_GUARD="${RL_BEST_GUARD:-1}"             # best-checkpoint 守护：滚动均分创新高即快照、显著回撤即回滚到 best
 export RL_BEST_GUARD_EVERY="${RL_BEST_GUARD_EVERY:-200}"     # 守护检查间隔（局）
-export RL_BEST_GUARD_REGRESS="${RL_BEST_GUARD_REGRESS:-0.78}"  # 回撤阈值：均分 < best×此值 即回滚（0.85→0.78：减少 best 附近 ±15-20% 自然波动导致的过度回滚）
+export RL_BEST_GUARD_REGRESS="${RL_BEST_GUARD_REGRESS:-0.78}"  # 回撤阈值：均分 < best×此值 即回滚（减少 best 附近自然波动导致的过度回滚）
 export RL_OUTCOME_REF_SCORE="${RL_OUTCOME_REF_SCORE:-1500}"  # outcome 价值目标固定参考分（去课程门槛耦合，目标平稳）
 export RL_KL_REF_COEF="${RL_KL_REF_COEF:-0.05}"        # KL-to-reference：软约束策略不远离历史最优快照（每批多一次参考前向；0=关）
 export RL_HIGH_SCORE_REPLAY="${RL_HIGH_SCORE_REPLAY:-1}"  # 高分优先回放：按 score 加权采样/保留 + 对高分局 chosen 动作行为克隆
