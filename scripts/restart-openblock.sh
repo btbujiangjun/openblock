@@ -227,38 +227,16 @@ _stop_pid_file logs/dev.pid
 # 多个训练写同一 checkpoint/training.jsonl 会互相回滚、交错日志、注入旧代码的异常值
 # （如 approx_kl=1e29）。重启前必须先全部杀掉，确保只剩本次拉起的单一训练进程。
 _kill_orphan_trainers() {
-  local pids pgids
-  pids=""
-  if command -v pgrep >/dev/null 2>&1; then
-    pids=$(pgrep -f "[r]l_pytorch.train" 2>/dev/null || true)
-  fi
-  # macOS pgrep 在长命令/沙箱边界下偶尔漏报；用 ps 再做一次兜底。
-  # 只匹配训练入口 `-m rl_pytorch.train`，避免误杀 server.py / 普通 python。
-  if [[ -z "${pids//[$' \t\n']}" ]]; then
-    pids=$(ps -axo pid=,command= 2>/dev/null | awk '/-m rl_pytorch[.]train/ {print $1}' || true)
-  fi
+  command -v pgrep >/dev/null 2>&1 || return 0
+  local pids
+  pids=$(pgrep -f "rl_pytorch.train" 2>/dev/null || true)
   [[ -z "${pids//[$' \t\n']}" ]] && return 0
   echo "==> 收割孤儿训练进程: $(echo "$pids" | tr '\n' ' ')"
-  pgids=$(ps -o pgid= -p "$(echo "$pids" | paste -sd, -)" 2>/dev/null | awk '{print $1}' | sort -u || true)
-  # 训练进程由后端 start_new_session=True 启动，按 PGID 杀可连同 multiprocessing worker
-  # 和 resource_tracker 一并回收，避免只杀主进程后 worker 继续占内存。
-  while IFS= read -r pgid; do
-    [[ -n "$pgid" ]] && kill "-${pgid}" 2>/dev/null || true
-  done <<<"$pgids"
   while IFS= read -r pid; do
     [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
   done <<<"$pids"
   sleep 0.6
-  if command -v pgrep >/dev/null 2>&1; then
-    pids=$(pgrep -f "[r]l_pytorch.train" 2>/dev/null || true)
-  else
-    pids=""
-  fi
-  [[ -n "${pids//[$' \t\n']}" ]] || pids=$(ps -axo pid=,command= 2>/dev/null | awk '/-m rl_pytorch[.]train/ {print $1}' || true)
-  pgids=$(ps -o pgid= -p "$(echo "$pids" | paste -sd, -)" 2>/dev/null | awk '{print $1}' | sort -u || true)
-  while IFS= read -r pgid; do
-    [[ -n "$pgid" ]] && kill -9 "-${pgid}" 2>/dev/null || true
-  done <<<"$pgids"
+  pids=$(pgrep -f "rl_pytorch.train" 2>/dev/null || true)
   while IFS= read -r pid; do
     [[ -n "$pid" ]] && kill -9 "$pid" 2>/dev/null || true
   done <<<"$pids"
@@ -290,10 +268,17 @@ export RL_PPO_CLIP="${RL_PPO_CLIP:-0.15}"              # 0.2→0.15：与 target
 export RL_AUX_LOSS_CLIP="${RL_AUX_LOSS_CLIP:-20.0}"    # P1-1 · 辅助损失单步幅值上限 ±20
                                                        # 6/21 日志 ep 140816+ 出现 bonus=1026, clr=38, topo=9.4，
                                                        # 远超正常区间（aux loss 平时 0.1-5）；clamp 后正常梯度不受影响。
+# F0-1/F0-2 · 收敛性治理（实测 jsonl 50% 批次 policy_loss∈[-6631,+2208]，loss_bq max=936449）
+export RL_POLICY_ELEM_CLIP="${RL_POLICY_ELEM_CLIP:-50.0}"   # policy_loss 元素 |x|≤50（旧 1e4 过松）
+export RL_PPO_RATIO_CAP_MULT="${RL_PPO_RATIO_CAP_MULT:-5.0}" # surr1 用的 ratio cap = N × ppo_clip
+export RL_BQ_PRED_CLIP="${RL_BQ_PRED_CLIP:-10.0}"          # board_quality head 输出 clip
+export RL_SURV_PRED_CLIP="${RL_SURV_PRED_CLIP:-3.0}"       # survival head 输出 clip（target ∈ [0,1]）
+export RL_FEAS_LOGIT_CLIP="${RL_FEAS_LOGIT_CLIP:-10.0}"    # feasibility BCE logits clip
 export RL_VALUE_RETURN_SCALE="${RL_VALUE_RETURN_SCALE:-0.5}"  # 灰度压低价值头 returns 目标量纲，缓解 loss_value 高位不降（MCTS 已 Q 归一化对尺度免疫）
 export RL_BEST_GUARD="${RL_BEST_GUARD:-1}"             # best-checkpoint 守护：滚动均分创新高即快照、显著回撤即回滚到 best
 export RL_BEST_GUARD_EVERY="${RL_BEST_GUARD_EVERY:-200}"     # 守护检查间隔（局）
-export RL_BEST_GUARD_REGRESS="${RL_BEST_GUARD_REGRESS:-0.78}"  # 回撤阈值：均分 < best×此值 即回滚（减少 best 附近自然波动导致的过度回滚）
+export RL_BEST_GUARD_REGRESS="${RL_BEST_GUARD_REGRESS:-0.75}"  # 0.85→0.75：avg 5603 时 0.85=4763 触发频繁误回滚（最近 1h 47 次），
+                                                              # PPO 自然方差就在 best×0.85 上下；0.75 给真退化留容差，避免 lr 撞地板
 export RL_OUTCOME_REF_SCORE="${RL_OUTCOME_REF_SCORE:-1500}"  # outcome 价值目标固定参考分（去课程门槛耦合，目标平稳）
 export RL_KL_REF_COEF="${RL_KL_REF_COEF:-0.05}"        # KL-to-reference：软约束策略不远离历史最优快照（每批多一次参考前向；0=关）
 export RL_HIGH_SCORE_REPLAY="${RL_HIGH_SCORE_REPLAY:-1}"  # 高分优先回放：按 score 加权采样/保留 + 对高分局 chosen 动作行为克隆
@@ -306,16 +291,18 @@ export RL_N_WORKERS="${RL_N_WORKERS:-4}"  # 8→4：每个 spawn worker ≈ 1.5G
 # 6/21 12:03 vmmap 测得训练 4min 即吃 15.3G MPS GPU 显存（owned unmapped graphics），
 # 无水位上限时长跑必撑爆 48GB 系统触发 jetsam SIGKILL。
 # 0.7→0.55：用户报 79G，HIGH=0.55 让 MPS 最多 ~20G，给 worker pool + Python heap 留足余量
-export PYTORCH_MPS_HIGH_WATERMARK_RATIO="${PYTORCH_MPS_HIGH_WATERMARK_RATIO:-0.55}"
-export PYTORCH_MPS_LOW_WATERMARK_RATIO="${PYTORCH_MPS_LOW_WATERMARK_RATIO:-0.4}"
+export PYTORCH_MPS_HIGH_WATERMARK_RATIO="${PYTORCH_MPS_HIGH_WATERMARK_RATIO:-0.75}"
+export PYTORCH_MPS_LOW_WATERMARK_RATIO="${PYTORCH_MPS_LOW_WATERMARK_RATIO:-0.5}"
 # BestGuard 自适应 lr（P1-2）：连续 5 次回滚 lr×0.7，下限 lr_initial×0.2
 export RL_GUARD_LR_DECAY_AFTER="${RL_GUARD_LR_DECAY_AFTER:-5}"
 export RL_GUARD_LR_DECAY_FACTOR="${RL_GUARD_LR_DECAY_FACTOR:-0.7}"
-export RL_GUARD_LR_FLOOR_RATIO="${RL_GUARD_LR_FLOOR_RATIO:-0.2}"
+export RL_GUARD_LR_FLOOR_RATIO="${RL_GUARD_LR_FLOOR_RATIO:-0.5}"  # 0.2→0.5：实测 lr 从 3e-4 跌到 6e-5 后训 30+ ep 才能新高，
+                                                                 # 严重低效；floor 0.5 (lr≥1.5e-4) 保留学习能力，仍能减速避险
 echo "==> RL 在线训练旋钮: returns_clip=${RL_RETURNS_CLIP} grad_clip=${RL_GRAD_CLIP} batch=${RL_BATCH_SIZE} value_coef=${RL_VALUE_COEF} value_return_scale=${RL_VALUE_RETURN_SCALE} entropy=${RL_ENTROPY_COEF}->${RL_ENTROPY_COEF_MIN}"
 echo "==> RL OOM 防护: empty_cache_every=${RL_EMPTY_CACHE_EVERY} replay_max_steps=${RL_REPLAY_MAX_STEPS} periodic_restart=${RL_AUTO_PERIODIC_RESTART_EVERY} n_workers=${RL_N_WORKERS}"
 echo "==> MPS 水位: HIGH=${PYTORCH_MPS_HIGH_WATERMARK_RATIO} LOW=${PYTORCH_MPS_LOW_WATERMARK_RATIO}"
-echo "==> RL 防退化栈: target_kl=${RL_TARGET_KL} ppo_clip=${RL_PPO_CLIP} aux_clip=${RL_AUX_LOSS_CLIP} best_guard=${RL_BEST_GUARD}(every=${RL_BEST_GUARD_EVERY},regress=${RL_BEST_GUARD_REGRESS}) guard_lr_decay_after=${RL_GUARD_LR_DECAY_AFTER}x${RL_GUARD_LR_DECAY_FACTOR} outcome_ref=${RL_OUTCOME_REF_SCORE} kl_ref=${RL_KL_REF_COEF} hi_replay=${RL_HIGH_SCORE_REPLAY}"
+echo "==> RL 防退化栈: target_kl=${RL_TARGET_KL} ppo_clip=${RL_PPO_CLIP} aux_clip=${RL_AUX_LOSS_CLIP} policy_elem_clip=${RL_POLICY_ELEM_CLIP} ratio_cap_mult=${RL_PPO_RATIO_CAP_MULT}× best_guard=${RL_BEST_GUARD}(every=${RL_BEST_GUARD_EVERY},regress=${RL_BEST_GUARD_REGRESS}) guard_lr_decay=${RL_GUARD_LR_DECAY_AFTER}x${RL_GUARD_LR_DECAY_FACTOR}(floor=${RL_GUARD_LR_FLOOR_RATIO}) outcome_ref=${RL_OUTCOME_REF_SCORE} kl_ref=${RL_KL_REF_COEF} hi_replay=${RL_HIGH_SCORE_REPLAY}"
+echo "==> RL 数值发散保护: bq_pred=±${RL_BQ_PRED_CLIP} surv_pred=±${RL_SURV_PRED_CLIP} feas_logit=±${RL_FEAS_LOGIT_CLIP}"
 
 # ── RL 看板/后台训练所需环境（训练日志落盘、热加载检查点、设备/网络宽度）──
 # 缺失时后台训练无法把指标写入 training.jsonl，看板将看不到实时日志。

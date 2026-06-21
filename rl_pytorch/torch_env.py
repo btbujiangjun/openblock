@@ -38,16 +38,17 @@ def _bootstrap() -> None:
     #   HIGH_WATERMARK_RATIO=0.0  无上限（默认；危险）
     #   HIGH_WATERMARK_RATIO=R    分配触顶 R*recommendedMaxWorkingSetSize 时拒绝
     #   LOW_WATERMARK_RATIO=R     <R 时不主动 trim；>R 时尝试归还给 driver
-    # 在 48GB 统一内存 Mac 上：高水位 0.55 ≈ 让 MPS 最多用 ~20GB（系统/worker 共 28GB）。
-    # 历史 0.7（26GB）+ 8 worker × 1.5GB 副本（12GB）+ Python heap 6GB ≈ 44GB，撑爆 48GB
-    # 统一内存触发 swap/jetsam。0.55 给 worker pool 和 Python heap 留足余量。
-    # 看板希望训练快可显式 export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 覆盖回去。
+    # 在 48GB 统一内存 Mac 上：经 L1/L2/L4/L5/L8/L11 治根（commit 2c0fa76）后
+    # 实测 mps_driver_gb max=0.55GB / mean=0.25GB（远低于历史 15-25GB 假象），
+    # 0.55 水位（上限 26GB）完全用不上，反而限制了未来 batch 扩展空间。
+    # 0.75（上限 36GB）给 batch_episodes 调大或 mcts_sims 扩展留余量；
+    # 真泄漏已根除，水位放宽不会触发 jetsam（unified memory 不再倒灌）。
     _hw = os.environ.get("PYTORCH_MPS_HIGH_WATERMARK_RATIO")
     if _hw is None:
-        os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.55"
+        os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.75"
     _lw = os.environ.get("PYTORCH_MPS_LOW_WATERMARK_RATIO")
     if _lw is None:
-        os.environ["PYTORCH_MPS_LOW_WATERMARK_RATIO"] = "0.4"
+        os.environ["PYTORCH_MPS_LOW_WATERMARK_RATIO"] = "0.5"
 
 
 _bootstrap()
