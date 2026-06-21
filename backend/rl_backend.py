@@ -64,6 +64,13 @@ _state: dict = {
     "save_path": None,
     "meta": {},
     "replay_buffer": [],
+    # 自动热加载状态：训练子进程每 save_every 局写 checkpoint，主进程 Flask 需要监测到
+    # 该文件变化后 reload，否则浏览器评估始终用进程初始化时的旧权重（与「3000 训练 vs
+    # 200 评估」假象同一类问题：评估口径错配 + 权重 stale 双重叠加）。
+    "ckpt_mtime": 0.0,
+    "ckpt_size": 0,
+    "ckpt_reload_count": 0,
+    "ckpt_reload_at": 0.0,
 }
 
 # 后台 train_loop 状态
@@ -564,6 +571,13 @@ def _ensure_initialized():
                     _state["optimizer"].load_state_dict(osh)
                 except Exception:
                     pass
+            # 记录初始 mtime/size，后续后台 watcher 比对其变化决定是否 reload
+            try:
+                _st = load_path.stat()
+                _state["ckpt_mtime"] = float(_st.st_mtime)
+                _state["ckpt_size"] = int(_st.st_size)
+            except Exception:
+                pass
         else:
             meta = _default_meta()
             model = _build_model(meta)
@@ -587,6 +601,87 @@ def _ensure_initialized():
             "autoload": os.environ.get("RL_AUTOLOAD", "1"),
         }
     )
+
+    _start_ckpt_hotreload_watcher_once()
+
+
+# 自动热加载：训练子进程每 save_every 局写入 ckpt，但 Flask 主进程的 _state["model"] 在
+# 进程初始化后只在「训练自然结束」或显式 /api/rl/load 时才重置。后果：训练进行中点击
+# 「评估一局」或浏览器在线推理，仍在用 N 分钟前的旧权重，与训练实时进度脱节。
+# 解决：起一个 daemon 线程，每 RL_CKPT_HOTRELOAD_SEC 秒 stat 一次 save_path，若 mtime
+# 或 size 变化则在 _rl_lock 内调用 _load_checkpoint_into_model 替换权重。注意只换 model
+# 与 episodes/meta，不换 optimizer（Flask 仅做在线推理 + 微调，训练子进程才需要 Adam）。
+_ckpt_watcher_started = False
+_ckpt_watcher_lock = threading.Lock()
+
+
+def _ckpt_hotreload_loop():
+    interval = float(os.environ.get("RL_CKPT_HOTRELOAD_SEC", "5.0"))
+    if interval <= 0:
+        return
+    import time as _t
+    while True:
+        try:
+            _t.sleep(interval)
+            sp = _state.get("save_path")
+            if sp is None or not isinstance(sp, Path) or not sp.is_file():
+                continue
+            try:
+                st = sp.stat()
+            except FileNotFoundError:
+                continue
+            mtime = float(st.st_mtime)
+            size = int(st.st_size)
+            if mtime <= _state.get("ckpt_mtime", 0.0) and size == _state.get("ckpt_size", 0):
+                continue
+            # 文件大小为 0 或被截断中：跳过本轮，下轮再试，避免 torch.load 读到半文件
+            if size < 1024:
+                continue
+            with _rl_lock:
+                device = _state["device"]
+                if device is None:
+                    continue
+                try:
+                    loaded = _load_checkpoint_into_model(sp, device)
+                except Exception as exc:
+                    import logging
+                    logging.warning("checkpoint hot-reload 失败（保留旧权重）: %s", exc)
+                    continue
+                if loaded.get("compat_warning"):
+                    continue
+                _state["model"] = loaded["model"]
+                _state["episodes"] = loaded["episodes"]
+                _state["meta"] = loaded["meta"]
+                _state["checkpoint_loaded"] = str(sp.resolve())
+                _state["ckpt_mtime"] = mtime
+                _state["ckpt_size"] = size
+                _state["ckpt_reload_count"] = int(_state.get("ckpt_reload_count", 0)) + 1
+                _state["ckpt_reload_at"] = float(_t.time())
+            _append_training_log({
+                "event": "ckpt_hotreload",
+                "path": str(sp.resolve()),
+                "episodes": _state["episodes"],
+                "mtime": mtime,
+                "size": size,
+                "reload_count": _state["ckpt_reload_count"],
+            })
+        except Exception:
+            # daemon 线程必须吞所有异常，否则一次失败后整个监控停摆
+            import logging
+            logging.exception("ckpt hot-reload loop error")
+
+
+def _start_ckpt_hotreload_watcher_once():
+    """幂等启动 ckpt 监控线程；RL_CKPT_HOTRELOAD=0 可关闭（用于一次性脚本/测试）。"""
+    if os.environ.get("RL_CKPT_HOTRELOAD", "1").lower() in ("0", "false", "no", "off"):
+        return
+    global _ckpt_watcher_started
+    with _ckpt_watcher_lock:
+        if _ckpt_watcher_started:
+            return
+        _ckpt_watcher_started = True
+    th = threading.Thread(target=_ckpt_hotreload_loop, name="rl-ckpt-hotreload", daemon=True)
+    th.start()
 
 
 def _save_checkpoint(reason: str = "periodic"):
@@ -1158,6 +1253,9 @@ def create_rl_blueprint() -> Blueprint:
                 "training_log": str(_training_log_path()),
                 "save_every": int(os.environ.get("RL_SAVE_EVERY", "500")),
                 "autoload": os.environ.get("RL_AUTOLOAD", "1"),
+                "ckpt_hotreload": os.environ.get("RL_CKPT_HOTRELOAD", "1"),
+                "ckpt_reload_count": int(_state.get("ckpt_reload_count", 0)),
+                "ckpt_reload_at": float(_state.get("ckpt_reload_at", 0.0)),
                 "meta": _state["meta"],
                 "training_preset": rl_active_training_preset(),
                 "training_presets": {
@@ -1207,10 +1305,15 @@ def create_rl_blueprint() -> Blueprint:
             model.eval()
             with torch.no_grad():
                 logits = _stable_logits(model.forward_policy_logits(phi_t))
-                if temperature > 1e-8:
+                # temperature<=1e-6 视为「贪心评估」：直接 argmax，避免 Categorical 采样把高分动作随机替换为次优；
+                # 浏览器「评估一局」按钮传 temperature=0 即可获得与 eval_cli 一致的部署能力（实测：
+                # 同一 checkpoint argmax avg≈10713，temp=0.85 采样 avg≈980，差距 10× 全部来自随机性）。
+                if temperature <= 1e-6:
+                    idx = int(logits.argmax().item())
+                else:
                     logits = logits / temperature
-                dist = Categorical(logits=logits)
-                idx = int(dist.sample().item())
+                    dist = Categorical(logits=logits)
+                    idx = int(dist.sample().item())
             model.train()
         return jsonify({"index": idx})
 

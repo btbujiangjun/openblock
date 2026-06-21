@@ -60,6 +60,20 @@ function extractTrainEpisodeRows(entries) {
     return [...map.values()].sort((a, b) => a.episodes - b.episodes);
 }
 
+/**
+ * 从训练日志中提取 `eval_greedy` 行（离线贪心评估事件，由 /api/rl/eval_greedy 写入）。
+ * 这些事件代表「部署能力」：纯 argmax + 无 condition + max_scd=1.0 + 固定 winScoreThreshold=220。
+ * 与训练 `score`（MCTS 自博弈 + quantile 课程门槛）口径完全不同，必须独立成图避免误读。
+ * @param {object[]} entries
+ * @returns {object[]} 按 ts 升序的 eval_greedy 事件数组
+ */
+function extractEvalGreedyRows(entries) {
+    const raw = (entries || []).filter(
+        (e) => e && e.event === 'eval_greedy' && typeof e.avg_score === 'number'
+    );
+    return raw.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+}
+
 /** 单图 CSS 高度：紧凑展示 8 个同级面板 */
 const CHART_CSS_H = 64;
 /** 逐局序列：细线宽；滑动平均仍用 2～2.5 */
@@ -1299,8 +1313,9 @@ function buildHealthDiagnostics(stats) {
 /**
  * @param {HTMLElement | null} el
  * @param {object[]} rows sorted train_episode rows
+ * @param {object | null} [latestEval] 最新一条 eval_greedy（贪心评估）事件，用于摘要条额外标注「部署分」
  */
-function fillSummary(el, rows) {
+function fillSummary(el, rows, latestEval = null) {
     if (!el || !rows.length) {
         return;
     }
@@ -1339,6 +1354,19 @@ function fillSummary(el, rows) {
     if (stats.avgQH != null) {
         parts.push(` · <span class="rl-dash-metric" title="${escapeHtmlAttr(tipQH)}">qH <strong>${fmt(stats.avgQH, 2)}</strong></span>`);
     }
+    if (latestEval && typeof latestEval.avg_score === 'number') {
+        const tipDeploy =
+            '最新一次 /api/rl/eval_greedy 贪心评估的 avg_score / win_rate（与训练 score 不可直接对比：训练带 MCTS+课程门槛，部署是裸 argmax+220 门槛）。' +
+            '若该值远高于「均分」，说明 MCTS 自博弈压低了训练 score，策略本身已经很强。';
+        const evDeployScore = latestEval.avg_score.toFixed(0);
+        const evDeployWin = typeof latestEval.win_rate === 'number'
+            ? `${(latestEval.win_rate * 100).toFixed(0)}%`
+            : '—';
+        const evEp = latestEval.checkpoint_episodes ?? '?';
+        parts.push(
+            ` · <span class="rl-dash-metric rl-dash-metric--deploy" title="${escapeHtmlAttr(tipDeploy)}">部署分@${evEp} <strong>${evDeployScore}</strong> / 胜 <strong>${evDeployWin}</strong></span>`
+        );
+    }
     el.innerHTML = `<span class="rl-dash-summary-line">${parts.join('')}</span>${buildInsightHtml(rows)}${buildProgressHtml(rows)}`;
     // innerHTML 替换会丢弃旧监听器与 details.open；buildHealthDiagnostics 已通过
     // _diagGroupOpen 还原 open 属性，这里重新绑定 toggle 监听把用户后续操作写回 LS。
@@ -1356,6 +1384,7 @@ const CHART_PANEL_IDS = {
     TEACHER: 'teacher',
     REPLAY: 'replay',
     CURRICULUM: 'curriculum',
+    DEPLOY: 'deploy_score',
 };
 
 /**
@@ -1574,8 +1603,12 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
 
     root.querySelector('.rl-dash-empty')?.remove();
 
+    const _evalRowsForSummary = extractEvalGreedyRows(entries);
+    const _latestEval = _evalRowsForSummary.length > 0
+        ? _evalRowsForSummary[_evalRowsForSummary.length - 1]
+        : null;
     if (sumEl) {
-        fillSummary(sumEl, rows);
+        fillSummary(sumEl, rows, _latestEval);
     }
 
     const x = rows.map((r) => r.episodes);
@@ -2014,5 +2047,56 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
         ],
         { yMinFloor: 0, robustClip: true, emptyMessage: curriculumEmpty || undefined },
         curriculumHelp
+    );
+
+    // ── 图 10：部署分（贪心评估 avg_score / win_rate）─────────────────────
+    // 来源：/api/rl/eval_greedy 写入的 eval_greedy 事件；与训练 score 口径完全不同：
+    //   • 训练 score：MCTS 自博弈 + condition + 难度桶课程 + quantile 门槛
+    //   • 部署 score：纯 argmax + 无 condition + max_scd=1.0 + 固定 winScoreThreshold=220
+    // 用于回答「这个 checkpoint 真实部署能打几分」，避免被 quantile 自洽门槛误导。
+    const evalRows = _evalRowsForSummary;
+    const evalX = evalRows.map((r) => r.checkpoint_episodes ?? r.episodes ?? 0);
+    const evalAvg = evalRows.map((r) => (typeof r.avg_score === 'number' ? r.avg_score : NaN));
+    const evalWin100 = evalRows.map((r) => (typeof r.win_rate === 'number' ? r.win_rate * 100 : NaN));
+    const evalEmpty = evalRows.length < 2
+        ? `当前日志只有 ${evalRows.length} 条 eval_greedy 事件，无法画曲线。运行 \`curl -X POST http://localhost:6000/api/rl/eval_greedy -d '{"n_games":64,"rounds":3}'\` 或周期触发后即可显示。`
+        : '';
+    const latest = evalRows.length > 0 ? evalRows[evalRows.length - 1] : null;
+    const deployHelp = combinePanelHelp(
+        '本图：离线贪心评估的「部署分」。横轴=checkpoint 局数，左轴=avg_score（蓝），右轴(同尺度，已 ×100)=胜率%。' +
+        '与训练 score 不可直接对比——训练侧带 MCTS 搜索辅助 + quantile 课程门槛（≈近期分位数），部署侧是裸贪心 + 220 固定门槛。' +
+        '判读：avg 应随训练单调上升或在高位稳定；win_rate 长期≥80% 表示策略可商用。',
+        latest
+            ? `最新：第 ${latest.checkpoint_episodes ?? '?'} 局贪心评估 ${latest.n_games_total} 局，avg=${(latest.avg_score || 0).toFixed(0)}，胜率=${((latest.win_rate || 0) * 100).toFixed(1)}%（门槛 ${latest.win_threshold || 220}）。`
+            : '尚无评估数据，建议在每次大幅训练后手动触发或加定时任务。',
+        updatedAt
+    );
+    upsertChartPanel(
+        root,
+        CHART_PANEL_IDS.DEPLOY,
+        20,
+        '部署分（贪心 argmax 评估，与训练 score 口径不同）',
+        evalX,
+        [
+            {
+                label: 'avg_score (argmax)',
+                color: '#1565c0',
+                y: evalAvg,
+                lineWidth: 2.0,
+                legendHint:
+                    '日志字段 eval_greedy.avg_score：纯 argmax 评估的平均得分。代表「这个 checkpoint 真实部署能力」，不含 MCTS 搜索增益与课程偏置。若训练 score≈3000 而该曲线≈10000，说明 MCTS 探索拉低了自博弈分但策略本身很强；若两者都低则确实未收敛。',
+            },
+            {
+                label: 'win_rate × 100',
+                color: '#2e7d32',
+                y: evalWin100,
+                lineWidth: 1.5,
+                dash: [4, 3],
+                legendHint:
+                    '日志字段 eval_greedy.win_rate（已 ×100 缩放，单位 %）：贪心评估的 220 门槛胜率。这是产品侧实际感知的「成功率」。长期≥80% 表示策略已可上线。',
+            },
+        ],
+        { yMinFloor: 0, robustClip: true, emptyMessage: evalEmpty || undefined },
+        deployHelp
     );
 }

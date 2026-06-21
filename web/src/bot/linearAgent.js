@@ -95,6 +95,19 @@ export class LinearAgent {
 
     selectAction(phiList, stateFeat, temperature = 1) {
         if (phiList.length === 0) return null;
+        // temperature<=1e-6 视为「贪心评估」：直接 argmax，避免历史 floor=0.15 + softmax 采样
+        // 把 max-logit 主导动作以 ~70% 概率换成次优，导致评估分数严重缩水。
+        if (temperature <= 1e-6) {
+            let bestIdx = 0;
+            let bestLogit = -Infinity;
+            for (let i = 0; i < phiList.length; i++) {
+                const z = dot(this.W, phiList[i]);
+                if (z > bestLogit) { bestLogit = z; bestIdx = i; }
+            }
+            const onehot = new Float32Array(phiList.length);
+            onehot[bestIdx] = 1;
+            return { idx: bestIdx, logProb: 0, probs: onehot, phiList, stateFeat: new Float32Array(stateFeat) };
+        }
         const logits = new Float32Array(phiList.length);
         for (let i = 0; i < phiList.length; i++) {
             logits[i] = dot(this.W, phiList[i]) / Math.max(0.15, temperature);

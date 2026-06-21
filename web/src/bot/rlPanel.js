@@ -1122,9 +1122,13 @@ export function initRLPanel(game) {
                         /* 保持 totalEpisodes+1 的门槛 */
                     }
                 }
+                // 「评估一局」走纯贪心（temp=0）+ argmax，与离线 eval_cli / eval_gate 同口径，
+                // 测的是「部署能力」而非「自博弈课程分」。历史默认 temp=0.85 会让单局得分缩水
+                // 约 10×（实测 argmax avg≈10713 vs temp=0.85 avg≈980），导致看板「评估」与
+                // 训练 `score` 字段口径差异巨大、误判训练效果。如需高方差探索请改回训练流程。
                 const ep = await runSelfPlayEpisode(
                     useBackend ? null : agent,
-                    0.85,
+                    0,
                     {
                         onEpisodeStart: async (sim) => {
                             if (game) {
@@ -1147,7 +1151,7 @@ export function initRLPanel(game) {
                     }
                 );
                 logLine(
-                    `评估 分${ep.score} 步${ep.steps} 消${ep.totalClears}${ep.won ? ' 胜' : ''} ${ep.trajectory.length}手 ${useBackend ? 'PT' : '线'} 不计入均分`
+                    `评估(贪心) 分${ep.score} 步${ep.steps} 消${ep.totalClears}${ep.won ? ' 胜' : ''} ${ep.trajectory.length}手 ${useBackend ? 'PT' : '线'} 不计入均分`
                 );
             } finally {
                 if (game) {
