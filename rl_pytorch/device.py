@@ -143,11 +143,21 @@ def resolve_cuda_device_ids_for_data_parallel() -> list[int]:
 
 
 def tensor_to_device(tensor, device, non_blocking: bool | None = None):
-    """将 CPU tensor 拷到 device；对 MPS/CUDA 默认 ``non_blocking=True`` 以重叠 H2D。"""
+    """将 CPU tensor 拷到 device。
+
+    CUDA 用 ``non_blocking=True`` 重叠 H2D（有 stream + pinned-memory 语义保证次序）。
+    MPS 必须用同步拷贝（``non_blocking=False``）：MPS 的异步 H2D 在多线程服务进程
+    （如 Flask 在线推理 + 后台 ckpt 热加载线程）里不安全——异步拷贝尚未完成，
+    GPU 内存就被后续 MPS 操作读取/覆盖，造成小张量上传数据损坏。实测后果：
+    phi 上传后与原始差异达 1e10，forward 输出爆炸到 -5700，_stable_logits clamp
+    成全等 → argmax 恒=0 → 浏览器「评估一局」单局崩到 ~600 分（与离线 argmax
+    avg≈15000 差 30×）。损坏随机间歇出现，小 batch 尤其高发，长期误判为「MPS
+    算错/fork 问题」。改同步后训练与推理可一致使用 MPS。
+    """
     import torch
 
     if non_blocking is None:
-        non_blocking = device.type in ("mps", "cuda") and tensor.device.type == "cpu"
+        non_blocking = device.type == "cuda" and tensor.device.type == "cpu"
     return tensor.to(device, non_blocking=non_blocking)
 
 

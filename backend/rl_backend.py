@@ -567,15 +567,15 @@ def _ensure_initialized():
     with _rl_lock:
         if _state["model"] is not None:
             return
-        # 在线推理设备：默认 CPU，与 RL_DEVICE（训练子进程用）完全解耦。
-        # 原因：Flask debug 模式下 reloader 用 fork 创建 child 进程，PyTorch 在
-        # fork 之后操作 MPS context 会产生未定义行为——具体表现为 forward 输出
-        # 数值崩塌到 -5000 量级（离线相同权重相同 phi 应为 -7 ~ -10），_stable_logits
-        # clamp 到 -30 后全 logits 相等、argmax 永远=0、浏览器评估单局仅 ~600 分。
-        # 离线进程跑 MPS 没问题（无 fork），后台训练子进程也没问题（独立 spawn）。
-        # 显式设置 RL_INFERENCE_DEVICE 可覆盖（如 mps/cuda）；不读 RL_DEVICE，
-        # 避免 restart 脚本中 `export RL_DEVICE=auto` 把推理也带进 MPS bug。
-        infer_dev_env = os.environ.get("RL_INFERENCE_DEVICE", "cpu")
+        # 在线推理设备：默认与训练一致（RL_DEVICE，auto→MPS）。早期为规避「评估单局
+        # 崩到 600 分」临时强制 CPU，但根因已定位并根治——是 MPS 异步 H2D 上传在多线程
+        # 服务进程里损坏小张量（见 device.tensor_to_device 注释），与设备本身无关。
+        # 现 tensor_to_device 对 MPS 强制同步上传，MPS 推理已稳定，故恢复设备一致性。
+        # RL_INFERENCE_DEVICE 仍可显式覆盖（cpu/mps/cuda）。
+        infer_dev_env = (
+            os.environ.get("RL_INFERENCE_DEVICE")
+            or os.environ.get("RL_DEVICE", "auto")
+        )
         device = resolve_training_device(infer_dev_env)
         apply_throughput_tuning(device)
         if apply_cpu_training_tuning is not None:
@@ -1339,30 +1339,12 @@ def create_rl_blueprint() -> Blueprint:
         with _rl_lock:
             model = _state["model"]
             device = _state["device"]
+            # phi 上传走同步拷贝（tensor_to_device 已对 MPS 强制 non_blocking=False），
+            # 避免 MPS 异步 H2D 在多线程服务进程里的数据损坏（详见 device.tensor_to_device）。
             phi_t = tensor_to_device(torch.tensor(phi, dtype=torch.float32), device)
             model.eval()
             with torch.no_grad():
-                logits_raw = model.forward_policy_logits(phi_t)
-                logits = _stable_logits(logits_raw)
-                # DEBUG（仅在 RL_DEBUG_SELECT_ACTION=1 时打开）：诊断「raw logits 异常→
-                # 被 _stable_logits clamp 到 -30 后全等」类问题（如 fork+MPS forward 崩塌）。
-                if os.environ.get("RL_DEBUG_SELECT_ACTION") == "1":
-                    raw_cpu = logits_raw.detach().cpu().numpy()
-                    cl_cpu = logits.detach().cpu().numpy()
-                    import logging
-                    logging.warning(
-                        "[select_action.debug] device=%s shape=%s "
-                        "raw[min=%.2f max=%.2f argmax=%d] clamped[min=%.2f max=%.2f argmax=%d]",
-                        str(device), tuple(phi_t.shape),
-                        float(raw_cpu.min()) if raw_cpu.size else 0.0,
-                        float(raw_cpu.max()) if raw_cpu.size else 0.0,
-                        int(raw_cpu.argmax()) if raw_cpu.size else -1,
-                        float(cl_cpu.min()) if cl_cpu.size else 0.0,
-                        float(cl_cpu.max()) if cl_cpu.size else 0.0,
-                        int(cl_cpu.argmax()) if cl_cpu.size else -1,
-                    )
-                # temperature<=1e-6 视为「贪心评估」：直接 argmax。argmax 移到 CPU 计算，
-                # 防御 MPS 上潜在的 argmax 输出非确定（不论 forward 装置如何）。
+                logits = _stable_logits(model.forward_policy_logits(phi_t))
                 if temperature <= 1e-6:
                     idx = int(logits.detach().cpu().argmax().item())
                 else:
