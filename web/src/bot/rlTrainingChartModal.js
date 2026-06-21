@@ -191,32 +191,17 @@ function _guideHtml(chartId) {
         </section>`;
 }
 
-const _SVG_NS = 'http://www.w3.org/2000/svg';
-
-/** @param {object} plotMeta @param {number} ep */
-function _xAt(plotMeta, ep) {
-    const { padL, plotW, xmin, xmax } = plotMeta;
-    const xspan = (xmax - xmin) || 1;
-    return padL + ((ep - xmin) / xspan) * plotW;
-}
-
-/** @param {object} plotMeta @param {number} v */
-function _yAt(plotMeta, v) {
-    const { padT, plotH, ymin, ymax } = plotMeta;
-    const clamped = Math.max(ymin, Math.min(ymax, v));
-    return padT + plotH - ((clamped - ymin) / ((ymax - ymin) || 1)) * plotH;
-}
-
 /**
  * @param {object} plotMeta
- * @param {number} cssX  SVG viewBox 坐标
+ * @param {number} offsetX
  * @param {number[]} x
+ * @param {object[]} series
  * @returns {{ index: number, episode: number } | null}
  */
-function _nearestIndexFromX(plotMeta, cssX, x) {
+function _nearestIndexFromX(plotMeta, offsetX, x) {
     if (!plotMeta || !x?.length) return null;
     const { padL, plotW, xmin, xmax } = plotMeta;
-    const rel = Math.max(0, Math.min(1, (cssX - padL) / Math.max(plotW, 1)));
+    const rel = Math.max(0, Math.min(1, (offsetX - padL) / Math.max(plotW, 1)));
     const ep = xmin + rel * ((xmax - xmin) || 1);
     let best = 0;
     let bestDist = Math.abs(x[0] - ep);
@@ -231,82 +216,17 @@ function _nearestIndexFromX(plotMeta, cssX, x) {
 }
 
 /**
- * 在 canvas 上方叠 SVG 游标层（竖线 + 各序列圆点），对齐玩家洞察面板 imm-hover 行为。
- *
- * @param {HTMLElement} wrap
- * @param {object} plotMeta
- * @param {number} cssW
- * @param {number} cssH
- * @param {object[]} series
- */
-function _createPlotHoverOverlay(wrap, plotMeta, cssW, cssH, series) {
-    const svg = document.createElementNS(_SVG_NS, 'svg');
-    svg.classList.add('rtcm-plot-overlay');
-    svg.setAttribute('viewBox', `0 0 ${cssW} ${cssH}`);
-    svg.setAttribute('aria-hidden', 'true');
-
-    const cursorLine = document.createElementNS(_SVG_NS, 'line');
-    cursorLine.setAttribute('class', 'imm-hover-cursor');
-    cursorLine.setAttribute('y1', String(plotMeta.padT));
-    cursorLine.setAttribute('y2', String(plotMeta.padT + plotMeta.plotH));
-    cursorLine.setAttribute('x1', '-100');
-    cursorLine.setAttribute('x2', '-100');
-    svg.appendChild(cursorLine);
-
-    const dots = (series || []).map((s) => {
-        const dot = document.createElementNS(_SVG_NS, 'circle');
-        dot.setAttribute('class', 'imm-hover-dot imm-hover-dot--primary');
-        dot.setAttribute('r', '4');
-        dot.setAttribute('cx', '-100');
-        dot.setAttribute('cy', '-100');
-        dot.setAttribute('fill', s.color || '#5b9bd5');
-        dot.setAttribute('stroke', '#fff');
-        dot.setAttribute('stroke-width', '1.5');
-        svg.appendChild(dot);
-        return dot;
-    });
-
-    const hit = document.createElementNS(_SVG_NS, 'rect');
-    hit.setAttribute('class', 'imm-hit');
-    hit.setAttribute('x', String(plotMeta.padL));
-    hit.setAttribute('y', String(plotMeta.padT));
-    hit.setAttribute('width', String(plotMeta.plotW));
-    hit.setAttribute('height', String(plotMeta.plotH));
-    hit.setAttribute('fill', 'transparent');
-    svg.appendChild(hit);
-
-    wrap.appendChild(svg);
-    return { svg, cursorLine, dots, hit };
-}
-
-/**
  * @param {HTMLCanvasElement} canvas
  * @param {object} plotMeta
- * @param {number} cssW
- * @param {number} cssH
  * @param {number[]} x
  * @param {object[]} series
  * @param {{ yTick?: (v:number)=>string }} chartOpts
  * @param {HTMLElement} readoutEl
  */
-function _wirePlotHover(canvas, plotMeta, cssW, cssH, x, series, chartOpts, readoutEl) {
+function _wirePlotHover(canvas, plotMeta, x, series, chartOpts, readoutEl) {
     if (!canvas || !plotMeta || !readoutEl) return;
 
-    const wrap = canvas.parentElement;
-    if (!wrap) return;
-
-    const { cursorLine, dots, hit, svg } = _createPlotHoverOverlay(wrap, plotMeta, cssW, cssH, series);
-
-    const hideCursor = () => {
-        cursorLine.setAttribute('x1', '-100');
-        cursorLine.setAttribute('x2', '-100');
-        for (const dot of dots) {
-            dot.setAttribute('cx', '-100');
-            dot.setAttribute('cy', '-100');
-        }
-    };
-
-    const renderReadout = (idx) => {
+    const render = (idx) => {
         const ep = x[idx];
         const parts = series.map((s) => {
             const v = s.y?.[idx];
@@ -315,39 +235,14 @@ function _wirePlotHover(canvas, plotMeta, cssW, cssH, x, series, chartOpts, read
         readoutEl.innerHTML = `<span class="rtcm-readout-ep">局 ${ep}</span> · ${parts.join(' · ')}`;
     };
 
-    const showAt = (idx) => {
-        const ep = x[idx];
-        const cx = _xAt(plotMeta, ep);
-        cursorLine.setAttribute('x1', cx.toFixed(1));
-        cursorLine.setAttribute('x2', cx.toFixed(1));
-        series.forEach((s, i) => {
-            const v = s.y?.[idx];
-            const dot = dots[i];
-            if (!dot) return;
-            if (typeof v === 'number' && Number.isFinite(v)) {
-                dot.setAttribute('cx', cx.toFixed(1));
-                dot.setAttribute('cy', _yAt(plotMeta, v).toFixed(1));
-            } else {
-                dot.setAttribute('cx', '-100');
-                dot.setAttribute('cy', '-100');
-            }
-        });
-        renderReadout(idx);
-    };
+    render(x.length - 1);
 
-    hideCursor();
-    renderReadout(x.length - 1);
-
-    hit.addEventListener('mousemove', (ev) => {
-        const rect = svg.getBoundingClientRect();
-        if (!rect.width) return;
-        const cssX = ((ev.clientX - rect.left) / rect.width) * cssW;
-        const nearest = _nearestIndexFromX(plotMeta, cssX, x);
-        if (nearest) showAt(nearest.index);
+    canvas.addEventListener('mousemove', (ev) => {
+        const hit = _nearestIndexFromX(plotMeta, ev.offsetX, x);
+        if (hit) render(hit.index);
     });
-    hit.addEventListener('mouseleave', () => {
-        hideCursor();
-        renderReadout(x.length - 1);
+    canvas.addEventListener('mouseleave', () => {
+        render(x.length - 1);
     });
 }
 
@@ -412,7 +307,7 @@ export function openRlTrainingChartModal(cfg) {
             </section>
             ${_guideHtml(chartId)}
             <div class="imm-readout rtcm-readout">
-                <span class="imm-readout-hint">横坐标：训练局数（episodes）；在绘图区移动鼠标查看竖线游标与各序列数值</span>
+                <span class="imm-readout-hint">横坐标：训练局数（episodes）；鼠标移到曲线上读取各序列数值</span>
                 <div class="rtcm-readout-body" data-role="readout"></div>
             </div>
             <div class="rtcm-plot-wrap">
@@ -435,7 +330,7 @@ export function openRlTrainingChartModal(cfg) {
         showCanvasTitle: false,
     };
     const { plotMeta } = paintRlChartCanvas(canvas, title, x, series, modalChartOpts, hint, MODAL_CHART_W);
-    _wirePlotHover(canvas, plotMeta, MODAL_CHART_W, MODAL_CHART_H, x, series, chartOpts, readout);
+    _wirePlotHover(canvas, plotMeta, x, series, chartOpts, readout);
 
     const close = () => closeRlTrainingChartModal();
     overlay.addEventListener('click', (e) => {
