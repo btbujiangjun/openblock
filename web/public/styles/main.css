@@ -4497,92 +4497,99 @@ html[data-visibility="hidden"] *::after {
 }
 
 .rl-dash-progress .rl-prog-up {
-    color: #2e9e5b;
+    color: #2ecc71;
     font-weight: 700;
 }
 
 .rl-dash-progress .rl-prog-down {
-    color: #d2544a;
+    color: #e74c3c;
     font-weight: 700;
 }
 
 .rl-dash-progress .rl-prog-flat {
-    color: color-mix(in srgb, var(--text-secondary, #5d7a96) 70%, transparent);
+    color: color-mix(in srgb, var(--text-secondary, #475569) 70%, transparent);
 }
 
 .rl-dash-progress .rl-prog-warn {
-    color: #c2722a;
+    color: #f39c12;
 }
 
 .rl-dash-progress .rl-prog-ok {
-    color: #2e9e5b;
+    color: #2ecc71;
 }
 
 /* === 健康诊断分层展示（rl-diag-*）===
  * 4 类诊断（收敛/数值/性能/资源）独立 details，每条 check 含数据/含义/建议三行。
- * critical 红、warn 橙、ok 绿；摘要 headline 顶部一行直观显示整体级别。
+ * 配色严格对齐 .insight-signal--ok/warn/danger（玩家洞察面板），保证看板内
+ * 「玩家洞察」和「训练摘要」状态色一致：ok=#2ecc71 / warn=#f39c12 / critical=#e74c3c。
+ * 中性背景用 var(--bg-color) 灰蓝（#E8EEF1）配 color-mix 透明，融入面板，不喧宾夺主。
  */
 .rl-dash-progress .rl-diag-block {
     display: block;
     margin-top: 4px;
     padding-top: 3px;
-    border-top: 1px dotted color-mix(in srgb, var(--text-secondary, #5d7a96) 22%, transparent);
+    border-top: 1px dotted color-mix(in srgb, var(--text-primary, #1e293b) 14%, transparent);
 }
 
 .rl-dash-progress .rl-diag-headline {
     display: block;
     font-weight: 700;
-    margin-bottom: 2px;
+    margin-bottom: 3px;
+    padding: 2px 6px;
+    border-radius: 4px;
 }
 
 .rl-dash-progress .rl-diag-overall-critical .rl-diag-headline {
-    color: #d2544a;
+    color: #e74c3c;
+    background: color-mix(in srgb, #e74c3c 12%, transparent);
 }
 
 .rl-dash-progress .rl-diag-overall-warn .rl-diag-headline {
-    color: #c2722a;
+    color: #f39c12;
+    background: color-mix(in srgb, #f39c12 12%, transparent);
 }
 
 .rl-dash-progress .rl-diag-overall-ok .rl-diag-headline {
-    color: #2e9e5b;
+    color: #2ecc71;
+    background: color-mix(in srgb, #2ecc71 12%, transparent);
 }
 
 .rl-dash-progress .rl-diag-group {
     display: block;
-    margin: 1px 0;
+    margin: 2px 0;
     padding: 1px 4px 2px;
     border-left: 2px solid transparent;
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--surface-secondary, #f3f7fc) 70%, transparent);
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--bg-color, #E8EEF1) 55%, transparent);
 }
 
 .rl-dash-progress .rl-diag-group[open] {
-    background: color-mix(in srgb, var(--surface-secondary, #f3f7fc) 92%, transparent);
+    background: color-mix(in srgb, var(--bg-color, #E8EEF1) 78%, transparent);
 }
 
 .rl-dash-progress .rl-diag-ok {
-    border-left-color: #2e9e5b;
+    border-left-color: color-mix(in srgb, #2ecc71 70%, transparent);
 }
 
 .rl-dash-progress .rl-diag-warn {
-    border-left-color: #c2722a;
+    border-left-color: color-mix(in srgb, #f39c12 70%, transparent);
 }
 
 .rl-dash-progress .rl-diag-critical {
-    border-left-color: #d2544a;
+    border-left-color: color-mix(in srgb, #e74c3c 70%, transparent);
 }
 
 .rl-dash-progress .rl-diag-group-head {
     cursor: pointer;
     font-size: 8.5px;
     font-weight: 700;
-    color: var(--text-primary, #2b3a4a);
+    color: var(--text-primary, #1e293b);
     list-style: revert;
     padding: 1px 0;
 }
 
 .rl-dash-progress .rl-diag-group-head:hover {
-    color: var(--accent-color, #4472c4);
+    color: var(--accent-dark, #4472C4);
 }
 
 .rl-dash-progress .rl-diag-group-body {
@@ -4592,39 +4599,48 @@ html[data-visibility="hidden"] *::after {
 .rl-dash-progress .rl-diag-item {
     display: block;
     margin: 2px 0;
-    padding: 2px 4px;
-    border-radius: 3px;
-    background: color-mix(in srgb, var(--surface, #ffffff) 60%, transparent);
+    padding: 3px 6px;
+    border-radius: 4px;
+    background: transparent;
 }
 
 .rl-dash-progress .rl-diag-item.rl-diag-critical {
-    background: color-mix(in srgb, #d2544a 9%, var(--surface, #fff) 91%);
+    background: color-mix(in srgb, #e74c3c 8%, transparent);
 }
 
 .rl-dash-progress .rl-diag-item.rl-diag-warn {
-    background: color-mix(in srgb, #c2722a 8%, var(--surface, #fff) 92%);
+    background: color-mix(in srgb, #f39c12 8%, transparent);
+}
+
+.rl-dash-progress .rl-diag-item.rl-diag-ok {
+    background: color-mix(in srgb, #2ecc71 6%, transparent);
 }
 
 .rl-dash-progress .rl-diag-item-title {
     font-weight: 700;
-    color: var(--text-primary, #2b3a4a);
+    color: var(--text-primary, #1e293b);
     font-size: 8.5px;
-    line-height: 1.4;
+    line-height: 1.5;
+    margin-bottom: 1px;
 }
 
 .rl-dash-progress .rl-diag-item.rl-diag-critical .rl-diag-item-title {
-    color: #b1372e;
+    color: #e74c3c;
 }
 
 .rl-dash-progress .rl-diag-item.rl-diag-warn .rl-diag-item-title {
-    color: #a55f1e;
+    color: #f39c12;
+}
+
+.rl-dash-progress .rl-diag-item.rl-diag-ok .rl-diag-item-title {
+    color: #2ecc71;
 }
 
 .rl-dash-progress .rl-diag-item-row {
     display: block;
-    color: var(--text-secondary, #5d6f82);
+    color: var(--text-secondary, #475569);
     font-size: 8px;
-    line-height: 1.45;
+    line-height: 1.5;
     padding-left: 2px;
 }
 
@@ -4633,11 +4649,11 @@ html[data-visibility="hidden"] *::after {
     min-width: 26px;
     margin-right: 4px;
     font-weight: 700;
-    color: color-mix(in srgb, var(--text-secondary, #5d6f82) 80%, transparent);
+    color: color-mix(in srgb, var(--text-secondary, #475569) 80%, transparent);
 }
 
 .rl-dash-progress .rl-diag-empty {
-    color: color-mix(in srgb, var(--text-secondary, #5d6f82) 70%, transparent);
+    color: color-mix(in srgb, var(--text-secondary, #475569) 65%, transparent);
     font-size: 8px;
     font-style: italic;
     padding: 1px 4px;
