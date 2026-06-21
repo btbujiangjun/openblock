@@ -271,7 +271,7 @@ export RL_AUX_LOSS_CLIP="${RL_AUX_LOSS_CLIP:-20.0}"    # P1-1 · 辅助损失单
 export RL_VALUE_RETURN_SCALE="${RL_VALUE_RETURN_SCALE:-0.5}"  # 灰度压低价值头 returns 目标量纲，缓解 loss_value 高位不降（MCTS 已 Q 归一化对尺度免疫）
 export RL_BEST_GUARD="${RL_BEST_GUARD:-1}"             # best-checkpoint 守护：滚动均分创新高即快照、显著回撤即回滚到 best
 export RL_BEST_GUARD_EVERY="${RL_BEST_GUARD_EVERY:-200}"     # 守护检查间隔（局）
-export RL_BEST_GUARD_REGRESS="${RL_BEST_GUARD_REGRESS:-0.85}"  # 回撤阈值：均分 < best×此值 即回滚
+export RL_BEST_GUARD_REGRESS="${RL_BEST_GUARD_REGRESS:-0.78}"  # 回撤阈值：均分 < best×此值 即回滚（0.85→0.78：减少 best 附近 ±15-20% 自然波动导致的过度回滚）
 export RL_OUTCOME_REF_SCORE="${RL_OUTCOME_REF_SCORE:-1500}"  # outcome 价值目标固定参考分（去课程门槛耦合，目标平稳）
 export RL_KL_REF_COEF="${RL_KL_REF_COEF:-0.05}"        # KL-to-reference：软约束策略不远离历史最优快照（每批多一次参考前向；0=关）
 export RL_HIGH_SCORE_REPLAY="${RL_HIGH_SCORE_REPLAY:-1}"  # 高分优先回放：按 score 加权采样/保留 + 对高分局 chosen 动作行为克隆

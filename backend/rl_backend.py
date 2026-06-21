@@ -217,56 +217,33 @@ DEFAULT_CKPT_NAME = "rl_checkpoints/bb_policy.pt"
 DEFAULT_TRAINING_LOG = "rl_checkpoints/training.jsonl"
 
 # 后台训练子进程只继承与设备/运行时相关的 RL_*，搜索、出块、teacher、监督等语义变量
-# 必须由 start_training 的请求体和 preset 决定性设置，避免 Flask 常驻进程环境泄漏。
-_RL_TRAIN_ENV_ALLOWLIST = {
-    "RL_DEVICE",
-    "RL_CUDA_DEVICE_IDS",
-    "RL_CUDA_DP_TRUNK",
-    "RL_CUDA_DP_VALUE",
-    "RL_CPU_DISABLE_MKLDNN",
-    "RL_WORKER_THREADS",
-    "RL_MPS_SYNC",
-    "RL_MPS_HIGH_WATERMARK_RATIO",
-    # PyTorch 真实读的名字（带 PYTORCH_ 前缀）：用于约束 MPS allocator 不无限增长。
-    # 项目历史用 RL_ 前缀的自定义名，PyTorch 根本读不到——MPS 长跑 OOM 真凶。
-    # 现在两者都透传：torch_env.py 已对 PYTORCH_ 名 setdefault=0.7/0.5，env 透传供用户覆盖。
-    "PYTORCH_MPS_HIGH_WATERMARK_RATIO",
-    "PYTORCH_MPS_LOW_WATERMARK_RATIO",
-    "PYTORCH_ENABLE_MPS_FALLBACK",
-    # 稳定性调参旋钮：由 scripts/restart-openblock.sh 显式 pin，需透传到后台
-    # rl_pytorch.train 子进程，否则会回退到 train.py 内的硬编码默认（0.03/1.0/0.005），
-    # 启动脚本里的调参根本不生效（看板曲线即出自该子进程）。
-    "RL_TARGET_KL",            # PPO 信任域早停阈值（放宽至 0.1，提升 epoch 利用率）
-    "RL_PPO_CLIP",             # PPO 信任域 surrogate 截断阈值（新增，与 target_kl 联动收紧）
-    "RL_VALUE_RETURN_SCALE",   # 价值头 returns 目标缩放（灰度 0.5，压 loss_value 量纲）
-    "RL_ENTROPY_COEF_MIN",     # 残局熵系数下限（抬到 0.02，抗熵塌缩）
-    "RL_AUX_LOSS_CLIP",        # P1-1 · 辅助损失单步幅值上限（默认 20.0），防奖励 shaping 数值爆炸
-    # P0 防 OOM 栈：周期性归还设备显存 + replay 总步数硬上限
-    "RL_EMPTY_CACHE_EVERY",    # 每 N batch 主动调 torch.mps/cuda.empty_cache()
-    "RL_REPLAY_MAX_STEPS",     # replay buffer 总步数上限（防长跑累积）
-    # P2 防长跑：训练子进程每 N 局自动周期性重启（释放 fragmentation）
-    "RL_AUTO_PERIODIC_RESTART_EVERY",  # 每 N 局自请求退出（exit 0），由后端 P0-C 自启逻辑触发限速 resume
-    # P0-2/P0-3 · 多进程上下文 + worker pool 规模（worker 用 CPU 推理，n_workers 决定 Python 副本数）
-    "RL_N_WORKERS",            # spawn worker 数（默认 8 改 4 省 6-8GB Python heap）
-    "RL_MP_CONTEXT",           # 多进程上下文：spawn | forkserver（forkserver 共享 torch import 省内存）
-    # MPS 水位（PyTorch 真实读这两个名字；早前用 RL_MPS_ 前缀根本不生效）
-    "PYTORCH_MPS_HIGH_WATERMARK_RATIO",
-    "PYTORCH_MPS_LOW_WATERMARK_RATIO",
-    # BestGuard 回滚自适应 lr 衰减（P1-2）
-    "RL_GUARD_LR_DECAY_AFTER",
-    "RL_GUARD_LR_DECAY_FACTOR",
-    "RL_GUARD_LR_FLOOR_RATIO",
+# env 透传策略：旧白名单只 19 个，导致 restart-openblock.sh 显式 export 的
+#   RL_VALUE_COEF / RL_BATCH_SIZE / RL_BEST_GUARD / RL_KL_REF_COEF / RL_RETURN_SCALE / ...
+# 等管理员调参全部被吞掉（bg_training_start.dropped_rl_env 实证），等于"我们调的没生效"。
+# rl_pytorch 全家桶实际读取 115+ 个 RL_* env，逐一白名单维护既不现实也易遗漏。
+#
+# 改为**黑名单**：默认透传所有 RL_*；仅 deny 几个会被搜索预设/请求体强制覆盖的"易污染"开关
+# （前端切预设时 Flask 进程会保留上次的 RL_LOOKAHEAD=0，下次启用 MCTS 会被静默禁用——
+#  这是历史 bug 的真根因；白名单是当时治标，本次改为精准 deny 治本）。
+_RL_TRAIN_ENV_DENYLIST = {
+    "RL_LOOKAHEAD",       # 看板按 preset 强制覆盖；继承上次会让 MCTS 启用后仍被静默禁用
+    "RL_MCTS",            # 同上：MCTS 开关由 mcts_sims 计算后写入
+    "RL_BEAM2PLY",        # 同上：beam 开关由 preset_beam2 写入
+    "RL_BEAM3PLY",        # 同上：beam 开关由 preset_beam3 写入
+    "RL_SUPERVISION",     # 同上：performance 预设强制覆盖
+    "RL_SPAWN_CHEAP",     # 同上：spawn_cheap 显式 opt-in
 }
 
 
 def _clean_training_subprocess_env() -> tuple[dict, list[str]]:
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith("RL_") or k in _RL_TRAIN_ENV_ALLOWLIST
-    }
-    dropped = sorted(k for k in os.environ if k.startswith("RL_") and k not in _RL_TRAIN_ENV_ALLOWLIST)
-    return env, dropped
+    """构造训练子进程 env：透传所有 RL_*，仅过滤一小撮易污染开关。
+
+    Returns:
+        (env_dict, denied_keys) — denied_keys 列出本次 drop 掉的 env 名，供日志可见。
+    """
+    env = {k: v for k, v in os.environ.items() if k not in _RL_TRAIN_ENV_DENYLIST}
+    denied = sorted(k for k in os.environ if k in _RL_TRAIN_ENV_DENYLIST)
+    return env, denied
 
 
 def _training_log_path() -> Path:
@@ -1679,7 +1656,22 @@ def create_rl_blueprint() -> Blueprint:
         if mcts_sims > 0:
             cmd += ["--mcts", "--mcts-sims", str(mcts_sims)]
 
-        env, dropped_rl_env = _clean_training_subprocess_env()
+        env, denied_rl_env = _clean_training_subprocess_env()
+        # 列出关键 RL_* 调参实际传给训练子进程的值，方便排查"参数没生效"问题
+        # （之前白名单只 19 个，restart-openblock.sh 16 个 export 被静默丢弃，
+        #  此次改黑名单后默认 deny 仅 6 个搜索开关，其余全透传）
+        _key_rl_env_summary = {
+            k: env.get(k) for k in (
+                "RL_TARGET_KL", "RL_PPO_CLIP", "RL_VALUE_COEF", "RL_VALUE_RETURN_SCALE",
+                "RL_ENTROPY_COEF", "RL_ENTROPY_COEF_MIN", "RL_AUX_LOSS_CLIP",
+                "RL_BEST_GUARD_REGRESS", "RL_BEST_GUARD_WINDOW", "RL_BEST_GUARD_EVERY",
+                "RL_BATCH_SIZE", "RL_GRAD_CLIP", "RL_RETURN_SCALE", "RL_RETURNS_CLIP",
+                "RL_KL_REF_COEF", "RL_HIGH_SCORE_REPLAY", "RL_OUTCOME_REF_SCORE",
+                "RL_EMPTY_CACHE_EVERY", "RL_REPLAY_MAX_STEPS",
+                "RL_AUTO_PERIODIC_RESTART_EVERY", "RL_N_WORKERS", "RL_MP_CONTEXT",
+                "PYTORCH_MPS_HIGH_WATERMARK_RATIO", "PYTORCH_MPS_LOW_WATERMARK_RATIO",
+            ) if k in env
+        }
         env["RL_TRAINING_LOG"] = str(_training_log_path())
         env["RL_TRAINING_PRESET"] = preset
         env["RL_TRAINING_STAGE"] = training_stage
@@ -1750,8 +1742,8 @@ def create_rl_blueprint() -> Blueprint:
         # 避免后台训练触发门控时长时间冻结、日志停更。
         if eval_gate_every > 0:
             env.setdefault("RL_EVAL_DUAL", "0")
-        if dropped_rl_env:
-            env["RL_ENV_CLEANED_KEYS"] = ",".join(dropped_rl_env[:64])
+        if denied_rl_env:
+            env["RL_ENV_DENIED_KEYS"] = ",".join(denied_rl_env[:64])
 
         # P0-C · 把启动 subprocess 抽成可重入函数，monitor 在异常退出时按限速再调
         def _spawn_training_proc() -> subprocess.Popen:
@@ -1784,7 +1776,10 @@ def create_rl_blueprint() -> Blueprint:
                         "value_coef": value_coef,
                         "resume": do_resume,
                         "clean_env": True,
-                        "dropped_rl_env": dropped_rl_env,
+                        # 改名：从「whitelist 之外被丢的」→「denylist 命中被强制覆盖的」
+                        "denied_rl_env": denied_rl_env,
+                        # 新增：实际生效的关键调参摘要，便于看板验收"我设的 env 是否真传进来"
+                        "rl_env_effective": _key_rl_env_summary,
                         "training_stage": training_stage,
                         "stage_plan": stage_plan,
                     })
