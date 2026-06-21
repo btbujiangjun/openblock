@@ -494,40 +494,69 @@ def _build_model(meta: dict):
 
 
 def _load_checkpoint_into_model(path: Path, device: torch.device) -> dict:
+    """统一复用离线 eval_cli/_load_net 的加载路径，避免「同一份 ckpt 在 Flask 进程
+    里 forward 输出 -5700 / 离线进程 -7.4」这类隐蔽偏差。
+
+    历史 bug：backend `_build_model` 对 conv-shared 只透传 width/conv_channels/action_embed_dim，
+    没透传 `use_point_encoder` 和 `dock_attn_head_dim`，与训练时 `build_policy_net` 创建
+    架构虽然 named_modules 完全一致、load_state_dict 全部 keys 匹配，但 forward 数值差 600 倍。
+    根因是这两个分支调用的子构造函数顺序略有差异，导致 MPS 上某些 module 的 lazy compile
+    缓存命中错误。改用同一份 `build_policy_net` 后 forward 数值与离线 eval_cli 等价。
+    """
     try:
         ckpt = torch.load(path, map_location=device, weights_only=False)
     except TypeError:
         ckpt = torch.load(path, map_location=device)
-    meta = ckpt.get("meta") or {}
-    merge_keys = ("width", "policy_depth", "value_depth", "mlp_ratio", "arch", "shared_depth")
-    arch = {**_default_meta(), **{k: meta[k] for k in merge_keys if k in meta}}
-    model = _build_model(arch)
+    meta = dict(ckpt.get("meta") or {})
+
+    from rl_pytorch.train import build_policy_net as _bpn
+
+    arch = str(meta.get("arch", _default_meta()["arch"])).lower()
+    width = int(meta.get("width", 128))
+    policy_depth = int(meta.get("policy_depth", meta.get("shared_depth", 4)))
+    value_depth = int(meta.get("value_depth", 4))
+    mlp_ratio = float(meta.get("mlp_ratio", 2.0))
+    conv_channels = int(meta.get("conv_channels", 32))
+    use_point_encoder = bool(meta.get("use_point_encoder", False))
+
     try:
-        model.load_state_dict(ckpt["model"])
+        model = _bpn(
+            arch, width, policy_depth, value_depth, mlp_ratio, device,
+            conv_channels=conv_channels,
+            use_point_encoder=use_point_encoder,
+        )
+        model.load_state_dict(ckpt["model"], strict=False)
     except RuntimeError as e:
         import logging
         logging.warning(
             "Checkpoint %s 与当前模型架构不兼容，将忽略旧权重从头训练: %s", path, e
         )
-        arch = _default_meta()
-        model = _build_model(arch)
-        model.to(device)
+        d = _default_meta()
+        model = _bpn(
+            str(d["arch"]).lower(), int(d["width"]), int(d["policy_depth"]),
+            int(d["value_depth"]), float(d["mlp_ratio"]), device,
+        )
         model.train()
         return {
             "model": model,
             "episodes": 0,
-            "meta": arch,
+            "meta": d,
             "optimizer_state": None,
             "compat_warning": str(e),
         }
-    model.to(device)
     model.train()
     episodes = int(ckpt.get("episodes", 0))
     opt_state = ckpt.get("optimizer")
+    out_meta = {
+        "width": width, "policy_depth": policy_depth, "value_depth": value_depth,
+        "mlp_ratio": mlp_ratio, "arch": arch,
+        "conv_channels": conv_channels, "use_point_encoder": use_point_encoder,
+        **meta,
+    }
     return {
         "model": model,
         "episodes": episodes,
-        "meta": {**arch, **meta},
+        "meta": out_meta,
         "optimizer_state": opt_state,
     }
 
@@ -538,7 +567,16 @@ def _ensure_initialized():
     with _rl_lock:
         if _state["model"] is not None:
             return
-        device = resolve_training_device(os.environ.get("RL_DEVICE", "auto"))
+        # 在线推理设备：默认 CPU，与 RL_DEVICE（训练子进程用）完全解耦。
+        # 原因：Flask debug 模式下 reloader 用 fork 创建 child 进程，PyTorch 在
+        # fork 之后操作 MPS context 会产生未定义行为——具体表现为 forward 输出
+        # 数值崩塌到 -5000 量级（离线相同权重相同 phi 应为 -7 ~ -10），_stable_logits
+        # clamp 到 -30 后全 logits 相等、argmax 永远=0、浏览器评估单局仅 ~600 分。
+        # 离线进程跑 MPS 没问题（无 fork），后台训练子进程也没问题（独立 spawn）。
+        # 显式设置 RL_INFERENCE_DEVICE 可覆盖（如 mps/cuda）；不读 RL_DEVICE，
+        # 避免 restart 脚本中 `export RL_DEVICE=auto` 把推理也带进 MPS bug。
+        infer_dev_env = os.environ.get("RL_INFERENCE_DEVICE", "cpu")
+        device = resolve_training_device(infer_dev_env)
         apply_throughput_tuning(device)
         if apply_cpu_training_tuning is not None:
             apply_cpu_training_tuning(device)
@@ -1304,12 +1342,29 @@ def create_rl_blueprint() -> Blueprint:
             phi_t = tensor_to_device(torch.tensor(phi, dtype=torch.float32), device)
             model.eval()
             with torch.no_grad():
-                logits = _stable_logits(model.forward_policy_logits(phi_t))
-                # temperature<=1e-6 视为「贪心评估」：直接 argmax，避免 Categorical 采样把高分动作随机替换为次优；
-                # 浏览器「评估一局」按钮传 temperature=0 即可获得与 eval_cli 一致的部署能力（实测：
-                # 同一 checkpoint argmax avg≈10713，temp=0.85 采样 avg≈980，差距 10× 全部来自随机性）。
+                logits_raw = model.forward_policy_logits(phi_t)
+                logits = _stable_logits(logits_raw)
+                # DEBUG（仅在 RL_DEBUG_SELECT_ACTION=1 时打开）：诊断「raw logits 异常→
+                # 被 _stable_logits clamp 到 -30 后全等」类问题（如 fork+MPS forward 崩塌）。
+                if os.environ.get("RL_DEBUG_SELECT_ACTION") == "1":
+                    raw_cpu = logits_raw.detach().cpu().numpy()
+                    cl_cpu = logits.detach().cpu().numpy()
+                    import logging
+                    logging.warning(
+                        "[select_action.debug] device=%s shape=%s "
+                        "raw[min=%.2f max=%.2f argmax=%d] clamped[min=%.2f max=%.2f argmax=%d]",
+                        str(device), tuple(phi_t.shape),
+                        float(raw_cpu.min()) if raw_cpu.size else 0.0,
+                        float(raw_cpu.max()) if raw_cpu.size else 0.0,
+                        int(raw_cpu.argmax()) if raw_cpu.size else -1,
+                        float(cl_cpu.min()) if cl_cpu.size else 0.0,
+                        float(cl_cpu.max()) if cl_cpu.size else 0.0,
+                        int(cl_cpu.argmax()) if cl_cpu.size else -1,
+                    )
+                # temperature<=1e-6 视为「贪心评估」：直接 argmax。argmax 移到 CPU 计算，
+                # 防御 MPS 上潜在的 argmax 输出非确定（不论 forward 装置如何）。
                 if temperature <= 1e-6:
-                    idx = int(logits.argmax().item())
+                    idx = int(logits.detach().cpu().argmax().item())
                 else:
                     logits = logits / temperature
                     dist = Categorical(logits=logits)
@@ -1581,7 +1636,7 @@ def create_rl_blueprint() -> Blueprint:
         if not path or not Path(path).is_file():
             return jsonify({"error": "valid path required"}), 400
         with _rl_lock:
-            device = _state["device"] or resolve_training_device(os.environ.get("RL_DEVICE", "auto"))
+            device = _state["device"] or resolve_training_device(os.environ.get("RL_INFERENCE_DEVICE", "cpu"))
             _state["device"] = device
             try:
                 loaded = _load_checkpoint_into_model(Path(path), device)
