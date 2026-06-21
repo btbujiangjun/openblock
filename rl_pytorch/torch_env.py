@@ -38,13 +38,16 @@ def _bootstrap() -> None:
     #   HIGH_WATERMARK_RATIO=0.0  无上限（默认；危险）
     #   HIGH_WATERMARK_RATIO=R    分配触顶 R*recommendedMaxWorkingSetSize 时拒绝
     #   LOW_WATERMARK_RATIO=R     <R 时不主动 trim；>R 时尝试归还给 driver
-    # 在 48GB 统一内存 Mac 上：高水位 0.7 ≈ 让 MPS 最多用 ~26GB（系统留 22GB 给其他进程）
+    # 在 48GB 统一内存 Mac 上：高水位 0.55 ≈ 让 MPS 最多用 ~20GB（系统/worker 共 28GB）。
+    # 历史 0.7（26GB）+ 8 worker × 1.5GB 副本（12GB）+ Python heap 6GB ≈ 44GB，撑爆 48GB
+    # 统一内存触发 swap/jetsam。0.55 给 worker pool 和 Python heap 留足余量。
+    # 看板希望训练快可显式 export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.7 覆盖回去。
     _hw = os.environ.get("PYTORCH_MPS_HIGH_WATERMARK_RATIO")
     if _hw is None:
-        os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.7"
+        os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.55"
     _lw = os.environ.get("PYTORCH_MPS_LOW_WATERMARK_RATIO")
     if _lw is None:
-        os.environ["PYTORCH_MPS_LOW_WATERMARK_RATIO"] = "0.5"
+        os.environ["PYTORCH_MPS_LOW_WATERMARK_RATIO"] = "0.4"
 
 
 _bootstrap()

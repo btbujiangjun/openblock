@@ -237,13 +237,25 @@ _RL_TRAIN_ENV_ALLOWLIST = {
     # rl_pytorch.train 子进程，否则会回退到 train.py 内的硬编码默认（0.03/1.0/0.005），
     # 启动脚本里的调参根本不生效（看板曲线即出自该子进程）。
     "RL_TARGET_KL",            # PPO 信任域早停阈值（放宽至 0.1，提升 epoch 利用率）
+    "RL_PPO_CLIP",             # PPO 信任域 surrogate 截断阈值（新增，与 target_kl 联动收紧）
     "RL_VALUE_RETURN_SCALE",   # 价值头 returns 目标缩放（灰度 0.5，压 loss_value 量纲）
     "RL_ENTROPY_COEF_MIN",     # 残局熵系数下限（抬到 0.02，抗熵塌缩）
+    "RL_AUX_LOSS_CLIP",        # P1-1 · 辅助损失单步幅值上限（默认 20.0），防奖励 shaping 数值爆炸
     # P0 防 OOM 栈：周期性归还设备显存 + replay 总步数硬上限
     "RL_EMPTY_CACHE_EVERY",    # 每 N batch 主动调 torch.mps/cuda.empty_cache()
     "RL_REPLAY_MAX_STEPS",     # replay buffer 总步数上限（防长跑累积）
     # P2 防长跑：训练子进程每 N 局自动周期性重启（释放 fragmentation）
     "RL_AUTO_PERIODIC_RESTART_EVERY",  # 每 N 局自请求退出（exit 0），由后端 P0-C 自启逻辑触发限速 resume
+    # P0-2/P0-3 · 多进程上下文 + worker pool 规模（worker 用 CPU 推理，n_workers 决定 Python 副本数）
+    "RL_N_WORKERS",            # spawn worker 数（默认 8 改 4 省 6-8GB Python heap）
+    "RL_MP_CONTEXT",           # 多进程上下文：spawn | forkserver（forkserver 共享 torch import 省内存）
+    # MPS 水位（PyTorch 真实读这两个名字；早前用 RL_MPS_ 前缀根本不生效）
+    "PYTORCH_MPS_HIGH_WATERMARK_RATIO",
+    "PYTORCH_MPS_LOW_WATERMARK_RATIO",
+    # BestGuard 回滚自适应 lr 衰减（P1-2）
+    "RL_GUARD_LR_DECAY_AFTER",
+    "RL_GUARD_LR_DECAY_FACTOR",
+    "RL_GUARD_LR_FLOOR_RATIO",
 }
 
 
@@ -1618,7 +1630,14 @@ def create_rl_blueprint() -> Blueprint:
             mcts_sims = int(preset_mcts.get("numSimulations", 0) or 0)
         else:
             mcts_sims = 0
-        n_workers = int(data.get("n_workers", 0))
+        # n_workers：POST 显式优先，否则读 RL_N_WORKERS env（restart-openblock.sh 默认 4），
+        # 都没设时走 0=auto（train.py 内 _auto_n_workers，CPU-2 与 10 取小）。
+        # 用户报内存 79G 后建议固定 4，避免 spawn 模式下 8 worker × 1.5GB 副本拉爆。
+        try:
+            _default_nw = int(os.environ.get("RL_N_WORKERS", "0") or "0")
+        except (TypeError, ValueError):
+            _default_nw = 0
+        n_workers = int(data.get("n_workers", _default_nw))
         batch_episodes = int(data.get("batch_episodes", 16))
         ppo_epochs = int(data.get("ppo_epochs", 4))
         # 后台/看板训练默认关闭评估门：eval_gate_check 会跑 paired+dual+search 共数百局

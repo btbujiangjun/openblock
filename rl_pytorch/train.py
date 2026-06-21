@@ -208,6 +208,16 @@ def _pool_worker_init(
         try:
             from .mcts import SharedZobristTable  # type: ignore[attr-defined]
             _pool_shared_table = SharedZobristTable.attach(shm_name, shm_slots)
+            # P0-2 · worker 退出时主动 close，避免 resource_tracker 报
+            # "leaked shared_memory objects" 并产生 /psm_xxx 物理段碎片
+            import atexit as _atexit
+            def _close_shared_table_on_exit():
+                try:
+                    if _pool_shared_table is not None:
+                        _pool_shared_table.close()
+                except Exception:
+                    pass
+            _atexit.register(_close_shared_table_on_exit)
         except Exception:
             _pool_shared_table = None
 
@@ -2283,6 +2293,21 @@ def _reevaluate_and_update(
         def _safe_aux(t):
             return t if torch.isfinite(t).item() else torch.zeros_like(t)
 
+        # P1-1 · 辅助损失单步幅值硬裁剪（防奖励 shaping 数值爆炸）
+        # 真凶：6/21 日志 ep 140816 起 bonus_clear_loss=128→1026，topo=4.5→9.4 暴涨，
+        # 触发"梯度炸碎-BestGuard 回滚-丢历史进度"的循环（已回滚 947 次）。
+        # 异常源头是某些边界状态的 aux head 输出数量级失控，正常时 aux loss 均在 ±5；
+        # 这里做 hard clamp（默认 ±20，env RL_AUX_LOSS_CLIP 可调），不影响正常梯度，
+        # 仅掐爆值。policy_loss / value_loss 是主目标，不参与本 clip。
+        _aux_clip_cap = float(os.environ.get("RL_AUX_LOSS_CLIP", "20.0"))
+
+        def _clip_aux(t):
+            if not torch.isfinite(t).item():
+                return torch.zeros_like(t)
+            if _aux_clip_cap <= 0.0:
+                return t
+            return torch.clamp(t, min=-_aux_clip_cap, max=_aux_clip_cap)
+
         policy_loss = _safe_aux(policy_loss)
         value_loss_safe = _safe_aux(value_loss)
 
@@ -2290,18 +2315,18 @@ def _reevaluate_and_update(
             policy_loss
             + value_coef * value_loss_safe
             - entropy_coef * entropy_mean
-            + hole_coef * _safe_aux(hole_aux_loss)
-            + clear_pred_coef * _safe_aux(clear_pred_loss)
-            + topo_coef * _safe_aux(topology_aux_loss)
-            + bonus_clear_coef * _safe_aux(bonus_clear_loss)
-            + spawn_diff_coef * _safe_aux(spawn_diff_loss)
-            + bq_coef * _safe_aux(bq_loss)
-            + feas_coef * _safe_aux(feas_loss)
-            + surv_coef * _safe_aux(surv_loss)
-            + q_distill_coef * _safe_aux(q_distill_loss)
-            + visit_pi_coef * _safe_aux(visit_pi_loss)
-            + kl_ref_coef * _safe_aux(kl_ref_loss)
-            + bc_replay_coef * _safe_aux(bc_loss)
+            + hole_coef * _clip_aux(hole_aux_loss)
+            + clear_pred_coef * _clip_aux(clear_pred_loss)
+            + topo_coef * _clip_aux(topology_aux_loss)
+            + bonus_clear_coef * _clip_aux(bonus_clear_loss)
+            + spawn_diff_coef * _clip_aux(spawn_diff_loss)
+            + bq_coef * _clip_aux(bq_loss)
+            + feas_coef * _clip_aux(feas_loss)
+            + surv_coef * _clip_aux(surv_loss)
+            + q_distill_coef * _clip_aux(q_distill_loss)
+            + visit_pi_coef * _clip_aux(visit_pi_loss)
+            + kl_ref_coef * _clip_aux(kl_ref_loss)
+            + bc_replay_coef * _clip_aux(bc_loss)
         )
 
         opt.zero_grad()
@@ -2448,6 +2473,9 @@ def train_loop(
     import collections
     import multiprocessing as mp
 
+    # P1-2 · lr_initial 用于 BestGuard 回滚 lr 衰减计算 floor
+    # （否则 floor=lr×0.2 会用上一轮已衰减的 lr 二次衰减，最终跌穿成 0）
+    _lr_initial = float(lr)
     opt = adam_for_training(net.parameters(), lr=lr)
 
     # --- 自适应目标熵：把策略熵稳定在目标带内，避免熵系数过高把策略推向随机 ---
@@ -2843,7 +2871,17 @@ def train_loop(
         except Exception as _e:
             print(f"numba 预热跳过: {_e}", file=sys.stderr)
 
-        ctx = mp.get_context("spawn")
+        # P0-3 · 多进程上下文可切换：RL_MP_CONTEXT=forkserver 可让 worker 复用一个
+        # 已 import torch 的 server 进程 fork 出来，省去每 worker 重新 import 的内存
+        # 副本（spawn 模式下 8 worker × 完整 torch import ≈ 12-16GB）；保留 spawn 为默认
+        # 以兼容历史行为。forkserver 在 macOS Python 3.9+ 受支持，注意 worker 用 CPU
+        # 推理（line 163 `_pool_device = torch.device("cpu")`），不触碰 MPS fork-safety 问题。
+        _mp_ctx_name = os.environ.get("RL_MP_CONTEXT", "spawn").strip() or "spawn"
+        try:
+            ctx = mp.get_context(_mp_ctx_name)
+        except ValueError:
+            ctx = mp.get_context("spawn")
+            _mp_ctx_name = "spawn"
         pool = ctx.Pool(
             actual_workers,
             initializer=_pool_worker_init,
@@ -2852,7 +2890,7 @@ def train_loop(
         )
         print(
             f"多进程采集: {actual_workers} workers × {_worker_threads} thread "
-            f"(CPU inference → GPU update) + pipeline overlap",
+            f"(CPU inference → GPU update) + pipeline overlap [ctx={_mp_ctx_name}]",
             file=sys.stderr,
         )
 
@@ -3605,6 +3643,13 @@ def train_loop(
                             "guard_best_avg": round(_guard_best_avg, 1),
                             "guard_rollbacks": int(_guard_rollbacks),
                         })
+                    # MPS 显存监控（在 last_update 由 P0-A empty_cache 分支挂载；
+                    # 历史 bug：曾仅 last_update["mps_*"]=... 而未拷贝到 _jsonl_row，
+                    # 导致 21 万行 jsonl 全无该字段，看板曲线永远为空）
+                    if last_update is not None:
+                        for _k in ("mps_driver_gb", "mps_current_gb"):
+                            if _k in last_update:
+                                _jsonl_row[_k] = last_update[_k]
                     # 课程模式特定字段
                     if _use_quantile:
                         _jsonl_row.update({
@@ -3672,19 +3717,48 @@ def train_loop(
                         _ref_net.load_state_dict(net.state_dict())
                     _prev = _guard_best_avg
                     _guard_best_avg = _cur_avg
+                    # P1-2 · 创新高时 lr 回弹到初始值，避免衰减期 lr 永久停在低位学不动
+                    _lr_restored = False
+                    if abs(float(lr) - _lr_initial) > 1e-12:
+                        lr = _lr_initial
+                        opt = adam_for_training(net.parameters(), lr=lr)
+                        _lr_restored = True
                     print(
-                        f"[BestGuard] ep={ep_cursor}  ★ 新高 avg={_cur_avg:.1f} (prev={_prev:.1f}) → 已快照 best",
+                        f"[BestGuard] ep={ep_cursor}  ★ 新高 avg={_cur_avg:.1f} (prev={_prev:.1f}) → 已快照 best"
+                        + (f" + lr↺{lr:.2e}" if _lr_restored else ""),
                         file=sys.stderr,
                     )
                 elif _cur_avg < _guard_best_avg * _guard_regress:
                     # 显著回撤 → 回滚到 best 并重置优化器动量，避免沿坏方向继续漂移
                     net.load_state_dict({k: v.to(device) for k, v in _guard_best_sd.items()})
+                    _guard_rollbacks += 1
+                    # P1-2 · 连续回滚自动降学习率
+                    # 真凶：6/21 日志显示 BestGuard 单日回滚 ~150 次仍在原 lr 上原地打转，
+                    # 训练 2.5h 完全无 best 刷新。lr 自适应衰减让模型在回撤期"减速学习"，
+                    # 给探索一个机会；恢复期触发新 best 时 lr 自动回弹（见上方 _guard_best_sd 分支）。
+                    # 衰减策略：每 _guard_lr_decay_after 次回滚 lr *= _guard_lr_decay_factor，
+                    # 但 lr 不低于 lr_initial × _guard_lr_floor_ratio（避免学不动）。
+                    try:
+                        _lr_decay_after = int(os.environ.get("RL_GUARD_LR_DECAY_AFTER", "5"))
+                        _lr_decay_factor = float(os.environ.get("RL_GUARD_LR_DECAY_FACTOR", "0.7"))
+                        _lr_floor_ratio = float(os.environ.get("RL_GUARD_LR_FLOOR_RATIO", "0.2"))
+                    except (TypeError, ValueError):
+                        _lr_decay_after, _lr_decay_factor, _lr_floor_ratio = 5, 0.7, 0.2
+                    _lr_decayed = False
+                    if _lr_decay_after > 0 and _guard_rollbacks % _lr_decay_after == 0:
+                        # floor 用 _lr_initial（不是当前 lr），否则反复衰减会跌穿
+                        _lr_floor = max(1e-8, _lr_initial * _lr_floor_ratio)
+                        _new_lr = max(_lr_floor, float(lr) * _lr_decay_factor)
+                        if abs(_new_lr - float(lr)) > 1e-12:
+                            lr = _new_lr
+                            _lr_decayed = True
                     opt = adam_for_training(net.parameters(), lr=lr)
                     _guard_scores.clear()
-                    _guard_rollbacks += 1
                     print(
                         f"[BestGuard] ep={ep_cursor}  ✗ 回撤 avg={_cur_avg:.1f} < {_guard_best_avg * _guard_regress:.1f}"
-                        f"  → 已回滚到 best(avg={_guard_best_avg:.1f}) 并重置优化器  [第{_guard_rollbacks}次]",
+                        f"  → 已回滚到 best(avg={_guard_best_avg:.1f}) 并重置优化器"
+                        + (f" + lr→{lr:.2e}" if _lr_decayed else "")
+                        + f"  [第{_guard_rollbacks}次]",
                         file=sys.stderr,
                     )
 
@@ -3890,8 +3964,8 @@ def main() -> None:
     p.add_argument(
         "--ppo-clip",
         type=float,
-        default=0.2,
-        help="PPO clipped surrogate ε；仅 ppo-epochs>1 时生效",
+        default=float(os.environ.get("RL_PPO_CLIP", "0.2")),
+        help="PPO clipped surrogate ε；仅 ppo-epochs>1 时生效（env RL_PPO_CLIP 覆盖默认）",
     )
     p.add_argument(
         "--target-kl",
