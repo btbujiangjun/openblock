@@ -1208,20 +1208,58 @@ function diagnoseResources(s) {
     return { name: '资源使用', icon: '💾', checks };
 }
 
+/**
+ * 4 类诊断 group 的展开/收起持久化：
+ * - 默认全部收起（用户首次见到看板只看 headline 概览，不被细节淹没）
+ * - 用户点击 details summary 展开/收起后，状态写入 localStorage
+ * - 自动刷新（每 1-2 秒）通过 _diagGroupOpen 还原用户选择，不会被强制重置
+ *   原实现 innerHTML 整段替换会丢失 details.open，体验差；该模块级状态 + toggle
+ *   监听器是最小侵入的修复（不需要把 innerHTML 改成 DOM diff）。
+ */
+const DIAG_OPEN_LS_KEY = 'rl_dash_diag_open';
+/** @type {Record<string, boolean>} */
+let _diagGroupOpen = {};
+try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(DIAG_OPEN_LS_KEY) : null;
+    if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') _diagGroupOpen = parsed;
+    }
+} catch { /* 损坏的 LS 值忽略，回退默认全收起 */ }
+
+/** @param {HTMLElement} rootEl 已挂载 buildHealthDiagnostics 输出的容器 */
+function bindDiagToggleListeners(rootEl) {
+    if (!rootEl) return;
+    const groups = rootEl.querySelectorAll('.rl-diag-group[data-diag-id]');
+    for (const det of groups) {
+        // 每次 innerHTML 替换后旧监听已随旧 DOM 释放，新元素重新绑定即可
+        det.addEventListener('toggle', () => {
+            const id = det.dataset.diagId;
+            if (!id) return;
+            _diagGroupOpen[id] = !!det.open;
+            try {
+                if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem(DIAG_OPEN_LS_KEY, JSON.stringify(_diagGroupOpen));
+                }
+            } catch { /* quota / 无痕模式失败时丢失本次记忆，不影响功能 */ }
+        });
+    }
+}
+
 /** 把 4 类诊断聚合为一段紧凑 HTML，每条 details 可展开看完整说明 */
 function buildHealthDiagnostics(stats) {
+    // group id 用稳定字符串，前端只增不改；新增类目要在 _diagGroupOpen 中默认 false
     const groups = [
-        diagnoseConvergence(stats),
-        diagnoseNumericStability(stats),
-        diagnoseThroughput(stats),
-        diagnoseResources(stats),
+        { ...diagnoseConvergence(stats), id: 'convergence' },
+        { ...diagnoseNumericStability(stats), id: 'numeric' },
+        { ...diagnoseThroughput(stats), id: 'performance' },
+        { ...diagnoseResources(stats), id: 'resources' },
     ];
     const ICON = { critical: '❌', warn: '⚠', ok: '✓' };
     let total = 0;
     let warns = 0;
     let criticals = 0;
     for (const g of groups) {
-        // 给每组计算严重级别（max(checks))
         let gs = 'ok';
         for (const c of g.checks) {
             total += 1;
@@ -1247,8 +1285,9 @@ function buildHealthDiagnostics(stats) {
                 `</div>`
             )).join('')
             : '<div class="rl-diag-empty">本类未见异常</div>';
-        const openAttr = g.status === 'ok' ? '' : ' open';
-        return `<details class="${cls}"${openAttr}>${head}<div class="rl-diag-group-body">${body}</div></details>`;
+        // 默认全收起；用户点开后由 LS 记忆，自动刷新通过 _diagGroupOpen 还原
+        const openAttr = _diagGroupOpen[g.id] ? ' open' : '';
+        return `<details class="${cls}" data-diag-id="${escapeHtmlAttr(g.id)}"${openAttr}>${head}<div class="rl-diag-group-body">${body}</div></details>`;
     }).join('');
 
     return `<div class="rl-diag-block rl-diag-overall-${overall}">` +
@@ -1301,6 +1340,9 @@ function fillSummary(el, rows) {
         parts.push(` · <span class="rl-dash-metric" title="${escapeHtmlAttr(tipQH)}">qH <strong>${fmt(stats.avgQH, 2)}</strong></span>`);
     }
     el.innerHTML = `<span class="rl-dash-summary-line">${parts.join('')}</span>${buildInsightHtml(rows)}${buildProgressHtml(rows)}`;
+    // innerHTML 替换会丢弃旧监听器与 details.open；buildHealthDiagnostics 已通过
+    // _diagGroupOpen 还原 open 属性，这里重新绑定 toggle 监听把用户后续操作写回 LS。
+    bindDiagToggleListeners(el);
 }
 
 /** 各指标 panel 的稳定 id，用于刷新时原地更新 canvas 而不重建 #rl-chart-root */
