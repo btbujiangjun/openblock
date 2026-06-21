@@ -398,6 +398,119 @@ def _checkpoint_meta(
     return meta
 
 
+def _pack_training_state(
+    *,
+    use_quantile: bool,
+    quant_score_history,
+    quant_ema: float,
+    quant_ema_inited: bool,
+    quant_peak: float,
+    quant_last_thr: int,
+    quant_last_action: str,
+    quant_last_target: float,
+    guard_on: bool,
+    guard_best_sd,
+    guard_best_avg: float,
+    guard_rollbacks: int,
+    guard_scores,
+) -> dict:
+    """落盘 quantile 课程 + BestGuard 运行时状态，供 resume 续训不重新 bootstrap。"""
+    state: dict = {}
+    if use_quantile:
+        state["quantile"] = {
+            "score_history": [float(x) for x in quant_score_history],
+            "ema": float(quant_ema),
+            "ema_inited": bool(quant_ema_inited),
+            "peak": float(quant_peak),
+            "last_thr": int(quant_last_thr),
+            "last_action": str(quant_last_action),
+            "last_target": float(quant_last_target),
+        }
+    if guard_on and guard_best_sd is not None:
+        state["best_guard"] = {
+            "best_avg": float(guard_best_avg),
+            "rollbacks": int(guard_rollbacks),
+            "recent_scores": [float(x) for x in guard_scores],
+        }
+    return state
+
+
+def _restore_training_runtime_state(
+    ckpt: dict,
+    *,
+    net,
+    lr: float,
+    use_quantile: bool,
+    guard_on: bool,
+    quant_window: int,
+    guard_window: int,
+    ref_net,
+) -> tuple[dict, list[str]]:
+    """从 checkpoint 恢复 quantile + BestGuard；返回 (patches, log_lines)。
+
+    patches 键名与 train_loop 局部变量对应，由调用方逐项写回。
+    best_guard 恢复时调用方应重建 Adam（动量与 best 权重不对齐）。
+    """
+    import collections
+
+    meta = ckpt.get("meta") or {}
+    ts = ckpt.get("training_state") or {}
+    patches: dict = {}
+    logs: list[str] = []
+
+    if use_quantile and "quantile" in ts:
+        q = ts["quantile"]
+        hist = q.get("score_history") or []
+        patches["quant_score_history"] = collections.deque(
+            (float(x) for x in hist),
+            maxlen=max(1, quant_window),
+        )
+        patches["quant_ema"] = float(q.get("ema", 0.0))
+        patches["quant_ema_inited"] = bool(q.get("ema_inited", False))
+        patches["quant_peak"] = float(q.get("peak", 0.0))
+        patches["quant_last_thr"] = int(q.get("last_thr", 40))
+        patches["quant_last_action"] = str(q.get("last_action", "restored"))
+        patches["quant_last_target"] = float(q.get("last_target", -1.0))
+        logs.append(
+            f"  ↳ quantile 已恢复: thr={patches['quant_last_thr']} "
+            f"n={len(patches['quant_score_history'])} ema={patches['quant_ema']:.1f} "
+            f"peak={patches['quant_peak']:.1f}"
+        )
+    elif use_quantile:
+        logs.append(
+            "  ↳ quantile 无 training_state（旧 checkpoint）→ 将从 bootstrap 热身，"
+            "重启后 avg100/胜率可能短暂失真"
+        )
+
+    saved_as = str(meta.get("saved_model") or "")
+    bg = ts.get("best_guard") or {}
+    if guard_on and (saved_as == "best_guard" or bg):
+        best_avg = float(bg.get("best_avg") or meta.get("guard_best_avg") or 0.0)
+        rollbacks = int(
+            bg.get("rollbacks")
+            if bg.get("rollbacks") is not None
+            else meta.get("guard_rollbacks") or 0
+        )
+        patches["guard_best_avg"] = best_avg
+        patches["guard_rollbacks"] = rollbacks
+        patches["guard_best_sd"] = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+        rs = bg.get("recent_scores") or []
+        if rs:
+            patches["guard_scores"] = collections.deque(
+                (float(x) for x in rs),
+                maxlen=max(1, guard_window),
+            )
+        patches["rebuild_optimizer"] = True
+        if ref_net is not None:
+            ref_net.load_state_dict(net.state_dict())
+        logs.append(
+            f"  ↳ BestGuard 已恢复: best_avg={best_avg:.1f} rollbacks={rollbacks} "
+            f"(Adam 将重建以匹配 best 权重)"
+        )
+
+    return patches, logs
+
+
 def build_policy_net(
     arch: str,
     width: int,
@@ -2803,10 +2916,42 @@ def train_loop(
                     f"unexpected={len(inco.unexpected_keys)}（如新增 hole_aux 头时属正常）",
                     file=sys.stderr,
                 )
-            if "optimizer" in ckpt:
+            _ckpt_meta = ckpt.get("meta") or {}
+            _saved_as = str(_ckpt_meta.get("saved_model") or "")
+            # best_guard 落盘的是最优权重，但 optimizer 是当时「当前轨迹」的 Adam；
+            # 直接 load 会导致动量与 best 权重错位。恢复路径在 _restore 里重建 Adam。
+            if _saved_as != "best_guard" and "optimizer" in ckpt:
                 opt.load_state_dict(ckpt["optimizer"])
             start_ep = int(ckpt.get("episodes", 0))
+            _rt_patches, _rt_logs = _restore_training_runtime_state(
+                ckpt,
+                net=net,
+                lr=lr,
+                use_quantile=_use_quantile,
+                guard_on=_guard_on,
+                quant_window=_quant_window,
+                guard_window=_guard_window,
+                ref_net=_ref_net,
+            )
+            if "quant_score_history" in _rt_patches:
+                _quant_score_history = _rt_patches["quant_score_history"]
+                _quant_ema = _rt_patches["quant_ema"]
+                _quant_ema_inited = _rt_patches["quant_ema_inited"]
+                _quant_peak = _rt_patches["quant_peak"]
+                _quant_last_thr = _rt_patches["quant_last_thr"]
+                _quant_last_action = _rt_patches["quant_last_action"]
+                _quant_last_target = _rt_patches["quant_last_target"]
+            if "guard_best_avg" in _rt_patches:
+                _guard_best_avg = _rt_patches["guard_best_avg"]
+                _guard_rollbacks = _rt_patches["guard_rollbacks"]
+                _guard_best_sd = _rt_patches["guard_best_sd"]
+                if "guard_scores" in _rt_patches:
+                    _guard_scores = _rt_patches["guard_scores"]
+                if _rt_patches.get("rebuild_optimizer"):
+                    opt = adam_for_training(net.parameters(), lr=lr)
             print(f"已从 {resume} 恢复，继续自第 {start_ep} 局", file=sys.stderr)
+            for _ln in _rt_logs:
+                print(_ln, file=sys.stderr)
         except RuntimeError as e:
             print(
                 f"警告: checkpoint 权重与当前模型不兼容，忽略旧权重从头训练: {e}",
@@ -3914,25 +4059,44 @@ def train_loop(
             if ckpt_path and (ep_cursor % se < bs or ep_cursor >= start_ep + episodes):
                 ckpt_path.parent.mkdir(parents=True, exist_ok=True)
                 model_sd = _guard_best_sd if _guard_best_sd is not None else net.state_dict()
-                # checkpoint 仅保存当前 opt（best 时刻 opt 历史上未被使用，详见 L2 注释）；
-                # resume 时 opt 用当前 lr 重建即可，BestGuard 滚动均分会快速收敛回 best 状态
-                opt_sd = opt.state_dict()
-                torch.save(
-                    {
-                        "model": model_sd,
-                        "optimizer": opt_sd,
-                        "episodes": ep_cursor,
-                        "meta": _checkpoint_meta(
-                            net, device, gamma, lr, train_arch,
-                            mlp_ratio, policy_depth_arg, value_depth_arg,
-                        ) | ({
-                            "guard_best_avg": float(_guard_best_avg),
-                            "guard_rollbacks": int(_guard_rollbacks),
-                            "saved_model": "best_guard",
-                        } if _guard_best_sd is not None else {"saved_model": "current"}),
-                    },
-                    ckpt_path,
+                # best_guard 落盘时不再保存「当前轨迹」Adam（resume 会重建以匹配 best 权重）；
+                # current 落盘仍保存 optimizer 供无缝续训。
+                opt_sd = (
+                    None
+                    if _guard_best_sd is not None
+                    else opt.state_dict()
                 )
+                _training_state = _pack_training_state(
+                    use_quantile=_use_quantile,
+                    quant_score_history=_quant_score_history,
+                    quant_ema=_quant_ema,
+                    quant_ema_inited=_quant_ema_inited,
+                    quant_peak=_quant_peak,
+                    quant_last_thr=_quant_last_thr,
+                    quant_last_action=_quant_last_action,
+                    quant_last_target=_quant_last_target,
+                    guard_on=_guard_on,
+                    guard_best_sd=_guard_best_sd,
+                    guard_best_avg=_guard_best_avg,
+                    guard_rollbacks=_guard_rollbacks,
+                    guard_scores=_guard_scores,
+                )
+                _save_payload: dict = {
+                    "model": model_sd,
+                    "episodes": ep_cursor,
+                    "training_state": _training_state,
+                    "meta": _checkpoint_meta(
+                        net, device, gamma, lr, train_arch,
+                        mlp_ratio, policy_depth_arg, value_depth_arg,
+                    ) | ({
+                        "guard_best_avg": float(_guard_best_avg),
+                        "guard_rollbacks": int(_guard_rollbacks),
+                        "saved_model": "best_guard",
+                    } if _guard_best_sd is not None else {"saved_model": "current"}),
+                }
+                if opt_sd is not None:
+                    _save_payload["optimizer"] = opt_sd
+                torch.save(_save_payload, ckpt_path)
     finally:
         _cleanup_weight_file(_pending_weight_path)
         if pool is not None:
