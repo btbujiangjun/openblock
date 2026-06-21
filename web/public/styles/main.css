@@ -4675,6 +4675,7 @@ html[data-visibility="hidden"] *::after {
 }
 
 .rtcm-plot-wrap {
+    position: relative;
     width: 100%;
     margin: 8px 0 12px;
     border-radius: 8px;
@@ -4686,6 +4687,18 @@ html[data-visibility="hidden"] *::after {
 .rtcm-plot-canvas {
     display: block;
     width: 100%;
+}
+
+.rtcm-plot-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.rtcm-plot-overlay .imm-hit {
+    pointer-events: all;
     cursor: crosshair;
 }
 
