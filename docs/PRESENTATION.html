@@ -143,6 +143,16 @@
     .slide-nav .dot.active{width:20px}
     .slide-nav .counter{font-size:0.65rem;min-width:36px}
   }
+
+  /* ═══════ ZOOM OVERLAY ═══════ */
+  .img-frame{cursor:zoom-in}
+  .img-frame svg{width:100%;height:auto}
+  .zoom-overlay{position:fixed;inset:0;z-index:9999;background:rgba(2,4,10,0.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:40px;opacity:0;pointer-events:none;transition:opacity 0.25s}
+  .zoom-overlay.show{opacity:1;pointer-events:auto}
+  .zoom-overlay .zoom-close{position:absolute;top:24px;right:32px;width:44px;height:44px;border-radius:50%;border:none;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.4);font-size:1.6rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s}
+  .zoom-overlay .zoom-close:hover{background:rgba(255,255,255,0.1);color:#fff}
+  .zoom-overlay svg{max-width:96vw;max-height:88vh;width:auto;height:auto}
+  .zoom-overlay .zoom-label{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.15);font-size:0.85rem;letter-spacing:0.08em}
 </style>
 </head>
 <body>
@@ -165,6 +175,18 @@
   </div>
   <div class="scroll-hint">▼ 键盘 ← → 或点击切换 ▼</div>
 </section>
+
+<!-- ═══════ GLOBAL SVG MARKERS (for cross-SVG reference) ═══════ -->
+<svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+  <defs>
+    <marker id="arrD" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.25)"/></marker>
+    <marker id="arrG" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.15)"/></marker>
+    <marker id="arrP" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.2)"/></marker>
+    <marker id="arrW" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.3)"/></marker>
+    <marker id="arrB" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#4a9eff"/></marker>
+    <marker id="arrO" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="#ffb74d"/></marker>
+  </defs>
+</svg>
 
 <!-- ═══════ TOC ═══════ -->
 <section class="slide">
@@ -205,7 +227,7 @@
   <div class="dialog dialog-p">
     <div class="avatar">P</div><div class="body">
       <div class="name">玩法设计师</div>
-      <div class="text">说了这么多理论和算法，所以这个产品到底长什么样？玩家能看到什么、感觉到什么？</div></div>
+      <div class="text">产品设计不只是画界面。从理解玩家心理，到设计难度曲线，再到功能落地——这三层之间怎么衔接？怎么保证它们不是各说各话？</div></div>
   </div>
   <div class="dialog dialog-a">
     <div class="avatar">A</div><div class="body">
@@ -213,12 +235,12 @@
       <div class="text">产品设计是把心理学原理和算法能力翻译成玩家可感知的体验。三个层面：<strong>心理认知</strong>（理解玩家为什么开心/烦躁）、<strong>策略框架</strong>（S 曲线、难度相对论、双坐标解耦、PB 七段弧）、<strong>功能落地</strong>（压力表、温暖局、连战弧线、PB 冲刺）。下面逐一展开。</div></div>
   </div>
   <div class="img-frame">
-    <img src="/docs/architecture/assets/product-architecture.png" alt="Product Architecture">
+    <img src="/docs/asset/architecture/assets/product-architecture.png" alt="Product Architecture">
     <div class="cap">产品架构——体验五轴、五层游戏化结构、生命周期 × 成熟度矩阵</div>
   </div>
 </section>
 
-<!-- ═══════ 1.1 PSYCHOLOGY ═══════ -->
+<!-- ═══════ 1.1 PSYCHOLOGY OVERVIEW ═══════ -->
 <section class="slide" id="psyc">
   <h3><span class="ch">1.1</span> 心理学基础</h3>
 
@@ -230,34 +252,136 @@
   <div class="dialog dialog-a">
     <div class="avatar">A</div><div class="body">
       <div class="name">算法工程师</div>
-      <div class="text">「开心」在学术上至少有三种不同的心理机制：<strong>心流</strong>（匹配挑战与能力的沉浸感）、<strong>胜任感</strong>（掌握后的成就感）、<strong>唤醒调节</strong>（紧张到释放的张力曲线）。我们的算法不是凭空编造的——每一项设计都对应一个已知的心理学原理。</div></div>
+      <div class="text">「开心」在学术上至少有五种不同的心理机制。我们的算法不是凭空编造的——每一项设计都对应一个已知的心理学原理。下面逐一展开。</div></div>
   </div>
 
+  <div class="card-row c3">
+    <div class="card accent-g" style="cursor:pointer" onclick="document.getElementById('psyc-flow').scrollIntoView({behavior:'smooth'})">
+      <div class="icon">😀</div><div class="tit">1.1.1 心流理论</div>
+      <div class="desc">挑战与能力匹配时产生的最优体验。游戏体验的第一性原理。</div></div>
+    <div class="card accent-o" style="cursor:pointer" onclick="document.getElementById('psyc-yd').scrollIntoView({behavior:'smooth'})">
+      <div class="icon">📈</div><div class="tit">1.1.2 唤醒曲线</div>
+      <div class="desc">Yerkes-Dodson 倒 U 形：表现随唤醒先升后降，最优唤醒带因人因任务而异。</div></div>
+    <div class="card accent-p" style="cursor:pointer" onclick="document.getElementById('psyc-sdt').scrollIntoView({behavior:'smooth'})">
+      <div class="icon">🎯</div><div class="tit">1.1.3 自我决定理论</div>
+      <div class="desc">胜任感、自主性、关联性——三大内在动机驱动持续参与。</div></div>
+    <div class="card accent-r" style="cursor:pointer" onclick="document.getElementById('psyc-helpless').scrollIntoView({behavior:'smooth'})">
+      <div class="icon">🛡️</div><div class="tit">1.1.4 习得性无助</div>
+      <div class="desc">反复挫败导致放弃尝试。救济机制的心理依据。</div></div>
+    <div class="card accent-b" style="cursor:pointer" onclick="document.getElementById('psyc-peak').scrollIntoView({behavior:'smooth'})">
+      <div class="icon">⛰️</div><div class="tit">1.1.5 峰值-终末定律</div>
+      <div class="desc">记忆由最强烈时刻和结束时的感受决定——峰值制造与结尾设计。</div></div>
+  </div>
+</section>
+
+<!-- ═══════ 1.1.1 FLOW ═══════ -->
+<section class="slide" id="psyc-flow">
   <h3><span class="ch">1.1.1</span> 心流理论：游戏体验的第一性原理</h3>
+
+  <p>Csikszentmihalyi（1990）提出的心流理论指出，人类最愉悦的状态出现在<strong>技能与挑战恰好匹配</strong>的狭窄通道中——太简单则无聊、太难则焦虑，唯有挑战与能力平衡时才会进入「心流」：专注、忘我、愉悦。</p>
+
   <div class="card-row c3">
     <div class="card accent-b"><div class="icon">😰</div><div class="tit">焦虑区</div><div class="desc">挑战 > 能力，玩家感到紧张、无助想放弃</div></div>
     <div class="card accent-g" style="border-color:#81c784;background:rgba(129,199,132,0.06);"><div class="icon">😀</div><div class="tit" style="color:#81c784;">心流通道</div><div class="desc">挑战 ≈ 能力，最优体验：专注、忘我、愉悦</div></div>
     <div class="card accent-o"><div class="icon">😴</div><div class="tit">无聊区</div><div class="desc">能力 > 挑战，玩家感到厌倦、注意力分散</div></div>
   </div>
-  <p>Csikszentmihalyi 的心流理论（1990）指出，人类最愉悦的状态出现在<strong>技能与挑战恰好匹配</strong>的狭窄通道中。</p>
-  <div class="quo">对游戏设计而言，这意味着「难度」不是一根坐标轴，而是<strong>每个玩家每时每刻以自己为原点的相对坐标系</strong>。最好的游戏不是「让所有人都赢」，而是「让每个人都在自己的心流通道中」。</div>
 
+  <div class="quo">对游戏设计而言，这意味着「难度」不是一根绝对坐标轴，而是<strong>每个玩家每时每刻以自己为原点的相对坐标系</strong>。最好的游戏不是「让所有人都赢」，而是「让每个人都在自己的心流通道中」。</div>
+
+  <p style="font-size:0.95rem;color:#7088a8;margin-top:1.2em">设计启示：难度必须随玩家能力实时适配，而非预设一条固定曲线。心流通道的宽度因人而异——高玩通道宽、新手通道窄。系统需要持续感知玩家的能力状态并动态调整出块难度。</p>
+</section>
+
+<!-- ═══════ 1.1.2 YERKES-DODSON ═══════ -->
+<section class="slide" id="psyc-yd">
   <h3><span class="ch">1.1.2</span> Yerkes-Dodson 唤醒曲线</h3>
-  <p>表现水平随唤醒（压力）呈倒 U 型曲线。这条曲线直接决定了我们的 stress 引擎设计——<strong>stress 不是要让玩家难受，而是把玩家推送到倒 U 曲线的顶点</strong>。而且每个人的曲线不同：新手的顶点在左下方，老手的顶点在右上方。</p>
 
-  <h3><span class="ch">1.1.3</span> 自我决定理论（SDT）</h3>
-  <div class="card-row c3">
-    <div class="card accent-p"><div class="icon">💪</div><div class="tit">胜任感</div><div class="desc">感觉自己有能力应对挑战。每次消行、每次破 PB 都在强化。</div></div>
-    <div class="card accent-b"><div class="icon">🎯</div><div class="tit">自主性</div><div class="desc">感觉是自己掌控局面而非被系统操控。算法必须隐蔽。</div></div>
-    <div class="card accent-o"><div class="icon">🤝</div><div class="tit">关联性</div><div class="desc">与他人的连接感。排行榜、分享回放、挑战好友。</div></div>
+  <p>Yerkes & Dodson（1908）发现，表现水平随唤醒（压力）呈<strong>倒 U 型</strong>——唤醒太低则无聊、表现差；唤醒太高则焦虑、表现也差；中段为最优表现带。且<strong>任务越复杂，最优唤醒带越偏左</strong>（复杂任务承受不了高唤醒）。</p>
+  <p>核心洞察：<strong>stress 不是要让玩家难受，而是把玩家推送到倒 U 曲线的顶点。</strong>每个人的曲线不同——新手的顶点在左下方，老手的顶点在右上方。</p>
+
+  <div class="img-frame" style="padding:16px 20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 860 340" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs>
+        <linearGradient id="ydGrad" x1="0" y1="0.5" x2="1" y2="0.5">
+          <stop offset="0%" stop-color="#4a9eff" stop-opacity="0.2"/>
+          <stop offset="35%" stop-color="#81c784" stop-opacity="0.9"/>
+          <stop offset="50%" stop-color="#81c784"/>
+          <stop offset="65%" stop-color="#ffb74d" stop-opacity="0.9"/>
+          <stop offset="100%" stop-color="#e57373" stop-opacity="0.2"/>
+        </linearGradient>
+      </defs>
+      <line x1="60" y1="300" x2="820" y2="300" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" marker-end="url(#arrG)"/>
+      <line x1="60" y1="30" x2="60" y2="300" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" marker-end="url(#arrG)"/>
+      <text x="820" y="318" fill="rgba(255,255,255,0.12)" font-size="12" text-anchor="end">唤醒水平 →</text>
+      <text x="40" y="30" fill="rgba(255,255,255,0.12)" font-size="12" text-anchor="end">← 表现</text>
+      <rect x="60" y="30" width="190" height="270" fill="#4a9eff" opacity="0.03"/>
+      <text x="155" y="280" fill="rgba(74,158,255,0.2)" font-size="12" text-anchor="middle" font-weight="700">无聊</text>
+      <rect x="250" y="30" width="280" height="270" fill="#81c784" opacity="0.03"/>
+      <text x="390" y="280" fill="rgba(129,199,132,0.2)" font-size="12" text-anchor="middle" font-weight="700">最优表现带</text>
+      <rect x="530" y="30" width="290" height="270" fill="#e57373" opacity="0.03"/>
+      <text x="675" y="280" fill="rgba(229,115,115,0.2)" font-size="12" text-anchor="middle" font-weight="700">焦虑</text>
+      <path d="M 130,290 C 180,290 230,260 270,210 C 300,170 320,150 350,130 C 380,110 410,100 440,95 C 470,90 500,95 530,110 C 560,130 590,160 620,210 C 650,250 680,280 710,290"
+            fill="none" stroke="#ffb74d" stroke-width="3" stroke-linecap="round"/>
+      <path d="M 130,290 C 180,290 230,260 270,210 C 300,170 320,150 350,130 C 380,110 410,100 440,95 C 470,90 500,95 530,110 C 560,130 590,160 620,210 C 650,250 680,280 710,290 L 710,300 L 130,300 Z"
+            fill="url(#ydGrad)" opacity="0.18"/>
+      <path d="M 100,290 C 130,290 160,270 190,230 C 210,200 230,180 250,170 C 270,160 290,165 310,180 C 330,200 350,230 370,260 C 385,280 400,290 420,295"
+            fill="none" stroke="#4a9eff" stroke-width="2" stroke-dasharray="5,4" opacity="0.5"/>
+      <circle cx="440" cy="95" r="4" fill="#ffb74d"/>
+      <text x="440" y="82" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">高玩顶点</text>
+      <text x="440" y="115" fill="rgba(255,183,77,0.12)" font-size="9" text-anchor="middle">高 skill · 高承受力</text>
+      <circle cx="250" cy="170" r="4" fill="#4a9eff" opacity="0.6"/>
+      <text x="250" y="158" fill="#4a9eff" font-size="11" text-anchor="middle" font-weight="600">新手顶点</text>
+      <text x="250" y="190" fill="rgba(74,158,255,0.12)" font-size="9" text-anchor="middle">低 skill · 低承受力</text>
+      <text x="60" y="330" fill="rgba(255,255,255,0.06)" font-size="9">任务越复杂 → 最优唤醒带越偏左 · 8×8 消块是中等复杂度，最优带居中偏左</text>
+    </svg>
   </div>
 
+  <p style="font-size:0.95rem;color:#7088a8;margin-top:0.8em">设计启示：压力不是敌人，而是工具。关键是把玩家推送到个体倒 U 曲线的顶点附近——既不让他在无聊区滞留，也不让他滑入焦虑区。这意味着系统必须实时感知玩家的压力状态并做出微调。</p>
+</section>
+
+<!-- ═══════ 1.1.3 SDT ═══════ -->
+<section class="slide" id="psyc-sdt">
+  <h3><span class="ch">1.1.3</span> 自我决定理论（SDT）</h3>
+
+  <p>Deci & Ryan（1985）的自我决定理论指出，人类的内在动机来源于三大基本心理需求的满足：<strong>胜任感</strong>（感觉我能行）、<strong>自主性</strong>（感觉我自己在掌控）、<strong>关联性</strong>（感觉与他人有连接）。三者缺一则内在动机下降。</p>
+
+  <div class="card-row c3">
+    <div class="card accent-p"><div class="icon">💪</div><div class="tit">胜任感</div><div class="desc">感觉自己有能力应对挑战。每次消行、每次破 PB 都在强化。</div></div>
+    <div class="card accent-b"><div class="icon">🎯</div><div class="tit">自主性</div><div class="desc">感觉是自己掌控局面而非被系统操控。算法必须隐蔽——玩家永远不觉得"系统在替我玩"。</div></div>
+    <div class="card accent-o"><div class="icon">🤝</div><div class="tit">关联性</div><div class="desc">与他人的连接感。排行榜、分享回放、挑战好友——突破自我后被看到、被认可。</div></div>
+  </div>
+
+  <p style="font-size:0.95rem;color:#7088a8;margin-top:0.8em">设计启示：难度自适应必须在不破坏自主感的前提下进行。如果玩家明显感觉到"系统在故意放水"，胜任感和自主性会同时受损。算法的隐蔽性是产品设计的关键约束。</p>
+</section>
+
+<!-- ═══════ 1.1.4 LEARNED HELPLESSNESS ═══════ -->
+<section class="slide" id="psyc-helpless">
   <h3><span class="ch">1.1.4</span> 习得性无助与挫败累积</h3>
-  <p>Seligman 的经典实验表明：当生物体反复经历无法控制的负面事件时，会停止尝试。救济机制（relief）的心理依据在此——打破「连续失败 → 操作变形」的死循环。</p>
 
+  <p>Seligman（1967）的经典实验表明：当生物体反复经历无法控制的负面事件时，会停止尝试——即使后续环境已经改变。在游戏中表现为：连续失败 → 操作变形 → 进一步失败 → 放弃。</p>
+
+  <div class="card-row c2">
+    <div class="card accent-r"><div class="icon">😫</div><div class="tit">习得性无助的恶性循环</div><div class="desc">挫败累积 → 操作变形 → 更多挫败 → 放弃尝试。如果不主动干预，系统会自我强化。</div></div>
+    <div class="card accent-g"><div class="icon">🛟</div><div class="tit">救济机制的设计逻辑</div><div class="desc">关键在于：救济不是"降低难度"，而是"打破死循环"。救济后玩家恢复正常状态，难度同步回升，让玩家靠自己的操作赢回来——这才是胜任感的真正来源。</div></div>
+  </div>
+
+  <p style="font-size:0.95rem;color:#7088a8;margin-top:0.8em">设计启示：系统必须能检测挫败累积信号（连续失败、操作间隔变异增大、填充率异常上升），并在玩家真正放弃之前主动干预。救济的时机和幅度需要精确——太早则玩家不觉得自己克服了困难，太晚则已进入无助状态。</p>
+</section>
+
+<!-- ═══════ 1.1.5 PEAK-END ═══════ -->
+<section class="slide" id="psyc-peak">
   <h3><span class="ch">1.1.5</span> 峰值-终末定律（Peak-End Rule）</h3>
-  <p>Kahneman 的研究表明：人们对一段体验的记忆主要取决于<strong>情感最强烈的时刻（峰值）和结束时的感受（终末）</strong>。PB 冲刺阶段的 Challenge Boost 制造峰值；RoR Arc 确保局间有高潮有喘息。</p>
 
+  <p>Kahneman（1993）的研究表明：人们对一段体验的评价记忆并非每一刻的平均，而是主要由两个时刻决定——<strong>情感最强烈的时刻（峰值）</strong>和<strong>结束时的感受（终末）</strong>。其他时刻几乎被忽略。</p>
+
+  <div class="card-row c2">
+    <div class="card accent-o"><div class="icon">⛰️</div><div class="tit">峰值制造</div><div class="desc">冲击 PB 的时刻是整局情绪自然峰值。系统应在此刻给予足够的挑战感和仪式感——让"冲 PB"的感觉足够剧烈、足够难忘。</div></div>
+    <div class="card accent-b"><div class="icon">🏁</div><div class="tit">终末设计</div><div class="desc">局结束时的感受决定了玩家是否点击"再来一局"。高亢收尾（破 PB、近失）和舒缓收尾（疲劳释放）需要交替安排，通过系统自动调控。</div></div>
+  </div>
+
+  <p style="font-size:0.95rem;color:#7088a8;margin-top:0.8em">设计启示：玩家不会记住整局的平均体验——他只记得最爽的那一刻和最后的感受。因此系统的设计重心不是"让整局都舒服"，而是在关键时刻制造高潮、在结束时留下好印象。</p>
+</section>
+
+<section class="slide" style="justify-content:center;min-height:50vh">
   <div class="section-bridge">
     <p>理解玩家 → 设计体验 → 算法实现</p>
     <div class="sub">产品设计的三个层级，逐层展开。</div>
@@ -271,56 +395,183 @@
   <div class="dialog dialog-a">
     <div class="avatar">A</div><div class="body">
       <div class="name">算法工程师</div>
-      <div class="text">产品策略是连接心理学与算法实现的桥梁。它不是零散的功能列表，而是<strong>一套连贯的设计哲学</strong>。我们提炼出三条核心策略：<strong>S 形压力曲线</strong>（难度如何随分数演进）、<strong>难度相对论</strong>（同一个盘面对不同玩家意味着不同的体验）、<strong>双坐标解耦</strong>（难度坐标与纪录坐标分离）。这三条策略交织出完整的出块策略。</div></div>
+      <div class="text">产品策略是连接心理学与算法实现的桥梁。它不是零散的功能列表，而是<strong>一套连贯的设计哲学</strong>。我们提炼出三条核心策略：<strong>S 形压力曲线</strong>（难度如何随分数演进）、<strong>难度相对论</strong>（同一个盘面对不同玩家意味着不同的体验）、<strong>双坐标解耦</strong>（难度坐标与纪录坐标分离），以及<strong>PB 七段弧</strong>（冲击 PB 的微观情绪时序）。这四条策略交织出完整的出块策略。</div></div>
   </div>
 
-  <h3 id="strategy-sc"><span class="ch">1.2.1</span> S 形压力曲线——难度演进的底层哲学</h3>
+  <div class="card-row c2" style="margin-top:1.6em">
+    <div class="card accent-b" style="cursor:pointer" onclick="document.getElementById('strategy-sc').scrollIntoView({behavior:'smooth'})">
+      <div class="tit">1.2.1 S 形压力曲线</div>
+      <div class="desc">难度随分数的演进哲学——防止分数膨胀与用户生命透支</div></div>
+    <div class="card accent-o" style="cursor:pointer" onclick="document.getElementById('strategy-dr').scrollIntoView({behavior:'smooth'})">
+      <div class="tit">1.2.2 难度相对论</div>
+      <div class="desc">同一个盘面对不同玩家意味着不同的体验——θ⃗ 六维能力向量</div></div>
+    <div class="card accent-g" style="cursor:pointer" onclick="document.getElementById('strategy-dc').scrollIntoView({behavior:'smooth'})">
+      <div class="tit">1.2.3 双坐标解耦</div>
+      <div class="desc">难度坐标 vs 纪录坐标——不同坐标服务于不同系统</div></div>
+    <div class="card accent-p" style="cursor:pointer" onclick="document.getElementById('strategy-pb').scrollIntoView({behavior:'smooth'})">
+      <div class="tit">1.2.4 PB 曲线</div>
+      <div class="desc">7 段弧线的张力与制动——冲击 PB 的微观情绪弧线</div></div>
+  </div>
+</section>
+
+<section class="slide" id="strategy-sc">
+  <h3><span class="ch">1.2.1</span> S 形压力曲线——难度演进的底层哲学</h3>
 
   <div class="dialog dialog-p">
     <div class="avatar">P</div><div class="body">
       <div class="name">玩法设计师</div>
-      <div class="text">假设一个玩家的 PB 是 500 分。他开局 50 分时、450 分时、510 分时——系统应该给完全不同的出块难度对吧？这个「难度随分数的变化曲线」就是 S 曲线？</div></div>
+      <div class="text">玩家总要追求点什么。如果每次都能轻松破 PB，分数只涨不跌——那他们一两周就把成就拿完了，之后呢？用户生命不就被透支了吗？</div></div>
   </div>
   <div class="dialog dialog-a">
     <div class="avatar">A</div><div class="body">
       <div class="name">算法工程师</div>
-      <div class="text">对。<strong>S 形压力曲线是整个难度体系的「主干道」。</strong>它定义了一个玩家从「远未达到 PB」到「超越 PB」的完整旅程中，目标难度应该如何变化。所有其他调控器——Warm Run、RoR Arc、Difficulty Relativity——都在这条主曲线上叠加偏移量，从不取代它。</div></div>
+      <div class="text">这就是 S 曲线的核心命题：<strong>让玩家接近 PB 但难以超越，偶有惊喜。</strong>这条曲线的输入是归一化进度比 r = score / PB，输出是目标难度 D ∈ [0.10, 1.00]。当玩家远未达到 PB 时，曲线平缓低压，给他成长空间；当逼近 PB 时，曲线急速上扬——PB 不是轻易能跨过的门槛；即使超越了，曲线也以对数形式收敛饱和，不会无限膨胀。<strong>玩家的分可以涨，但难度永远追着分数跑——分数不会溢出，用户生命不会透支。</strong>它是整个用户生命周期的骨架，所有其他调控器——如难度相对论、PB 曲线阶段调制——都在这条主曲线上叠加偏移量，从不取代它。</div></div>
   </div>
 
   <h4>四段连续曲线</h4>
-  <p>S 曲线的输入是归一化进度比 r = score / PB，输出是目标难度 D ∈ [0.10, 1.00]。整条曲线 C∞ 连续、单调递增，分为四段：</p>
+  <p>S 曲线的输入是归一化进度比 r = score / PB，输出是目标难度 D ∈ [0.10, 1.00]。整条曲线 C∞ 连续、单调递增，四个分段各自承载一个产品意图：</p>
 
-  <div class="formula"><span class="cm">// Segment 1 — 远征段 (r &lt; 0.45): 低压巡航</span>
-D = 0.10 + (0.01 / 0.45) × r
-<span class="cm">// r=0 时 D=0.10，r=0.45 时 D=0.11。几乎平直——远未到达 PB 时不施加压力。</span>
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 840 480" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs>
+        <linearGradient id="grad1" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#4a9eff"/><stop offset="100%" stop-color="#4a9eff" stop-opacity="0.6"/></linearGradient>
+        <linearGradient id="grad2" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#81c784"/><stop offset="100%" stop-color="#81c784" stop-opacity="0.6"/></linearGradient>
+        <linearGradient id="grad3" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ffb74d"/><stop offset="100%" stop-color="#e57373" stop-opacity="0.6"/></linearGradient>
+        <linearGradient id="grad4" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ba68c8"/><stop offset="100%" stop-color="#ba68c8" stop-opacity="0.6"/></linearGradient>
+        <filter id="glow1"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
 
-<span class="cm">// Segment 2 — 上升段 (0.45 ≤ r &lt; 0.65): 温和抬升</span>
-D = 0.11 + (0.07 / 0.20) × (r − 0.45)
-<span class="cm">// r=0.65 时 D=0.18。斜率适中，进入心流建设阶段。</span>
+      <!-- Grid -->
+      <line x1="90" y1="50" x2="90" y2="400" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
+      <line x1="90" y1="400" x2="780" y2="400" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
+      <line x1="90" y1="350" x2="780" y2="350" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="300" x2="780" y2="300" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="250" x2="780" y2="250" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="200" x2="780" y2="200" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="150" x2="780" y2="150" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="100" x2="780" y2="100" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="60" x2="780" y2="60" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="4,4"/>
 
-<span class="cm">// Segment 3 — 决战段 (0.65 ≤ r &lt; 1.15): S 形爆发</span>
-t = (r − 0.65) / (1.15 − 0.65)             <span class="cm">// 归一化到 [0, 1]</span>
-k = 10.5
-raw = 1 / (1 + exp(−k × (t − 0.5)))         <span class="cm">// logistic sigmoid</span>
-s   = (raw − s₀) / (s₁ − s₀)                <span class="cm">// 端点重映射到 [0, 1]</span>
-D   = 0.18 + s × (0.98 − 0.18)
-<span class="cm">// r=1.0 (score=PB) 时 D≈0.90。sigmoid 在 PB 附近极陡——冲 PB 的感觉应艰难。</span>
+      <!-- Vertical grid at key r values -->
+      <line x1="315" y1="50" x2="315" y2="400" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="3,4"/>
+      <line x1="407" y1="50" x2="407" y2="400" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="3,4"/>
+      <line x1="592" y1="50" x2="592" y2="400" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="3,4"/>
 
-<span class="cm">// Segment 4 — 超越段 (r ≥ 1.15): 对数收敛</span>
-D = 0.98 + (1.00 − 0.98) × (1 − exp(−6.0 × (r − 1.15)))
-<span class="cm">// r → ∞ 时 D → 1.00。超越 PB 后难度渐进饱和，防止无上限膨胀。</span></div>
+      <!-- Axis labels -->
+      <text x="420" y="445" fill="rgba(255,255,255,0.25)" font-size="14" text-anchor="middle" font-family="system-ui">进度比 r (score / PB) →</text>
+      <text x="40" y="220" fill="rgba(255,255,255,0.25)" font-size="14" text-anchor="middle" transform="rotate(-90,40,220)" font-family="system-ui">目标难度 D →</text>
+
+      <!-- X-axis tick labels -->
+      <text x="90" y="420" fill="rgba(255,255,255,0.18)" font-size="12" text-anchor="middle">0</text>
+      <text x="315" y="420" fill="rgba(255,255,255,0.18)" font-size="12" text-anchor="middle">0.45</text>
+      <text x="407" y="420" fill="rgba(255,255,255,0.18)" font-size="12" text-anchor="middle">0.65</text>
+      <text x="540" y="420" fill="#ffb74d" font-size="13" text-anchor="middle" font-weight="700">1.0 (PB)</text>
+      <text x="592" y="420" fill="rgba(255,255,255,0.18)" font-size="12" text-anchor="middle">1.15</text>
+      <text x="740" y="420" fill="rgba(255,255,255,0.12)" font-size="12" text-anchor="middle">1.5</text>
+
+      <!-- Y-axis tick labels -->
+      <text x="80" y="404" fill="rgba(255,255,255,0.18)" font-size="12" text-anchor="end">0.0</text>
+      <text x="80" y="354" fill="rgba(255,255,255,0.12)" font-size="11" text-anchor="end">0.1</text>
+      <text x="80" y="254" fill="rgba(255,255,255,0.12)" font-size="11" text-anchor="end">0.5</text>
+      <text x="80" y="104" fill="rgba(255,255,255,0.12)" font-size="11" text-anchor="end">1.0</text>
+
+      <!-- ===== CURVE: Segments with different colors ===== -->
+      <!-- Segment 1: 远征段 r 0→0.45, D 0.10→0.11 (nearly flat) -->
+      <polyline points="90,364 315,361" fill="none" stroke="#4a9eff" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
+
+      <!-- Segment 2: 上升段 r 0.45→0.65, D 0.11→0.18 -->
+      <polyline points="315,361 407,338" fill="none" stroke="#81c784" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
+
+      <!-- Segment 3: 决战段 r 0.65→1.15, sigmoid -->
+      <polyline points="407,338 425,332 444,324 462,312 480,295 498,265 516,228 534,185 552,145 570,112 588,90 610,78" fill="none" stroke="#ffb74d" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
+
+      <!-- Segment 4: 超越段 r 1.15→, log convergence -->
+      <polyline points="610,78 635,74 660,71 690,69 720,68 750,68" fill="none" stroke="#ba68c8" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
+
+      <!-- Segment boundary markers (vertical dashed lines at r=0.45, 0.65, 1.15) -->
+      <line x1="315" y1="361" x2="315" y2="400" stroke="#4a9eff" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.5"/>
+      <line x1="407" y1="338" x2="407" y2="400" stroke="#81c784" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.5"/>
+      <line x1="610" y1="78" x2="610" y2="400" stroke="#ba68c8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.5"/>
+
+      <!-- D value labels at key points -->
+      <text x="75" y="368" fill="#4a9eff" font-size="12" text-anchor="end" font-weight="600">D=0.10</text>
+      <text x="310" y="356" fill="#4a9eff" font-size="12" text-anchor="end" font-weight="600">D=0.11</text>
+      <text x="402" y="333" fill="#81c784" font-size="12" text-anchor="end" font-weight="600">D=0.18</text>
+      <text x="550" y="140" fill="#ffb74d" font-size="13" text-anchor="start" font-weight="700">D≈0.90</text>
+      <text x="615" y="73" fill="#ba68c8" font-size="12" text-anchor="start" font-weight="600">D≈0.98</text>
+
+      <!-- Segment labels on/beside the curve -->
+      <rect x="180" y="375" width="50" height="20" rx="4" fill="rgba(74,158,255,0.15)"/>
+      <text x="205" y="389" fill="#4a9eff" font-size="12" text-anchor="middle" font-weight="700">远征段</text>
+
+      <rect x="340" y="348" width="50" height="20" rx="4" fill="rgba(129,199,132,0.15)"/>
+      <text x="365" y="362" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">上升段</text>
+
+      <rect x="500" y="243" width="50" height="20" rx="4" fill="rgba(255,183,77,0.15)"/>
+      <text x="525" y="257" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">决战段</text>
+
+      <rect x="635" y="82" width="50" height="20" rx="4" fill="rgba(186,104,200,0.15)"/>
+      <text x="660" y="96" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="700">超越段</text>
+
+      <!-- Decorative: r=1.0 vertical highlight -->
+      <line x1="540" y1="92" x2="540" y2="400" stroke="rgba(255,183,77,0.2)" stroke-width="1.5" stroke-dasharray="6,4"/>
+      <circle cx="540" cy="92" r="5" fill="#ffb74d" opacity="0.8"/>
+
+      <!-- PB milestone marker -->
+      <text x="540" y="410" fill="rgba(255,183,77,0.4)" font-size="10" text-anchor="middle">▲ PB 里程碑</text>
+    </svg>
+    <div class="cap">S 形压力曲线：四段连续曲线（C∞），从低压巡航到超越饱和</div>
+  </div>
 
   <h4>S 曲线在产品中的体现：scoreStress</h4>
   <p>在实时游戏中，S 曲线通过离散化的 milestones → spawnStress 表实现。milestones 数组定义了 5 个锚点，线性插值形成近似 S 形的离散版本：</p>
 
-  <div class="formula"><span class="cm">// scoreStress 计算（live game 中的 S 曲线实现）</span>
-pct = score / effectivePB
-projected = min(lastMilestone × (1 + percentileMaxOver), pct × lastMilestone)
-stress = interpolate(milestones[0, 45, 90, 135, 180] →
-                     spawnStress[0, 0.18, 0.38, 0.58, 0.78], projected)
+  <div class="img-frame" style="padding:16px 20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 760 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <!-- milestones bar chart -->
+      <text x="380" y="20" fill="rgba(255,255,255,0.3)" font-size="12" text-anchor="middle" font-weight="600" letter-spacing="0.12em">S 曲线离散实现: milestones → spawnStress</text>
 
-<span class="cm">// r &lt; 0.5 时额外 ×0.4 衰减（D0 远征段送爽）</span>
-if pct &lt; 0.5: stress ×= 0.4</div>
+      <!-- Y axis -->
+      <line x1="80" y1="40" x2="80" y2="155" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <text x="70" y="44" fill="rgba(255,255,255,0.10)" font-size="9" text-anchor="end">stress</text>
+      <text x="70" y="60" fill="rgba(255,255,255,0.08)" font-size="8" text-anchor="end">0.78</text>
+      <text x="70" y="85" fill="rgba(255,255,255,0.08)" font-size="8" text-anchor="end">0.58</text>
+      <text x="70" y="110" fill="rgba(255,255,255,0.08)" font-size="8" text-anchor="end">0.38</text>
+      <text x="70" y="135" fill="rgba(255,255,255,0.08)" font-size="8" text-anchor="end">0.18</text>
+      <text x="70" y="155" fill="rgba(255,255,255,0.08)" font-size="8" text-anchor="end">0</text>
+
+      <!-- 5 bars: milestones at 0, 45, 90, 135, 180 -->
+      <!-- x spacing: 140, 260, 380, 500, 620, width=60 -->
+      <!-- heights: 0: stress=0 → y=155, h=0; 45: 0.18 → y=137, h=18; 90: 0.38 → y=117, h=38; 135: 0.58 → y=97, h=58; 180: 0.78 → y=77, h=78 -->
+      <rect x="130" y="155" width="70" height="1" rx="2" fill="rgba(74,158,255,0.15)"/>
+      <rect x="260" y="137" width="70" height="18" rx="4" fill="#4a9eff" opacity="0.35"/>
+      <rect x="390" y="117" width="70" height="38" rx="4" fill="#81c784" opacity="0.35"/>
+      <rect x="520" y="97" width="70" height="58" rx="4" fill="#ffb74d" opacity="0.35"/>
+      <rect x="650" y="77" width="70" height="78" rx="4" fill="#e57373" opacity="0.35"/>
+
+      <!-- milestone value labels above bars -->
+      <text x="165" y="150" fill="rgba(74,158,255,0.3)" font-size="11" text-anchor="middle" font-weight="700">0</text>
+      <text x="295" y="132" fill="rgba(74,158,255,0.4)" font-size="11" text-anchor="middle" font-weight="700">0.18</text>
+      <text x="425" y="112" fill="rgba(129,199,132,0.4)" font-size="11" text-anchor="middle" font-weight="700">0.38</text>
+      <text x="555" y="92" fill="rgba(255,183,77,0.4)" font-size="11" text-anchor="middle" font-weight="700">0.58</text>
+      <text x="685" y="72" fill="rgba(229,115,115,0.4)" font-size="11" text-anchor="middle" font-weight="700">0.78</text>
+
+      <!-- milestone x labels -->
+      <text x="165" y="172" fill="rgba(255,255,255,0.15)" font-size="10" text-anchor="middle">0</text>
+      <text x="295" y="172" fill="rgba(255,255,255,0.15)" font-size="10" text-anchor="middle">45</text>
+      <text x="425" y="172" fill="rgba(255,255,255,0.15)" font-size="10" text-anchor="middle">90</text>
+      <text x="555" y="172" fill="rgba(255,255,255,0.15)" font-size="10" text-anchor="middle">135</text>
+      <text x="685" y="172" fill="rgba(255,255,255,0.15)" font-size="10" text-anchor="middle">180</text>
+      <text x="700" y="180" fill="rgba(255,255,255,0.08)" font-size="8" text-anchor="end">pct (%)</text>
+
+      <!-- linear interpolation line connecting bar tops -->
+      <polyline points="165,155 295,137 425,117 555,97 685,77" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1" stroke-dasharray="3,3"/>
+
+      <!-- D0 attenuation callout -->
+      <rect x="50" y="178" width="660" height="20" rx="4" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
+      <text x="380" y="192" fill="rgba(255,183,77,0.3)" font-size="10" text-anchor="middle">pct &lt; 0.5 (D0 远征段): stress ×= 0.4 · 确保新手期送爽</text>
+    </svg>
+  </div>
 
   <p>scoreStress 是 stress 合成公式中权重最高的分量，它决定了难度基线——其余 14 个 adjust 信号在此基础上做微调。</p>
 
@@ -353,28 +604,82 @@ if pct &lt; 0.5: stress ×= 0.4</div>
 
   <h4>核心算法：solveObjectiveTarget</h4>
 
-  <div class="formula"><span class="cm">// θ⃗：6 维贝叶斯潜在能力向量（playerLatentAbility.js）</span>
-θ = [spatial, combo, order, recovery, tempo, clearEff]
-    ↑         ↑      ↑      ↑        ↑       ↑
-   空间规划  连击   顺序   恢复    节奏    消行效率
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
 
-<span class="cm">// 核心公式：感知难度 d* → 客观难度 b*</span>
-for each dimension dim:
-    θᵢ  = clamp(cal[dim], 0.5)           <span class="cm">// 该维玩家能力</span>
-    d*  = clamp(stress)                   <span class="cm">// 来自 S 曲线的目标感知难度</span>
-    λ   = personalizationStrength         <span class="cm">// 0 = 无个性化, 1 = 全相对</span>
+      <!-- Title -->
+      <text x="400" y="20" fill="rgba(255,255,255,0.35)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.15em">solveObjectiveTarget: 感知难度 d* → 客观难度 b*</text>
 
-    relative = clamp(θᵢ + (d* − 0.5))     <span class="cm">// 相对能力偏移</span>
-    b*ᵢ = (1 − λ) × d* + λ × relative    <span class="cm">// 插值混合</span>
+      <!-- ═══ INPUT: d* from S-curve ═══ -->
+      <rect x="30" y="38" width="160" height="46" rx="8" fill="rgba(74,158,255,0.08)" stroke="rgba(74,158,255,0.2)" stroke-width="1.5"/>
+      <text x="110" y="58" fill="#7eb8ff" font-size="13" text-anchor="middle" font-weight="700">d* (target stress)</text>
+      <text x="110" y="73" fill="rgba(74,158,255,0.3)" font-size="10" text-anchor="middle">来自 S 曲线</text>
+      <line x1="190" y1="61" x2="235" y2="61" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" marker-end="url(#arrW)"/>
 
-    <span class="cm">// ZPD 近端发展区：弱项 (θ &lt; 0.5) 轻微增压，强项轻微减压</span>
-    b*ᵢ += δ_curriculum × (0.5 − θᵢ)
+      <!-- ═══ CORE: For each dim ═══ -->
+      <rect x="240" y="28" width="310" height="66" rx="8" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="395" y="46" fill="rgba(255,183,77,0.5)" font-size="11" text-anchor="middle" font-weight="600">for each dimension dim ∈ θ⃗[6]:</text>
 
-    <span class="cm">// 早期阶段守卫：低压时限制偏移幅度</span>
-    if d* &lt; earlyPhaseDStar:
-        b*ᵢ = min(b*ᵢ, d* + earlyPhaseBStarCap)
+      <!-- Step 1: θᵢ = clamp(cal[dim], 0.5) -->
+      <rect x="255" y="54" width="72" height="28" rx="6" fill="rgba(74,158,255,0.06)" stroke="rgba(74,158,255,0.12)" stroke-width="1"/>
+      <text x="291" y="72" fill="#7eb8ff" font-size="10" text-anchor="middle">θᵢ = clamp</text>
 
-    b*[dim] = clamp(b*ᵢ, 0, 1)</div>
+      <!-- Step 2: relative -->
+      <rect x="340" y="54" width="76" height="28" rx="6" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.12)" stroke-width="1"/>
+      <text x="378" y="72" fill="#81c784" font-size="10" text-anchor="middle">relative = θᵢ + (d*−0.5)</text>
+
+      <!-- Step 3: mix -->
+      <rect x="428" y="54" width="110" height="28" rx="6" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.12)" stroke-width="1"/>
+      <text x="483" y="72" fill="#ba68c8" font-size="10" text-anchor="middle">b*ᵢ = (1−λ)×d* + λ×relative</text>
+
+      <line x1="240" y1="61" x2="253" y2="61" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" marker-end="url(#arrW)"/>
+      <line x1="327" y1="68" x2="338" y2="68" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" marker-end="url(#arrW)"/>
+      <line x1="416" y1="68" x2="426" y2="68" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" marker-end="url(#arrW)"/>
+
+      <!-- Arrow down to adjusters -->
+      <line x1="395" y1="94" x2="395" y2="120" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" marker-end="url(#arrW)"/>
+
+      <!-- ═══ ADJUSTERS ═══ -->
+      <rect x="255" y="124" width="280" height="42" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+
+      <!-- ZPD -->
+      <rect x="265" y="132" width="120" height="26" rx="6" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.1)" stroke-width="1"/>
+      <text x="325" y="149" fill="#ffb74d" font-size="10" text-anchor="middle">ZPD: b*ᵢ += δ(0.5−θᵢ)</text>
+
+      <!-- Early guard -->
+      <rect x="398" y="132" width="125" height="26" rx="6" fill="rgba(229,115,115,0.06)" stroke="rgba(229,115,115,0.1)" stroke-width="1"/>
+      <text x="460" y="149" fill="#e57373" font-size="10" text-anchor="middle">早期守卫: cap offset</text>
+
+      <!-- Arrow down to output -->
+      <line x1="395" y1="166" x2="395" y2="192" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" marker-end="url(#arrW)"/>
+
+      <!-- ═══ OUTPUT ═══ -->
+      <rect x="290" y="196" width="210" height="46" rx="8" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.2)" stroke-width="1.5"/>
+      <text x="395" y="216" fill="#81c784" font-size="13" text-anchor="middle" font-weight="700">b*[6] 客观出块目标</text>
+      <text x="395" y="231" fill="rgba(129,199,132,0.3)" font-size="10" text-anchor="middle">b*[dim] = clamp(b*ᵢ, 0, 1)</text>
+
+      <!-- ═══ λ parameter ═══ -->
+      <rect x="550" y="38" width="200" height="36" rx="8" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="650" y="55" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="600">λ = personalizationStrength</text>
+      <text x="650" y="68" fill="rgba(186,104,200,0.3)" font-size="10" text-anchor="middle">0 = 无个性化 · 1 = 全相对</text>
+
+      <!-- ═══ θ⃗ legend ═══ -->
+      <rect x="550" y="92" width="220" height="150" rx="8" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+      <text x="660" y="110" fill="rgba(255,255,255,0.25)" font-size="11" text-anchor="middle" font-weight="600">θ⃗ 六维能力向量</text>
+      <text x="570" y="132" fill="rgba(255,255,255,0.15)" font-size="10">spatial    空间规划</text>
+      <text x="570" y="150" fill="rgba(255,255,255,0.15)" font-size="10">combo      连击维持</text>
+      <text x="570" y="168" fill="rgba(255,255,255,0.15)" font-size="10">order      顺序规划</text>
+      <text x="570" y="186" fill="rgba(255,255,255,0.15)" font-size="10">recovery   恢复能力</text>
+      <text x="570" y="204" fill="rgba(255,255,255,0.15)" font-size="10">tempo      节奏控制</text>
+      <text x="570" y="222" fill="rgba(255,255,255,0.15)" font-size="10">clearEff   消行效率</text>
+      <text x="660" y="238" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">卡尔曼滤波 · EMA · 贝叶斯推理</text>
+
+      <!-- Alignment multiplier note at bottom -->
+      <rect x="30" y="260" width="740" height="48" rx="8" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+      <text x="400" y="280" fill="rgba(255,255,255,0.3)" font-size="12" text-anchor="middle" font-weight="600">对齐乘数: 出块引擎中形状选中概率 = exp(−λ·sharpness·dist(b⃗_candidate, b*))</text>
+      <text x="400" y="297" fill="rgba(255,255,255,0.15)" font-size="10" text-anchor="middle">弱项维度 (θᵢ&lt;0.5) 的 wᵢ 被 weaknessBoost 放大 · 距离越小 → 选中概率越高</text>
+    </svg>
+  </div>
 
   <h4>特征：6 维 θ⃗</h4>
   <div class="table-wrap">
@@ -431,16 +736,65 @@ multiplier = exp(−λ × sharpness × dist)
       <div class="text">这就是双坐标解耦的由来。<strong>难度坐标 r_difficulty ≠ 纪录坐标 r_record</strong>。scoreStress 使用的分母是 effectivePB（经过 noviceFloor 抬升或 expertSoftCap 对数压缩后的 PB），而不是原始 PB。这样即使新手 score/PB=0.83，effectivePB 计算后 r_difficulty 可能只有 0.35——出块不会提前进入高压区。而高手的原始 PB 被对数压缩，减少「高分者前期无聊过长」的问题。</div></div>
   </div>
 
-  <div class="formula"><span class="cm">// 双坐标解耦</span>
-r_record   = score / bestScore           <span class="cm">// 纪录坐标 — 给 pbCurve、celebrations、overshoot</span>
-r_difficulty = score / effectivePB(bestScore)  <span class="cm">// 难度坐标 — 给 scoreStress、spawnHints</span>
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 800 300" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
 
-<span class="cm">// effectivePB 变换</span>
-if bestScore &lt; noviceFloor: effectivePB = noviceFloor  <span class="cm">// 新手下限 240</span>
-elif bestScore > expertSoftCap:
-    effectivePB = softCap + scale × ln(1 + (bestScore − softCap) / scale)
-    <span class="cm">// 对数软压缩：PB=5000 → effPB≈2400，高手不用经历漫长的低压力前奏</span>
-else: effectivePB = bestScore</div>
+      <!-- Title -->
+      <text x="400" y="24" fill="rgba(255,255,255,0.35)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.15em">双坐标解耦 · 难度坐标 ≠ 纪录坐标</text>
+
+      <!-- ===== r_record COORDINATE ===== -->
+      <text x="40" y="58" fill="#4a9eff" font-size="14" font-weight="700">r_record</text>
+      <text x="40" y="72" fill="rgba(74,158,255,0.3)" font-size="10">score / bestScore</text>
+
+      <!-- r_record axis -->
+      <line x1="180" y1="65" x2="740" y2="65" stroke="#4a9eff" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+      <polygon points="740,61 750,65 740,69" fill="#4a9eff" opacity="0.5"/>
+
+      <!-- r_record tick marks -->
+      <text x="180" y="82" fill="rgba(74,158,255,0.3)" font-size="10" text-anchor="middle">0</text>
+      <text x="460" y="82" fill="rgba(74,158,255,0.3)" font-size="10" text-anchor="middle">0.50</text>
+      <text x="600" y="82" fill="rgba(74,158,255,0.3)" font-size="10" text-anchor="middle">1.0 (PB)</text>
+      <text x="720" y="82" fill="rgba(74,158,255,0.3)" font-size="10" text-anchor="middle">... >1.0</text>
+
+      <!-- r_record usage -->
+      <text x="460" y="96" fill="rgba(74,158,255,0.2)" font-size="9" text-anchor="middle">→ pbCurve · celebrations · overshoot</text>
+
+      <!-- ===== r_difficulty COORDINATE ===== -->
+      <text x="40" y="128" fill="#ffb74d" font-size="14" font-weight="700">r_difficulty</text>
+      <text x="40" y="142" fill="rgba(255,183,77,0.3)" font-size="10">score / effectivePB(bestScore)</text>
+
+      <!-- r_difficulty axis -->
+      <line x1="180" y1="135" x2="740" y2="135" stroke="#ffb74d" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+      <polygon points="740,131 750,135 740,139" fill="#ffb74d" opacity="0.5"/>
+      <text x="180" y="152" fill="rgba(255,183,77,0.3)" font-size="10" text-anchor="middle">0</text>
+      <text x="720" y="152" fill="rgba(255,183,77,0.3)" font-size="10" text-anchor="middle">... >1.0</text>
+
+      <!-- r_difficulty usage -->
+      <text x="460" y="166" fill="rgba(255,183,77,0.2)" font-size="9" text-anchor="middle">→ scoreStress · spawnHints · spawnStepDifficulty</text>
+
+      <!-- ===== NOVICE vs EXPERT boxes ===== -->
+      <!-- Novice floor block -->
+      <rect x="170" y="178" width="370" height="50" rx="8" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.12)" stroke-width="1"/>
+      <text x="190" y="197" fill="#81c784" font-size="12" font-weight="600">🛡 新手保护 (noviceFloor)</text>
+      <text x="190" y="215" fill="rgba(255,255,255,0.4)" font-size="11">if bestScore &lt; noviceFloor (240) → effectivePB = 240</text>
+
+      <!-- Expert block -->
+      <rect x="550" y="178" width="210" height="50" rx="8" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.12)" stroke-width="1"/>
+      <text x="570" y="197" fill="#ba68c8" font-size="12" font-weight="600">📈 高玩对数压缩</text>
+      <text x="570" y="215" fill="rgba(255,255,255,0.4)" font-size="10">PB=5000 → effPB≈2400</text>
+
+      <!-- EffectivePB formula -->
+      <rect x="170" y="238" width="590" height="48" rx="8" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
+      <text x="190" y="258" fill="rgba(255,183,77,0.5)" font-size="12" font-family="monospace">effectivePB = if bestScore &lt; noviceFloor → noviceFloor</text>
+      <text x="190" y="276" fill="rgba(255,183,77,0.5)" font-size="12" font-family="monospace">            elif bestScore > expertSoftCap → softCap + scale·ln(1+(bestScore−softCap)/scale)</text>
+
+      <!-- Scale indicator between axes -->
+      <line x1="140" y1="65" x2="140" y2="135" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="3,3"/>
+      <polygon points="136,100 140,95 144,100" fill="rgba(255,255,255,0.08)"/>
+      <polygon points="136,100 140,105 144,100" fill="rgba(255,255,255,0.08)"/>
+      <text x="135" y="106" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="end">解耦</text>
+    </svg>
+  </div>
 
   <div class="card-row c2">
     <div class="card accent-b"><div class="tit">r_record</div><div class="desc">用于 pbCurve 的 7 阶段判断、Challenge Boost 触发、pbOvershootBoost 计算、庆祝系统。纪录坐标就该「诚实」——你的 PB 就是你的 PB。</div></div>
@@ -453,19 +807,175 @@ else: effectivePB = bestScore</div>
 
   <p>如果说 S 曲线定义了「难度-分数」的宏观关系，PB 曲线定义了<strong>玩家冲击 PB 旅程中的微观情绪弧线</strong>——从 warmup 到 overshoot 的 7 个阶段，每个阶段有不同的出块调整策略。</p>
 
-  <div class="formula"><span class="cm">// derivePbCurve：输入 r = score / bestScore，输出 4 维调制信号</span>
-<span class="hl2">pbTension</span> = sigmoid((r − 0.82) / 0.08)   <span class="cm">// center=0.82, 接近 PB 时增压</span>
-<span class="hl">pbBrake</span>   = sigmoid((r − 1.05) / 0.06)   <span class="cm">// center=1.05, 超越 PB 后制动</span>
-<span class="hl3">pbRelease</span> = isReleaseActive ? 1 : 0       <span class="cm">// 破 PB 后的释放窗口</span>
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 800 380" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs>
+        <linearGradient id="pbBar" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stop-color="#4a9eff"/>
+          <stop offset="36%" stop-color="#81c784"/>
+          <stop offset="60%" stop-color="#ffb74d"/>
+          <stop offset="73%" stop-color="#e57373"/>
+          <stop offset="80%" stop-color="#ba68c8"/>
+          <stop offset="88%" stop-color="#ff8a65"/>
+          <stop offset="100%" stop-color="#78909c"/>
+        </linearGradient>
+      </defs>
 
-<span class="cm">// 7 段相位判定</span>
-r &lt; 0.50  → warmup
-0.50 ≤ r &lt; 0.80 → chase
-0.80 ≤ r &lt; 0.95 → tension
-0.95 ≤ r &lt; 1.00 → gate
-1.00 ≤ r &lt; 1.05 → release
-1.05 ≤ r &lt; 1.15 → brake
-r ≥ 1.15 → overshoot</div>
+      <!-- ═══ 7-PHASE TIMELINE ═══ -->
+      <text x="400" y="24" fill="rgba(255,255,255,0.35)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.15em">PB 曲线 · 7 段相位演进</text>
+
+      <!-- Background track -->
+      <rect x="40" y="38" width="720" height="34" rx="6" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+
+      <!-- Phase segments with distinct colors -->
+      <!-- warmup: r∈[0,0.50) → x 40→308, w=268 -->
+      <rect x="40" y="38" width="268" height="34" rx="6" fill="#4a9eff" opacity="0.35"/>
+      <text x="174" y="59" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="700">warmup</text>
+      <text x="174" y="76" fill="rgba(74,158,255,0.3)" font-size="9" text-anchor="middle">远未达标</text>
+      <!-- arrow divider -->
+      <line x1="308" y1="38" x2="308" y2="72" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+
+      <!-- chase: r∈[0.50,0.80) → x 308→462, w=154 -->
+      <rect x="308" y="38" width="154" height="34" fill="#81c784" opacity="0.35"/>
+      <text x="385" y="59" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">chase</text>
+      <text x="385" y="76" fill="rgba(129,199,132,0.3)" font-size="9" text-anchor="middle">追逐 PB</text>
+      <line x1="462" y1="38" x2="462" y2="72" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+
+      <!-- tension: r∈[0.80,0.95) → x 462→558, w=96 -->
+      <rect x="462" y="38" width="96" height="34" fill="#ffb74d" opacity="0.35"/>
+      <text x="510" y="59" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">tension</text>
+      <text x="510" y="76" fill="rgba(255,183,77,0.3)" font-size="9" text-anchor="middle">加压逼近</text>
+      <line x1="558" y1="38" x2="558" y2="72" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+
+      <!-- gate: r∈[0.95,1.00) → x 558→586, w=28 -->
+      <rect x="558" y="38" width="28" height="34" fill="#e57373" opacity="0.4"/>
+      <text x="572" y="59" fill="#e57373" font-size="10" text-anchor="middle" font-weight="700">⚡</text>
+      <text x="572" y="76" fill="rgba(229,115,115,0.3)" font-size="8" text-anchor="middle">gate</text>
+      <line x1="586" y1="38" x2="586" y2="72" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+
+      <!-- release: r∈[1.00,1.05) → x 586→615, w=29 -->
+      <rect x="586" y="38" width="29" height="34" fill="#ba68c8" opacity="0.35"/>
+      <text x="600" y="59" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="700">🎉</text>
+      <text x="600" y="76" fill="rgba(186,104,200,0.3)" font-size="8" text-anchor="middle">release</text>
+      <line x1="615" y1="38" x2="615" y2="72" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+
+      <!-- brake: r∈[1.05,1.15) → x 615→669, w=54 -->
+      <rect x="615" y="38" width="54" height="34" fill="#ff8a65" opacity="0.35"/>
+      <text x="642" y="59" fill="#ff8a65" font-size="11" text-anchor="middle" font-weight="700">brake</text>
+      <text x="642" y="76" fill="rgba(255,138,101,0.3)" font-size="8" text-anchor="middle">制动</text>
+      <line x1="669" y1="38" x2="669" y2="72" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+
+      <!-- overshoot: r≥1.15 → x 669→760, w=91 -->
+      <rect x="669" y="38" width="91" height="34" rx="6" fill="#78909c" opacity="0.35"/>
+      <text x="714" y="59" fill="#90a4ae" font-size="11" text-anchor="middle" font-weight="700">overshoot</text>
+      <text x="714" y="76" fill="rgba(144,164,174,0.3)" font-size="8" text-anchor="middle">超越</text>
+
+      <!-- r boundary markers -->
+      <text x="40" y="94" fill="rgba(255,255,255,0.15)" font-size="10" text-anchor="middle">r=0</text>
+      <text x="308" y="94" fill="rgba(255,255,255,0.18)" font-size="10" text-anchor="middle">0.50</text>
+      <text x="462" y="94" fill="rgba(255,255,255,0.18)" font-size="10" text-anchor="middle">0.80</text>
+      <text x="558" y="94" fill="rgba(255,255,255,0.18)" font-size="10" text-anchor="middle">0.95</text>
+      <text x="586" y="94" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">1.0 PB!!</text>
+      <text x="615" y="94" fill="rgba(255,255,255,0.18)" font-size="10" text-anchor="middle">1.05</text>
+      <text x="669" y="94" fill="rgba(255,255,255,0.18)" font-size="10" text-anchor="middle">1.15</text>
+      <text x="760" y="94" fill="rgba(255,255,255,0.10)" font-size="10" text-anchor="middle">r→</text>
+
+      <!-- Dashed vertical at PB -->
+      <line x1="586" y1="38" x2="586" y2="100" stroke="rgba(255,183,77,0.25)" stroke-width="1.5" stroke-dasharray="3,3"/>
+
+      <!-- ═══ SIGNAL CURVES ═══ -->
+      <text x="400" y="122" fill="rgba(255,255,255,0.25)" font-size="12" text-anchor="middle" font-weight="600" letter-spacing="0.1em">调制信号曲线</text>
+
+      <!-- pbTension panel -->
+      <rect x="40" y="134" width="345" height="100" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="60" y="150" fill="#ffb74d" font-size="12" font-weight="700">pbTension</text>
+      <text x="60" y="162" fill="rgba(255,255,255,0.2)" font-size="9">sigmoid((r−0.82)/0.08)</text>
+
+      <!-- pbTension curve: approx from x=60 to x=370, y range 170-226 -->
+      <!-- sigmoid rises when approaching r=0.82. In this panel, r ranges roughly 0.4 to 1.0 -->
+      <!-- y=0→226, y=1→170, so y = 226 − val×56 -->
+      <polyline points="
+        60,222
+        100,220
+        140,215
+        180,205
+        200,195
+        210,185
+        220,172
+        230,160
+        250,150
+        270,144
+        300,142
+        340,141
+        370,140
+      " fill="none" stroke="#ffb74d" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="210" y1="134" x2="210" y2="234" stroke="rgba(255,183,77,0.15)" stroke-width="1" stroke-dasharray="2,3"/>
+      <text x="210" y="240" fill="rgba(255,183,77,0.3)" font-size="8" text-anchor="middle">r=0.82</text>
+      <text x="370" y="138" fill="rgba(255,255,255,0.12)" font-size="9" text-anchor="end">r→</text>
+      <text x="44" y="174" fill="rgba(255,255,255,0.08)" font-size="8">1</text>
+      <text x="44" y="222" fill="rgba(255,255,255,0.08)" font-size="8">0</text>
+
+      <!-- pbBrake panel -->
+      <rect x="415" y="134" width="345" height="100" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="435" y="150" fill="#ff8a65" font-size="12" font-weight="700">pbBrake</text>
+      <text x="435" y="162" fill="rgba(255,255,255,0.2)" font-size="9">sigmoid((r−1.05)/0.06)</text>
+
+      <!-- pbBrake curve: rises steeply after r=1.05. r ranges ~0.6 to 1.3 -->
+      <polyline points="
+        435,222
+        470,222
+        505,220
+        530,218
+        545,210
+        555,195
+        560,180
+        565,160
+        570,148
+        578,142
+        590,140
+        620,139
+        650,139
+        740,139
+      " fill="none" stroke="#ff8a65" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="558" y1="134" x2="558" y2="234" stroke="rgba(255,138,101,0.15)" stroke-width="1" stroke-dasharray="2,3"/>
+      <text x="558" y="240" fill="rgba(255,138,101,0.3)" font-size="8" text-anchor="middle">r=1.05</text>
+      <text x="745" y="138" fill="rgba(255,255,255,0.12)" font-size="9" text-anchor="end">r→</text>
+      <text x="419" y="174" fill="rgba(255,255,255,0.08)" font-size="8">1</text>
+      <text x="419" y="222" fill="rgba(255,255,255,0.08)" font-size="8">0</text>
+
+      <!-- pbRelease badge -->
+      <rect x="630" y="204" width="120" height="24" rx="12" fill="rgba(186,104,200,0.12)" stroke="rgba(186,104,200,0.2)" stroke-width="1"/>
+      <text x="690" y="220" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="600">pbRelease: 0 / 1 切换</text>
+
+      <!-- ═══ OVERSHOOT BOOST ═══ -->
+      <rect x="40" y="264" width="720" height="56" rx="8" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
+      <text x="60" y="284" fill="#ffb74d" font-size="13" font-weight="700">pbOvershootBoost</text>
+      <text x="60" y="302" fill="rgba(255,255,255,0.5)" font-size="12" font-family="monospace">boost = 0.16 × log₁₀(1 + 5(r−1)) / log₁₀(6)</text>
+      <text x="60" y="316" fill="rgba(255,255,255,0.2)" font-size="10">r=1.0→0  ·  r=1.25→0.08  ·  r=1.5→0.12  ·  r=2.0→0.16</text>
+
+      <!-- Small overshoot log curve -->
+      <polyline points="
+        540,314
+        560,314
+        580,312
+        600,308
+        620,304
+        640,300
+        660,296
+        680,294
+        700,292
+        740,291
+      " fill="none" stroke="rgba(255,183,77,0.3)" stroke-width="1.5" stroke-linecap="round"/>
+      <text x="700" y="286" fill="rgba(255,183,77,0.2)" font-size="9">对数收敛→0.16</text>
+
+      <!-- extraOrderBoost note -->
+      <text x="60" y="334" fill="rgba(255,255,255,0.2)" font-size="10">extraOrderBoost: orderRigor +0.25 · 收紧可解排列上限</text>
+
+      <!-- pbRelease legend -->
+      <rect x="40" y="346" width="720" height="24" rx="4" fill="rgba(255,255,255,0.02)"/>
+      <text x="400" y="362" fill="rgba(255,255,255,0.15)" font-size="10" text-anchor="middle">4 维调制信号：pbTension · pbBrake · pbRelease · (+ overshootBoost + extraOrderBoost)</text>
+    </svg>
+  </div>
 
   <h4>pbTension 与 pbBrake 对出块的影响</h4>
   <div class="table-wrap">
@@ -482,9 +992,56 @@ r ≥ 1.15 → overshoot</div>
 
   <h4>pbOvershootBoost：超越 PB 后的对数增压</h4>
   <p>当 score > PB (r > 1.0) 且 pbTension 已饱和、pbBrake 尚未激活时，pbOvershootBoost 提供额外的对数压力：</p>
-  <div class="formula">boost = 0.16 × log₁₀(1 + 5.0 × (r − 1.0)) / log₁₀(1 + 5.0)
-<span class="cm">// r=1.0 → boost=0；r=1.25 → boost≈0.08；r=1.50 → boost≈0.12；r=2.0 → →0.16</span>
-newStress = min(0.90, stress + boost)</div>
+  <div class="img-frame" style="padding:12px 20px;background:rgba(0,0,0,0.3)">
+    <svg viewBox="0 0 760 120" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <text x="380" y="18" fill="rgba(255,255,255,0.25)" font-size="12" text-anchor="middle" font-weight="600" letter-spacing="0.1em">pbOvershootBoost: 超越 PB 后的对数增压</text>
+
+      <!-- log curve -->
+      <polyline points="
+        60,100
+        80,100
+        110,98
+        140,95
+        170,90
+        200,84
+        230,78
+        260,72
+        290,66
+        320,60
+        350,56
+        380,52
+        410,49
+        440,46
+        470,44
+        500,42
+        530,41
+        560,40
+        590,39
+        620,38
+        650,37
+        680,37
+        710,36
+      " fill="none" stroke="#ffb74d" stroke-width="2.5" stroke-linecap="round"/>
+
+      <!-- r markers -->
+      <line x1="100" y1="100" x2="100" y2="106" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+      <text x="100" y="114" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">r=1.0</text>
+
+      <line x1="320" y1="60" x2="320" y2="106" stroke="rgba(255,183,77,0.1)" stroke-width="1" stroke-dasharray="2,2"/>
+      <text x="320" y="114" fill="rgba(255,183,77,0.15)" font-size="9" text-anchor="middle">r=1.25</text>
+
+      <line x1="510" y1="42" x2="510" y2="106" stroke="rgba(255,183,77,0.1)" stroke-width="1" stroke-dasharray="2,2"/>
+      <text x="510" y="114" fill="rgba(255,183,77,0.15)" font-size="9" text-anchor="middle">r=1.5</text>
+
+      <text x="710" y="114" fill="rgba(255,255,255,0.06)" font-size="9" text-anchor="end">r→</text>
+
+      <!-- value annotations -->
+      <text x="100" y="96" fill="rgba(255,255,255,0.06)" font-size="8" text-anchor="middle">0</text>
+      <text x="320" y="56" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">0.08</text>
+      <text x="510" y="38" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">0.12</text>
+      <text x="700" y="32" fill="#ffb74d" font-size="9" text-anchor="end">→0.16</text>
+    </svg>
+  </div>
   <p>同时，该状态下 extraOrderBoost 给 orderRigor 增加 +0.25 惩罚，进一步收紧可解排列数上限。</p>
 
   <h4>三条策略交织的工作流</h4>
@@ -566,7 +1123,7 @@ newStress = min(0.90, stress + boost)</div>
 │ 🤖 能力层  │  RL 自博弈 — PPO+GAE · DockBoardAttention · 搜索  │
 └─────────────┴────────────────────────────────────────────────┘</div>
   <div class="img-frame">
-    <img src="/docs/architecture/assets/architecture-overview.png" alt="Architecture Overview">
+    <img src="/docs/asset/architecture/assets/architecture-overview.png" alt="Architecture Overview">
     <div class="cap">全栈架构——数据源 → 规则系统 → 离线模型 → 在线推理 → 监控面板</div>
   </div>
   <p style="color:#7088a8;font-size:0.88rem;margin-top:12px;">每个模块按「设计初衷 → 技术选型 → 特征设计 → 网络结构（如有）→ 核心公式」五个维度详细展开。</p>
@@ -701,28 +1258,144 @@ coldStartThreshold = 10 <span class="cm">// 10 步后开始置信当前局估计
 
   <h4>10 档 Profile：设计师与算法之间的接口</h4>
   <p>stress 不直接控制出块，而是通过 10 档预设 profile 线性插值。profile 是<strong>设计师面向算法策略的编辑界面</strong>：</p>
-  <div class="formula">profile_levels = [−0.2, −0.1, 0, 0.1, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0]
-<span class="cm">// 每档对应一组 40 维 shapeWeights（每种形状的基础选中概率）</span>
+  <div class="img-frame" style="padding:16px 20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 760 140" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <text x="380" y="18" fill="rgba(255,255,255,0.25)" font-size="12" text-anchor="middle" font-weight="600" letter-spacing="0.1em">10 档 Profile: 设计师与算法的接口</text>
 
-if stress ∈ [a, b]:
-    t = (stress − a) / (b − a)
-    w_k = w_k(a) × (1 − t) + w_k(b) × t
-    <span class="cm">// 连续插值，不会跳档</span></div>
+      <!-- 10 slots -->
+      <g transform="translate(30,32)">
+        <rect x="0" y="0" width="66" height="40" rx="4" fill="rgba(74,158,255,0.08)" stroke="rgba(74,158,255,0.12)" stroke-width="1"/>
+        <text x="33" y="18" fill="#7eb8ff" font-size="10" text-anchor="middle" font-weight="700">−0.2</text>
+        <text x="33" y="32" fill="rgba(74,158,255,0.15)" font-size="7" text-anchor="middle">P0</text>
+
+        <rect x="72" y="0" width="66" height="40" rx="4" fill="rgba(74,158,255,0.08)" stroke="rgba(74,158,255,0.12)" stroke-width="1"/>
+        <text x="105" y="18" fill="#7eb8ff" font-size="10" text-anchor="middle" font-weight="700">−0.1</text>
+        <text x="105" y="32" fill="rgba(74,158,255,0.15)" font-size="7" text-anchor="middle">P1</text>
+
+        <rect x="144" y="0" width="66" height="40" rx="4" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+        <text x="177" y="18" fill="rgba(255,255,255,0.25)" font-size="10" text-anchor="middle" font-weight="700">0</text>
+        <text x="177" y="32" fill="rgba(255,255,255,0.10)" font-size="7" text-anchor="middle">P2</text>
+
+        <rect x="216" y="0" width="66" height="40" rx="4" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.10)" stroke-width="1"/>
+        <text x="249" y="18" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">0.1</text>
+        <text x="249" y="32" fill="rgba(255,183,77,0.15)" font-size="7" text-anchor="middle">P3</text>
+
+        <rect x="288" y="0" width="66" height="40" rx="4" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.10)" stroke-width="1"/>
+        <text x="321" y="18" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">0.2</text>
+        <text x="321" y="32" fill="rgba(255,183,77,0.15)" font-size="7" text-anchor="middle">P4</text>
+
+        <rect x="360" y="0" width="66" height="40" rx="4" fill="rgba(229,115,115,0.06)" stroke="rgba(229,115,115,0.10)" stroke-width="1"/>
+        <text x="393" y="18" fill="#e57373" font-size="10" text-anchor="middle" font-weight="700">0.4</text>
+        <text x="393" y="32" fill="rgba(229,115,115,0.15)" font-size="7" text-anchor="middle">P5</text>
+
+        <rect x="432" y="0" width="66" height="40" rx="4" fill="rgba(229,115,115,0.06)" stroke="rgba(229,115,115,0.10)" stroke-width="1"/>
+        <text x="465" y="18" fill="#e57373" font-size="10" text-anchor="middle" font-weight="700">0.6</text>
+        <text x="465" y="32" fill="rgba(229,115,115,0.15)" font-size="7" text-anchor="middle">P6</text>
+
+        <rect x="504" y="0" width="66" height="40" rx="4" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.10)" stroke-width="1"/>
+        <text x="537" y="18" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="700">0.8</text>
+        <text x="537" y="32" fill="rgba(186,104,200,0.15)" font-size="7" text-anchor="middle">P7</text>
+
+        <rect x="576" y="0" width="66" height="40" rx="4" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.10)" stroke-width="1"/>
+        <text x="609" y="18" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="700">0.9</text>
+        <text x="609" y="32" fill="rgba(186,104,200,0.15)" font-size="7" text-anchor="middle">P8</text>
+
+        <rect x="648" y="0" width="82" height="40" rx="4" fill="rgba(186,104,200,0.08)" stroke="rgba(186,104,200,0.15)" stroke-width="1"/>
+        <text x="689" y="18" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="700">1.0</text>
+        <text x="689" y="32" fill="rgba(186,104,200,0.15)" font-size="7" text-anchor="middle">P9</text>
+
+        <!-- stress axis below -->
+        <line x1="0" y1="50" x2="730" y2="50" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+        <text x="0" y="62" fill="rgba(255,255,255,0.06)" font-size="8">stress=0</text>
+        <polygon points="730,46 740,50 730,54" fill="rgba(255,255,255,0.06)"/>
+        <text x="730" y="62" fill="rgba(255,255,255,0.06)" font-size="8" text-anchor="end">stress→∞</text>
+      </g>
+
+      <!-- interpolation formula -->
+      <rect x="30" y="88" width="700" height="36" rx="6" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+      <text x="380" y="104" fill="rgba(255,255,255,0.2)" font-size="11" text-anchor="middle" font-family="monospace">if stress ∈ [a,b]: t=(stress−a)/(b−a) → w_k = w_k(a)×(1−t) + w_k(b)×t</text>
+      <text x="380" y="118" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">连续插值，不会跳档 · 每档对应一组 40 维 shapeWeights</text>
+    </svg>
+  </div>
 
   <h4>三层权重乘积：最终出块概率</h4>
   <p>每个候选形状的最终选中概率是<strong>多层因子乘积</strong>的结果：</p>
-  <div class="formula">P(shape_i) = w_i / Σw_j
+  <div class="img-frame" style="padding:16px 20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 760 210" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <text x="380" y="18" fill="rgba(255,255,255,0.25)" font-size="12" text-anchor="middle" font-weight="600" letter-spacing="0.1em">三层权重乘积: 最终出块概率</text>
 
-w_i = baseWeight(profile)
-    × mobilityFactor        <span class="cm">// 可用落点越多越优先</span>
-    × holeReductionFactor   <span class="cm">// 能补洞的加分</span>
-    × multiClearFactor      <span class="cm">// 能多消的加分</span>
-    × delightFactor         <span class="cm">// 爽感兑现加分</span>
-    × perfectClearFactor    <span class="cm">// 能清屏的加分</span>
-    × comboDiversityFactor  <span class="cm">// 避免品类重复</span>
-    × sizePreferenceFactor  <span class="cm">// 偏大/偏小块</span>
-    × noveltyFactor         <span class="cm">// 上次没给过的加分</span>
-    × sessionFitFactor      <span class="cm">// 匹配 warmup/peak/cooldown</span></div>
+      <!-- Pipeline flow from left to right -->
+      <!-- baseWeight -->
+      <rect x="40" y="36" width="130" height="40" rx="6" fill="rgba(74,158,255,0.06)" stroke="rgba(74,158,255,0.12)" stroke-width="1.5"/>
+      <text x="105" y="52" fill="#7eb8ff" font-size="14" text-anchor="middle" font-weight="700">baseWeight</text>
+      <text x="105" y="68" fill="rgba(74,158,255,0.3)" font-size="9" text-anchor="middle">来自 10 档 Profile 插值</text>
+
+      <line x1="170" y1="56" x2="200" y2="56" stroke="rgba(255,255,255,0.15)" stroke-width="1.5" marker-end="url(#arrD)"/>
+
+      <!-- Product factors -->
+      <text x="210" y="32" fill="rgba(255,255,255,0.08)" font-size="9">×</text>
+
+      <rect x="210" y="36" width="120" height="40" rx="6" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
+      <text x="270" y="52" fill="#81c784" font-size="11" text-anchor="middle" font-weight="600">mobility</text>
+      <text x="270" y="68" fill="rgba(129,199,132,0.3)" font-size="8" text-anchor="middle">可用落点</text>
+
+      <text x="338" y="52" fill="rgba(255,255,255,0.08)" font-size="10">×</text>
+
+      <rect x="350" y="36" width="120" height="40" rx="6" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
+      <text x="410" y="52" fill="#81c784" font-size="11" text-anchor="middle" font-weight="600">holeReduction</text>
+      <text x="410" y="68" fill="rgba(129,199,132,0.3)" font-size="8" text-anchor="middle">补洞</text>
+
+      <text x="478" y="52" fill="rgba(255,255,255,0.08)" font-size="10">×</text>
+
+      <rect x="490" y="36" width="110" height="40" rx="6" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
+      <text x="545" y="52" fill="#81c784" font-size="11" text-anchor="middle" font-weight="600">multiClear</text>
+      <text x="545" y="68" fill="rgba(129,199,132,0.3)" font-size="8" text-anchor="middle">多消</text>
+
+      <text x="608" y="52" fill="rgba(255,255,255,0.08)" font-size="10">×</text>
+
+      <rect x="620" y="36" width="110" height="40" rx="6" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.10)" stroke-width="1"/>
+      <text x="675" y="52" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="600">delight</text>
+      <text x="675" y="68" fill="rgba(255,183,77,0.3)" font-size="8" text-anchor="middle">爽感兑现</text>
+
+      <!-- Second row of factors -->
+      <rect x="40" y="88" width="110" height="36" rx="6" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.10)" stroke-width="1"/>
+      <text x="95" y="104" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="600">perfectClear</text>
+      <text x="95" y="118" fill="rgba(186,104,200,0.3)" font-size="8" text-anchor="middle">清屏</text>
+
+      <text x="158" y="106" fill="rgba(255,255,255,0.08)" font-size="10">×</text>
+
+      <rect x="170" y="88" width="130" height="36" rx="6" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.10)" stroke-width="1"/>
+      <text x="235" y="104" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="600">comboDiversity</text>
+      <text x="235" y="118" fill="rgba(186,104,200,0.3)" font-size="8" text-anchor="middle">品类避免重复</text>
+
+      <text x="308" y="106" fill="rgba(255,255,255,0.08)" font-size="10">×</text>
+
+      <rect x="320" y="88" width="110" height="36" rx="6" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.10)" stroke-width="1"/>
+      <text x="375" y="104" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="600">sizePref</text>
+      <text x="375" y="118" fill="rgba(186,104,200,0.3)" font-size="8" text-anchor="middle">偏大/偏小</text>
+
+      <text x="438" y="106" fill="rgba(255,255,255,0.08)" font-size="10">×</text>
+
+      <rect x="450" y="88" width="110" height="36" rx="6" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.10)" stroke-width="1"/>
+      <text x="505" y="104" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="600">novelty</text>
+      <text x="505" y="118" fill="rgba(255,183,77,0.3)" font-size="8" text-anchor="middle">上次没给过</text>
+
+      <text x="568" y="106" fill="rgba(255,255,255,0.08)" font-size="10">×</text>
+
+      <rect x="580" y="88" width="150" height="36" rx="6" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.10)" stroke-width="1"/>
+      <text x="655" y="104" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="600">sessionFit</text>
+      <text x="655" y="118" fill="rgba(255,183,77,0.3)" font-size="8" text-anchor="middle">warmup/peak/cooldown</text>
+
+      <!-- => P(shape_i) -->
+      <line x1="380" y1="130" x2="380" y2="150" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" marker-end="url(#arrD)"/>
+
+      <rect x="280" y="155" width="200" height="36" rx="8" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.15)" stroke-width="1.5"/>
+      <text x="380" y="178" fill="#81c784" font-size="14" text-anchor="middle" font-weight="700">P(shapeᵢ) = wᵢ / Σwⱼ</text>
+
+      <!-- note -->
+      <text x="380" y="202" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">乘积结构: 任一因子接近 0 → 直接否决 · 隐式软约束过滤</text>
+    </svg>
+  </div>
 
   <p>乘积结构而非加法结构意味着<strong>任一因子接近 0 即可完全否决一个形状</strong>——例如 mobilityFactor=0（该形状无处可放）直接排除。这是一种隐式的软约束过滤。</p>
 </section>
@@ -740,31 +1413,71 @@ w_i = baseWeight(profile)
 
   <h4>DFS 硬约束：算法复杂度与公平性保障</h4>
   <p>序贯可解性验证是决策 AI 的最后一道关。它的复杂度是 O(P³) 其中 P 是平均每块合法落点数（典型 30-80），通过 budget 早终止控制实际开销 &lt; 10ms：</p>
-  <div class="formula"><span class="cm">// DFS 序贯可解性验证</span>
-function solvable(grid, [s₀,s₁,s₂], budget):
-    for each permutation of [s₀,s₁,s₂]:      <span class="cm">// 6 种排列</span>
-        if dfs_place(grid, perm, budget):
-            return True
-    return False
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 760 330" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
 
-function dfs_place(g, blocks, budget):
-    if not blocks: return True
-    if budget ≤ 0: return False
-    for each legal position of blocks[0]:     <span class="cm">// 平均 30-80 个</span>
-        g.place(pos)
-        if dfs_place(g, blocks[1:], budget−1):
-            return True
-        g.undo()
-    return False
+      <text x="380" y="20" fill="rgba(255,255,255,0.3)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.12em">DFS 序贯可解性验证 · 公平性硬约束</text>
 
-<span class="cm">// 危险态 budget 自适应</span>
-fill=[0.52, 0.68) → budget=300
-fill=[0.68, 0.75) → budget=450  <span class="cm">// 中等危险，+50%</span>
-fill=[0.75, 0.88) → budget=600  <span class="cm">// 高风险，+100%</span>
-fill=[0.88, ∞]    → budget=900  <span class="cm">// 极度危险，+200%</span></div>
+      <!-- Flow: Input → Permutations → DFS Place → Result -->
+      <rect x="40" y="36" width="140" height="50" rx="8" fill="rgba(74,158,255,0.06)" stroke="rgba(74,158,255,0.15)" stroke-width="1.5"/>
+      <text x="110" y="58" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="700">输入三块</text>
+      <text x="110" y="74" fill="rgba(74,158,255,0.3)" font-size="10" text-anchor="middle">[s₀, s₁, s₂]</text>
+
+      <line x1="180" y1="61" x2="220" y2="61" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" marker-end="url(#arrD)"/>
+
+      <rect x="225" y="36" width="140" height="50" rx="8" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.15)" stroke-width="1.5"/>
+      <text x="295" y="54" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">6 种排列</text>
+      <text x="295" y="72" fill="rgba(255,183,77,0.3)" font-size="10" text-anchor="middle">permute([s₀,s₁,s₂])</text>
+
+      <line x1="365" y1="61" x2="405" y2="61" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" marker-end="url(#arrD)"/>
+
+      <rect x="410" y="36" width="170" height="50" rx="8" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.15)" stroke-width="1.5"/>
+      <text x="495" y="54" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">dfs_place</text>
+      <text x="495" y="72" fill="rgba(129,199,132,0.3)" font-size="10" text-anchor="middle">逐块放置 · 回溯搜索</text>
+
+      <line x1="580" y1="61" x2="620" y2="61" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" marker-end="url(#arrD)"/>
+
+      <rect x="625" y="36" width="110" height="50" rx="8" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.15)" stroke-width="1.5"/>
+      <text x="680" y="54" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="700">通过 / 失败</text>
+      <text x="680" y="72" fill="rgba(186,104,200,0.3)" font-size="10" text-anchor="middle">任一排列通过即可</text>
+
+      <!-- DFS details panel -->
+      <rect x="40" y="106" width="410" height="110" rx="8" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+      <text x="60" y="126" fill="rgba(255,255,255,0.25)" font-size="11" font-weight="600">DFS 搜索树展开</text>
+
+      <!-- Visual search tree -->
+      <text x="80" y="148" fill="rgba(255,255,255,0.12)" font-size="10">blocks[0] 合法位置</text>
+      <!-- branches -->
+      <line x1="60" y1="158" x2="60" y2="170" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <line x1="60" y1="170" x2="30" y2="190" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <line x1="60" y1="170" x2="60" y2="190" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <line x1="60" y1="170" x2="90" y2="190" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <circle cx="30" cy="190" r="3" fill="rgba(255,255,255,0.08)"/>
+      <circle cx="60" cy="190" r="3" fill="rgba(255,255,255,0.08)"/>
+      <circle cx="90" cy="190" r="3" fill="rgba(255,255,255,0.08)"/>
+      <text x="115" y="148" fill="rgba(255,255,255,0.12)" font-size="10">blocks[1] 放置</text>
+      <text x="115" y="170" fill="rgba(255,255,255,0.08)" font-size="9">平均 30-80 个合法落点</text>
+      <text x="115" y="192" fill="rgba(255,255,255,0.08)" font-size="9">budget 耗尽 → 提前终止</text>
+
+      <!-- Budget details -->
+      <rect x="470" y="106" width="250" height="110" rx="8" fill="rgba(229,115,115,0.02)" stroke="rgba(229,115,115,0.06)" stroke-width="1"/>
+      <text x="595" y="124" fill="#e57373" font-size="11" text-anchor="middle" font-weight="600">危险态 budget 自适应</text>
+
+      <text x="490" y="146" fill="rgba(255,255,255,0.15)" font-size="10">fill [0.52, 0.68) → budget 300</text>
+      <text x="490" y="164" fill="rgba(255,255,255,0.15)" font-size="10">fill [0.68, 0.75) → budget 450</text>
+      <text x="490" y="182" fill="rgba(255,255,255,0.15)" font-size="10">fill [0.75, 0.88) → budget 600</text>
+      <text x="490" y="200" fill="rgba(255,255,255,0.15)" font-size="10">fill [0.88, ∞]   → budget 900</text>
+      <text x="600" y="212" fill="rgba(229,115,115,0.2)" font-size="9" text-anchor="middle">fill 越高 → 验证越严格 → budget 越大</text>
+
+      <!-- Bottom note -->
+      <rect x="40" y="228" width="680" height="34" rx="6" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+      <text x="380" y="244" fill="rgba(255,255,255,0.15)" font-size="10" text-anchor="middle">复杂度 O(P³) — P=平均合法落点数 · 通过 budget 早终止维持实际开销 &lt; 10ms</text>
+      <text x="380" y="258" fill="rgba(255,255,255,0.10)" font-size="9" text-anchor="middle">所有规则 / ML 输出必须通过同一验证 · 最坏情况规则引擎兜底</text>
+    </svg>
+  </div>
 
   <div class="img-frame">
-    <img src="/docs/algorithms/assets/spawn-architecture.png" alt="Spawn Architecture">
+    <img src="/docs/asset/algorithms/assets/spawn-architecture.png" alt="Spawn Architecture">
     <div class="cap">出块算法 9 层管道——从输入信号到最终三块的完整链路</div>
   </div>
 </section>
@@ -785,64 +1498,316 @@ fill=[0.88, ∞]    → budget=900  <span class="cm">// 极度危险，+200%</sp
 
   <h4>网络结构：SpawnPolicyNet V3.1</h4>
 
-  <div class="arch-box">┌───────────── Input Conditions ──────────────────────────────┐
-│ board 8×8 (64) + behaviorContext (56) → concat 120 →       │
-│   board_proj: Linear(120→128) + GELU + LayerNorm → state_token│
-│ targetDifficulty (1) → Linear(1→128) + GELU + LayerNorm    │
-│ playstyle id → Embedding(5, 128) + positional bias         │
-│ history 3×3 shape_ids → shape_embed(9, 128) + hist_pos     │
-│ learned [CLS] token (128)                                   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌───────────── Context Encoder ───────────────────────────────┐
-│ Token seq: [CLS, state, diff, style, hist×9] = 13 tokens   │
-│ TransformerEncoder: 2 layers, 4 heads, d_model=128         │
-│ dim_feedforward=256, activation=GELU, dropout=0.1          │
-│ LayerNorm                                                   │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-                    h_c ∈ ℝ¹²⁸ (CLS output)
-                              │
-     ┌────────────────────────┼────────────────────────────┐
-     ▼                        ▼                            ▼
-┌───────────┐          ┌───────────┐                ┌───────────┐
-│ head_0    │          │ head_1    │                │ head_2    │
-│ P(s₀|c)  │          │P(s₁|c,s₀)│                │P(s₂|c,s₀,s₁)
-│ Linear(128→28)      │Linear(256→28)             │Linear(384→28)
-└───────────┘          └───────────┘                └───────────┘
-     │                        │                            │
-     └──────── Autoregressive Triplet Prediction ──────────┘
-                              │
-                    Auxiliary Heads (from h_c):
-                    diversity_head: Linear(128 → 3×Ncat)
-                    difficulty_head: Linear(128 → 1) regression
-                    feasibility_head: Linear(128 → 28) BCE
-                    style_head: Linear(128 → 5) CE
-                    intent_head: Linear(128 → 6) CE</div>
-</section>
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 820 540" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs>
+        <linearGradient id="boxGrad1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(74,158,255,0.12)"/><stop offset="100%" stop-color="rgba(74,158,255,0.04)"/></linearGradient>
+        <linearGradient id="boxGrad2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(255,183,77,0.10)"/><stop offset="100%" stop-color="rgba(255,183,77,0.03)"/></linearGradient>
+        <linearGradient id="boxGrad3" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(129,199,132,0.10)"/><stop offset="100%" stop-color="rgba(129,199,132,0.03)"/></linearGradient>
+        <linearGradient id="boxGrad4" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(186,104,200,0.10)"/><stop offset="100%" stop-color="rgba(186,104,200,0.03)"/></linearGradient>
+        <linearGradient id="boxGrad5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(229,115,115,0.10)"/><stop offset="100%" stop-color="rgba(229,115,115,0.03)"/></linearGradient>
+        <filter id="shadow1"><feDropShadow dx="0" dy="2" stdDeviation="6" flood-color="rgba(74,158,255,0.15)"/></filter>
+        <filter id="shadow2"><feDropShadow dx="0" dy="2" stdDeviation="6" flood-color="rgba(255,183,77,0.12)"/></filter>
+        <filter id="shadow3"><feDropShadow dx="0" dy="2" stdDeviation="6" flood-color="rgba(129,199,132,0.12)"/></filter>
+        <marker id="arrDown" viewBox="0 0 10 10" refX="5" refY="8" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,0 L5,10 Z" fill="rgba(255,255,255,0.25)"/></marker>
+        <marker id="arrRight" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.25)"/></marker>
+      </defs>
+
+      <!-- Title -->
+      <text x="410" y="20" fill="rgba(255,255,255,0.3)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.15em">SpawnPolicyNet V3.1 网络结构</text>
+
+      <!-- ═══════════════ LAYER 1: INPUT TOKENS ═══════════════ -->
+
+      <!-- Background panel for Layer 1 -->
+      <rect x="30" y="30" width="760" height="100" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="50" y="48" fill="rgba(255,255,255,0.15)" font-size="9" font-weight="600" letter-spacing="0.1em">INPUT TOKENS</text>
+
+      <!-- 5 input source boxes -->
+      <!-- CLS -->
+      <rect x="50" y="56" width="110" height="34" rx="6" fill="url(#boxGrad5)" stroke="rgba(229,115,115,0.15)" stroke-width="1.2" filter="url(#shadow1)"/>
+      <text x="105" y="69" fill="#e57373" font-size="10" text-anchor="middle" font-weight="700">CLS</text>
+      <text x="105" y="83" fill="rgba(255,255,255,0.15)" font-size="7" text-anchor="middle">learned (128)</text>
+
+      <!-- board + behavior -->
+      <rect x="175" y="56" width="140" height="34" rx="6" fill="url(#boxGrad1)" stroke="rgba(74,158,255,0.15)" stroke-width="1.2" filter="url(#shadow1)"/>
+      <text x="245" y="67" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="700">board(64)+ctx(56)</text>
+      <text x="245" y="82" fill="rgba(255,255,255,0.15)" font-size="7" text-anchor="middle">Linear(120→128)+LN</text>
+
+      <!-- targetDifficulty -->
+      <rect x="328" y="56" width="110" height="34" rx="6" fill="url(#boxGrad2)" stroke="rgba(255,183,77,0.15)" stroke-width="1.2" filter="url(#shadow2)"/>
+      <text x="383" y="67" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">difficulty</text>
+      <text x="383" y="82" fill="rgba(255,255,255,0.15)" font-size="7" text-anchor="middle">Linear(1→128)+LN</text>
+
+      <!-- playstyle -->
+      <rect x="452" y="56" width="100" height="34" rx="6" fill="url(#boxGrad4)" stroke="rgba(186,104,200,0.15)" stroke-width="1.2" filter="url(#shadow1)"/>
+      <text x="502" y="67" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">playstyle</text>
+      <text x="502" y="82" fill="rgba(255,255,255,0.15)" font-size="7" text-anchor="middle">Embed(5→128)</text>
+
+      <!-- history -->
+      <rect x="566" y="56" width="200" height="34" rx="6" fill="url(#boxGrad3)" stroke="rgba(129,199,132,0.15)" stroke-width="1.2" filter="url(#shadow3)"/>
+      <text x="666" y="67" fill="#81c784" font-size="9" text-anchor="middle" font-weight="700">history 3×3 shapes</text>
+      <text x="666" y="82" fill="rgba(255,255,255,0.15)" font-size="7" text-anchor="middle">Embed(9→128)+pos</text>
+
+      <!-- Down arrows from inputs to tokens -->
+      <line x1="105" y1="90" x2="105" y2="105" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+      <line x1="245" y1="90" x2="245" y2="105" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+      <line x1="383" y1="90" x2="383" y2="105" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+      <line x1="502" y1="90" x2="502" y2="105" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+      <line x1="666" y1="90" x2="666" y2="105" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+
+      <!-- ═══════════════ LAYER 2: TOKEN SEQUENCE ═══════════════ -->
+
+      <!-- 13 token boxes in a row -->
+      <rect x="30" y="108" width="760" height="54" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+
+      <!-- Token group: CLS -->
+      <rect x="42" y="116" width="36" height="36" rx="4" fill="rgba(229,115,115,0.12)" stroke="rgba(229,115,115,0.2)" stroke-width="1"/>
+      <text x="60" y="137" fill="#e57373" font-size="8" text-anchor="middle" font-weight="700">CLS</text>
+
+      <!-- Token: state -->
+      <rect x="84" y="116" width="36" height="36" rx="4" fill="rgba(74,158,255,0.12)" stroke="rgba(74,158,255,0.2)" stroke-width="1"/>
+      <text x="102" y="133" fill="#7eb8ff" font-size="7" text-anchor="middle" font-weight="700">state</text>
+      <text x="102" y="145" fill="rgba(74,158,255,0.2)" font-size="6" text-anchor="middle">128</text>
+
+      <!-- Token: diff -->
+      <rect x="126" y="116" width="36" height="36" rx="4" fill="rgba(255,183,77,0.12)" stroke="rgba(255,183,77,0.2)" stroke-width="1"/>
+      <text x="144" y="133" fill="#ffb74d" font-size="7" text-anchor="middle" font-weight="700">diff</text>
+      <text x="144" y="145" fill="rgba(255,183,77,0.2)" font-size="6" text-anchor="middle">128</text>
+
+      <!-- Token: style -->
+      <rect x="168" y="116" width="36" height="36" rx="4" fill="rgba(186,104,200,0.12)" stroke="rgba(186,104,200,0.2)" stroke-width="1"/>
+      <text x="186" y="133" fill="#ba68c8" font-size="7" text-anchor="middle" font-weight="700">style</text>
+      <text x="186" y="145" fill="rgba(186,104,200,0.2)" font-size="6" text-anchor="middle">128</text>
+
+      <!-- Tokens: hist0..hist8 (9 boxes) -->
+      <rect x="210" y="116" width="30" height="36" rx="4" fill="rgba(129,199,132,0.10)" stroke="rgba(129,199,132,0.15)" stroke-width="1"/>
+      <text x="225" y="133" fill="#81c784" font-size="6" text-anchor="middle" font-weight="700">h0</text>
+      <text x="225" y="145" fill="rgba(129,199,132,0.15)" font-size="6" text-anchor="middle">128</text>
+
+      <rect x="244" y="116" width="30" height="36" rx="4" fill="rgba(129,199,132,0.10)" stroke="rgba(129,199,132,0.15)" stroke-width="1"/>
+      <text x="259" y="133" fill="#81c784" font-size="6" text-anchor="middle" font-weight="700">h1</text>
+      <text x="259" y="145" fill="rgba(129,199,132,0.15)" font-size="6" text-anchor="middle">128</text>
+
+      <rect x="278" y="116" width="30" height="36" rx="4" fill="rgba(129,199,132,0.10)" stroke="rgba(129,199,132,0.15)" stroke-width="1"/>
+      <text x="293" y="133" fill="#81c784" font-size="6" text-anchor="middle" font-weight="700">h2</text>
+      <text x="293" y="145" fill="rgba(129,199,132,0.15)" font-size="6" text-anchor="middle">128</text>
+
+      <!-- ellipsis -->
+      <text x="320" y="137" fill="rgba(255,255,255,0.08)" font-size="10" text-anchor="middle">⋯</text>
+
+      <rect x="340" y="116" width="30" height="36" rx="4" fill="rgba(129,199,132,0.10)" stroke="rgba(129,199,132,0.15)" stroke-width="1"/>
+      <text x="355" y="133" fill="#81c784" font-size="6" text-anchor="middle" font-weight="700">h7</text>
+      <text x="355" y="145" fill="rgba(129,199,132,0.15)" font-size="6" text-anchor="middle">128</text>
+
+      <rect x="374" y="116" width="30" height="36" rx="4" fill="rgba(129,199,132,0.10)" stroke="rgba(129,199,132,0.15)" stroke-width="1"/>
+      <text x="389" y="133" fill="#81c784" font-size="6" text-anchor="middle" font-weight="700">h8</text>
+      <text x="389" y="145" fill="rgba(129,199,132,0.15)" font-size="6" text-anchor="middle">128</text>
+
+      <!-- Sequence label -->
+      <text x="430" y="133" fill="rgba(255,255,255,0.12)" font-size="10" font-weight="600">13 tokens</text>
+      <text x="430" y="148" fill="rgba(255,255,255,0.06)" font-size="8">[CLS, state, diff, style, hist×9]</text>
+
+      <!-- Down arrow to encoder -->
+      <line x1="410" y1="162" x2="410" y2="178" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" marker-end="url(#arrDown)"/>
+
+      <!-- ═══════════════ LAYER 3: TRANSFORMER ENCODER ═══════════════ -->
+
+      <rect x="120" y="182" width="580" height="120" rx="12" fill="url(#boxGrad2)" stroke="rgba(255,183,77,0.12)" stroke-width="1.5" filter="url(#shadow2)"/>
+      <text x="410" y="204" fill="#ffb74d" font-size="14" text-anchor="middle" font-weight="700">TransformerEncoder</text>
+
+      <!-- Layer x2 badge -->
+      <rect x="555" y="190" width="50" height="22" rx="11" fill="rgba(255,183,77,0.15)" stroke="rgba(255,183,77,0.2)" stroke-width="1"/>
+      <text x="580" y="205" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">×2</text>
+
+      <!-- Internal architecture detail -->
+      <rect x="155" y="218" width="510" height="70" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+
+      <!-- Self-Attention block -->
+      <rect x="170" y="228" width="140" height="28" rx="4" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="240" y="246" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="600">Multi-Head Self-Attn</text>
+
+      <text x="318" y="246" fill="rgba(255,255,255,0.1)" font-size="10" text-anchor="middle">4 heads · d=128</text>
+
+      <line x1="240" y1="256" x2="240" y2="264" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <text x="240" y="276" fill="rgba(255,255,255,0.06)" font-size="8" text-anchor="middle">Add & LayerNorm</text>
+
+      <!-- FFN block -->
+      <rect x="340" y="228" width="140" height="28" rx="4" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="410" y="246" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="600">FFN</text>
+
+      <text x="488" y="246" fill="rgba(255,255,255,0.1)" font-size="10">256 · GELU</text>
+
+      <line x1="410" y1="256" x2="410" y2="264" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <text x="410" y="276" fill="rgba(255,255,255,0.06)" font-size="8" text-anchor="middle">Add & LayerNorm</text>
+
+      <text x="580" y="246" fill="rgba(255,255,255,0.08)" font-size="9">dropout=0.1</text>
+
+      <!-- Down arrow to h_c -->
+      <line x1="410" y1="302" x2="410" y2="318" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" marker-end="url(#arrDown)"/>
+
+      <!-- ═══════════════ LAYER 4: h_c OUTPUT ═══════════════ -->
+
+      <rect x="280" y="322" width="260" height="40" rx="8" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.2)" stroke-width="1.5" filter="url(#shadow3)"/>
+      <text x="410" y="339" fill="#81c784" font-size="13" text-anchor="middle" font-weight="700">h_c ∈ ℝ¹²⁸</text>
+      <text x="410" y="355" fill="rgba(129,199,132,0.15)" font-size="8" text-anchor="middle">CLS output · global context representation</text>
+
+      <!-- Branch arrows from h_c -->
+      <!-- down to autoregressive -->
+      <line x1="410" y1="362" x2="410" y2="378" stroke="rgba(129,199,132,0.15)" stroke-width="1.5" marker-end="url(#arrDown)"/>
+      <!-- right to auxiliary -->
+      <line x1="540" y1="342" x2="570" y2="342" stroke="rgba(129,199,132,0.15)" stroke-width="1.5" marker-end="url(#arrRight)"/>
+
+      <!-- ═══════════════ LAYER 5: OUTPUT HEADS ═══════════════ -->
+
+      <!-- Autoregressive panel (left) -->
+      <rect x="30" y="380" width="490" height="140" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="50" y="398" fill="rgba(255,255,255,0.15)" font-size="9" font-weight="600" letter-spacing="0.1em">AUTOREGRESSIVE TRIPLET PREDICTION</text>
+
+      <!-- head_0 -->
+      <rect x="50" y="408" width="130" height="50" rx="6" fill="url(#boxGrad1)" stroke="rgba(74,158,255,0.15)" stroke-width="1.2"/>
+      <text x="115" y="426" fill="#7eb8ff" font-size="11" text-anchor="middle" font-weight="700">head₀</text>
+      <text x="115" y="440" fill="rgba(255,255,255,0.3)" font-size="9" text-anchor="middle">P(s₀ | c)</text>
+      <text x="115" y="453" fill="rgba(74,158,255,0.2)" font-size="7" text-anchor="middle">Linear(128→28)</text>
+
+      <line x1="180" y1="433" x2="210" y2="433" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" marker-end="url(#arrRight)"/>
+
+      <!-- head_1 -->
+      <rect x="215" y="408" width="130" height="50" rx="6" fill="url(#boxGrad2)" stroke="rgba(255,183,77,0.15)" stroke-width="1.2"/>
+      <text x="280" y="424" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">head₁</text>
+      <text x="280" y="438" fill="rgba(255,255,255,0.3)" font-size="9" text-anchor="middle">P(s₁ | c, s₀)</text>
+      <text x="280" y="453" fill="rgba(255,183,77,0.2)" font-size="7" text-anchor="middle">Linear(256→28)</text>
+
+      <line x1="345" y1="433" x2="375" y2="433" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" marker-end="url(#arrRight)"/>
+
+      <!-- head_2 -->
+      <rect x="380" y="408" width="130" height="50" rx="6" fill="url(#boxGrad3)" stroke="rgba(129,199,132,0.15)" stroke-width="1.2"/>
+      <text x="445" y="424" fill="#81c784" font-size="11" text-anchor="middle" font-weight="700">head₂</text>
+      <text x="445" y="438" fill="rgba(255,255,255,0.3)" font-size="9" text-anchor="middle">P(s₂ | c, s₀, s₁)</text>
+      <text x="445" y="453" fill="rgba(129,199,132,0.2)" font-size="7" text-anchor="middle">Linear(384→28)</text>
+
+      <!-- Arrow from s₀ to head₁, and s₀,s₁ to head₂ -->
+      <path d="M115 458 L115 470 L280 470 L280 458" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="2,2"/>
+      <text x="200" y="480" fill="rgba(255,255,255,0.04)" font-size="7" text-anchor="middle">conditioned on previous</text>
+
+      <!-- Auxiliary panel (right) -->
+      <rect x="540" y="380" width="250" height="140" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="665" y="398" fill="rgba(255,255,255,0.15)" font-size="9" text-anchor="middle" font-weight="600" letter-spacing="0.1em">AUXILIARY HEADS</text>
+
+      <!-- 5 aux heads stacked -->
+      <rect x="555" y="408" width="220" height="22" rx="4" fill="url(#boxGrad4)" stroke="rgba(186,104,200,0.1)" stroke-width="1"/>
+      <text x="665" y="423" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">diversity  ·  128→3×Ncat</text>
+
+      <rect x="555" y="434" width="220" height="22" rx="4" fill="url(#boxGrad4)" stroke="rgba(186,104,200,0.1)" stroke-width="1"/>
+      <text x="665" y="449" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">difficulty  ·  128→1 (regression)</text>
+
+      <rect x="555" y="460" width="220" height="22" rx="4" fill="url(#boxGrad4)" stroke="rgba(186,104,200,0.1)" stroke-width="1"/>
+      <text x="665" y="475" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">feasibility  ·  128→28 (BCE)</text>
+
+      <rect x="555" y="486" width="220" height="22" rx="4" fill="url(#boxGrad4)" stroke="rgba(186,104,200,0.1)" stroke-width="1"/>
+      <text x="665" y="501" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">style  ·  128→5 (CE)</text>
+
+      <rect x="555" y="512" width="220" height="22" rx="4" fill="url(#boxGrad4)" stroke="rgba(186,104,200,0.1)" stroke-width="1"/>
+      <text x="665" y="527" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">intent  ·  128→6 (CE)</text>
+    </svg>
+    <div class="cap">SpawnPolicyNet V3.1: 13-token Transformer encoder + autoregressive triplet decoder + 5 auxiliary heads</div>
+  </div>
+
+  <p>5 个输入源（棋盘状态、目标难度、玩家风格、出块历史、CLS）各自投影到 128 维，组成 13 个 token 的序列，送入 2 层 4 头 TransformerEncoder。输出的 <strong>h_c 是融合了全局信息的上下文向量</strong>，它同时驱动两条输出路径：<strong>自回归三头</strong>（head₀ 只看上下文预测第一块，head₁ 看到第一块后预测第二块，head₂ 看到前两块后预测第三块——完整的三槽联合分布）和 <strong>5 个辅助头</strong>（为多样性、难度保真、可行性、风格判别、意图学习提供多任务监督信号）。</p>
 
 <section class="slide" id="algo-genai-2">
   <h3><span class="ch">2.3</span> 生成式 AI · 预测与训练</h3>
 
   <h4>Autoregressive 三槽联合预测：为什么不是独立预测？</h4>
   <p>规则引擎中三个槽是独立采样的（抽样后去重），但这忽略了<strong>三块之间的组合约束</strong>——全大块、全小块、全同色都是糟糕组合。SpawnPolicyNet 采用自回归分解：</p>
-  <div class="formula">P(s₀, s₁, s₂ | ctx) = P(s₀ | ctx) × P(s₁ | ctx, s₀) × P(s₂ | ctx, s₀, s₁)
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs>
+        <linearGradient id="aGrad1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(74,158,255,0.10)"/><stop offset="100%" stop-color="rgba(74,158,255,0.03)"/></linearGradient>
+        <linearGradient id="aGrad2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(255,183,77,0.10)"/><stop offset="100%" stop-color="rgba(255,183,77,0.03)"/></linearGradient>
+        <linearGradient id="aGrad3" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(129,199,132,0.10)"/><stop offset="100%" stop-color="rgba(129,199,132,0.03)"/></linearGradient>
+        <linearGradient id="aGrad4" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(186,104,200,0.08)"/><stop offset="100%" stop-color="rgba(186,104,200,0.02)"/></linearGradient>
+        <filter id="aShadow"><feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="rgba(74,158,255,0.10)"/></filter>
+      </defs>
 
-<span class="cm">// head_0: 直接接 CLS 输出</span>
-logits₀ = Linear(h_c, 28)
+      <text x="410" y="20" fill="rgba(255,255,255,0.3)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.15em">Autoregressive 三槽联合预测</text>
 
-<span class="cm">// head_1: 拼接 CLS + s₀ 的 shape embedding</span>
-e₀ = shape_embed(s₀) + slot_pos[0]
-logits₁ = Linear(concat(h_c, e₀), 28)
+      <!-- ═══════ SHARED CONTEXT h_c ═══════ -->
+      <rect x="290" y="32" width="240" height="36" rx="8" fill="url(#aGrad4)" stroke="rgba(186,104,200,0.15)" stroke-width="1.5" filter="url(#aShadow)"/>
+      <text x="410" y="50" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="700">h_c ∈ ℝ¹²⁸ (shared context)</text>
+      <text x="410" y="63" fill="rgba(186,104,200,0.12)" font-size="7" text-anchor="middle">TransformerEncoder CLS output</text>
 
-<span class="cm">// head_2: 拼接 CLS + s₀ + s₁ 嵌入</span>
-e₁ = shape_embed(s₁) + slot_pos[1]
-logits₂ = Linear(concat(h_c, e₀, e₁), 28)
+      <!-- ═══════ TRIPLET HEADS CHAIN ═══════ -->
 
-<span class="cm">// 训练：teacher forcing（使用 GT 的前两槽）</span>
-<span class="cm">// 推理：left-to-right 采样（先抽 s₀，再抽 s₁，再抽 s₂，每步去重）</span></div>
+      <!-- Head 0 -->
+      <g transform="translate(0,0)">
+        <rect x="40" y="90" width="200" height="66" rx="8" fill="url(#aGrad1)" stroke="rgba(74,158,255,0.15)" stroke-width="1.5"/>
+        <rect x="40" y="90" width="200" height="22" rx="8" fill="rgba(74,158,255,0.08)"/>
+        <text x="140" y="105" fill="#7eb8ff" font-size="11" text-anchor="middle" font-weight="700">HEAD₀</text>
+        <text x="140" y="128" fill="rgba(255,255,255,0.4)" font-size="12" text-anchor="middle" font-weight="600">P(s₀ | h_c)</text>
+        <text x="140" y="146" fill="rgba(74,158,255,0.2)" font-size="8" text-anchor="middle">Linear(128 → 28) · shape logits</text>
+
+        <!-- h_c arrow down to head_0 -->
+        <line x1="410" y1="68" x2="410" y2="82" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+        <line x1="410" y1="82" x2="140" y2="82" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+        <line x1="140" y1="82" x2="140" y2="90" stroke="rgba(74,158,255,0.12)" stroke-width="1.5" marker-end="url(#arrDown)"/>
+        <text x="275" y="80" fill="rgba(255,255,255,0.04)" font-size="7" text-anchor="middle">h_c broadcast</text>
+      </g>
+
+      <!-- Chain arrow head₀ → head₁ -->
+      <line x1="240" y1="123" x2="290" y2="123" stroke="rgba(255,255,255,0.15)" stroke-width="2" marker-end="url(#arrRight)"/>
+
+      <!-- s₀ embedding loop -->
+      <rect x="250" y="108" width="32" height="30" rx="4" fill="rgba(74,158,255,0.06)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="266" y="127" fill="#7eb8ff" font-size="7" text-anchor="middle" font-weight="700">s₀</text>
+
+      <!-- Head 1 -->
+      <g transform="translate(0,0)">
+        <rect x="295" y="90" width="230" height="66" rx="8" fill="url(#aGrad2)" stroke="rgba(255,183,77,0.15)" stroke-width="1.5"/>
+        <rect x="295" y="90" width="230" height="22" rx="8" fill="rgba(255,183,77,0.08)"/>
+        <text x="410" y="105" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">HEAD₁</text>
+        <text x="410" y="126" fill="rgba(255,255,255,0.4)" font-size="12" text-anchor="middle" font-weight="600">P(s₁ | h_c, s₀)</text>
+        <text x="410" y="146" fill="rgba(255,183,77,0.2)" font-size="8" text-anchor="middle">Linear(128 + 128 = 256 → 28)</text>
+
+        <!-- h_c arrow to head_1 -->
+        <line x1="410" y1="82" x2="410" y2="90" stroke="rgba(255,183,77,0.12)" stroke-width="1" marker-end="url(#arrDown)"/>
+      </g>
+
+      <!-- Chain arrow head₁ → head₂ -->
+      <line x1="525" y1="123" x2="570" y2="123" stroke="rgba(255,255,255,0.15)" stroke-width="2" marker-end="url(#arrRight)"/>
+
+      <!-- s₁ embedding -->
+      <rect x="535" y="108" width="28" height="30" rx="4" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="549" y="127" fill="#ffb74d" font-size="7" text-anchor="middle" font-weight="700">s₁</text>
+
+      <!-- Head 2 -->
+      <g transform="translate(0,0)">
+        <rect x="575" y="90" width="210" height="66" rx="8" fill="url(#aGrad3)" stroke="rgba(129,199,132,0.15)" stroke-width="1.5"/>
+        <rect x="575" y="90" width="210" height="22" rx="8" fill="rgba(129,199,132,0.08)"/>
+        <text x="680" y="105" fill="#81c784" font-size="11" text-anchor="middle" font-weight="700">HEAD₂</text>
+        <text x="680" y="126" fill="rgba(255,255,255,0.4)" font-size="12" text-anchor="middle" font-weight="600">P(s₂ | h_c, s₀, s₁)</text>
+        <text x="680" y="146" fill="rgba(129,199,132,0.2)" font-size="8" text-anchor="middle">Linear(128 + 256 = 384 → 28)</text>
+
+        <!-- h_c arrow to head_2 -->
+        <line x1="680" y1="82" x2="680" y2="90" stroke="rgba(129,199,132,0.12)" stroke-width="1" marker-end="url(#arrDown)"/>
+      </g>
+
+      <!-- ═══════ DECOMPOSITION FORMULA ═══════ -->
+      <rect x="40" y="176" width="740" height="50" rx="8" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="410" y="196" fill="rgba(255,255,255,0.2)" font-size="13" text-anchor="middle" font-family="monospace" font-weight="600">P(s₀, s₁, s₂ | ctx) = P(s₀ | ctx) × P(s₁ | ctx, s₀) × P(s₂ | ctx, s₀, s₁)</text>
+      <text x="410" y="216" fill="rgba(255,255,255,0.07)" font-size="9" text-anchor="middle">自回归分解 · 28 类词表 × 3 槽 → 28 + 28 + 28 = 84 维 · 避免 28³ = 21,952 组合暴搜</text>
+
+      <!-- ═══════ TRAINING / INFERENCE ═══════ -->
+      <rect x="40" y="242" width="360" height="78" rx="8" fill="url(#aGrad1)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="220" y="264" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="700">▸ 训练: Teacher Forcing</text>
+      <text x="220" y="284" fill="rgba(255,255,255,0.2)" font-size="10" text-anchor="middle">使用 Ground Truth s₀*, s₁* 作为后续 head 的条件</text>
+      <text x="220" y="302" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">3 个头独立计算 loss · 梯度并行 · 无累计误差</text>
+
+      <rect x="420" y="242" width="360" height="78" rx="8" fill="url(#aGrad2)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
+      <text x="600" y="264" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">▸ 推理: Left-to-Right 采样</text>
+      <text x="600" y="284" fill="rgba(255,255,255,0.2)" font-size="10" text-anchor="middle">先抽 s₀ → 以 s₀ 为条件抽 s₁ → 以 s₀,s₁ 为条件抽 s₂</text>
+      <text x="600" y="302" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">每步 top-p 采样 + 去重 · 全链 CPU &lt; 5ms</text>
+    </svg>
+  </div>
 
   <h4>为什么不是 Transformer Decoder？</h4>
   <p>我们试过 cross-attn decoder 但参数翻倍且显著拖慢推理。在 28 类小词表上，「hidden state 拼接 + 独立 head」效果接近，CPU 推理 &lt; 5ms。</p>
@@ -857,14 +1822,19 @@ logits₂ = Linear(concat(h_c, e₀, e₁), 28)
   </div>
 
   <h4>损失函数</h4>
-  <div class="formula">L = L_shape + α·L_diversity + β·L_difficulty + γ·L_feasibility + δ·L_style + ε·L_intent
+  <div class="formula"><span class="hl">L</span> = <span class="hl2">L</span><sub>shape</sub>
+      + <span class="hl3">α</span> · <span class="hl2">L</span><sub>diversity</sub>
+      + <span class="hl3">β</span> · <span class="hl2">L</span><sub>difficulty</sub>
+      + <span class="hl3">γ</span> · <span class="hl2">L</span><sub>feasibility</sub>
+      + <span class="hl3">δ</span> · <span class="hl2">L</span><sub>style</sub>
+      + <span class="hl3">ε</span> · <span class="hl2">L</span><sub>intent</sub>
 
-L_shape = −Σ log P(s_i* | ctx, s_{&lt;i})  <span class="cm">// 三槽交叉熵和</span>
-L_diversity = CE(div_logits, cat_targets)    <span class="cm">// α = 0.1</span>
-L_difficulty = (diff_pred − diff* )²          <span class="cm">// β = 0.05</span>
-L_feasibility = BCE(σ(feas_logits), mask_GT) <span class="cm">// γ = 0.4</span>
-L_style = CE(style_logits, style_targets)     <span class="cm">// δ = 0.15</span>
-L_intent = CE(intent_logits, intent_targets)  <span class="cm">// ε = 0.1</span></div>
+<span class="hl2">L</span><sub>shape</sub>      = −Σ log P(s<sub>i</sub>* | ctx, s<sub>&lt;i</sub>)   <span class="cm">α=1.0  ·  三槽交叉熵和  ·  主任务</span>
+<span class="hl2">L</span><sub>diversity</sub>   = CE(div_logits, cat_targets)             <span class="cm">α=0.1  ·  品类多样性约束</span>
+<span class="hl2">L</span><sub>difficulty</sub>   = (diff_pred − diff*)²                     <span class="cm">β=0.05  ·  难度保真回归</span>
+<span class="hl2">L</span><sub>feasibility</sub>  = BCE(σ(feas_logits), mask_GT)            <span class="cm">γ=0.4   ·  可行性二分类</span>
+<span class="hl2">L</span><sub>style</sub>        = CE(style_logits, style_targets)          <span class="cm">δ=0.15  ·  风格判别</span>
+<span class="hl2">L</span><sub>intent</sub>       = CE(intent_logits, intent_targets)        <span class="cm">ε=0.1   ·  意图映射</span></div>
 
   <h4>LoRA 个性化</h4>
   <p>为每位玩家训练独立出块模型成本不可接受。LoRA（Low-Rank Adaptation）冻结 98.2% 的参数：</p>
@@ -876,16 +1846,40 @@ A ∈ ℝ^{r×in}, B ∈ ℝ^{out×r}, r = 4, α = 8
 <span class="cm">// 100 名玩家全部存档约 550K 参数，比一份完整模型还小</span></div>
 
   <h4>推理与安全回退</h4>
-  <div class="formula"><span class="cm">// 推理流：ML → 硬约束验证 → 回退规则引擎</span>
-predict(board, ctx, history, targetDiff=0.5):
-    out = model(board, ctx, history, targetDiff)
-    triplet = autoregressive_sample(out.logits)
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 700 120" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
 
-    if not validate(triplet, board):       <span class="cm">// 可解性验证</span>
-        triplet = resample(max_retry=3)
-    if not validate(triplet, board):
-        return fallback_to_rules()          <span class="cm">// 规则引擎兜底</span>
-    return triplet</div>
+      <!-- Step 1: ML Generation -->
+      <rect x="20" y="30" width="160" height="60" rx="8" fill="rgba(74,158,255,0.06)" stroke="rgba(74,158,255,0.12)" stroke-width="1.5"/>
+      <text x="100" y="56" fill="#7eb8ff" font-size="13" text-anchor="middle" font-weight="700">ML 生成</text>
+      <text x="100" y="74" fill="rgba(74,158,255,0.2)" font-size="9" text-anchor="middle">SpawnPolicyNet 推理</text>
+      <text x="100" y="86" fill="rgba(74,158,255,0.12)" font-size="8" text-anchor="middle">autoregressive_sample</text>
+
+      <line x1="180" y1="60" x2="220" y2="60" stroke="rgba(255,255,255,0.15)" stroke-width="2" marker-end="url(#arrG)"/>
+
+      <!-- Step 2: Hard Constraint Validation -->
+      <rect x="225" y="30" width="180" height="60" rx="8" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.12)" stroke-width="1.5"/>
+      <text x="315" y="52" fill="#ffb74d" font-size="13" text-anchor="middle" font-weight="700">可解性验证</text>
+      <text x="315" y="70" fill="rgba(255,183,77,0.2)" font-size="9" text-anchor="middle">DFS 序贯验证</text>
+      <text x="315" y="84" fill="rgba(255,183,77,0.12)" font-size="8" text-anchor="middle">失败 → resample (max 3 次)</text>
+
+      <line x1="405" y1="60" x2="445" y2="60" stroke="rgba(255,255,255,0.15)" stroke-width="2" marker-end="url(#arrG)"/>
+
+      <!-- Step 3a: Pass → return -->
+      <rect x="450" y="16" width="110" height="40" rx="6" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.12)" stroke-width="1.5"/>
+      <text x="505" y="40" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">✅ 返回三块</text>
+
+      <!-- Step 3b: Fail → fallback -->
+      <rect x="450" y="68" width="200" height="40" rx="6" fill="rgba(229,115,115,0.06)" stroke="rgba(229,115,115,0.12)" stroke-width="1.5"/>
+      <text x="550" y="84" fill="#e57373" font-size="11" text-anchor="middle" font-weight="700">⬇ 规则引擎兜底</text>
+      <text x="550" y="100" fill="rgba(229,115,115,0.2)" font-size="8" text-anchor="middle">fallback_to_rules()</text>
+
+      <!-- Branch arrows -->
+      <line x1="445" y1="60" x2="450" y2="36" stroke="rgba(129,199,132,0.1)" stroke-width="1.5" marker-end="url(#arrG)"/>
+      <line x1="445" y1="60" x2="450" y2="88" stroke="rgba(229,115,115,0.1)" stroke-width="1.5" marker-end="url(#arrG)"/>
+    </svg>
+    <div class="cap">ML 负责创造力 · 规则负责底线 · 最坏情况回退 · 最好情况学到新分布</div>
+  </div>
 
   <div class="dialog dialog-a">
     <div class="avatar">A</div><div class="body">
@@ -930,51 +1924,229 @@ predict(board, ctx, history, targetDiff=0.5):
 
   <h4>网络结构：ConvSharedPolicyValueNet + DockBoardAttention</h4>
 
-  <div class="arch-box">Input s ∈ ℝ¹⁸⁷
-  │
-  ├─ scalars[48]  ───────────────────────────┐  <span class="cm">// 含 4 单步难度 + 2 客观几何 + 11 condition</span>
-  │                                          │
-  ├─ grid[48:112] → reshape(1,8,8)           │
-  │    │                                      │
-  │    CNN(1→32) GELU + ResConv×2            │
-  │    │                                      │
-  │    ├─ AvgPool → 32 ──────────────────────┤
-  │    │                                      │
-  │    └─ [B,32,8,8] feature map ──┐         │
-  │                                │         │
-  └── dock[112:187] → reshape(3,5,5)         │
-       │                           │         │
-       └── DockBoardAttention ─────┘         │
-            Q = dock_mask → Linear(25→16)     │
-            K,V = grid_feat flatten(64)       │
-            attn = softmax(QKᵀ/√d)V           │
-            Output: 3×16 = 48 ───────────────┤
-                                              │
-                                              ▼
-                     concat [48+32+48 = 128]
-                          │
-                   LayerNorm + Linear×3 (128→128)
-                          │
-                    h(s) ∈ ℝ¹²⁸
-                          │
-               ┌─────────┼──────────────┐
-               │         │              │
-           Policy    Value         Aux Heads
-           ψ(a)→48  128→64→32→1  board_quality
-           176→128→1             feasibility / survival
-               │         │      hole_aux / clear_pred
-           logit(a)   V(s)      topology_aux / spawn_diff</div>
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 820 500" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs>
+        <linearGradient id="rGrad1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(74,158,255,0.10)"/><stop offset="100%" stop-color="rgba(74,158,255,0.03)"/></linearGradient>
+        <linearGradient id="rGrad2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(255,183,77,0.10)"/><stop offset="100%" stop-color="rgba(255,183,77,0.03)"/></linearGradient>
+        <linearGradient id="rGrad3" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(129,199,132,0.10)"/><stop offset="100%" stop-color="rgba(129,199,132,0.03)"/></linearGradient>
+        <linearGradient id="rGrad4" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(186,104,200,0.10)"/><stop offset="100%" stop-color="rgba(186,104,200,0.03)"/></linearGradient>
+        <linearGradient id="rGrad5" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(229,115,115,0.10)"/><stop offset="100%" stop-color="rgba(229,115,115,0.03)"/></linearGradient>
+        <filter id="rShadow1"><feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="rgba(74,158,255,0.12)"/></filter>
+        <filter id="rShadow2"><feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="rgba(129,199,132,0.12)"/></filter>
+      </defs>
+
+      <text x="410" y="20" fill="rgba(255,255,255,0.3)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.15em">ConvSharedPolicyValueNet + DockBoardAttention</text>
+
+      <!-- ═══════ INPUT s ∈ ℝ¹⁸⁷ ═══════ -->
+
+      <!-- scalars bar -->
+      <rect x="50" y="36" width="240" height="36" rx="6" fill="url(#rGrad1)" stroke="rgba(74,158,255,0.12)" stroke-width="1.2" filter="url(#rShadow1)"/>
+      <text x="170" y="52" fill="#7eb8ff" font-size="11" text-anchor="middle" font-weight="700">scalars[48]</text>
+      <text x="170" y="66" fill="rgba(255,255,255,0.15)" font-size="7" text-anchor="middle">难度 + 几何 + condition</text>
+
+      <line x1="290" y1="54" x2="320" y2="54" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" marker-end="url(#arrRight)"/>
+
+      <!-- concat node -->
+      <circle cx="380" cy="54" r="12" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+      <text x="380" y="58" fill="rgba(255,255,255,0.2)" font-size="10" text-anchor="middle">⊕</text>
+
+      <!-- grid bar -->
+      <rect x="50" y="82" width="240" height="36" rx="6" fill="url(#rGrad2)" stroke="rgba(255,183,77,0.12)" stroke-width="1.2"/>
+      <text x="170" y="98" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">grid[64]</text>
+      <text x="170" y="112" fill="rgba(255,255,255,0.15)" font-size="7" text-anchor="middle">8×8 occupancy</text>
+
+      <line x1="290" y1="100" x2="320" y2="100" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" marker-end="url(#arrRight)"/>
+
+      <!-- dock bar -->
+      <rect x="50" y="128" width="240" height="36" rx="6" fill="url(#rGrad5)" stroke="rgba(229,115,115,0.12)" stroke-width="1.2"/>
+      <text x="170" y="144" fill="#e57373" font-size="11" text-anchor="middle" font-weight="700">dock[75]</text>
+      <text x="170" y="158" fill="rgba(255,255,255,0.15)" font-size="7" text-anchor="middle">3×5×5 shape mask</text>
+
+      <line x1="290" y1="146" x2="320" y2="146" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" marker-end="url(#arrRight)"/>
+
+      <!-- Input bracket -->
+      <text x="40" y="104" fill="rgba(255,255,255,0.06)" font-size="9" text-anchor="end" transform="rotate(-90,40,104)">Input s ∈ ℝ¹⁸⁷</text>
+
+      <!-- ═══════ CNN + DockBoardAttention ═══════ -->
+
+      <!-- CNN box -->
+      <rect x="328" y="72" width="150" height="56" rx="8" fill="url(#rGrad2)" stroke="rgba(255,183,77,0.1)" stroke-width="1.2"/>
+      <text x="403" y="92" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">CNN</text>
+      <text x="403" y="106" fill="rgba(255,255,255,0.2)" font-size="8" text-anchor="middle">Conv(1→32) GELU</text>
+      <text x="403" y="118" fill="rgba(255,255,255,0.1)" font-size="7" text-anchor="middle">+ ResConv×2 + AvgPool</text>
+
+      <line x1="478" y1="100" x2="510" y2="100" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" marker-end="url(#arrRight)"/>
+
+      <!-- Pool output -->
+      <rect x="515" y="86" width="80" height="28" rx="4" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.1)" stroke-width="1"/>
+      <text x="555" y="104" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">pool[32]</text>
+
+      <!-- DockBoardAttention box -->
+      <rect x="328" y="138" width="268" height="56" rx="8" fill="url(#rGrad4)" stroke="rgba(186,104,200,0.1)" stroke-width="1.2"/>
+      <text x="462" y="158" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="700">DockBoardAttention</text>
+      <text x="462" y="172" fill="rgba(255,255,255,0.2)" font-size="8" text-anchor="middle">Q=dock_mask→16 · K,V=grid_feat·64 · softmax(QKᵀ/√d)V</text>
+      <text x="462" y="184" fill="rgba(255,255,255,0.1)" font-size="7" text-anchor="middle">Output: 3×16 = 48 dim</text>
+
+      <!-- CNN feature map to DBA -->
+      <path d="M555 114 L555 138" fill="none" stroke="rgba(186,104,200,0.08)" stroke-width="1" stroke-dasharray="2,2" marker-end="url(#arrDown)"/>
+      <text x="565" y="128" fill="rgba(186,104,200,0.05)" font-size="6">feature map</text>
+
+      <!-- DBA output up to merge -->
+      <line x1="596" y1="170" x2="640" y2="170" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" marker-end="url(#arrRight)"/>
+
+      <rect x="645" y="156" width="80" height="28" rx="4" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.1)" stroke-width="1"/>
+      <text x="685" y="174" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">attn[48]</text>
+
+      <!-- Merge: attn[48] + pool[32] + scalars[48] = 128 -->
+      <!-- Arrow from scalars across -->
+      <line x1="320" y1="54" x2="380" y2="54" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>
+      <line x1="380" y1="54" x2="380" y2="210" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" marker-end="url(#arrDown)"/>
+
+      <line x1="555" y1="114" x2="555" y2="210" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" marker-end="url(#arrDown)"/>
+
+      <line x1="685" y1="184" x2="685" y2="210" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" marker-end="url(#arrDown)"/>
+
+      <!-- ═══════ MERGE: concat + projection ═══════ -->
+
+      <rect x="280" y="214" width="260" height="44" rx="8" fill="url(#rGrad3)" stroke="rgba(129,199,132,0.15)" stroke-width="1.5" filter="url(#rShadow2)"/>
+      <text x="410" y="232" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">concat [48+32+48 = 128]</text>
+      <text x="410" y="250" fill="rgba(129,199,132,0.15)" font-size="8" text-anchor="middle">LayerNorm + Linear×3 (128→128)</text>
+
+      <line x1="410" y1="258" x2="410" y2="276" stroke="rgba(129,199,132,0.2)" stroke-width="1.5" marker-end="url(#arrDown)"/>
+
+      <!-- h(s) output -->
+      <rect x="310" y="280" width="200" height="34" rx="8" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.2)" stroke-width="1.5"/>
+      <text x="410" y="300" fill="#81c784" font-size="13" text-anchor="middle" font-weight="700">h(s) ∈ ℝ¹²⁸</text>
+
+      <!-- ═══════ THREE BRANCHES ═══════ -->
+
+      <line x1="410" y1="314" x2="410" y2="334" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>
+
+      <!-- Branch left: Policy -->
+      <line x1="410" y1="334" x2="120" y2="334" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
+      <line x1="120" y1="334" x2="120" y2="352" stroke="rgba(74,158,255,0.15)" stroke-width="1.5" marker-end="url(#arrDown)"/>
+
+      <rect x="30" y="356" width="180" height="100" rx="8" fill="url(#rGrad1)" stroke="rgba(74,158,255,0.12)" stroke-width="1.2"/>
+      <text x="120" y="378" fill="#7eb8ff" font-size="13" text-anchor="middle" font-weight="700">Policy</text>
+
+      <rect x="48" y="388" width="144" height="22" rx="4" fill="rgba(74,158,255,0.06)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="120" y="403" fill="rgba(255,255,255,0.3)" font-size="9" text-anchor="middle">ψ(a) → 48-dim feature</text>
+
+      <rect x="48" y="414" width="144" height="22" rx="4" fill="rgba(74,158,255,0.06)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="120" y="429" fill="rgba(255,255,255,0.3)" font-size="9" text-anchor="middle">Linear(176→128→1)</text>
+
+      <rect x="48" y="440" width="144" height="22" rx="6" fill="rgba(74,158,255,0.08)" stroke="rgba(74,158,255,0.15)" stroke-width="1"/>
+      <text x="120" y="455" fill="#7eb8ff" font-size="10" text-anchor="middle" font-weight="700">logit(a) · action prob</text>
+
+      <!-- Branch center: Value -->
+      <line x1="410" y1="334" x2="410" y2="352" stroke="rgba(255,183,77,0.15)" stroke-width="1.5" marker-end="url(#arrDown)"/>
+
+      <rect x="320" y="356" width="180" height="100" rx="8" fill="url(#rGrad2)" stroke="rgba(255,183,77,0.12)" stroke-width="1.2"/>
+      <text x="410" y="378" fill="#ffb74d" font-size="13" text-anchor="middle" font-weight="700">Value</text>
+
+      <rect x="338" y="388" width="144" height="22" rx="4" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="410" y="403" fill="rgba(255,255,255,0.3)" font-size="9" text-anchor="middle">Linear(128→64→32→1)</text>
+
+      <rect x="338" y="414" width="144" height="22" rx="6" fill="rgba(255,183,77,0.08)" stroke="rgba(255,183,77,0.15)" stroke-width="1"/>
+      <text x="410" y="429" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">V(s) · state value</text>
+
+      <text x="410" y="452" fill="rgba(255,183,77,0.1)" font-size="7" text-anchor="middle">GAE advantage estimation</text>
+
+      <!-- Branch right: Aux Heads -->
+      <line x1="410" y1="334" x2="700" y2="334" stroke="rgba(255,255,255,0.08)" stroke-width="1.5"/>
+      <line x1="700" y1="334" x2="700" y2="352" stroke="rgba(186,104,200,0.15)" stroke-width="1.5" marker-end="url(#arrDown)"/>
+
+      <rect x="610" y="356" width="180" height="124" rx="8" fill="url(#rGrad4)" stroke="rgba(186,104,200,0.12)" stroke-width="1.2"/>
+      <text x="700" y="376" fill="#ba68c8" font-size="13" text-anchor="middle" font-weight="700">Aux Heads</text>
+
+      <rect x="625" y="386" width="150" height="16" rx="3" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="700" y="398" fill="#ba68c8" font-size="8" text-anchor="middle" font-weight="600">board_quality</text>
+
+      <rect x="625" y="406" width="150" height="16" rx="3" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="700" y="418" fill="#ba68c8" font-size="8" text-anchor="middle" font-weight="600">feasibility · survival</text>
+
+      <rect x="625" y="426" width="150" height="16" rx="3" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="700" y="438" fill="#ba68c8" font-size="8" text-anchor="middle" font-weight="600">hole_aux · clear_pred</text>
+
+      <rect x="625" y="446" width="150" height="16" rx="3" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="700" y="458" fill="#ba68c8" font-size="8" text-anchor="middle" font-weight="600">topology_aux · spawn_diff</text>
+
+      <text x="700" y="478" fill="rgba(186,104,200,0.08)" font-size="7" text-anchor="middle">6 辅助头 · 多任务监督</text>
+    </svg>
+    <div class="cap">ConvSharedPolicyValueNet: 三条输入流 → CNN spatial encoder + DockBoardAttention → 128-dim shared representation → Policy / Value / 6 Aux Heads</div>
+  </div>
+
+  <p>187 维状态分三路输入：<strong>48 维标量</strong>直接传递，<strong>64 维棋盘网格</strong>经 CNN 提取空间特征后池化为 32 维，<strong>75 维 dock 掩码</strong>通过 DockBoardAttention 对 CNN 特征图做 cross-attention 得到 48 维注意力特征。三路拼接为 128 维后经 LayerNorm 和三层线性映射得到共享表示 <strong>h(s)</strong>，再分叉为 <strong>Policy 头</strong>（含 action 特征 ψ(a) 拼接后输出 logits）、<strong>Value 头</strong>（输出状态价值 V(s)，供 GAE 计算 advantage）和 <strong>6 个辅助头</strong>（为棋盘质量、可行性、存活性、空洞预测、消行预测、拓扑预测提供多任务梯度）。</p>
 
   <h4>DockBoardAttention：设计意图</h4>
   <p>传统做法将 dock_mask (75 维) 直接 flatten 后通过 MLP 与 scalar 拼接。这丢失了<strong>形状在棋盘上的空间关系</strong>。DockBoardAttention 让每个 dock 块对 CNN 提取的棋盘空间特征做 cross-attention：</p>
-  <div class="formula"><span class="cm">// DockBoardAttention 的物理意义</span>
-<span class="hl2">Q</span> = dock_mask[25] → Linear → query[16]   <span class="cm">// 每个块问：「我适合放在棋盘哪里？」</span>
-<span class="hl3">K</span> = grid_feat[32,8,8] → Conv1×1 → key[16]  <span class="cm">// 棋盘不同区域回答：「我这里有什么？」</span>
-<span class="hl">attention</span> = softmax(QKᵀ/√d) × V          <span class="cm">// 匹配最佳区域</span>
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 760 280" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <text x="380" y="20" fill="rgba(255,255,255,0.3)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.12em">DockBoardAttention · 物理意义</text>
 
-<span class="cm">// v8.1 可选变体：DockPointEncoder（PointNet 风格）</span>
-<span class="cm">// 每个 occupancy 格子的 (x,y) 坐标经 MLP→max pool→slot_feat</span>
-<span class="cm">// 天然平移不变性，对不规则形状更精确</span></div>
+      <!-- Three boxes: Q, K, Attention -->
+      <!-- Q box -->
+      <rect x="40" y="36" width="160" height="90" rx="8" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.12)" stroke-width="1.5"/>
+      <text x="120" y="58" fill="#7eb8ff" font-size="14" text-anchor="middle" font-weight="700">Q (Query)</text>
+      <text x="120" y="78" fill="rgba(74,158,255,0.3)" font-size="11" text-anchor="middle">dock_mask[25]</text>
+      <text x="120" y="96" fill="rgba(255,255,255,0.3)" font-size="10" text-anchor="middle">↓ Linear</text>
+      <text x="120" y="114" fill="rgba(255,255,255,0.4)" font-size="12" text-anchor="middle" font-weight="600">query[16]</text>
+      <text x="120" y="126" fill="rgba(74,158,255,0.2)" font-size="9" text-anchor="middle">「我适合放在棋盘哪里？」</text>
+
+      <line x1="200" y1="81" x2="250" y2="81" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" marker-end="url(#arrD)"/>
+
+      <!-- K box -->
+      <rect x="255" y="36" width="170" height="90" rx="8" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.12)" stroke-width="1.5"/>
+      <text x="340" y="58" fill="#ffb74d" font-size="14" text-anchor="middle" font-weight="700">K (Key)</text>
+      <text x="340" y="78" fill="rgba(255,183,77,0.3)" font-size="11" text-anchor="middle">grid_feat[32,8,8]</text>
+      <text x="340" y="96" fill="rgba(255,255,255,0.3)" font-size="10" text-anchor="middle">↓ Conv1×1</text>
+      <text x="340" y="114" fill="rgba(255,255,255,0.4)" font-size="12" text-anchor="middle" font-weight="600">key[16]</text>
+      <text x="340" y="126" fill="rgba(255,183,77,0.2)" font-size="9" text-anchor="middle">「棋盘不同区域有什么？」</text>
+
+      <!-- QK^T multiplication -->
+      <rect x="445" y="36" width="130" height="90" rx="8" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.12)" stroke-width="1.5"/>
+      <text x="510" y="62" fill="#ba68c8" font-size="13" text-anchor="middle" font-weight="700">softmax</text>
+      <text x="510" y="82" fill="rgba(186,104,200,0.4)" font-size="12" text-anchor="middle" font-weight="600">QKᵀ/√d</text>
+      <text x="510" y="100" fill="rgba(255,255,255,0.3)" font-size="10" text-anchor="middle">↓ × V</text>
+      <text x="510" y="116" fill="rgba(255,255,255,0.4)" font-size="12" text-anchor="middle" font-weight="600">attn[3×16]</text>
+
+      <line x1="425" y1="81" x2="443" y2="81" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" marker-end="url(#arrD)"/>
+
+      <!-- V box -->
+      <rect x="590" y="36" width="140" height="90" rx="8" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.12)" stroke-width="1.5"/>
+      <text x="660" y="62" fill="#81c784" font-size="14" text-anchor="middle" font-weight="700">V (Value)</text>
+      <text x="660" y="82" fill="rgba(129,199,132,0.3)" font-size="11" text-anchor="middle">grid_feat</text>
+      <text x="660" y="100" fill="rgba(255,255,255,0.3)" font-size="10" text-anchor="middle">↓ Conv</text>
+      <text x="660" y="116" fill="rgba(255,255,255,0.4)" font-size="12" text-anchor="middle" font-weight="600">value[16]</text>
+
+      <line x1="575" y1="81" x2="588" y2="81" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" marker-end="url(#arrD)"/>
+
+      <!-- Explanation panel -->
+      <rect x="40" y="146" width="690" height="80" rx="8" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+
+      <text x="60" y="168" fill="rgba(255,255,255,0.35)" font-size="12" font-weight="600">输出: 每槽 16 维空间特征 (3×16 = 48) → concat scalars + grid_pool → 128 维隐向量</text>
+
+      <!-- small grid visualization -->
+      <rect x="60" y="182" width="48" height="32" rx="2" fill="none" stroke="rgba(74,158,255,0.15)" stroke-width="1"/>
+      <text x="84" y="192" fill="rgba(74,158,255,0.2)" font-size="7" text-anchor="middle">棋盘8×8</text>
+      <line x1="110" y1="198" x2="140" y2="198" stroke="rgba(255,255,255,0.1)" stroke-width="1" marker-end="url(#arrD)"/>
+
+      <rect x="145" y="182" width="48" height="32" rx="4" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.1)" stroke-width="1"/>
+      <text x="169" y="190" fill="rgba(186,104,200,0.2)" font-size="7" text-anchor="middle">注意力</text>
+      <text x="169" y="202" fill="rgba(186,104,200,0.2)" font-size="7" text-anchor="middle">热力图</text>
+      <line x1="195" y1="198" x2="220" y2="198" stroke="rgba(255,255,255,0.1)" stroke-width="1" marker-end="url(#arrD)"/>
+
+      <rect x="224" y="182" width="48" height="32" rx="2" fill="none" stroke="rgba(129,199,132,0.15)" stroke-width="1"/>
+      <text x="248" y="192" fill="rgba(129,199,132,0.2)" font-size="7" text-anchor="middle">位置编码</text>
+
+      <!-- PointNet variant note -->
+      <text x="320" y="188" fill="rgba(255,255,255,0.12)" font-size="9">v8.1 可选: DockPointEncoder</text>
+      <text x="320" y="204" fill="rgba(255,255,255,0.08)" font-size="9">PointNet 风格 · 平移不变性 · 更精确</text>
+
+      <text x="320" y="220" fill="rgba(255,255,255,0.06)" font-size="8">Q: 每个块问「我适合放在棋盘哪里？」 · K: 棋盘区域回答「我这里有什么？」 · attn: 匹配最佳区域</text>
+    </svg>
+  </div>
 
   <h4>特征设计：190 维状态空间</h4>
   <div class="table-wrap">
@@ -992,21 +2164,73 @@ predict(board, ctx, history, targetDiff=0.5):
   <h3><span class="ch">2.4</span> RL 自博弈 · 奖励与训练</h3>
 
   <h4>奖励设计：三层塑形 + Ranked Reward</h4>
-  <div class="formula"><span class="cm">// 每步即时奖励</span>
-r_t = gain_t                              <span class="cm">// 本步消行得分（与真实计分一致）</span>
-    + γ·Φ(s') − Φ(s)                     <span class="cm">// 势函数塑形（不改变最优策略）</span>
-    + winBonus (if 跨越门槛)              <span class="cm">// 胜利信号</span>
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 760 330" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <text x="380" y="20" fill="rgba(255,255,255,0.3)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.12em">RL 奖励设计 · 三层塑形 + Ranked Reward</text>
 
-Φ(s) = −0.40·holes − 0.08·transitions − 0.15·wells
-     + 0.35·close_to_full + 0.12·mobility − 0.12·edge_exposure
+      <!-- r_t formula visually -->
+      <rect x="40" y="32" width="680" height="48" rx="8" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
 
-<span class="cm">// 终局惩罚（仅加在最后一步，让 advantage 集中在「致命决策」上）</span>
-if not won: rewards[-1] += −8
+      <!-- r_t = gain_t -->
+      <rect x="60" y="40" width="100" height="32" rx="6" fill="rgba(74,158,255,0.08)" stroke="rgba(74,158,255,0.15)" stroke-width="1"/>
+      <text x="110" y="60" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="700">r_t = gain_t</text>
 
-<span class="cm">// Ranked Reward：单人游戏的「对手段位」</span>
-ranked = sign(score − percentile(recent_scores, p=60))
-       × weight(|score − percentile|)
-<span class="cm">// 不跟绝对分数比，跟「过去的自己」比</span></div>
+      <text x="168" y="60" fill="rgba(255,255,255,0.15)" font-size="14" text-anchor="middle">+</text>
+
+      <!-- Φ potential shaping -->
+      <rect x="180" y="40" width="140" height="32" rx="6" fill="rgba(129,199,132,0.08)" stroke="rgba(129,199,132,0.15)" stroke-width="1"/>
+      <text x="250" y="60" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">γ·Φ(s') − Φ(s)</text>
+
+      <text x="328" y="60" fill="rgba(255,255,255,0.15)" font-size="14" text-anchor="middle">+</text>
+
+      <!-- win bonus -->
+      <rect x="340" y="40" width="110" height="32" rx="6" fill="rgba(255,183,77,0.08)" stroke="rgba(255,183,77,0.15)" stroke-width="1"/>
+      <text x="395" y="60" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">winBonus</text>
+
+      <text x="458" y="60" fill="rgba(255,255,255,0.15)" font-size="14" text-anchor="middle">+</text>
+
+      <!-- ranked -->
+      <rect x="470" y="40" width="130" height="32" rx="6" fill="rgba(186,104,200,0.08)" stroke="rgba(186,104,200,0.15)" stroke-width="1"/>
+      <text x="535" y="60" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="700">ranked</text>
+
+      <!-- final penalty -->
+      <rect x="615" y="40" width="90" height="32" rx="6" fill="rgba(229,115,115,0.08)" stroke="rgba(229,115,115,0.15)" stroke-width="1"/>
+      <text x="660" y="60" fill="#e57373" font-size="11" text-anchor="middle" font-weight="700">终局 −8</text>
+
+      <!-- Φ(s) detail panel -->
+      <rect x="40" y="96" width="340" height="120" rx="8" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.05)" stroke-width="1"/>
+      <text x="60" y="118" fill="#81c784" font-size="12" font-weight="600">势函数 Φ(s) = 棋盘质量分</text>
+
+      <!-- Component bars -->
+      <rect x="60" y="128" width="136" height="6" rx="3" fill="#e57373" opacity="0.6"/>
+      <text x="200" y="133" fill="rgba(255,255,255,0.2)" font-size="9">−0.40 · holes</text>
+      <rect x="60" y="140" width="28" height="6" rx="3" fill="#e57373" opacity="0.4"/>
+      <text x="200" y="145" fill="rgba(255,255,255,0.2)" font-size="9">−0.08 · transitions</text>
+      <rect x="60" y="152" width="52" height="6" rx="3" fill="#e57373" opacity="0.5"/>
+      <text x="200" y="157" fill="rgba(255,255,255,0.2)" font-size="9">−0.15 · wells</text>
+      <rect x="60" y="164" width="120" height="6" rx="3" fill="#81c784" opacity="0.6"/>
+      <text x="200" y="169" fill="rgba(255,255,255,0.2)" font-size="9">+0.35 · close_to_full</text>
+      <rect x="60" y="176" width="40" height="6" rx="3" fill="#81c784" opacity="0.5"/>
+      <text x="200" y="181" fill="rgba(255,255,255,0.2)" font-size="9">+0.12 · mobility</text>
+      <rect x="60" y="188" width="40" height="6" rx="3" fill="#e57373" opacity="0.5"/>
+      <text x="200" y="193" fill="rgba(255,255,255,0.2)" font-size="9">−0.12 · edge_exposure</text>
+
+      <!-- Ranked Reward panel -->
+      <rect x="400" y="96" width="320" height="120" rx="8" fill="rgba(186,104,200,0.02)" stroke="rgba(186,104,200,0.05)" stroke-width="1"/>
+      <text x="560" y="118" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="600">Ranked Reward</text>
+
+      <text x="420" y="140" fill="rgba(255,255,255,0.25)" font-size="11">ranked = sign(score − P60)</text>
+      <text x="420" y="158" fill="rgba(255,255,255,0.25)" font-size="11">         × weight(|score − P60|)</text>
+
+      <text x="560" y="180" fill="rgba(186,104,200,0.2)" font-size="10" text-anchor="middle">vs 过去自己的 60 分位</text>
+      <text x="560" y="196" fill="rgba(186,104,200,0.2)" font-size="10" text-anchor="middle">不跟绝对分数比，跟"过去的自己"比</text>
+
+      <!-- bottom note -->
+      <rect x="40" y="230" width="680" height="32" rx="6" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+      <text x="380" y="244" fill="rgba(255,255,255,0.12)" font-size="10" text-anchor="middle">终局惩罚仅加在最后一步，让 advantage 集中在"致命决策"上</text>
+      <text x="380" y="258" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">势函数不改变最优策略 (Potential-Based Shaping, Ng et al. 1999)</text>
+    </svg>
+  </div>
 
   <h4>6 辅助头：解决「终局奖励稀疏 → 不收敛」</h4>
   <div class="card-row c3">
@@ -1019,16 +2243,70 @@ ranked = sign(score − percentile(recent_scores, p=60))
   </div>
 
   <h4>分位数自适应课程</h4>
-  <div class="formula"><span class="cm">// 难度桶课程（按 episode 解锁）</span>
-stage 1 (ep ≤ 2000):   maxScd ≤ 0.4 <span class="cm">// 仅简单盘面</span>
-stage 2 (ep ≤ 6000):   maxScd ≤ 0.6 <span class="cm">// 中等难度</span>
-stage 3 (ep ≤ 15000):  maxScd ≤ 0.8 <span class="cm">// 困难盘面</span>
-stage 4 (ep > 15000):  maxScd ≤ 1.0 <span class="cm">// 全难度解锁</span>
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 760 240" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <text x="380" y="20" fill="rgba(255,255,255,0.3)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.12em">难度桶课程 · 按 episode 解锁</text>
 
-<span class="cm">// 胜利门槛自适应（分位数版）</span>
-threshold_t = EMA(percentile(recent_scores[−300:], p=60), α=0.08)
-<span class="cm">// 数学特性：Bot 变强→门槛自动上升→win_rate 恒≈40%</span>
-<span class="cm">// 不需要手工调参，训练始终处于「舒适区边缘」</span></div>
+      <!-- 4 stages on a timeline -->
+      <!-- Stage 1: ep 0→2000, maxScd≤0.4 -->
+      <rect x="40" y="36" width="120" height="52" rx="6" fill="rgba(74,158,255,0.06)" stroke="rgba(74,158,255,0.12)" stroke-width="1.5"/>
+      <text x="100" y="56" fill="#4a9eff" font-size="14" text-anchor="middle" font-weight="700">S1</text>
+      <text x="100" y="74" fill="rgba(255,255,255,0.2)" font-size="9" text-anchor="middle">ep ≤ 2000</text>
+      <text x="100" y="86" fill="rgba(74,158,255,0.3)" font-size="9" text-anchor="middle">maxScd ≤ 0.4</text>
+
+      <line x1="160" y1="62" x2="195" y2="62" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" marker-end="url(#arrD)"/>
+
+      <!-- Stage 2: ep 2000→6000, maxScd≤0.6 -->
+      <rect x="200" y="36" width="120" height="52" rx="6" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.12)" stroke-width="1.5"/>
+      <text x="260" y="56" fill="#81c784" font-size="14" text-anchor="middle" font-weight="700">S2</text>
+      <text x="260" y="74" fill="rgba(255,255,255,0.2)" font-size="9" text-anchor="middle">ep ≤ 6000</text>
+      <text x="260" y="86" fill="rgba(129,199,132,0.3)" font-size="9" text-anchor="middle">maxScd ≤ 0.6</text>
+
+      <line x1="320" y1="62" x2="355" y2="62" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" marker-end="url(#arrD)"/>
+
+      <!-- Stage 3: ep 6000→15000, maxScd≤0.8 -->
+      <rect x="360" y="36" width="120" height="52" rx="6" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.12)" stroke-width="1.5"/>
+      <text x="420" y="56" fill="#ffb74d" font-size="14" text-anchor="middle" font-weight="700">S3</text>
+      <text x="420" y="74" fill="rgba(255,255,255,0.2)" font-size="9" text-anchor="middle">ep ≤ 15000</text>
+      <text x="420" y="86" fill="rgba(255,183,77,0.3)" font-size="9" text-anchor="middle">maxScd ≤ 0.8</text>
+
+      <line x1="480" y1="62" x2="515" y2="62" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" marker-end="url(#arrD)"/>
+
+      <!-- Stage 4: ep > 15000, maxScd≤1.0 -->
+      <rect x="520" y="36" width="120" height="52" rx="6" fill="rgba(229,115,115,0.06)" stroke="rgba(229,115,115,0.12)" stroke-width="1.5"/>
+      <text x="580" y="56" fill="#e57373" font-size="14" text-anchor="middle" font-weight="700">S4</text>
+      <text x="580" y="74" fill="rgba(255,255,255,0.2)" font-size="9" text-anchor="middle">ep > 15000</text>
+      <text x="580" y="86" fill="rgba(229,115,115,0.3)" font-size="9" text-anchor="middle">maxScd ≤ 1.0</text>
+
+      <!-- Episodes axis -->
+      <text x="40" y="112" fill="rgba(255,255,255,0.06)" font-size="9">0</text>
+      <line x1="40" y1="115" x2="660" y2="115" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <text x="160" y="110" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">2K</text>
+      <text x="320" y="110" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">6K</text>
+      <text x="480" y="110" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">15K</text>
+      <polygon points="660,111 670,115 660,119" fill="rgba(255,255,255,0.06)"/>
+
+      <!-- Difficulty bar growing -->
+      <rect x="40" y="126" width="620" height="6" rx="3" fill="rgba(255,255,255,0.02)"/>
+      <rect x="40" y="126" width="120" height="6" rx="3" fill="#4a9eff" opacity="0.3"/>
+      <rect x="200" y="126" width="280" height="6" rx="3" fill="#81c784" opacity="0.3"/>
+      <rect x="360" y="126" width="280" height="6" rx="3" fill="#ffb74d" opacity="0.3"/>
+      <rect x="520" y="126" width="140" height="6" rx="3" fill="#e57373" opacity="0.3"/>
+
+      <text x="380" y="128" fill="rgba(255,255,255,0.04)" font-size="8" text-anchor="middle">maxScd 逐步解锁 →</text>
+
+      <!-- Adaptive threshold panel -->
+      <rect x="40" y="148" width="680" height="54" rx="8" fill="rgba(186,104,200,0.02)" stroke="rgba(186,104,200,0.05)" stroke-width="1"/>
+      <text x="60" y="168" fill="#ba68c8" font-size="12" font-weight="600">胜利门槛自适应</text>
+      <text x="60" y="186" fill="rgba(255,255,255,0.25)" font-size="11" font-family="monospace">threshold_t = EMA(percentile(recent_scores[−300:], p=60), α=0.08)</text>
+
+      <text x="560" y="170" fill="rgba(186,104,200,0.2)" font-size="9" text-anchor="middle">Bot 变强 → 门槛自动上升</text>
+      <text x="560" y="186" fill="rgba(186,104,200,0.2)" font-size="9" text-anchor="middle">win_rate 恒 ≈ 40%</text>
+
+      <!-- bottom note -->
+      <text x="380" y="218" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">不需要手工调参 · 训练始终处于「舒适区边缘」</text>
+    </svg>
+  </div>
 
   <h4>搜索蒸馏：知识迁移</h4>
   <div class="card-row c3">
@@ -1038,16 +2316,22 @@ threshold_t = EMA(percentile(recent_scores[−300:], p=60), α=0.08)
   </div>
 
   <h4>损失函数总览</h4>
-  <div class="formula">loss = policy_loss + value_coef × value_loss − entropy_coef × entropy
-     + hole_coef × hole_aux_loss + clear_pred_coef × clear_pred_loss
-     + topology_coef × topology_aux_loss + bq_coef × board_quality_loss
-     + feas_coef × feasibility_loss + surv_coef × survival_loss
-     + q_distill_coef × q_distill_loss         <span class="cm">// 可选</span>
+  <div class="formula"><span class="hl">L</span> = <span class="hl2">L</span><sub>policy</sub>
+      + <span class="hl3">λ</span><sub>v</sub>   · <span class="hl2">L</span><sub>value</sub>
+      − <span class="hl3">λ</span><sub>e</sub>   · <span class="hl2">H</span>
+      + <span class="hl3">λ</span><sub>hole</sub> · <span class="hl2">L</span><sub>hole</sub>
+      + <span class="hl3">λ</span><sub>clear</sub> · <span class="hl2">L</span><sub>clear</sub>
+      + <span class="hl3">λ</span><sub>topo</sub> · <span class="hl2">L</span><sub>topo</sub>
+      + <span class="hl3">λ</span><sub>bq</sub>   · <span class="hl2">L</span><sub>bq</sub>
+      + <span class="hl3">λ</span><sub>feas</sub> · <span class="hl2">L</span><sub>feas</sub>
+      + <span class="hl3">λ</span><sub>surv</sub> · <span class="hl2">L</span><sub>surv</sub>
+      + <span class="hl3">λ</span><sub>distill</sub> · <span class="hl2">L</span><sub>distill</sub>  <span class="cm">(可选)</span>
 
-<span class="cm">// PPO policy loss</span>
-policy_loss = −mean(min(ratio·A, clip(ratio, 1−ε, 1+ε)·A))
-<span class="cm">// 双裁剪 value loss (SmoothL1)</span>
-value_loss = mean(max(SmoothL1(v_new, ret), SmoothL1(v_clipped, ret)))</div>
+<span class="hl2">L</span><sub>policy</sub> = −𝔼[min( r<sub>t</sub>(θ) · Â<sub>t</sub> , clip(r<sub>t</sub>(θ), 1−ε, 1+ε) · Â<sub>t</sub> )]
+<span class="hl2">L</span><sub>value</sub>  = max( SmoothL1(V<sub>θ</sub>(s), R<sub>t</sub>) , SmoothL1(V<sub>θ,clip</sub>(s), R<sub>t</sub>) )
+
+<span class="cm">// λ 系数均可在 game_rules 中按需调整</span>
+<span class="cm">// L_distill 为搜索蒸馏可选项，off 时不影响梯度</span></div>
 </section>
 
 <!-- ═══════ III. COMMERCIAL ═══════ -->
@@ -1064,7 +2348,7 @@ value_loss = mean(max(SmoothL1(v_new, ret), SmoothL1(v_clipped, ret)))</div>
       <div class="text">商业化算法不是「收割层」——它消费画像系统的 AbilityVector，在<strong>对的时间、对的玩家状态</strong>下触发商业化动作。心流中不插屏、挫败中不推 IAP、疲劳时不骚扰。好的商业化策略让玩家感觉「被服务」而不是「被收割」。</div></div>
   </div>
   <div class="img-frame">
-    <img src="/docs/architecture/assets/business-architecture.png" alt="Business Architecture">
+    <img src="/docs/asset/architecture/assets/business-architecture.png" alt="Business Architecture">
     <div class="cap">商业架构——LTV 评估、Churn 预测、IAP/Ad 决策、画像驱动的全链路</div>
   </div>
 </section>
@@ -1082,23 +2366,82 @@ value_loss = mean(max(SmoothL1(v_new, ret), SmoothL1(v_clipped, ret)))</div>
   </div>
 
   <h4>特征：五维商业向量 + Ability Bias</h4>
-  <div class="formula">commercialVector = [LTV, iapPropensity, rewardedAdPropensity, interstitialPropensity, churnRisk]
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 760 330" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <text x="380" y="18" fill="rgba(255,255,255,0.3)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.12em">商业化算法 · 五维向量 → Ability Bias → 决策树</text>
 
-<span class="cm">// Ability Bias — 画像系统注入的商业微调</span>
-bias_iap         = +0.08 × boardPlanning − 0.05 × clearEfficiency
-bias_churn       = −0.10 × confidence
-bias_interstitial = −0.06 × clearEfficiency
-bias_rewardedAd  = +0.06 × riskLevel
+      <!-- Commercial Vector 5-dim -->
+      <rect x="40" y="30" width="680" height="44" rx="8" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.05)" stroke-width="1"/>
+      <text x="380" y="48" fill="rgba(255,255,255,0.2)" font-size="11" text-anchor="middle" font-family="monospace">commercialVector = [LTV, iapPropensity, rewardedAdPropensity, interstitialPropensity, churnRisk]</text>
+      <text x="380" y="64" fill="rgba(255,255,255,0.06)" font-size="8" text-anchor="middle">← 端侧规则模型 · 轻量可解释 · 保留 modelBaseline 入口 →</text>
 
-adjustedVector = clamp(commercialVector + biasVector, 0, 1)
+      <!-- Arrow down -->
+      <line x1="380" y1="74" x2="380" y2="96" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" marker-end="url(#arrD)"/>
 
-<span class="cm">// 阈值判定 → 推荐动作</span>
-if guardrail.suppressAll:               → 'suppress'
-elif iapPropensity ≥ 0.68 ∧ !protectPayer: → 'iap_offer'
-elif rewardedAdPropensity ≥ 0.55:         → 'rewarded_ad'
-elif interstitialPropensity ≥ 0.50:       → 'interstitial'
-elif churnRisk ≥ 0.62 ∨ payerScore &lt; 0.35: → 'task_or_push'
-else:                                      → 'observe'</div>
+      <!-- Ability Bias box -->
+      <rect x="40" y="100" width="680" height="52" rx="8" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.05)" stroke-width="1"/>
+      <text x="60" y="120" fill="#ffb74d" font-size="12" font-weight="600">Ability Bias (来自画像系统)</text>
+      <text x="60" y="138" fill="rgba(255,255,255,0.15)" font-size="10" font-family="monospace">bias_iap = +0.08·boardPlan − 0.05·clearEff</text>
+      <text x="380" y="138" fill="rgba(255,255,255,0.15)" font-size="10" font-family="monospace">bias_churn = −0.10·confidence</text>
+      <text x="60" y="150" fill="rgba(255,255,255,0.12)" font-size="9" font-family="monospace">bias_interstitial = −0.06·clearEff</text>
+      <text x="380" y="150" fill="rgba(255,255,255,0.12)" font-size="9" font-family="monospace">bias_rewardedAd = +0.06·riskLevel</text>
+
+      <!-- adjusted vector + guardrail -->
+      <line x1="380" y1="152" x2="380" y2="174" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" marker-end="url(#arrD)"/>
+      <rect x="200" y="178" width="360" height="24" rx="6" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
+      <text x="380" y="194" fill="rgba(186,104,200,0.2)" font-size="11" text-anchor="middle" font-family="monospace">adjustedVector = clamp(commercialVector + biasVector, 0, 1)</text>
+
+      <!-- Decision tree -->
+      <line x1="380" y1="202" x2="380" y2="220" stroke="rgba(255,255,255,0.08)" stroke-width="1.5" marker-end="url(#arrD)"/>
+      <text x="380" y="216" fill="rgba(255,255,255,0.08)" font-size="9" text-anchor="middle">▼ 阈值判定 → 推荐动作</text>
+
+      <!-- Decision branches -->
+      <rect x="40" y="228" width="680" height="90" rx="8" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+
+      <!-- suppress -->
+      <rect x="55" y="238" width="90" height="28" rx="6" fill="rgba(229,115,115,0.06)" stroke="rgba(229,115,115,0.1)" stroke-width="1"/>
+      <text x="100" y="256" fill="#e57373" font-size="10" text-anchor="middle" font-weight="600">suppress</text>
+
+      <line x1="145" y1="252" x2="163" y2="252" stroke="rgba(255,255,255,0.06)" stroke-width="1.5"/>
+      <text x="154" y="246" fill="rgba(255,255,255,0.04)" font-size="7">guardrail</text>
+
+      <!-- iap_offer -->
+      <rect x="167" y="238" width="100" height="28" rx="6" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.1)" stroke-width="1"/>
+      <text x="217" y="256" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="600">iap_offer</text>
+      <text x="217" y="270" fill="rgba(255,183,77,0.15)" font-size="7" text-anchor="middle">≥ 0.68</text>
+
+      <line x1="267" y1="252" x2="285" y2="252" stroke="rgba(255,255,255,0.06)" stroke-width="1.5"/>
+
+      <!-- rewarded_ad -->
+      <rect x="289" y="238" width="110" height="28" rx="6" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.1)" stroke-width="1"/>
+      <text x="344" y="256" fill="#81c784" font-size="10" text-anchor="middle" font-weight="600">rewarded_ad</text>
+      <text x="344" y="270" fill="rgba(129,199,132,0.15)" font-size="7" text-anchor="middle">≥ 0.55</text>
+
+      <line x1="399" y1="252" x2="417" y2="252" stroke="rgba(255,255,255,0.06)" stroke-width="1.5"/>
+
+      <!-- interstitial -->
+      <rect x="421" y="238" width="100" height="28" rx="6" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.1)" stroke-width="1"/>
+      <text x="471" y="256" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="600">interstitial</text>
+      <text x="471" y="270" fill="rgba(186,104,200,0.15)" font-size="7" text-anchor="middle">≥ 0.50</text>
+
+      <line x1="521" y1="252" x2="539" y2="252" stroke="rgba(255,255,255,0.06)" stroke-width="1.5"/>
+
+      <!-- task_or_push -->
+      <rect x="543" y="238" width="100" height="28" rx="6" fill="rgba(74,158,255,0.06)" stroke="rgba(74,158,255,0.1)" stroke-width="1"/>
+      <text x="593" y="256" fill="#7eb8ff" font-size="10" text-anchor="middle" font-weight="600">task_or_push</text>
+      <text x="593" y="270" fill="rgba(74,158,255,0.15)" font-size="7" text-anchor="middle">churn≥0.62</text>
+
+      <line x1="643" y1="252" x2="661" y2="252" stroke="rgba(255,255,255,0.06)" stroke-width="1.5"/>
+
+      <!-- observe -->
+      <rect x="665" y="238" width="48" height="28" rx="6" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <text x="689" y="256" fill="rgba(255,255,255,0.15)" font-size="10" text-anchor="middle">observe</text>
+
+      <!-- epsilon-greedy note -->
+      <rect x="55" y="278" width="650" height="30" rx="6" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+      <text x="380" y="296" fill="rgba(255,255,255,0.1)" font-size="10" text-anchor="middle">ε=0.05: 95% exploit + 5% explore (从 5 个候选动作均匀采样) · 所有推荐记入 Action Outcome Matrix</text>
+    </svg>
+  </div>
 
   <h4>ε-greedy 探索包装</h4>
   <div class="formula"><span class="cm">// 默认 ε=0.05：95% exploit + 5% explore</span>
@@ -1223,6 +2566,43 @@ wrapWithExplorer(_deterministicPolicy, { epsilon: 0.05 })
   slides.forEach(s => observer.observe(s));
 
   update();
+})();
+
+/* ═══════ ZOOM LIGHTBOX ═══════ */
+(function(){
+  const overlay = document.createElement('div');
+  overlay.className = 'zoom-overlay';
+  overlay.innerHTML = '<button class="zoom-close">✕</button><div class="zoom-content" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%"></div><div class="zoom-label">点击空白或按 ESC 关闭</div>';
+  document.body.appendChild(overlay);
+  const content = overlay.querySelector('.zoom-content');
+  const close = overlay.querySelector('.zoom-close');
+
+  function openZoom(svg){
+    const clone = svg.cloneNode(true);
+    clone.removeAttribute('style');
+    content.innerHTML = '';
+    content.appendChild(clone);
+    overlay.classList.add('show');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeZoom(){
+    overlay.classList.remove('show');
+    document.body.style.overflow = '';
+  }
+
+  document.querySelectorAll('.img-frame svg').forEach(svg => {
+    svg.addEventListener('click', e => {
+      e.stopPropagation();
+      openZoom(svg);
+    });
+  });
+  close.addEventListener('click', closeZoom);
+  overlay.addEventListener('click', e => {
+    if(e.target === overlay || e.target === content) closeZoom();
+  });
+  document.addEventListener('keydown', e => {
+    if(e.key === 'Escape') closeZoom();
+  });
 })();
 </script>
 

@@ -138,6 +138,119 @@ function _buildMonoFlushBitmaps(grid, shapeCells, sh, sw) {
     };
 }
 
+const FUN_OPENING_TEMPLATES = {
+    normal: [
+        { id: 'small-heart', kind: 'heart', rows: ['01010', '11111', '01110', '00100'] },
+        { id: 'small-star', kind: 'symbol', rows: ['00100', '10101', '01110', '11111', '00100'] },
+        { id: 'small-crown', kind: 'symbol', rows: ['10101', '11111', '01110'] },
+        { id: 'small-gift', kind: 'object', rows: ['01010', '11111', '01110', '01010'] },
+        { id: 'small-rocket', kind: 'object', rows: ['00100', '01110', '11111', '01010'] },
+        { id: 'letter-o', kind: 'letter', rows: ['01110', '10001', '10001', '10001', '01110'] },
+        { id: 'letter-p', kind: 'letter', rows: ['11110', '10001', '11110', '10000', '10000'] },
+        { id: 'letter-e', kind: 'letter', rows: ['1111', '1000', '1110', '1000', '1111'] },
+        { id: 'letter-n', kind: 'letter', rows: ['10001', '11001', '10101', '10011', '10001'] },
+    ],
+    hard: [
+        { id: 'heart', kind: 'heart', rows: ['01100110', '11111110', '01111100', '00111000', '00010000'] },
+        { id: 'big-star', kind: 'symbol', rows: ['00010000', '01010100', '00111000', '11111110', '00111000', '01000100'] },
+        { id: 'rocket', kind: 'object', rows: ['00011000', '00111100', '01111110', '00111100', '00100100', '00100100'] },
+        { id: 'crown', kind: 'object', rows: ['10010010', '11111110', '01111100', '00111000', '00101000'] },
+        { id: 'gift', kind: 'object', rows: ['00100100', '01111110', '00111100', '01111110', '00111100'] },
+        { id: 'letter-b', kind: 'letter', rows: ['1111100', '1000010', '1111100', '1000010', '1000010', '1111100'] },
+        { id: 'letter-l', kind: 'letter', rows: ['1100000', '1100000', '1100000', '1100000', '1100000', '1111111'] },
+        { id: 'letter-c', kind: 'letter', rows: ['0111110', '1100000', '1100000', '1100000', '1100000', '0111110'] },
+        { id: 'letter-k', kind: 'letter', rows: ['1100010', '1100100', '1111000', '1111000', '1100100', '1100010'] },
+    ],
+};
+
+const FUN_OPENING_CHANCE = {
+    normal: 0.16,
+    hard: 0.12,
+};
+
+function _funOpeningMode(strategyId) {
+    return strategyId === 'hard' ? 'hard' : (strategyId === 'normal' ? 'normal' : null);
+}
+
+function _templateCells(tpl, flipX) {
+    const cells = [];
+    for (let y = 0; y < tpl.rows.length; y++) {
+        const row = tpl.rows[y];
+        const w = row.length;
+        for (let x = 0; x < w; x++) {
+            const sx = flipX ? (w - 1 - x) : x;
+            if (row[sx] === '1') cells.push({ x, y });
+        }
+    }
+    return cells;
+}
+
+function _templateCellCount(tpl) {
+    let n = 0;
+    for (const row of tpl.rows) {
+        for (let i = 0; i < row.length; i++) if (row[i] === '1') n++;
+    }
+    return n;
+}
+
+function _selectFunOpeningTemplate(strategyId, targetCells, rng) {
+    const mode = _funOpeningMode(strategyId);
+    if (!mode || targetCells <= 0) return null;
+    const maxDelta = mode === 'hard' ? 3 : 2;
+    const candidates = FUN_OPENING_TEMPLATES[mode]
+        .map((tpl) => ({ tpl, cells: _templateCellCount(tpl) }))
+        .filter((x) => Math.abs(x.cells - targetCells) <= maxDelta)
+        .sort((a, b) => Math.abs(a.cells - targetCells) - Math.abs(b.cells - targetCells));
+    if (!candidates.length) return null;
+    const weighted = candidates.map((x) => ({
+        tpl: x.tpl,
+        weight: maxDelta + 1 - Math.abs(x.cells - targetCells),
+    }));
+    const total = weighted.reduce((sum, x) => sum + x.weight, 0);
+    let r = rng() * total;
+    for (const x of weighted) {
+        r -= x.weight;
+        if (r <= 0) return x.tpl;
+    }
+    return weighted[0]?.tpl ?? null;
+}
+
+function _tryInitFunOpeningBoard(grid, fillRatio, rng, opts) {
+    const strategyId = opts?.strategyId;
+    const mode = _funOpeningMode(strategyId);
+    if (!mode) return false;
+    const chance = Number(opts?.funOpeningChance ?? FUN_OPENING_CHANCE[mode]);
+    if (!(chance > 0) || rng() >= Math.min(1, chance)) return false;
+
+    const targetCells = Math.floor(grid.size * grid.size * fillRatio);
+    const tpl = _selectFunOpeningTemplate(strategyId, targetCells, rng);
+    if (!tpl) return false;
+
+    const flipX = rng() < 0.5;
+    const cells = _templateCells(tpl, flipX);
+    const h = tpl.rows.length;
+    const w = Math.max(...tpl.rows.map((row) => row.length));
+    if (h > grid.size || w > grid.size) return false;
+
+    const marginX = grid.size - w;
+    const marginY = grid.size - h;
+    const baseX = Math.floor(rng() * (marginX + 1));
+    const baseY = Math.floor(rng() * (marginY + 1));
+    const colorIdx = Math.floor(rng() * 8);
+
+    for (const c of cells) {
+        grid.cells[baseY + c.y][baseX + c.x] = colorIdx;
+    }
+    const clearCheck = grid.checkLines();
+    if (clearCheck.count > 0) {
+        grid.clear();
+        return false;
+    }
+    grid._mutGen = (grid._mutGen | 0) + 1;
+    grid._monoBitmapCache = null;
+    return true;
+}
+
 class Grid {
     constructor(size = 8) {
         this.size = size;
@@ -1572,8 +1685,11 @@ class Grid {
      * @param {number} fillRatio  目标填充率（0~1）
      * @param {object} weights    形状类别权重
      */
-    initBoard(fillRatio, weights, rng = Math.random) {
+    initBoard(fillRatio, weights, rng = Math.random, opts = {}) {
         this.clear();
+        if (_tryInitFunOpeningBoard(this, fillRatio, rng, opts)) {
+            return;
+        }
         const targetCells = Math.floor(this.size * this.size * fillRatio);
         let placedCells = 0;
         let noProgressStreak = 0;

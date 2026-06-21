@@ -226,7 +226,9 @@ export class OpenBlockSimulator {
         this.strategyConfig = cfg;
         this.scoring = cfg.scoring;
         this.grid = new Grid(cfg.gridWidth || 8);
-        this.grid.initBoard(cfg.fillRatio, cfg.shapeWeights);
+        this.grid.initBoard(cfg.fillRatio, cfg.shapeWeights, Math.random, {
+            strategyId: this.strategyId,
+        });
         this.playerProfile = new PlayerProfile();
         this.playerProfile.recordNewGame();
         this._spawnContext = this._createSpawnContext();

@@ -131,13 +131,17 @@ class GameController {
       const fillRelax = Math.floor(attempt / 6) * 0.06;
       const fillRatio = Math.max(0, baseFill - fillRelax);
       this.grid = new Grid(this.gridSize);
-      this.grid.initBoard(fillRatio, cfg.shapeWeights);
+      this.grid.initBoard(fillRatio, cfg.shapeWeights, Math.random, {
+        strategyId: this.strategyId,
+      });
       this._spawnDock({ ensureMove: true });
       if (this.grid.hasAnyMove(this.dock)) return;
     }
 
     this.grid = new Grid(this.gridSize);
-    this.grid.initBoard(0, cfg.shapeWeights);
+    this.grid.initBoard(0, cfg.shapeWeights, Math.random, {
+      strategyId: this.strategyId,
+    });
     this._spawnDock({ ensureMove: true });
   }
 

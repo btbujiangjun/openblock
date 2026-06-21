@@ -124,6 +124,18 @@ describe('Grid extended', () => {
                 expect(result.count).toBe(0);
             }
         });
+
+        it('uses constrained fun openings for normal and hard modes when surprise gate hits', () => {
+            const zeroRng = () => 0;
+
+            grid.initBoard(0.18, {}, zeroRng, { strategyId: 'normal', funOpeningChance: 1 });
+            expect(grid.getFillRatio()).toBeCloseTo(11 / 64, 6);
+            expect(grid.checkLines().count).toBe(0);
+
+            grid.initBoard(0.32, {}, zeroRng, { strategyId: 'hard', funOpeningChance: 1 });
+            expect(grid.getFillRatio()).toBeCloseTo(20 / 64, 6);
+            expect(grid.checkLines().count).toBe(0);
+        });
     });
 
     describe('findGapPositions', () => {

@@ -2201,7 +2201,9 @@ export class Game {
                 for (let k = 0; k < maxOpeningTries; k++) {
                     clearTimeout(this._movePersistTimer);
                     this._movePersistTimer = null;
-                    this.grid.initBoard(layeredOpen.fillRatio, layeredOpen.shapeWeights);
+                    this.grid.initBoard(layeredOpen.fillRatio, layeredOpen.shapeWeights, Math.random, {
+                        strategyId: this.strategy,
+                    });
                     this._captureInitFrame(baseStrategy);
                     this.spawnBlocks({ logSpawn: false, checkGameOver: false });
                     const rem = this.dockBlocks.filter((b) => !b.placed);
@@ -2218,7 +2220,9 @@ export class Game {
                         : Math.min(0.12, Math.max(0.06, fillBase * 0.45));
                     clearTimeout(this._movePersistTimer);
                     this._movePersistTimer = null;
-                    this.grid.initBoard(softFill, layeredOpen.shapeWeights);
+                    this.grid.initBoard(softFill, layeredOpen.shapeWeights, Math.random, {
+                        strategyId: this.strategy,
+                    });
                     this._captureInitFrame(baseStrategy);
                     this.spawnBlocks({ logSpawn: false, checkGameOver: false });
                 }
