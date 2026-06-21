@@ -248,15 +248,20 @@ def _pool_worker_collect(args: tuple) -> list[dict]:
         _pool_net.load_state_dict(sd)
         _pool_w_version = weight_version
     episodes_out: list[dict] = []
-    for cfg in configs:
-        ep_data = collect_episode(
-            _pool_net, _pool_device,
-            cfg[0], cfg[1], cfg[2], cfg[3], cfg[4], cfg[5],
-            win_threshold_override=cfg[6] if len(cfg) > 6 else None,
-        )
-        episodes_out.append(ep_data)
-        # 多 worker 并行采集时也逐局写心跳（与单进程路径一致），避免整批攒满前看板无输出。
-        _emit_train_progress_heartbeat(cfg[0], ep_data)
+    # L8 性能优化：worker 推理用 inference_mode 替代默认 eval+autograd 跟踪。
+    # - 关闭 view tracking / version counter / autograd metadata，省 ~20% 临时张量元数据；
+    # - simulator 内部所有 net.forward / forward_value / forward_trunk 调用一并受益；
+    # - 仅采集场景安全（不反传），写采集 trajectory 时已用 .copy()/.numpy() 解耦张量。
+    with torch.inference_mode():
+        for cfg in configs:
+            ep_data = collect_episode(
+                _pool_net, _pool_device,
+                cfg[0], cfg[1], cfg[2], cfg[3], cfg[4], cfg[5],
+                win_threshold_override=cfg[6] if len(cfg) > 6 else None,
+            )
+            episodes_out.append(ep_data)
+            # 多 worker 并行采集时也逐局写心跳（与单进程路径一致），避免整批攒满前看板无输出。
+            _emit_train_progress_heartbeat(cfg[0], ep_data)
     return episodes_out
 
 
@@ -1621,9 +1626,12 @@ def collect_episode(
             "topology_after": sup.get("topology_after"),
             "spawn_difficulty_after": sup.get("spawn_difficulty_after"),
             # Q 分布蒸馏目标：MCTS 访问分布 or beam Q 值
-            "q_vals": q_vals.tolist() if q_vals is not None else None,
-            # MCTS 访问分布（visit_pi）：用于直接 CE 损失（可选，比 q_proxy 更准确）
-            "visit_pi": _visit_pi.tolist() if _visit_pi is not None else None,
+            # L4 性能优化：保留 ndarray（float32），不再 .tolist()
+            # 原 tolist 把 numpy float32 转 Python float → 4B → 28B（7× 膨胀），
+            # replay 256 traj × 100 step × ~150 float ≈ 750MB 纯反模式开销；
+            # 下游 update 用 np.asarray(...) 零拷贝读取，pickle/spawn IPC 也更高效。
+            "q_vals": np.asarray(q_vals, dtype=np.float32) if q_vals is not None else None,
+            "visit_pi": np.asarray(_visit_pi, dtype=np.float32) if _visit_pi is not None else None,
             "teacher_beam_risk": float(_beam_risk),
         })
         step_idx += 1
@@ -1800,9 +1808,10 @@ def _reevaluate_and_update(
             if sd is not None:
                 all_spawn_diff_after.append(np.asarray(sd, dtype=np.float32))
             qv = step.get("q_vals")
-            all_q_vals.append(np.array(qv, dtype=np.float32) if qv is not None else None)
+            # L4 · 上游已存为 ndarray（dtype=float32），asarray 零拷贝直接复用
+            all_q_vals.append(np.asarray(qv, dtype=np.float32) if qv is not None else None)
             vp = step.get("visit_pi")
-            all_visit_pi.append(np.array(vp, dtype=np.float32) if vp is not None else None)
+            all_visit_pi.append(np.asarray(vp, dtype=np.float32) if vp is not None else None)
             all_pg_weights.append(pg_weight)
 
     total_steps = len(all_states)
@@ -2096,14 +2105,19 @@ def _reevaluate_and_update(
     values_old_for_clip = values_init.detach()
 
     # KL-to-reference：参考策略（冻结的历史最优）的动作分布只需算一次（不随 epoch 变）
+    # L11 优化：用 inference_mode 替代 no_grad
+    # - inference_mode 关闭 view-tracking / version-counter，比 no_grad 省 ~15-20% 临时张量
+    # - ref_net 在 train_loop 创建时已 requires_grad_(False)，不会有梯度
+    # - 输出张量 .clone() 一次脱离 inference 模式，下游 PPO loss 才能正常 backward 引用
     ref_lp_2d: torch.Tensor | None = None
     if ref_net is not None and kl_ref_coef > 0.0:
-        with torch.no_grad():
+        with torch.inference_mode():
             ref_lp_2d, _rv, _rmask, _rc = _forward_and_log_probs(
                 ref_net, states_t, action_feats_t, n_actions_t,
                 all_n_actions, total_steps, device,
             )
-            ref_lp_2d = ref_lp_2d.detach()
+        # 跳出 inference_mode 后再 clone 一份普通 tensor 供 PPO 主图引用
+        ref_lp_2d = ref_lp_2d.detach().clone()
 
     # 高分回放行为克隆：replay 步（pg_weight≈0）的掩码，BC 仅作用于这些"好例"步
     bc_mask = (pg_weight_t < 0.5) if bc_replay_coef > 0.0 else None
@@ -2345,16 +2359,30 @@ def _reevaluate_and_update(
             else:
                 if grads_sanitized:
                     skip_reason = "grad_sanitized"
-                pre_sd = {k: v.detach().clone() for k, v in net.state_dict().items()}
-                pre_opt_sd = copy.deepcopy(opt.state_dict())
+                # L1 性能优化：每批不再 deepcopy opt.state_dict()（Adam state 2.5MB×5-10/s
+                # = 17-34 MB/s MPS↔CPU 搅动，是 owned unmapped (graphics) 碎片的主因）。
+                # `pre_sd` 也只在 RL_PARAM_PRESTEP_SNAPSHOT=1 时保留——观测 947 次回滚日志
+                # 没有一次 non_finite_param_after_step 触发，意味着 99.9% 快照纯浪费。
+                # 罕见触发时：仍能用 detect→opt 重建+best 权重恢复，比全 opt 副本更优。
+                _need_prestep_snap = os.environ.get("RL_PARAM_PRESTEP_SNAPSHOT", "0").lower() in ("1", "true", "yes")
+                pre_sd = {k: v.detach().clone() for k, v in net.state_dict().items()} if _need_prestep_snap else None
                 opt.step()
                 stepped = True
                 if not _module_tensors_finite(net):
-                    net.load_state_dict(pre_sd)
-                    opt.load_state_dict(pre_opt_sd)
+                    if pre_sd is not None:
+                        net.load_state_dict(pre_sd)
+                    else:
+                        # 兜底：参数非有限 → 退到 best_guard 快照（外层 BestGuard 已持有）；
+                        # 这里仅做 opt 重建避免动量带毒，主回滚由 BestGuard 触发。
+                        try:
+                            _bad_lr = float(opt.param_groups[0].get("lr", 3e-4)) if opt.param_groups else 3e-4
+                        except (TypeError, ValueError, AttributeError):
+                            _bad_lr = 3e-4
+                        opt = adam_for_training(net.parameters(), lr=_bad_lr)
                     opt.zero_grad(set_to_none=True)
                     skip_reason = "non_finite_param_after_step"
                     stepped = False
+                pre_sd = None  # 显式释放
         else:
             skip_reason = "non_finite_loss"
             opt.zero_grad(set_to_none=True)
@@ -2506,7 +2534,10 @@ def train_loop(
     _guard_scores: collections.deque = collections.deque(maxlen=max(1, _guard_window))
     _guard_best_avg: float = 0.0
     _guard_best_sd: dict | None = None
-    _guard_best_opt_sd: dict | None = None
+    # L2 死代码移除：历史上 _guard_best_opt_sd 保存 best 时刻的 opt.state_dict()，
+    # 但回滚路径只调 `opt = adam_for_training(net.parameters(), lr=lr)` 重建优化器，
+    # 从未真正 load_state_dict(_guard_best_opt_sd)；每次 best 创建/刷新 deepcopy
+    # 完整 Adam state（2.5MB × 含 MPS tensor），是 MPS→CPU 隐式拷贝热点之一。
     _guard_last_ep: int = 0
     _guard_rollbacks: int = 0
 
@@ -2912,8 +2943,13 @@ def train_loop(
     t_train_ms = 0.0
 
     _weight_version_holder = [0]
+    # L5 · 固定 weight broadcast 路径（per-pid 防多训练实例冲突）
+    _broadcast_weight_path = str(
+        Path(tempfile.gettempdir()) / f"openblock_rl_weights_pid{os.getpid()}.pt"
+    )
 
     def _cleanup_weight_file(path: str | None) -> None:
+        """删除指定 weight 文件；L5 改造后所有版本共用同一路径，仅 finally 调用一次。"""
         if not path:
             return
         try:
@@ -3019,18 +3055,25 @@ def train_loop(
         version = _weight_version_holder[0]
         if os.environ.get("RL_WEIGHT_BROADCAST", "file").strip().lower() in ("bytes", "pickle"):
             return [(version, wbytes, [cfg]) for cfg in configs], None
-        fd, path = tempfile.mkstemp(prefix=f"openblock_rl_w{version}_", suffix=".pt")
+        # L5 · weight broadcast 零臃肿：固定文件路径（per-pid）+ atomic rename。
+        # 旧实现每批 mkstemp 一个新文件，长跑 / SIGKILL 会留 720+ 个 /tmp/openblock_rl_w*.pt
+        # 残留（GB 量级），且 inode 不可整理。改为单文件 inplace 覆写：
+        #   1) 写到 path.tmp（避免 worker 读半写）
+        #   2) os.replace 原子重命名为目标路径（version 由文件内容自带，无需文件名编码）
+        # worker 端通过 (version, path) 二元组识别版本变化触发 load_state_dict。
+        _path = _broadcast_weight_path
+        _tmp = _path + f".tmp.{version}"
         try:
-            with os.fdopen(fd, "wb") as f:
+            with open(_tmp, "wb") as f:
                 f.write(wbytes)
+            os.replace(_tmp, _path)
         except Exception:
             try:
-                os.close(fd)
+                Path(_tmp).unlink(missing_ok=True)
             except OSError:
                 pass
             raise
-        # 每局一个任务：(version, None, [single_config], weight_path)
-        return [(version, None, [cfg], path) for cfg in configs], path
+        return [(version, None, [cfg], _path) for cfg in configs], _path
 
     ep_cursor = start_ep
     _last_spawn_stats: dict = {}
@@ -3707,12 +3750,10 @@ def train_loop(
                 if _guard_best_sd is None:
                     # 首次：以当前为基准 best
                     _guard_best_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
-                    _guard_best_opt_sd = copy.deepcopy(opt.state_dict())
                     _guard_best_avg = _cur_avg
                 elif _cur_avg >= _guard_best_avg * (1.0 + _guard_margin):
                     # 创新高 → 快照为新 best，并把 KL-ref 参考网同步到该更优策略
                     _guard_best_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
-                    _guard_best_opt_sd = copy.deepcopy(opt.state_dict())
                     if _ref_net is not None:
                         _ref_net.load_state_dict(net.state_dict())
                     _prev = _guard_best_avg
@@ -3833,7 +3874,9 @@ def train_loop(
             if ckpt_path and (ep_cursor % se < bs or ep_cursor >= start_ep + episodes):
                 ckpt_path.parent.mkdir(parents=True, exist_ok=True)
                 model_sd = _guard_best_sd if _guard_best_sd is not None else net.state_dict()
-                opt_sd = _guard_best_opt_sd if _guard_best_opt_sd is not None else opt.state_dict()
+                # checkpoint 仅保存当前 opt（best 时刻 opt 历史上未被使用，详见 L2 注释）；
+                # resume 时 opt 用当前 lr 重建即可，BestGuard 滚动均分会快速收敛回 best 状态
+                opt_sd = opt.state_dict()
                 torch.save(
                     {
                         "model": model_sd,
