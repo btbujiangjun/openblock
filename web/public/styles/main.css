@@ -4518,6 +4518,131 @@ html[data-visibility="hidden"] *::after {
     color: #2e9e5b;
 }
 
+/* === 健康诊断分层展示（rl-diag-*）===
+ * 4 类诊断（收敛/数值/性能/资源）独立 details，每条 check 含数据/含义/建议三行。
+ * critical 红、warn 橙、ok 绿；摘要 headline 顶部一行直观显示整体级别。
+ */
+.rl-dash-progress .rl-diag-block {
+    display: block;
+    margin-top: 4px;
+    padding-top: 3px;
+    border-top: 1px dotted color-mix(in srgb, var(--text-secondary, #5d7a96) 22%, transparent);
+}
+
+.rl-dash-progress .rl-diag-headline {
+    display: block;
+    font-weight: 700;
+    margin-bottom: 2px;
+}
+
+.rl-dash-progress .rl-diag-overall-critical .rl-diag-headline {
+    color: #d2544a;
+}
+
+.rl-dash-progress .rl-diag-overall-warn .rl-diag-headline {
+    color: #c2722a;
+}
+
+.rl-dash-progress .rl-diag-overall-ok .rl-diag-headline {
+    color: #2e9e5b;
+}
+
+.rl-dash-progress .rl-diag-group {
+    display: block;
+    margin: 1px 0;
+    padding: 1px 4px 2px;
+    border-left: 2px solid transparent;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--surface-secondary, #f3f7fc) 70%, transparent);
+}
+
+.rl-dash-progress .rl-diag-group[open] {
+    background: color-mix(in srgb, var(--surface-secondary, #f3f7fc) 92%, transparent);
+}
+
+.rl-dash-progress .rl-diag-ok {
+    border-left-color: #2e9e5b;
+}
+
+.rl-dash-progress .rl-diag-warn {
+    border-left-color: #c2722a;
+}
+
+.rl-dash-progress .rl-diag-critical {
+    border-left-color: #d2544a;
+}
+
+.rl-dash-progress .rl-diag-group-head {
+    cursor: pointer;
+    font-size: 8.5px;
+    font-weight: 700;
+    color: var(--text-primary, #2b3a4a);
+    list-style: revert;
+    padding: 1px 0;
+}
+
+.rl-dash-progress .rl-diag-group-head:hover {
+    color: var(--accent-color, #4472c4);
+}
+
+.rl-dash-progress .rl-diag-group-body {
+    padding: 2px 0 1px 4px;
+}
+
+.rl-dash-progress .rl-diag-item {
+    display: block;
+    margin: 2px 0;
+    padding: 2px 4px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--surface, #ffffff) 60%, transparent);
+}
+
+.rl-dash-progress .rl-diag-item.rl-diag-critical {
+    background: color-mix(in srgb, #d2544a 9%, var(--surface, #fff) 91%);
+}
+
+.rl-dash-progress .rl-diag-item.rl-diag-warn {
+    background: color-mix(in srgb, #c2722a 8%, var(--surface, #fff) 92%);
+}
+
+.rl-dash-progress .rl-diag-item-title {
+    font-weight: 700;
+    color: var(--text-primary, #2b3a4a);
+    font-size: 8.5px;
+    line-height: 1.4;
+}
+
+.rl-dash-progress .rl-diag-item.rl-diag-critical .rl-diag-item-title {
+    color: #b1372e;
+}
+
+.rl-dash-progress .rl-diag-item.rl-diag-warn .rl-diag-item-title {
+    color: #a55f1e;
+}
+
+.rl-dash-progress .rl-diag-item-row {
+    display: block;
+    color: var(--text-secondary, #5d6f82);
+    font-size: 8px;
+    line-height: 1.45;
+    padding-left: 2px;
+}
+
+.rl-dash-progress .rl-diag-key {
+    display: inline-block;
+    min-width: 26px;
+    margin-right: 4px;
+    font-weight: 700;
+    color: color-mix(in srgb, var(--text-secondary, #5d6f82) 80%, transparent);
+}
+
+.rl-dash-progress .rl-diag-empty {
+    color: color-mix(in srgb, var(--text-secondary, #5d6f82) 70%, transparent);
+    font-size: 8px;
+    font-style: italic;
+    padding: 1px 4px;
+}
+
 /* .rl-dash-toolbar：v1.13 起其控件并入 .rl-actions 同行，容器规则已无 DOM 使用；
  * 保留命名空间但不再输出布局规则——若后续要恢复独立 toolbar，可在此重新激活。 */
 
@@ -4675,7 +4800,6 @@ html[data-visibility="hidden"] *::after {
 }
 
 .rtcm-plot-wrap {
-    position: relative;
     width: 100%;
     margin: 8px 0 12px;
     border-radius: 8px;
@@ -4687,18 +4811,6 @@ html[data-visibility="hidden"] *::after {
 .rtcm-plot-canvas {
     display: block;
     width: 100%;
-}
-
-.rtcm-plot-overlay {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-}
-
-.rtcm-plot-overlay .imm-hit {
-    pointer-events: all;
     cursor: crosshair;
 }
 

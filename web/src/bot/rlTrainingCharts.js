@@ -824,7 +824,7 @@ function progressArrow(cur, prev, minDelta, higherBetter = true) {
 
 /**
  * 近期训练进度摘要：近窗 vs 上窗的均分/胜率/熵/Lv 趋势、采样吞吐、PPO 健康，
- * 并基于阈值给出自动诊断告警（熵塌缩 / KL 早停 / KL 数值爆炸 / 价值损失高位）。
+ * 并给出分类诊断（收敛性 / 数值稳定 / 训练性能 / 资源使用），每条规则附数据、含义与建议。
  * @param {object[]} rows sorted train_episode rows
  * @returns {string}
  */
@@ -834,75 +834,427 @@ function buildProgressHtml(rows) {
     }
     const cur = rows.slice(-PROGRESS_N);
     const prev = rows.slice(-PROGRESS_N * 2, -PROGRESS_N);
-    const now = summarizeRows(cur);
-    const before = summarizeRows(prev);
+    const stats = gatherDiagnosticStats(cur, prev);
     const fmt = (v, d = 1) => (v == null ? '—' : v.toFixed(d));
     const fmtPct = (v) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`);
     const val = (v) => `<strong>${escapeHtmlText(v)}</strong>`;
+    const lastEp = rows[rows.length - 1].episodes;
+    const windowLabel = stats.now.size < PROGRESS_N ? `最近${stats.now.size}局` : `近${PROGRESS_N}局`;
 
-    // 采样吞吐（局/分）：用窗口内 ts(秒) 跨度与 episodes 跨度估算
+    const lines = [];
+    lines.push(
+        `<span class="rl-prog-line">进度 末局 ${val(lastEp)} · 吞吐 ${val(stats.throughput == null ? '—' : `${stats.throughput.toFixed(0)}/分`)} · 窗口 ${val(windowLabel)}</span>`
+    );
+    lines.push(
+        `<span class="rl-prog-line">均分 ${val(fmt(stats.now.avgScore, 0))} ${progressArrow(stats.now.avgScore, stats.before.avgScore, 15, true)}` +
+        ` · 胜率 ${val(fmtPct(stats.now.winRate))} ${progressArrow(stats.now.winRate, stats.before.winRate, 0.03, true)}` +
+        ` · 熵 ${val(fmt(stats.now.avgEnt, 2))} ${progressArrow(stats.now.avgEnt, stats.before.avgEnt, 0.05, true)}` +
+        ` · Lv ${val(fmt(stats.now.avgLv, 1))} ${progressArrow(stats.now.avgLv, stats.before.avgLv, 2, false)}</span>`
+    );
+    lines.push(
+        `<span class="rl-prog-line">PPO epoch 利用 ${val(fmtPct(stats.ppoUtil))} · KL 早停 ${val(`${stats.skipKl}/${stats.now.size}`)}` +
+        ` · 均KL ${val(fmt(stats.klSane, 3))}${stats.klExplodeCount ? ` · KL 数值爆炸 ${val(stats.klExplodeCount)}` : ''}` +
+        `${stats.mpsDriverGbLatest != null ? ` · MPS显存 ${val(fmt(stats.mpsDriverGbLatest, 2) + 'G')}` : ''}</span>`
+    );
+
+    const diagHtml = buildHealthDiagnostics(stats);
+    const updatedAt = new Date().toLocaleTimeString();
+    return `<div class="rl-dash-progress"><span class="rl-prog-title">近期训练进度摘要</span>${lines.join('')}${diagHtml}` +
+        `<time datetime="${new Date().toISOString()}">更新 ${escapeHtmlText(updatedAt)}</time></div>`;
+}
+
+/* ============================================================
+ * 训练健康诊断：基于实证阈值（来自 jsonl 26k 行真实分布）
+ * 每条规则结构：{ id, status:'ok'|'warn'|'critical', title, evidence, meaning, action }
+ * ============================================================ */
+
+/** @param {number[]} arr */
+function percentile(arr, p) {
+    const a = arr.filter((v) => typeof v === 'number' && Number.isFinite(v)).slice().sort((x, y) => x - y);
+    if (!a.length) return null;
+    const idx = Math.min(a.length - 1, Math.max(0, Math.floor(p * (a.length - 1))));
+    return a[idx];
+}
+
+/**
+ * 收集所有诊断需要的窗口统计（cur=近 PROGRESS_N 局，prev=上一个窗口）。
+ * @param {object[]} cur
+ * @param {object[]} prev
+ */
+function gatherDiagnosticStats(cur, prev) {
+    const now = summarizeRows(cur);
+    const before = summarizeRows(prev);
+
+    // 吞吐（局/分）：窗口 ts 跨度 + episodes 跨度
     const tsv = cur.map((r) => r.ts).filter((v) => typeof v === 'number' && Number.isFinite(v));
     const epv = cur.map((r) => r.episodes).filter((v) => typeof v === 'number' && Number.isFinite(v));
     let throughput = null;
     if (tsv.length >= 2 && epv.length >= 2) {
         const span = tsv[tsv.length - 1] - tsv[0];
         const dEp = epv[epv.length - 1] - epv[0];
-        if (span > 0 && dEp > 0) {
-            throughput = (dEp / span) * 60;
-        }
+        if (span > 0 && dEp > 0) throughput = (dEp / span) * 60;
     }
-    const lastEp = rows[rows.length - 1].episodes;
 
-    // PPO 健康：KL 早停占比、epoch 利用率、approx_kl 均值与数值爆炸计数
+    // PPO 健康
     const kls = cur.map((r) => r.approx_kl).filter((v) => typeof v === 'number' && Number.isFinite(v));
-    const klExplode = kls.filter((v) => Math.abs(v) > 1e3).length;
+    const klExplodeCount = kls.filter((v) => Math.abs(v) > 1e3).length;
+    const klHighCount = kls.filter((v) => v > 10 && v <= 1e3).length;
     const klSane = avgFiniteSimple(kls.filter((v) => Math.abs(v) <= 1e3));
-    const skipKl = cur.filter(
-        (r) => typeof r.optimizer_skip_reason === 'string' && r.optimizer_skip_reason.includes('kl')
-    ).length;
+    const skipKl = cur.filter((r) => typeof r.optimizer_skip_reason === 'string' && r.optimizer_skip_reason.includes('kl')).length;
+    const skipGrad = cur.filter((r) => typeof r.optimizer_skip_reason === 'string' && r.optimizer_skip_reason.includes('grad')).length;
     const ppoUtil = avgFiniteSimple(cur.map((r) => {
         const run = r.ppo_epochs_run;
         const tot = r.ppo_epochs;
         return (typeof run === 'number' && typeof tot === 'number' && tot > 0) ? run / tot : NaN;
     }));
 
-    const windowLabel = now.size < PROGRESS_N ? `最近${now.size}局` : `近${PROGRESS_N}局`;
-    const lines = [];
-    lines.push(
-        `<span class="rl-prog-line">进度 末局 ${val(lastEp)} · 吞吐 ${val(throughput == null ? '—' : `${throughput.toFixed(0)}/分`)} · 窗口 ${val(windowLabel)}</span>`
-    );
-    lines.push(
-        `<span class="rl-prog-line">均分 ${val(fmt(now.avgScore, 0))} ${progressArrow(now.avgScore, before.avgScore, 15, true)}` +
-        ` · 胜率 ${val(fmtPct(now.winRate))} ${progressArrow(now.winRate, before.winRate, 0.03, true)}` +
-        ` · 熵 ${val(fmt(now.avgEnt, 2))} ${progressArrow(now.avgEnt, before.avgEnt, 0.05, true)}` +
-        ` · Lv ${val(fmt(now.avgLv, 1))} ${progressArrow(now.avgLv, before.avgLv, 2, false)}</span>`
-    );
-    lines.push(
-        `<span class="rl-prog-line">PPO epoch 利用 ${val(fmtPct(ppoUtil))} · KL 早停 ${val(`${skipKl}/${now.size}`)}` +
-        ` · 均KL ${val(fmt(klSane, 3))}${klExplode ? ` · 数值爆炸 ${val(klExplode)}` : ''}</span>`
-    );
+    // policy_loss 重尾（实证 50% 批次 |x|>10 是异常）
+    const pol = cur.map((r) => r.loss_policy).filter((v) => typeof v === 'number' && Number.isFinite(v));
+    const polAbs = pol.map(Math.abs);
+    const policyMaxAbs = polAbs.length ? Math.max(...polAbs) : null;
+    const policyP95Abs = percentile(polAbs, 0.95);
+    const policyExtremeRate = polAbs.length ? polAbs.filter((v) => v > 10).length / polAbs.length : null;
 
-    const warns = [];
-    if (now.avgEnt != null && now.avgEnt < 0.2) {
-        warns.push('策略熵偏低（趋于确定/疑似塌缩）：可抬高 RL_ENTROPY_COEF_MIN 或软化蒸馏目标');
-    }
-    if (ppoUtil != null && ppoUtil < 0.5) {
-        warns.push('多数批次因 KL 早停（epoch 利用率低）：可上调 RL_TARGET_KL 或裁剪重要性比');
-    }
-    if (klExplode > 0) {
-        warns.push('approx_kl 数值爆炸（重要性比溢出）：建议在 KL/ratio 上加 clamp');
-    }
-    const lvFalling = (now.avgLv != null && before.avgLv != null && now.avgLv < before.avgLv - 2);
-    if (now.avgLv != null && now.avgLv > 25 && !lvFalling) {
-        warns.push('价值损失高位未降：可灰度开启 RL_VALUE_RETURN_SCALE=0.5 压低 critic 目标量纲');
-    }
-    const warnHtml = warns.length
-        ? `<span class="rl-prog-line rl-prog-warn">诊断 ⚠ ${warns.map((w) => escapeHtmlText(w)).join('；')}</span>`
-        : '<span class="rl-prog-line rl-prog-ok">诊断 ✓ 近窗关键指标未见异常</span>';
+    // aux loss 数值发散（jsonl 实证 loss_bq 出现 936449，loss_feas ±7.8e5）
+    const auxMaxOf = (key) => {
+        const a = cur.map((r) => r[key]).filter((v) => typeof v === 'number' && Number.isFinite(v)).map(Math.abs);
+        return a.length ? Math.max(...a) : null;
+    };
+    const auxMaxBq = auxMaxOf('loss_bq');
+    const auxMaxFeas = auxMaxOf('loss_feas');
+    const auxMaxSurv = auxMaxOf('loss_surv');
+    const auxMaxBonus = auxMaxOf('loss_bonus_clear_aux');
+    const auxMaxTopo = auxMaxOf('loss_topology_aux');
 
-    const updatedAt = new Date().toLocaleTimeString();
-    return `<div class="rl-dash-progress"><span class="rl-prog-title">近期训练进度摘要</span>${lines.join('')}${warnHtml}` +
-        `<time datetime="${new Date().toISOString()}">更新 ${escapeHtmlText(updatedAt)}</time></div>`;
+    // 性能：collect_ms / train_ms / gpu_util_est
+    const collectMs = cur.map((r) => r.collect_ms).filter((v) => typeof v === 'number' && Number.isFinite(v));
+    const trainMs = cur.map((r) => r.train_ms).filter((v) => typeof v === 'number' && Number.isFinite(v));
+    const collectP50 = percentile(collectMs, 0.5);
+    const collectP99 = percentile(collectMs, 0.99);
+    const trainP50 = percentile(trainMs, 0.5);
+    const gpuUtilAvg = avgFiniteSimple(cur.map((r) => r.gpu_util_est));
+
+    // 资源：mps_driver_gb 趋势（窗口末值 vs 前窗口末值）
+    const mpsCur = cur.map((r) => r.mps_driver_gb).filter((v) => typeof v === 'number' && Number.isFinite(v));
+    const mpsPrev = prev.map((r) => r.mps_driver_gb).filter((v) => typeof v === 'number' && Number.isFinite(v));
+    const mpsDriverGbLatest = mpsCur.length ? mpsCur[mpsCur.length - 1] : null;
+    const mpsDriverGbMax = mpsCur.length ? Math.max(...mpsCur) : null;
+    const mpsDriverGbDelta = (mpsCur.length && mpsPrev.length) ? (mpsCur[mpsCur.length - 1] - mpsPrev[mpsPrev.length - 1]) : null;
+
+    // BestGuard 回滚率：cur 窗口最后 - 窗口最前 的增量
+    const grCur = cur.map((r) => r.guard_rollbacks).filter((v) => typeof v === 'number' && Number.isFinite(v));
+    let rollbackDelta = null;
+    if (grCur.length >= 2) {
+        rollbackDelta = Math.max(0, grCur[grCur.length - 1] - grCur[0]);
+    }
+    const rollbackRate = (rollbackDelta != null && now.size > 0) ? rollbackDelta / now.size : null;
+
+    // 收敛斜率（局/分均分 → 看是否长期停滞）
+    const scoreSlope = (now.avgScore != null && before.avgScore != null)
+        ? (now.avgScore - before.avgScore)
+        : null;
+
+    return {
+        now, before,
+        throughput,
+        klSane, klExplodeCount, klHighCount, skipKl, skipGrad, ppoUtil,
+        policyMaxAbs, policyP95Abs, policyExtremeRate,
+        auxMaxBq, auxMaxFeas, auxMaxSurv, auxMaxBonus, auxMaxTopo,
+        collectP50, collectP99, trainP50, gpuUtilAvg,
+        mpsDriverGbLatest, mpsDriverGbMax, mpsDriverGbDelta,
+        rollbackDelta, rollbackRate,
+        scoreSlope,
+    };
+}
+
+/**
+ * 4 类诊断器：每个返回 { name, status, checks[] }，由调用方聚合渲染。
+ * 阈值取自本仓 jsonl 26k 行实证分布 + 上轮治根 commit 599d351 引入的护栏。
+ */
+function diagnoseConvergence(s) {
+    const checks = [];
+    // 学习停滞：连续两个窗口均分差距 < 0.5%（PROGRESS_N=100 → ~3min 训练）
+    if (s.now.avgScore != null && s.before.avgScore != null && s.before.avgScore > 100) {
+        const ratio = Math.abs(s.scoreSlope) / s.before.avgScore;
+        if (ratio < 0.005 && s.now.avgScore < 4000) {
+            checks.push({
+                id: 'stagnation',
+                status: 'warn',
+                title: '均分长期停滞',
+                evidence: `近窗均分 ${s.now.avgScore.toFixed(0)} vs 上窗 ${s.before.avgScore.toFixed(0)}（变化 ${(ratio * 100).toFixed(2)}%）`,
+                meaning: '连续两个窗口均分基本不变，且未达目标分位 4000；可能在 KL 早停或熵塌缩中卡住',
+                action: '观察 PPO epoch 利用率与策略熵；若 lr 已撞地板（看 BestGuard 日志），重启训练或抬高 RL_GUARD_LR_FLOOR_RATIO',
+            });
+        }
+    }
+    // BestGuard 回滚频繁：本仓 commit 599d351 把阈值从 0.85→0.75，应每 100 局回滚 <3 次
+    if (s.rollbackRate != null && s.rollbackDelta != null && s.rollbackDelta >= 3) {
+        const rate = s.rollbackRate;
+        if (rate >= 0.08) {
+            checks.push({
+                id: 'rollback-storm',
+                status: 'critical',
+                title: 'BestGuard 频繁回滚',
+                evidence: `近窗回滚 ${s.rollbackDelta} 次 / ${s.now.size} 局（${(rate * 100).toFixed(1)}%）`,
+                meaning: '策略反复退化到 best 版本，"训-退-回滚"循环；每次回滚浪费约 30s 训练',
+                action: '若 policy_loss/aux loss 同时异常→治标先；否则放宽 RL_BEST_GUARD_REGRESS（0.75→0.70）',
+            });
+        } else if (rate >= 0.04) {
+            checks.push({
+                id: 'rollback-elevated',
+                status: 'warn',
+                title: 'BestGuard 回滚偏高',
+                evidence: `近窗回滚 ${s.rollbackDelta} 次 / ${s.now.size} 局（${(rate * 100).toFixed(1)}%）`,
+                meaning: '回滚率 4-8%，可接受但提示策略仍不稳定',
+                action: '继续观察；若上升到 8% 以上需介入',
+            });
+        }
+    }
+    // 胜率长期低位（课程难度过高）
+    if (s.now.winRate != null && s.now.winRate < 0.1 && s.now.size >= 20) {
+        checks.push({
+            id: 'low-winrate',
+            status: 'warn',
+            title: '胜率长期 < 10%',
+            evidence: `近窗胜率 ${(s.now.winRate * 100).toFixed(1)}%`,
+            meaning: '课程难度过高或奖励 shaping 失衡，模型几乎无法完成任务',
+            action: '调低 RL_QUANTILE_TARGET_P（默认 0.6→0.5）让 quantile 曲线降难度；或检查 spawn_difficulty 分布',
+        });
+    }
+    return { name: '收敛性', icon: '🎯', checks };
+}
+
+function diagnoseNumericStability(s) {
+    const checks = [];
+    // policy_loss 重尾（commit 599d351 后应 |x|≤50；旧 jsonl 实测 50% 批次 >10）
+    if (s.policyMaxAbs != null) {
+        if (s.policyMaxAbs > 100) {
+            checks.push({
+                id: 'policy-extreme',
+                status: 'critical',
+                title: 'policy_loss 数值失控',
+                evidence: `max|x|=${s.policyMaxAbs.toFixed(0)} / P95|x|=${(s.policyP95Abs || 0).toFixed(1)} / 极端率 ${((s.policyExtremeRate || 0) * 100).toFixed(0)}%`,
+                meaning: 'PPO ratio*adv 在 adv<0 时被 ratio 推爆；commit 599d351 已加 ratio_cap + elem_clip=50，若仍出现说明 env 没透传',
+                action: '确认 RL_POLICY_ELEM_CLIP=50、RL_PPO_RATIO_CAP_MULT=5 透传到训练子进程（重启后查 banner）',
+            });
+        } else if (s.policyExtremeRate != null && s.policyExtremeRate > 0.15) {
+            checks.push({
+                id: 'policy-heavy-tail',
+                status: 'warn',
+                title: 'policy_loss 仍重尾',
+                evidence: `max|x|=${s.policyMaxAbs.toFixed(1)} / 极端率 ${(s.policyExtremeRate * 100).toFixed(0)}%`,
+                meaning: '已 clip 但 >10 的批次仍多；可能 advantage 量纲偏大',
+                action: '检查 RL_VALUE_RETURN_SCALE=0.5 是否生效，或收紧 RL_PPO_RATIO_CAP_MULT 5→3',
+            });
+        }
+    }
+    // aux head 数值发散（commit 599d351 已加 head 输出 clamp）
+    const auxBad = [];
+    if (s.auxMaxBq != null && s.auxMaxBq > 100) auxBad.push(`bq=${s.auxMaxBq.toFixed(0)}`);
+    if (s.auxMaxFeas != null && s.auxMaxFeas > 100) auxBad.push(`feas=${s.auxMaxFeas.toFixed(0)}`);
+    if (s.auxMaxSurv != null && s.auxMaxSurv > 100) auxBad.push(`surv=${s.auxMaxSurv.toFixed(0)}`);
+    if (s.auxMaxBonus != null && s.auxMaxBonus > 100) auxBad.push(`bonus=${s.auxMaxBonus.toFixed(0)}`);
+    if (s.auxMaxTopo != null && s.auxMaxTopo > 50) auxBad.push(`topo=${s.auxMaxTopo.toFixed(0)}`);
+    if (auxBad.length) {
+        checks.push({
+            id: 'aux-divergence',
+            status: 'critical',
+            title: 'aux head 数值发散',
+            evidence: `极值 ${auxBad.join(' · ')}（正常应 < 20）`,
+            meaning: 'SmoothL1/BCE 在 |pred-target|>1 时线性发散；head 输出应有 clamp 兜底',
+            action: '确认 RL_BQ_PRED_CLIP=10 / RL_FEAS_LOGIT_CLIP=10 / RL_SURV_PRED_CLIP=3 已透传（commit 599d351）',
+        });
+    }
+    // KL 数值爆炸 / 长尾
+    if (s.klExplodeCount > 0) {
+        checks.push({
+            id: 'kl-explode',
+            status: 'critical',
+            title: 'approx_kl 数值爆炸',
+            evidence: `近窗 ${s.klExplodeCount} 个批次 |kl|>1000`,
+            meaning: '重要性比 exp(log_ratio) 溢出，通常伴随 MPS .sum() 返回伪 1e21；本仓已有 CPU reduce 兜底',
+            action: '若仍频繁触发，检查 train.py:2173 附近 log_ratio.clamp[-10,10] 是否被禁用',
+        });
+    } else if (s.klHighCount > 0 && s.klHighCount / Math.max(1, s.now.size) > 0.05) {
+        checks.push({
+            id: 'kl-high',
+            status: 'warn',
+            title: 'approx_kl 长尾偏高',
+            evidence: `近窗 ${s.klHighCount} 个批次 kl∈(10, 1000]，均KL=${(s.klSane || 0).toFixed(2)}`,
+            meaning: 'PPO trust region 频繁触界，模型在快速漂移；epoch 利用率可能也低',
+            action: '收紧 RL_PPO_CLIP（0.15→0.10）或抬 RL_TARGET_KL 容忍度',
+        });
+    }
+    // grad_sanitized 占比高
+    if (s.skipGrad != null && s.now.size > 0 && s.skipGrad / s.now.size > 0.1) {
+        checks.push({
+            id: 'grad-sanitize',
+            status: 'warn',
+            title: '梯度净化频繁',
+            evidence: `近窗 ${s.skipGrad}/${s.now.size} 次因 grad_sanitized 跳过更新（${(s.skipGrad / s.now.size * 100).toFixed(0)}%）`,
+            meaning: '反向出现 NaN/inf 已被兜底，但训练效率被显著拖累',
+            action: '检查 aux loss 数值范围，或抬 RL_AUX_LOSS_CLIP（20→10）',
+        });
+    }
+    // 策略熵塌缩
+    if (s.now.avgEnt != null) {
+        if (s.now.avgEnt < 0.1) {
+            checks.push({
+                id: 'entropy-collapse',
+                status: 'critical',
+                title: '策略熵塌缩',
+                evidence: `近窗均熵 ${s.now.avgEnt.toFixed(3)}（正常 1-3）`,
+                meaning: '策略变成 near-deterministic，丧失探索；通常无法再收敛',
+                action: '立即抬高 RL_ENTROPY_COEF_MIN（0.05→0.1）并考虑回滚到更早 checkpoint',
+            });
+        } else if (s.now.avgEnt < 0.4) {
+            checks.push({
+                id: 'entropy-low',
+                status: 'warn',
+                title: '策略熵偏低',
+                evidence: `近窗均熵 ${s.now.avgEnt.toFixed(2)}`,
+                meaning: '探索不足；若胜率同时低位需介入',
+                action: '可观察 1-2 个窗口；持续下降则抬高 RL_ENTROPY_COEF_MIN',
+            });
+        }
+    }
+    // PPO epoch 利用率低
+    if (s.ppoUtil != null && s.ppoUtil < 0.5) {
+        checks.push({
+            id: 'ppo-util-low',
+            status: 'warn',
+            title: 'PPO epoch 利用率低',
+            evidence: `近窗均利用率 ${(s.ppoUtil * 100).toFixed(0)}%（多数批次 KL 早停）`,
+            meaning: '每批 PPO 实际只跑 1-2 epoch，样本利用率低；训练速度被早停拖慢',
+            action: '上调 RL_TARGET_KL（4→8）或收紧 RL_PPO_CLIP 让 ratio 漂移更小',
+        });
+    }
+    return { name: '数值稳定', icon: '⚙️', checks };
+}
+
+function diagnoseThroughput(s) {
+    const checks = [];
+    // 吞吐：M2 8 worker @ batch=4 实测 30-50 局/分
+    if (s.throughput != null) {
+        if (s.throughput < 5) {
+            checks.push({
+                id: 'throughput-stall',
+                status: 'critical',
+                title: '采集吞吐近乎停滞',
+                evidence: `近窗 ${s.throughput.toFixed(1)} 局/分`,
+                meaning: '训练几乎不前进；可能 worker pool 死锁、模型推理超时或 MPS hang',
+                action: '检查 logs/bg_train.log 末尾是否有 Traceback；如必要 kill -9 训练 PID 后等自动恢复',
+            });
+        } else if (s.throughput < 15) {
+            checks.push({
+                id: 'throughput-slow',
+                status: 'warn',
+                title: '采集吞吐偏低',
+                evidence: `近窗 ${s.throughput.toFixed(0)} 局/分（健康基线 30-50）`,
+                meaning: '可能因单局步数过多（接近 win_threshold）或 MCTS sims 偏高',
+                action: '查看 step_count 是否堆高；或降 RL_MCTS_SIMS_MAX',
+            });
+        }
+    }
+    // 单局采集 P99 太长
+    if (s.collectP99 != null && s.collectP99 > 10000) {
+        checks.push({
+            id: 'collect-p99-spike',
+            status: 'warn',
+            title: '单局采集 P99 异常',
+            evidence: `P50=${(s.collectP50 || 0).toFixed(0)}ms / P99=${s.collectP99.toFixed(0)}ms`,
+            meaning: 'P99 局耗时 > 10s，长尾局拖慢整批；通常因 spawn_online 或 MCTS 在某些状态超时',
+            action: '查 spawn_online_latency_ms_max 是否同步升高；可考虑设 RL_SPAWN_ONLINE_TIMEOUT',
+        });
+    }
+    // GPU 利用率低
+    if (s.gpuUtilAvg != null && s.gpuUtilAvg < 30) {
+        checks.push({
+            id: 'gpu-idle',
+            status: 'warn',
+            title: 'GPU 利用率偏低',
+            evidence: `近窗均 ${s.gpuUtilAvg.toFixed(0)}%`,
+            meaning: '采集是瓶颈，GPU 大量时间空转；增大 batch 不会提升吞吐',
+            action: '考虑增加 worker 数（CPU 允许时）或减小 batch_episodes 提升采集-训练重叠率',
+        });
+    }
+    return { name: '训练性能', icon: '🚀', checks };
+}
+
+function diagnoseResources(s) {
+    const checks = [];
+    // MPS 显存增长（commit 2c0fa76 后实测应稳定在 0.25-0.55GB）
+    if (s.mpsDriverGbLatest != null) {
+        if (s.mpsDriverGbLatest > 3.0) {
+            checks.push({
+                id: 'mps-bloat',
+                status: 'critical',
+                title: 'MPS 显存膨胀',
+                evidence: `当前 ${s.mpsDriverGbLatest.toFixed(2)}GB（健康基线 0.25-0.55GB）`,
+                meaning: '上次治根（commit 2c0fa76）应让 MPS 稳定在亚 GB；超过 3GB 提示有新的 state_dict 反模式拷贝',
+                action: '检查 RL_PARAM_PRESTEP_SNAPSHOT 是否被打开（应为 0）；或运行 vmmap 看 graphics 分类增长',
+            });
+        } else if (s.mpsDriverGbDelta != null && s.mpsDriverGbDelta > 0.5) {
+            checks.push({
+                id: 'mps-growth',
+                status: 'warn',
+                title: 'MPS 显存持续增长',
+                evidence: `本窗末 ${s.mpsDriverGbLatest.toFixed(2)}GB vs 上窗末 ${(s.mpsDriverGbLatest - s.mpsDriverGbDelta).toFixed(2)}GB（+${s.mpsDriverGbDelta.toFixed(2)}GB）`,
+                meaning: '显存呈上行，长跑可能撞水位线触发 jetsam',
+                action: '观察是否持续；可临时 export RL_EMPTY_CACHE_EVERY=50 强制周期清显存',
+            });
+        }
+    }
+    return { name: '资源使用', icon: '💾', checks };
+}
+
+/** 把 4 类诊断聚合为一段紧凑 HTML，每条 details 可展开看完整说明 */
+function buildHealthDiagnostics(stats) {
+    const groups = [
+        diagnoseConvergence(stats),
+        diagnoseNumericStability(stats),
+        diagnoseThroughput(stats),
+        diagnoseResources(stats),
+    ];
+    const ICON = { critical: '❌', warn: '⚠', ok: '✓' };
+    let total = 0;
+    let warns = 0;
+    let criticals = 0;
+    for (const g of groups) {
+        // 给每组计算严重级别（max(checks))
+        let gs = 'ok';
+        for (const c of g.checks) {
+            total += 1;
+            if (c.status === 'critical') { gs = 'critical'; criticals += 1; }
+            else if (c.status === 'warn') { if (gs !== 'critical') gs = 'warn'; warns += 1; }
+        }
+        g.status = gs;
+    }
+    const overall = criticals > 0 ? 'critical' : (warns > 0 ? 'warn' : 'ok');
+    const headlineText = overall === 'ok'
+        ? `诊断 ✓ 全部 4 类指标正常`
+        : `诊断 ${ICON[overall]} ${criticals ? `${criticals} 项异常` : ''}${criticals && warns ? '·' : ''}${warns ? `${warns} 项注意` : ''}`;
+    const groupHtml = groups.map((g) => {
+        const cls = `rl-diag-group rl-diag-${g.status}`;
+        const head = `<summary class="rl-diag-group-head">${g.icon} ${escapeHtmlText(g.name)} ${ICON[g.status]}${g.checks.length ? `（${g.checks.length}）` : ''}</summary>`;
+        const body = g.checks.length
+            ? g.checks.map((c) => (
+                `<div class="rl-diag-item rl-diag-${c.status}">` +
+                `<div class="rl-diag-item-title">${ICON[c.status]} ${escapeHtmlText(c.title)}</div>` +
+                `<div class="rl-diag-item-row"><span class="rl-diag-key">数据</span>${escapeHtmlText(c.evidence)}</div>` +
+                `<div class="rl-diag-item-row"><span class="rl-diag-key">含义</span>${escapeHtmlText(c.meaning)}</div>` +
+                `<div class="rl-diag-item-row"><span class="rl-diag-key">建议</span>${escapeHtmlText(c.action)}</div>` +
+                `</div>`
+            )).join('')
+            : '<div class="rl-diag-empty">本类未见异常</div>';
+        const openAttr = g.status === 'ok' ? '' : ' open';
+        return `<details class="${cls}"${openAttr}>${head}<div class="rl-diag-group-body">${body}</div></details>`;
+    }).join('');
+
+    return `<div class="rl-diag-block rl-diag-overall-${overall}">` +
+        `<span class="rl-prog-line rl-diag-headline rl-prog-${overall === 'ok' ? 'ok' : 'warn'}">${escapeHtmlText(headlineText)}（共 ${total} 项检查）</span>` +
+        groupHtml +
+        `</div>`;
 }
 
 /**
