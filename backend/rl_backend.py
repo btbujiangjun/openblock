@@ -72,6 +72,35 @@ _bg_train_thread: threading.Thread | None = None
 _bg_train_stop_event: threading.Event | None = None
 _bg_train_status: dict = {"running": False, "episodes_done": 0, "error": None}
 
+# P0-C · OOM/异常退出自动 resume 重启限速器
+# 11.5h 长跑后 macOS jetsam SIGKILL 训练进程，从此训练静默停摆。需要后端在监测到
+# bg_training_end with rc!=0 时自动 resume。但必须限速：
+#   - 同进程崩溃链式（启动 → 立即崩 → 重启 → 立即崩 ...）会变成 fork-bomb
+#   - 用滑动窗口"最近 N 分钟最多 K 次"控制频率；超限改为 alert 不再自启
+_bg_train_restart_history: list[float] = []
+_BG_TRAIN_RESTART_WINDOW_SEC = 1800   # 30 分钟
+_BG_TRAIN_RESTART_MAX_IN_WINDOW = 3   # 同一 30 分钟内最多 3 次自动 resume
+
+def _maybe_auto_resume_training(launch_args: dict, exit_code: int) -> tuple[bool, str]:
+    """决定是否对一次异常退出做自动 resume。
+
+    返回 (will_restart, reason)。仅对真实异常（非 SIGINT=-2/SIGTERM=-15）触发；
+    限速窗口超限时拒绝并把结果写入 training.jsonl 供看板观察。
+    """
+    now = time.time()
+    # 用户主动 stop 走 SIGINT/SIGTERM，不应该自动续；只在「内核杀（-9）/Python 异常退出码非 0」时拉起
+    if exit_code in (0, -2, -15):
+        return False, "user_stop_or_completed"
+    # P2 周期性重启：exit code 99 是训练循环主动请求重启，不受限速器约束（属正常释放内存路径）
+    if exit_code == 99:
+        return True, "periodic_restart_request"
+    # 清理过期重启历史
+    _bg_train_restart_history[:] = [t for t in _bg_train_restart_history if now - t < _BG_TRAIN_RESTART_WINDOW_SEC]
+    if len(_bg_train_restart_history) >= _BG_TRAIN_RESTART_MAX_IN_WINDOW:
+        return False, f"rate_limited:{len(_bg_train_restart_history)}_in_{_BG_TRAIN_RESTART_WINDOW_SEC}s"
+    _bg_train_restart_history.append(now)
+    return True, f"auto_resume_after_exit_{exit_code}"
+
 # 持久化后台训练状态：Flask debug reloader/重启会清空内存全局，导致已启动的训练子进程
 # 变成「追踪不到的孤儿」（stop 找不到、status 误判已停）。落盘 pid 等元信息后，
 # 后端重启可据此恢复对存活子进程的管理。
@@ -198,12 +227,23 @@ _RL_TRAIN_ENV_ALLOWLIST = {
     "RL_WORKER_THREADS",
     "RL_MPS_SYNC",
     "RL_MPS_HIGH_WATERMARK_RATIO",
+    # PyTorch 真实读的名字（带 PYTORCH_ 前缀）：用于约束 MPS allocator 不无限增长。
+    # 项目历史用 RL_ 前缀的自定义名，PyTorch 根本读不到——MPS 长跑 OOM 真凶。
+    # 现在两者都透传：torch_env.py 已对 PYTORCH_ 名 setdefault=0.7/0.5，env 透传供用户覆盖。
+    "PYTORCH_MPS_HIGH_WATERMARK_RATIO",
+    "PYTORCH_MPS_LOW_WATERMARK_RATIO",
+    "PYTORCH_ENABLE_MPS_FALLBACK",
     # 稳定性调参旋钮：由 scripts/restart-openblock.sh 显式 pin，需透传到后台
     # rl_pytorch.train 子进程，否则会回退到 train.py 内的硬编码默认（0.03/1.0/0.005），
     # 启动脚本里的调参根本不生效（看板曲线即出自该子进程）。
     "RL_TARGET_KL",            # PPO 信任域早停阈值（放宽至 0.1，提升 epoch 利用率）
     "RL_VALUE_RETURN_SCALE",   # 价值头 returns 目标缩放（灰度 0.5，压 loss_value 量纲）
     "RL_ENTROPY_COEF_MIN",     # 残局熵系数下限（抬到 0.02，抗熵塌缩）
+    # P0 防 OOM 栈：周期性归还设备显存 + replay 总步数硬上限
+    "RL_EMPTY_CACHE_EVERY",    # 每 N batch 主动调 torch.mps/cuda.empty_cache()
+    "RL_REPLAY_MAX_STEPS",     # replay buffer 总步数上限（防长跑累积）
+    # P2 防长跑：训练子进程每 N 局自动周期性重启（释放 fragmentation）
+    "RL_AUTO_PERIODIC_RESTART_EVERY",  # 每 N 局自请求退出（exit 0），由后端 P0-C 自启逻辑触发限速 resume
 }
 
 
@@ -1694,59 +1734,119 @@ def create_rl_blueprint() -> Blueprint:
         if dropped_rl_env:
             env["RL_ENV_CLEANED_KEYS"] = ",".join(dropped_rl_env[:64])
 
+        # P0-C · 把启动 subprocess 抽成可重入函数，monitor 在异常退出时按限速再调
+        def _spawn_training_proc() -> subprocess.Popen:
+            # cmd 内已含 `--resume <save_path>`（do_resume 计算后写入 cmd 列表），重启自动续训
+            log_fd_local = open(str(_ROOT / "logs" / "bg_train.log"), "a")
+            return subprocess.Popen(
+                cmd,
+                cwd=str(_ROOT),
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=log_fd_local,
+                start_new_session=True,
+            )
+
         def _monitor_process(proc: subprocess.Popen):
             global _bg_train_status
-            try:
-                _append_training_log({
-                    "event": "bg_training_start",
-                    "pid": proc.pid,
-                    "episodes_target": episodes,
-                    "mcts_sims": mcts_sims,
-                    "n_workers": n_workers,
-                    "batch_episodes": batch_episodes,
-                    "log_every": log_every,
-                    "save_every": save_every,
-                    "preset": preset,
-                    "value_coef": value_coef,
-                    "resume": do_resume,
-                    "clean_env": True,
-                    "dropped_rl_env": dropped_rl_env,
-                    "training_stage": training_stage,
-                    "stage_plan": stage_plan,
-                })
-                proc.wait()
-                rc = proc.returncode
-                with _bg_train_lock:
+            current_proc = proc
+            while True:
+                try:
+                    _append_training_log({
+                        "event": "bg_training_start",
+                        "pid": current_proc.pid,
+                        "episodes_target": episodes,
+                        "mcts_sims": mcts_sims,
+                        "n_workers": n_workers,
+                        "batch_episodes": batch_episodes,
+                        "log_every": log_every,
+                        "save_every": save_every,
+                        "preset": preset,
+                        "value_coef": value_coef,
+                        "resume": do_resume,
+                        "clean_env": True,
+                        "dropped_rl_env": dropped_rl_env,
+                        "training_stage": training_stage,
+                        "stage_plan": stage_plan,
+                    })
+                    current_proc.wait()
+                    rc = current_proc.returncode
+                    with _bg_train_lock:
+                        if rc == 0:
+                            _bg_train_status["error"] = None
+                        else:
+                            _bg_train_status["error"] = f"进程退出码 {rc}"
+                    _append_training_log({
+                        "event": "bg_training_end",
+                        "pid": current_proc.pid,
+                        "exit_code": rc,
+                        "reason": "stopped" if rc == -15 or rc == -2 else ("error" if rc != 0 else "completed"),
+                    })
+                    # 训练结束后重新加载 checkpoint 到在线推理 _state
                     if rc == 0:
-                        _bg_train_status["error"] = None
+                        try:
+                            _ensure_initialized()
+                            sp = Path(save_path)
+                            if sp.exists():
+                                loaded = _load_checkpoint_into_model(sp, _state["device"])
+                                with _rl_lock:
+                                    _state["model"] = loaded["model"]
+                                    _state["episodes"] = loaded["episodes"]
+                                    _state["meta"] = loaded["meta"]
+                        except Exception:
+                            pass
+
+                    # P0-C · 异常退出（如 SIGKILL=-9 OOM）按限速自动 resume
+                    should_restart, reason = _maybe_auto_resume_training(
+                        {"save_path": save_path}, rc
+                    )
+                    if should_restart:
+                        _append_training_log({
+                            "event": "bg_training_auto_resume",
+                            "previous_pid": current_proc.pid,
+                            "previous_exit_code": rc,
+                            "reason": reason,
+                        })
+                        try:
+                            time.sleep(2.0)  # 给 OS 一点时间清理 leaked semaphore/shared_memory
+                            new_proc = _spawn_training_proc()
+                        except Exception as exc:
+                            _append_training_log({
+                                "event": "bg_training_auto_resume_failed",
+                                "error": str(exc),
+                            })
+                            break
+                        # 更新内存 + 落盘状态指向新进程
+                        with _bg_train_lock:
+                            _bg_train_status["running"] = True
+                            _bg_train_status["pid"] = new_proc.pid
+                            _bg_train_status["error"] = None
+                            _save_bg_state({
+                                "pid": new_proc.pid,
+                                "episodes_target": episodes,
+                                "batch_episodes": batch_episodes,
+                                "preset": preset,
+                                "training_stage": training_stage,
+                                "save_path": save_path,
+                                "started_at": int(time.time()),
+                            })
+                        current_proc = new_proc
+                        continue
                     else:
-                        _bg_train_status["error"] = f"进程退出码 {rc}"
-                _append_training_log({
-                    "event": "bg_training_end",
-                    "pid": proc.pid,
-                    "exit_code": rc,
-                    "reason": "stopped" if rc == -15 or rc == -2 else ("error" if rc != 0 else "completed"),
-                })
-                # 训练结束后重新加载 checkpoint 到在线推理 _state
-                if rc == 0:
-                    try:
-                        _ensure_initialized()
-                        sp = Path(save_path)
-                        if sp.exists():
-                            loaded = _load_checkpoint_into_model(sp, _state["device"])
-                            with _rl_lock:
-                                _state["model"] = loaded["model"]
-                                _state["episodes"] = loaded["episodes"]
-                                _state["meta"] = loaded["meta"]
-                    except Exception:
-                        pass
-            except Exception as exc:
-                with _bg_train_lock:
-                    _bg_train_status["error"] = str(exc)
-            finally:
-                with _bg_train_lock:
-                    _bg_train_status["running"] = False
-                _clear_bg_state()
+                        if rc != 0:
+                            _append_training_log({
+                                "event": "bg_training_auto_resume_skipped",
+                                "exit_code": rc,
+                                "reason": reason,
+                            })
+                        break
+                except Exception as exc:
+                    with _bg_train_lock:
+                        _bg_train_status["error"] = str(exc)
+                    break
+            with _bg_train_lock:
+                _bg_train_status["running"] = False
+            _clear_bg_state()
 
         try:
             log_fd = open(str(_ROOT / "logs" / "bg_train.log"), "a")

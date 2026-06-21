@@ -2667,6 +2667,33 @@ def train_loop(
     _high_score_replay = bool(_replay_cfg.get("highScoreReplay", True))
     # BC 系数随 ep_cursor 退火，实际取值见 _replay_bc_coef_at()（在 update 调用处计算）。
     _replay_buffer: collections.deque = collections.deque(maxlen=int(_replay_cfg.get("maxEpisodes", 256)))
+    # P0-B · replay buffer 总步数硬上限（防 OOM）：
+    # 每条 episode 携带数百步状态张量（state/action_feats/q_vals/visit_pi 等多个 ndarray），
+    # 仅靠 maxEpisodes 数量限制无法保证内存有界——长 episode（>200 步）+ 256 槽容易吃几 GB，
+    # 是 11.5h OOM 的次要推手。这里独立维护"按步数"的硬上限：当 sum(len(ep.trajectory)) 超阈值，
+    # 按 FIFO（最旧）驱逐，与原 deque maxlen 双重保护。
+    try:
+        _replay_max_steps = int(os.environ.get("RL_REPLAY_MAX_STEPS",
+                                               str(_replay_cfg.get("maxTotalSteps", 30000))))
+    except (TypeError, ValueError):
+        _replay_max_steps = 30000
+
+    def _replay_total_steps() -> int:
+        s = 0
+        for ep in _replay_buffer:
+            traj = ep.get("trajectory") or []
+            s += len(traj)
+        return s
+
+    def _replay_trim_to_step_cap() -> None:
+        """从队首（最旧）逐条剔除直到总步数 ≤ _replay_max_steps；deque 本身 O(1) popleft。"""
+        if _replay_max_steps <= 0:
+            return
+        cap = _replay_max_steps
+        cur = _replay_total_steps()
+        while cur > cap and len(_replay_buffer) > 1:
+            ep = _replay_buffer.popleft()
+            cur -= len(ep.get("trajectory") or [])
 
     start_ep = 0
     if resume and resume.is_file():
@@ -3234,6 +3261,58 @@ def train_loop(
                     )
             ep_cursor += bs
 
+            # ── P2 · 周期性自请求退出，由后端 P0-C 自启逻辑限速 resume ─────────
+            # 11.5h 长跑后 train_ms 从 5.4s 涨到 7.7s（+44%），存在不通过 empty_cache
+            # 也清不掉的 Python 端泄漏（multiprocessing 留 leaked semaphore）。
+            # 显式正常退出（exit code = 99 哨兵）让后端识别为"周期重启请求"，按限速 resume。
+            try:
+                _periodic_restart_every = int(os.environ.get("RL_AUTO_PERIODIC_RESTART_EVERY", "0"))
+            except (TypeError, ValueError):
+                _periodic_restart_every = 0
+            if _periodic_restart_every > 0 and (ep_cursor - start_ep) > 0 and \
+               (ep_cursor - start_ep) >= _periodic_restart_every:
+                print(
+                    f"  [P2] 已训练 {ep_cursor - start_ep} 局（≥ RL_AUTO_PERIODIC_RESTART_EVERY="
+                    f"{_periodic_restart_every}），主动退出让后端 resume 释放内存碎片",
+                    file=sys.stderr,
+                )
+                # 99 = 周期重启请求哨兵（区别于 -9 OOM 与 -2/-15 用户停止）
+                # 退出前依赖 --save-every（看板默认 50 局）已保留近期 checkpoint，
+                # 失去的最多是末段 <50 局；后端 P0-C 限速 resume 后从该 checkpoint 续训
+                sys.exit(99)
+
+            # ── P0-A · 周期性清理设备缓存防 OOM ─────────────────────────────
+            # 真凶（vmmap 6/21 12:03 排查）：MPS allocator 持有的 owned unmapped (graphics)
+            # 区域 = MTLBuffer 物理页面，启动 4 分钟即达 15.3GB（Total footprint 20GB）。
+            # torch.mps.empty_cache() 只回到 PyTorch 内部池，并不还给 OS——必须配合
+            # PYTORCH_MPS_HIGH/LOW_WATERMARK_RATIO（已在 torch_env.py 在 import torch 前设默认）。
+            # 当前周期：empty_cache + synchronize + 显存监控日志。
+            try:
+                _empty_cache_every = int(os.environ.get("RL_EMPTY_CACHE_EVERY", "100"))
+            except (TypeError, ValueError):
+                _empty_cache_every = 100
+            if _empty_cache_every > 0 and (ep_cursor // max(1, bs)) % _empty_cache_every == 0:
+                try:
+                    if device.type == "mps":
+                        torch.mps.empty_cache()
+                        if hasattr(torch.mps, "synchronize"):
+                            torch.mps.synchronize()
+                        # P0-A+ · 显存监控：把 driver/current 占用打到 jsonl，看板可观测
+                        # 同时一旦 driver_allocated > 高水位 80% 触发额外 trim
+                        try:
+                            _drv_alloc = float(torch.mps.driver_allocated_memory()) / (1024 ** 3) if hasattr(torch.mps, "driver_allocated_memory") else 0.0
+                            _cur_alloc = float(torch.mps.current_allocated_memory()) / (1024 ** 3) if hasattr(torch.mps, "current_allocated_memory") else 0.0
+                            if last_update is not None:
+                                last_update["mps_driver_gb"] = round(_drv_alloc, 2)
+                                last_update["mps_current_gb"] = round(_cur_alloc, 2)
+                        except Exception:
+                            pass
+                    elif device.type == "cuda":
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                except Exception:
+                    pass
+
             # --- 自适应课程：每 checkEvery 局做一次四档闭环反馈（v11） ---
             if _use_adaptive and ep_cursor - _last_adap_check_ep >= _adap_check_every:
                 _last_adap_check_ep = ep_cursor
@@ -3339,6 +3418,8 @@ def train_loop(
                     ep_copy = copy.deepcopy(ep)
                     ep_copy["_replay_added_ep"] = ep_cursor
                     _replay_buffer.append(ep_copy)
+                # P0-B · 按总步数硬上限驱逐最旧条目（deque maxlen 之上的第二道防线）
+                _replay_trim_to_step_cap()
             batch_count += 1
             if mps_sync:
                 maybe_mps_synchronize(device)

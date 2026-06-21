@@ -4708,6 +4708,50 @@ html[data-visibility="hidden"] *::after {
     color: var(--accent-color, #60a5fa);
 }
 
+.rtcm-guide {
+    margin-top: 8px;
+}
+
+.rtcm-guide-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.rtcm-guide-card {
+    border: 1px solid color-mix(in srgb, var(--text-primary, #1d1d1f) 8%, transparent);
+    border-radius: 8px;
+    padding: 8px 9px;
+    background: color-mix(in srgb, var(--stat-surface, #fafbfd) 72%, transparent);
+    color: var(--text-secondary, #475569);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.rtcm-guide-card--wide {
+    grid-column: 1 / -1;
+}
+
+.rtcm-guide-card b {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--text-primary, #1e293b);
+    font-size: 12px;
+}
+
+.rtcm-guide-card p,
+.rtcm-guide-card ul {
+    margin: 0;
+}
+
+.rtcm-guide-card ul {
+    padding-left: 17px;
+}
+
+.rtcm-guide-card li + li {
+    margin-top: 3px;
+}
+
 .rtcm-summary-wrap {
     display: flex;
     flex-direction: column;
@@ -4716,6 +4760,16 @@ html[data-visibility="hidden"] *::after {
 
 .rtcm-modal {
     width: min(860px, 96vw);
+}
+
+@media (max-width: 720px) {
+    .rtcm-guide-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .rtcm-guide-card--wide {
+        grid-column: auto;
+    }
 }
 
 .rl-chart-empty-inline {

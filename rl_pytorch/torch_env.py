@@ -26,5 +26,25 @@ def _bootstrap() -> None:
         os.environ.setdefault("DNNL_DEFAULT_FPMATH_MODE", "strict")
         os.environ.setdefault("MKLDNN_VERBOSE", "0")
 
+    # ── MPS（Apple Silicon）显存水位防护：必须在 import torch 之前生效 ──
+    # 真凶溯源：vmmap 显示训练 4 分钟内 owned unmapped (graphics) 达 15.3GB，
+    # 这是 PyTorch MPS allocator 持有的 MTLBuffer 物理页面，靠 torch.mps.empty_cache()
+    # 完全释放不回操作系统（只回 PyTorch 内部池）。无水位限制时长跑会撑爆 48GB Mac
+    # 触发 jetsam SIGKILL（即 06-21 11:19 那次 OOM 的根因）。
+    # 关键点：环境变量名是 PYTORCH_MPS_HIGH_WATERMARK_RATIO（带 PYTORCH_ 前缀），
+    # 项目历史上用 RL_MPS_HIGH_WATERMARK_RATIO 这个自定义名，PyTorch 根本读不到→等于没设。
+    #
+    # 取值语义（PyTorch MPS allocator）：
+    #   HIGH_WATERMARK_RATIO=0.0  无上限（默认；危险）
+    #   HIGH_WATERMARK_RATIO=R    分配触顶 R*recommendedMaxWorkingSetSize 时拒绝
+    #   LOW_WATERMARK_RATIO=R     <R 时不主动 trim；>R 时尝试归还给 driver
+    # 在 48GB 统一内存 Mac 上：高水位 0.7 ≈ 让 MPS 最多用 ~26GB（系统留 22GB 给其他进程）
+    _hw = os.environ.get("PYTORCH_MPS_HIGH_WATERMARK_RATIO")
+    if _hw is None:
+        os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.7"
+    _lw = os.environ.get("PYTORCH_MPS_LOW_WATERMARK_RATIO")
+    if _lw is None:
+        os.environ["PYTORCH_MPS_LOW_WATERMARK_RATIO"] = "0.5"
+
 
 _bootstrap()
