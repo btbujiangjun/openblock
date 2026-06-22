@@ -17,9 +17,9 @@
   .cover::before{content:'';position:absolute;inset:0;background:radial-gradient(2px 2px at 20% 30%,rgba(74,158,255,0.50),transparent 50%),radial-gradient(2px 2px at 80% 70%,rgba(255,183,77,0.40),transparent 50%);background-size:200px 200px;pointer-events:none}
   .cover .game-brand{position:relative;margin-bottom:1.8vh;width:100%}
   .cover .game-brand .logo-sub{position:absolute;top:-4rem;left:50%;transform:translateX(-50%);font-family:'Kaushan Script',cursive;font-size:clamp(0.85rem,1.6vw,1.6rem);letter-spacing:0.02em;color:rgba(126,184,255,0.25);font-weight:400;white-space:nowrap}
-  .cover .game-brand .logo-sub .ai{display:inline-block;animation:aiPulse 2.5s ease-in-out infinite}
-  .cover .game-brand .logo-sub .ai .ai-i{font-size:1.4em;font-weight:800;background:linear-gradient(135deg,#7eb8ff 0%,#4af 60%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
-  @keyframes aiPulse{0%,100%{filter:drop-shadow(0 0 4px rgba(74,158,255,0.60))}50%{filter:drop-shadow(0 0 18px rgba(74,158,255,0.9))}}
+  .cover .game-brand .logo-sub .ai{display:inline-block;animation:aiBreathe 2.5s ease-in-out infinite}
+  .cover .game-brand .logo-sub .ai .ai-i{display:inline-block;font-size:1.4em;font-weight:800;background:linear-gradient(135deg,#4a9eff 0%,#7eb8ff 60%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  @keyframes aiBreathe{0%,100%{transform:scale(1);filter:drop-shadow(0 0 6px rgba(255,255,255,0.3))}50%{transform:scale(1.3);filter:drop-shadow(0 0 24px rgba(120,180,255,1))}}
   .cover .game-title{width:100%}.cover .game-title svg{width:auto;height:auto;max-width:50%;max-height:12vh;display:block;margin:0 auto}
   .cover .main-title{font-family:'Ma Shan Zheng',cursive;font-size:clamp(1.3rem,2.4vw,2.4rem);font-weight:400;letter-spacing:0.06em;color:#e8ecf6;margin-bottom:0.8vh}
   .cover .game-brand .logo-sub{position:absolute;top:-4rem;left:50%;transform:translateX(-50%);font-family:'Kaushan Script',cursive;font-size:clamp(0.85rem,1.6vw,1.6rem);letter-spacing:0.02em;color:rgba(126,184,255,0.25);font-weight:400;white-space:nowrap}
@@ -503,7 +503,7 @@
 </g>
 </svg></div>
   </div>
-  <div class="main-title">算法驱动的方块消除智能游戏平台</div>
+  <div class="main-title">算法驱动的方块消除类智能游戏平台</div>
   <div class="scroll-hint">▼ 键盘 ← → 或点击切换 ▼</div>
 </section>
 
@@ -520,19 +520,20 @@
 </svg>
 
 <!-- ═══════ TOC ═══════ -->
-<section class="slide" style="padding:3vh 4vw 5vh">
-  <h2 style="margin-bottom:0.4em"><span class="ch">00</span><span class="tt">目录</span></h2>
-  <div class="card-row c3" style="margin-top:0.4em">
+<section class="slide" style="padding:0;justify-content:flex-start">
+  <h2 style="padding:4vh 4vw 0;margin-bottom:0"><span class="ch">00</span><span class="tt">目录</span></h2>
+  <div class="card-row c3" style="padding:0 4vw;margin-top:2vh">
     <div class="card accent-b" style="padding:22px 24px">
       <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px">🎮</div><div class="tit" style="font-size:1.3rem">产品设计</div></div>
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">
         <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#psyc" style="color:inherit;text-decoration:none">认知理论</a></span>
+        <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#design-principles" style="color:inherit;text-decoration:none">产品设计</a></span>
         <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#strategy" style="color:inherit;text-decoration:none">策略设计</a></span>
         <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#product" style="color:inherit;text-decoration:none">功能设计</a></span>
       </div>
     </div>
     <div class="card accent-o" style="padding:22px 24px">
-      <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px"><svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" stroke="#c89050" stroke-width="1.6" stroke-linecap="round"><circle cx="6" cy="8" r="2.5"/><circle cx="6" cy="16" r="2.5"/><circle cx="6" cy="24" r="2.5"/><circle cx="16" cy="6" r="2.5"/><circle cx="16" cy="16" r="2.5"/><circle cx="16" cy="26" r="2.5"/><circle cx="26" cy="8" r="2.5"/><circle cx="26" cy="16" r="2.5"/><circle cx="26" cy="24" r="2.5"/><g stroke="rgba(200,144,80,0.25)"><line x1="8.5" y1="8" x2="13.5" y2="6"/><line x1="8.5" y1="8" x2="13.5" y2="16"/><line x1="8.5" y1="8" x2="13.5" y2="26"/><line x1="8.5" y1="16" x2="13.5" y2="6"/><line x1="8.5" y1="16" x2="13.5" y2="16"/><line x1="8.5" y1="16" x2="13.5" y2="26"/><line x1="8.5" y1="24" x2="13.5" y2="6"/><line x1="8.5" y1="24" x2="13.5" y2="16"/><line x1="8.5" y1="24" x2="13.5" y2="26"/><line x1="18.5" y1="6" x2="23.5" y2="8"/><line x1="18.5" y1="6" x2="23.5" y2="16"/><line x1="18.5" y1="6" x2="23.5" y2="24"/><line x1="18.5" y1="16" x2="23.5" y2="8"/><line x1="18.5" y1="16" x2="23.5" y2="16"/><line x1="18.5" y1="16" x2="23.5" y2="24"/><line x1="18.5" y1="26" x2="23.5" y2="8"/><line x1="18.5" y1="26" x2="23.5" y2="16"/><line x1="18.5" y1="26" x2="23.5" y2="24"/></g></svg></div><div class="tit" style="font-size:1.3rem">算法策略</div></div>
+      <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px"><svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" stroke="#c89050" stroke-width="1.6" stroke-linecap="round"><g stroke="rgba(220,170,100,0.35)"><circle cx="6" cy="8" r="2.2"/><circle cx="6" cy="16" r="2.2"/><circle cx="6" cy="24" r="2.2"/><circle cx="16" cy="6" r="2.2"/><circle cx="16" cy="16" r="2.2"/><circle cx="16" cy="26" r="2.2"/><circle cx="26" cy="8" r="2.2"/><circle cx="26" cy="16" r="2.2"/><circle cx="26" cy="24" r="2.2"/><line x1="8.5" y1="8" x2="13.5" y2="6"/><line x1="8.5" y1="8" x2="13.5" y2="16"/><line x1="8.5" y1="8" x2="13.5" y2="26"/><line x1="8.5" y1="16" x2="13.5" y2="6"/><line x1="8.5" y1="16" x2="13.5" y2="16"/><line x1="8.5" y1="16" x2="13.5" y2="26"/><line x1="8.5" y1="24" x2="13.5" y2="6"/><line x1="8.5" y1="24" x2="13.5" y2="16"/><line x1="8.5" y1="24" x2="13.5" y2="26"/><line x1="18.5" y1="6" x2="23.5" y2="8"/><line x1="18.5" y1="6" x2="23.5" y2="16"/><line x1="18.5" y1="6" x2="23.5" y2="24"/><line x1="18.5" y1="16" x2="23.5" y2="8"/><line x1="18.5" y1="16" x2="23.5" y2="16"/><line x1="18.5" y1="16" x2="23.5" y2="24"/><line x1="18.5" y1="26" x2="23.5" y2="8"/><line x1="18.5" y1="26" x2="23.5" y2="16"/><line x1="18.5" y1="26" x2="23.5" y2="24"/></g></svg></div><div class="tit" style="font-size:1.3rem">算法策略</div></div>
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">
         <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-profile" style="color:inherit;text-decoration:none">画像系统</a></span>
         <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-decision" style="color:inherit;text-decoration:none">决策 AI</a></span>
@@ -555,37 +556,32 @@
 
 <!-- ═══════ I. PRODUCT DESIGN ═══════ -->
 <section class="slide" id="design">
-  <h2><span class="ch">Ⅰ</span><span class="tt">产品设计</span></h2>
-  <div class="dialog dialog-p">
-    <div class="avatar">P</div><div class="body">
-      <div class="name">玩法设计师</div>
-      <div class="text">产品设计不只是画界面。从理解玩家心理，到设计难度曲线，再到功能落地——这三层之间怎么衔接？怎么保证它们不是各说各话？</div></div>
+  <h2><span class="ch">01</span><span class="tt">产品设计</span></h2>
+  <div class="card-row c3">
+    <div class="card" style="text-align:center;padding:32px 20px;background:rgba(74,158,255,0.04);border-color:rgba(74,158,255,0.12)">
+      <div style="font-size:4rem;margin-bottom:14px">👥</div>
+      <div class="tit" style="font-size:1.5rem;color:#7eb8ff">理解玩家</div>
+    </div>
+    <div class="card" style="text-align:center;padding:32px 20px;background:rgba(255,183,77,0.04);border-color:rgba(255,183,77,0.12)">
+      <div style="font-size:4rem;margin-bottom:14px">🎨</div>
+      <div class="tit" style="font-size:1.5rem;color:#ffb74d">产品设计</div>
+    </div>
+    <div class="card" style="text-align:center;padding:32px 20px;background:rgba(186,104,200,0.04);border-color:rgba(186,104,200,0.12)">
+      <div style="font-size:4rem;margin-bottom:14px">⚙️</div>
+      <div class="tit" style="font-size:1.5rem;color:#ba68c8">策略设计</div>
+    </div>
   </div>
-  <div class="dialog dialog-a">
-    <div class="avatar">A</div><div class="body">
-      <div class="name">算法工程师</div>
-      <div class="text">产品设计是把心理学原理和算法能力翻译成玩家可感知的体验。三个层面：<strong>心理认知</strong>（理解玩家为什么开心/烦躁）、<strong>策略框架</strong>（S 曲线、难度相对论、双坐标解耦、PB 七段弧）、<strong>功能落地</strong>（压力表、温暖局、连战弧线、PB 冲刺）。下面逐一展开。</div></div>
-  </div>
-  <div class="img-frame">
-    <img src="/docs/asset/architecture/assets/product-architecture.png" alt="Product Architecture">
-    <div class="cap">产品架构——体验五轴、五层游戏化结构、生命周期 × 成熟度矩阵</div>
-  </div>
+
 </section>
 
 <!-- ═══════ 1.1 PSYCHOLOGY OVERVIEW ═══════ -->
 <section class="slide" id="psyc">
   <h3><span class="ch">1.1</span> 认知理论</h3>
 
-  <div class="dialog dialog-p">
-    <div class="avatar">P</div><div class="body">
-      <div class="name">玩法设计师</div>
-      <div class="text">我们设计游戏的初衷是「让玩家开心」。但「开心」太模糊了——一个玩家说的开心是轻松消磨时间，另一个说的是挑战极限后的成就感。我们怎么区分？</div></div>
-  </div>
-  <div class="dialog dialog-a">
-    <div class="avatar">A</div><div class="body">
-      <div class="name">算法工程师</div>
-      <div class="text">「开心」在学术上至少有五种不同的心理机制。我们的算法不是凭空编造的——每一项设计都对应一个已知的心理学原理。下面逐一展开。</div></div>
-  </div>
+  <p style="text-align:center;font-size:1.3rem;color:#d8e8ff;margin:1em 0 1.4em;line-height:1.6">
+    <strong style="color:#7eb8ff">消除类游戏</strong>的魅力在于<span style="color:#ffb74d">每一次落块都在逼近 PB</span>的<strong>紧张与期待</strong>——<br>
+    六种心理学机制揭示了这股驱力的来源
+  </p>
 
   <div class="card-row c3">
     <div class="card accent-g" style="cursor:pointer" onclick="document.getElementById('psyc-flow').scrollIntoView({behavior:'smooth'})">
@@ -603,6 +599,9 @@
     <div class="card accent-b" style="cursor:pointer" onclick="document.getElementById('psyc-peak').scrollIntoView({behavior:'smooth'})">
       <div class="head"><div class="icon">⛰️</div><div class="tit">5 峰值-终末定律</div></div>
       <div class="desc">记忆由最强烈时刻和结束时的感受决定——峰值制造与结尾设计</div></div>
+    <div class="card accent-o" style="cursor:pointer" onclick="document.getElementById('psyc-nearmiss').scrollIntoView({behavior:'smooth'})">
+      <div class="head"><div class="icon">🎯</div><div class="tit">6 近失理论</div></div>
+      <div class="desc">差一点就成功的体验比胜利本身更激励重试——pbBrake 的设计心理依据</div></div>
   </div>
 </section>
 
@@ -610,13 +609,20 @@
 <section class="slide" id="psyc-flow">
   <h3><span class="ch">1.1.1</span> 心流理论：游戏体验的第一性原理</h3>
 
-  <p>Csikszentmihalyi（1990）提出的心流理论指出，人类最愉悦的状态出现在<strong>技能与挑战恰好匹配</strong>的狭窄通道中——太简单则无聊、太难则焦虑，唯有挑战与能力平衡时才会进入「心流」：专注、忘我、愉悦。</p>
+  <p>Csikszentmihalyi（1990）指出，人类最愉悦的状态出现在<span style="color:#81c784">技能与挑战恰好匹配</span>的狭窄通道——太简单则无聊、太难则焦虑，唯有平衡时进入<strong style="color:#ffb74d">心流</strong>：专注、忘我、愉悦</p>
 
-  <div class="card-row c3">
-    <div class="card accent-b"><div class="head"><div class="icon">😰</div><div class="tit">焦虑区</div></div><div class="desc">挑战 > 能力：紧张、无助、想放弃</div></div>
-    <div class="card accent-g" style="border-color:#81c784;background:rgba(129,199,132,0.06);"><div class="icon">😀</div><div class="tit" style="color:#81c784;">心流通道</div><div class="desc">挑战 ≈ 能力：专注、忘我、愉悦</div></div>
-    <div class="card accent-o"><div class="head"><div class="icon">😴</div><div class="tit">无聊区</div></div><div class="desc">能力 > 挑战：厌倦、注意力分散</div></div>
-  </div>
+  <div class="arch-box" style="font-size:1.05rem;text-align:center;padding:20px 24px">
+<strong style="color:#e57373">焦虑区</strong>  ──  挑战 &gt; 技能  ──  紧张·无助·想放弃
+
+                <span style="color:#81c784">╱</span>
+               <span style="color:#81c784">╱</span>  <strong style="color:#81c784">心流通道</strong>
+   A₁ → A₂ → A₃ → A₄        挑战 ≈ 技能  ──  专注·忘我·愉悦
+               <span style="color:#81c784">╲</span>
+                <span style="color:#81c784">╲</span>
+
+<strong style="color:#ffb74d">无聊区</strong>  ──  技能 &gt; 挑战  ──  厌倦·注意力分散
+
+<span style="color:#4a6088;font-size:0.85rem">技能提升 → 挑战同步升级，才能持续停留在心流通道</span></div>
 
   <div class="quo">对游戏设计而言，这意味着「难度」不是一根绝对坐标轴，而是<strong>每个玩家每时每刻以自己为原点的相对坐标系</strong>。最好的游戏不是「让所有人都赢」，而是「让每个人都在自己的心流通道中」。</div>
 
@@ -713,39 +719,51 @@
   <p style="font-size:0.95rem;color:#98b4d0;margin-top:0.8em">设计启示：玩家不会记住整局的平均体验——他只记得最爽的那一刻和最后的感受。因此系统的设计重心不是"让整局都舒服"，而是在关键时刻制造高潮、在结束时留下好印象。</p>
 </section>
 
-<section class="slide" id="bridge3" style="padding:4vh 4vw">
-  <h2><span class="ch">产品设计的三个层级</span><span class="tt">理解玩家 → 设计体验 → 算法实现</span></h2>
+<!-- ═══════ 1.1.6 NEAR-MISS ═══════ -->
+<section class="slide" id="psyc-nearmiss">
+  <h3><span class="ch">1.1.6</span> 近失理论——「差一点就破 PB」的驱动力</h3>
 
-  <div class="card-row c3" style="margin-top:1.2em">
-    <div class="card accent-b" style="text-align:center;padding:28px 20px">
-      <div style="font-size:4rem;margin-bottom:12px">👥</div>
-      <div class="tit" style="font-size:1.4rem">理解玩家</div>
-      <div class="desc" style="font-size:1.0rem;margin-top:8px">心流·唤醒曲线·SDT·习得性无助·峰值终末定律——构建玩家认知模型的底层逻辑</div>
-    </div>
-    <div class="card accent-o" style="text-align:center;padding:28px 20px">
-      <div style="font-size:4rem;margin-bottom:12px">🎨</div>
-      <div class="tit" style="font-size:1.4rem">设计体验</div>
-      <div class="desc" style="font-size:1.0rem;margin-top:8px">S 形压力曲线·难度相对论·双坐标解耦·PB 七段弧——将心理原理转化为可执行的设计语言</div>
-    </div>
-    <div class="card accent-p" style="text-align:center;padding:28px 20px">
-      <div style="font-size:4rem;margin-bottom:12px">⚙️</div>
-      <div class="tit" style="font-size:1.4rem">算法实现</div>
-      <div class="desc" style="font-size:1.0rem;margin-top:8px">决策 AI + 生成式 AI + RL 自博弈——画像系统·SpawnPolicyRules/Net·PPO 训练，让设计意图在每一局精准落地</div>
-    </div>
+  <p>Reid（1986）在老虎机研究中发现：<strong>近失（near-miss）——即结果非常接近胜利但最终失败——对玩家的激励作用甚至超过胜利本身</strong>。fMRI 研究（Chase & Clark, 2010）表明近失激活的脑区（腹侧纹状体）与获胜几乎相同，多巴胺释放量显著高于完全失败。</p>
+
+  <div class="card-row c2">
+    <div class="card accent-o"><div class="head"><div class="icon">🎯</div><div class="tit">近失的心理机制</div></div><div class="desc">玩家将近失编码为「几乎成功」而非「失败」——激发「再试一次就能成」的信念，这在消除类游戏中直接表现为连续重开率上升</div></div>
+    <div class="card accent-r"><div class="head"><div class="icon">⚠️</div><div class="tit">近失的伦理边界</div></div><div class="desc">与赌博不同——近失在此不是欺骗玩家，而是 PB 的自然逼近过程。pbBrake 的制动不制造幻觉，只防止突破后失控，玩家的每一次近失都是真实操作的结果</div></div>
   </div>
 
-  <div style="text-align:center;margin-top:1em;display:flex;align-items:center;justify-content:center;gap:8px;font-size:1.0rem;color:#4a6088">
-    <span style="background:rgba(74,158,255,0.15);color:#7eb8ff;padding:4px 16px;border-radius:20px">心理学</span>
-    <span style="color:#4a6088">→</span>
-    <span style="background:rgba(255,183,77,0.15);color:#ffb74d;padding:4px 16px;border-radius:20px">设计学</span>
-    <span style="color:#4a6088">→</span>
-    <span style="background:rgba(186,104,200,0.15);color:#ba68c8;padding:4px 16px;border-radius:20px">计算机科学</span>
+  <div class="formula">
+<span class="hl2">pbTension</span> = sigmoid((r − <span class="hl">0.82</span>) / <span class="hl3">0.08</span>)  <span class="cm">// r 接近 PB 时紧张感陡升，这正是近失情绪的工程化实现</span>
   </div>
+
+  <p style="font-size:0.95rem;color:#98b4d0;margin-top:0.8em">设计启示：系统不需要让每局都破 PB——实际上，<strong>让玩家「差一点就破」比「轻松突破」更能驱动长期留存</strong>。pbBrake 的关键作用不是惩罚高手，而是创造可控的近失体验，让下一局的期待感始终在线。</p>
 </section>
 
-<!-- ═══════ 2. STRATEGY ═══════ -->
+<!-- ═══════ 1.2 PRODUCT DESIGN PRINCIPLES ═══════ -->
+<section class="slide" id="design-principles">
+  <h3><span class="ch">1.2</span> 产品设计</h3>
+
+  <div class="dialog dialog-p">
+    <div class="avatar">P</div><div class="body">
+      <div class="name">玩法设计师</div>
+      <div class="text">五大认知理论给了我们底层逻辑。从中我们提炼出一条贯穿所有设计的核心原则——<strong>「挑战 PB，但不轻易突破」</strong>。玩家应该时刻感受到 PB 在望、有希望打破，但破 PB 之后系统必须制动，不能让分数失控。围绕这一原则，我们设计了五个产品模块，每个模块对应一个认知理论的应对策略。</div></div>
+  </div>
+
+  <div class="table-wrap" style="margin-top:0.6em">
+  <table>
+    <tr><th style="width:14%">应对理论</th><th style="width:32%">设计目标</th><th style="width:54%">产品模块</th></tr>
+    <tr><td>心流</td><td>每局始终处于挑战与能力的动态平衡</td><td><strong>S 形压力曲线</strong>——难度随分数 S 形递增，防止早段无聊与晚段崩溃</td></tr>
+    <tr><td>Yerkes-Dodson</td><td>压力映射为可感知的情绪体验</td><td><strong>压力表叙事</strong>——6 级情绪面谱 + 出块意图叙事，让玩家理解当前压力来源</td></tr>
+    <tr><td>SDT</td><td>突破 PB 的成就感来自玩家自身操作</td><td><strong>PB 冲刺与制动</strong>——冲刺阶段加压制造紧张感，突破后 pbBrake 防止分数透支，让成就感归于玩家操作而非系统放水</td></tr>
+    <tr><td>习得性无助</td><td>挫败累积时主动干预，不堕入无助循环</td><td><strong>温暖局与救济系统</strong>——WarmRun 钳制 cap、RoR Arc 调制 brakeShift，在无助临界点前自动缓解</td></tr>
+    <tr><td>峰值-终末</td><td>高潮留在冲 PB 时刻，局末留下好印象</td><td><strong>D0-D4 分段节奏</strong>——从 D0 轻松探索到 D3 决战冲 PB 再到 D4 突破，每局自然形成情绪弧线</td></tr>
+  </table>
+  </div>
+
+  <p style="color:#4a6088;font-size:0.95rem;margin-top:0.6em">五个模块围绕「挑战 PB，不轻易突破」交织运作——下一章展开每条策略的具体机理。</p>
+</section>
+
+<!-- ═══════ 1.3 STRATEGY ═══════ -->
 <section class="slide" id="strategy">
-  <h3><span class="ch">1.2</span> 产品策略设计</h3>
+  <h3><span class="ch">1.3</span> 策略设计</h3>
 
   <div class="dialog dialog-a">
     <div class="avatar">A</div><div class="body">
@@ -755,22 +773,22 @@
 
   <div class="card-row c2" style="margin-top:1.6em">
     <div class="card accent-b" style="cursor:pointer" onclick="document.getElementById('strategy-sc').scrollIntoView({behavior:'smooth'})">
-      <div class="tit">1.2.1 S 形压力曲线</div>
+      <div class="tit">1.3.1 S 形压力曲线</div>
       <div class="desc">难度随分数演进——防止分数膨胀与用户生命透支</div></div>
     <div class="card accent-o" style="cursor:pointer" onclick="document.getElementById('strategy-dr').scrollIntoView({behavior:'smooth'})">
-      <div class="tit">1.2.2 难度相对论</div>
+      <div class="tit">1.3.2 难度相对论</div>
       <div class="desc">同一盘面对不同玩家意味着不同体验——θ⃗ 六维能力向量</div></div>
     <div class="card accent-g" style="cursor:pointer" onclick="document.getElementById('strategy-dc').scrollIntoView({behavior:'smooth'})">
-      <div class="tit">1.2.3 双坐标解耦</div>
+      <div class="tit">1.3.3 双坐标解耦</div>
       <div class="desc">难度坐标 vs 纪录坐标——不同坐标服务于不同系统</div></div>
     <div class="card accent-p" style="cursor:pointer" onclick="document.getElementById('strategy-pb').scrollIntoView({behavior:'smooth'})">
-      <div class="tit">1.2.4 PB 曲线</div>
+      <div class="tit">1.3.4 PB 曲线</div>
       <div class="desc">7 段弧线的张力与制动——冲击 PB 的微观情绪弧线</div></div>
   </div>
 </section>
 
 <section class="slide" id="strategy-sc">
-  <h3><span class="ch">1.2.1</span> S 形压力曲线——难度演进的底层哲学</h3>
+  <h3><span class="ch">1.3.1</span> S 形压力曲线——难度演进的底层哲学</h3>
 
   <div class="dialog dialog-p">
     <div class="avatar">P</div><div class="body">
@@ -941,7 +959,7 @@
 </section>
 
 <section class="slide" id="strategy-dr">
-  <h3><span class="ch">1.2.2</span> 难度相对论——「难」是相对能力的主观量</h3>
+  <h3><span class="ch">1.3.2</span> 难度相对论——「难」是相对能力的主观量</h3>
 
   <div class="dialog dialog-p">
     <div class="avatar">P</div><div class="body">
@@ -1078,7 +1096,7 @@
 </section>
 
 <section class="slide" id="strategy-dc">
-  <h3><span class="ch">1.2.3</span> 双坐标解耦——难度坐标 vs 纪录坐标</h3>
+  <h3><span class="ch">1.3.3</span> 双坐标解耦——难度坐标 vs 纪录坐标</h3>
 
   <div class="dialog dialog-p">
     <div class="avatar">P</div><div class="body">
@@ -1158,7 +1176,7 @@
 </section>
 
 <section class="slide" id="strategy-pb">
-  <h3><span class="ch">1.2.4</span> PB 曲线——7 段弧线的张力与制动</h3>
+  <h3><span class="ch">1.3.4</span> PB 曲线——7 段弧线的张力与制动</h3>
 
   <p>如果说 S 曲线定义了「难度-分数」的宏观关系，PB 曲线定义了<strong>玩家冲击 PB 旅程中的微观情绪弧线</strong>——从 warmup 到 overshoot 的 7 个阶段，每个阶段有不同的出块调整策略。</p>
 
@@ -1411,9 +1429,9 @@
           10 档 Profile 插值 × 加权抽样 × DFS 验证 → 最终三块</div>
 </section>
 
-<!-- ═══════ 3. PRODUCT DESIGN ═══════ -->
+<!-- ═══════ 1.4 PRODUCT DESIGN ═══════ -->
 <section class="slide" id="product">
-  <h3><span class="ch">1.3</span> 产品功能设计</h3>
+  <h3><span class="ch">1.4</span> 产品功能设计</h3>
   <p>S 曲线、难度相对论、双坐标解耦、PB 曲线——这四条策略是「设计蓝图」。本章展示它们在产品中的<strong>具体落地形态</strong>：</p>
 
   <div class="card-row c2">
@@ -1435,7 +1453,7 @@
   </div>
   <p style="font-size:1.0rem;color:#a0bcd4;">压力表 6 级映射：从 S 曲线输出的 stress 值，经情绪等级划分 + 基线趋势检测 + 叙事生成，最终呈现为玩家可感知的情绪状态。</p>
 
-  <h3><span class="ch">1.3.1</span> 压力表叙事中的策略体现</h3>
+  <h3><span class="ch">1.4.1</span> 压力表叙事中的策略体现</h3>
   <p>压力表叙事直接暴露产品的四条策略：</p>
   <div class="card-row c2">
     <div class="card"><div class="tit">「盘面整洁，心情舒缓」</div><div class="desc">S 曲线低压段（r &lt; 0.45）+ 难度相对论 low_conf 不激活</div></div>
@@ -1444,7 +1462,7 @@
     <div class="card"><div class="tit">「盘面吃紧，留意可消行机会」</div><div class="desc">S 曲线决战段 + pbTension 激活 + boardRisk 高</div></div>
   </div>
 
-  <h3><span class="ch">1.3.2</span> D0-D4 分段策略</h3>
+  <h3><span class="ch">1.4.2</span> D0-D4 分段策略</h3>
   <p>scoreStress 将 S 曲线分段为产品层面更直观的五段体验：</p>
   <div class="table-wrap">
   <table>
@@ -1466,7 +1484,7 @@
 
 <!-- ═══════ 4. ALGORITHM CORE ═══════ -->
 <section class="slide" id="algo">
-  <h2><span class="ch">Ⅱ</span><span class="tt">算法策略</span></h2>
+  <h2><span class="ch">02</span><span class="tt">算法策略</span></h2>
   <div class="arch-box">┌──────────────────────────────────────────────────────────────┐
 │              OpenBlock 算法策略：4 大模块                        │
 ├──────────────────────────────────────────────────────────────┤
@@ -2692,7 +2710,7 @@
 
 <!-- ═══════ III. COMMERCIAL ═══════ -->
 <section class="slide" id="commercial">
-  <h2><span class="ch">Ⅲ</span><span class="tt">商业运营</span></h2>
+  <h2><span class="ch">03</span><span class="tt">商业运营</span></h2>
   <div class="dialog dialog-p">
     <div class="avatar">P</div><div class="body">
       <div class="name">玩法设计师</div>
