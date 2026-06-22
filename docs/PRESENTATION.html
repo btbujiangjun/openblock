@@ -22,10 +22,8 @@
   @keyframes aiPulse{0%,100%{filter:drop-shadow(0 0 4px rgba(74,158,255,0.60))}50%{filter:drop-shadow(0 0 18px rgba(74,158,255,0.9))}}
   .cover .game-title{width:100%}.cover .game-title svg{width:auto;height:auto;max-width:50%;max-height:12vh;display:block;margin:0 auto}
   .cover .main-title{font-family:'Ma Shan Zheng',cursive;font-size:clamp(1.3rem,2.4vw,2.4rem);font-weight:400;letter-spacing:0.06em;color:#e8ecf6;margin-bottom:0.8vh}
-  .cover .tags-row span{font-family:'Noto Sans SC',sans-serif;font-weight:500}
+  .cover .game-brand .logo-sub{position:absolute;top:-4rem;left:50%;transform:translateX(-50%);font-family:'Kaushan Script',cursive;font-size:clamp(0.85rem,1.6vw,1.6rem);letter-spacing:0.02em;color:rgba(126,184,255,0.25);font-weight:400;white-space:nowrap}
   .cover .scroll-hint{position:absolute;bottom:3vh;left:50%;transform:translateX(-50%);font-size:clamp(0.7rem,0.8vw,0.85rem);color:rgba(74,106,138,0.4);animation:bounce 2s infinite;letter-spacing:0.2em}
-  @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(12px)}}
-  .cover .tags-row{margin-top:0.8vh}
   /* ═══════ SLIDE LAYOUT ═══════ */
   .slide{min-height:100vh;height:auto;display:flex;flex-direction:column;justify-content:center;max-width:1400px;margin:0 auto;padding:4vh 4vw 5vh;position:relative}
   .slide::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:50%;height:1px;background:linear-gradient(90deg,transparent,rgba(74,158,255,0.1),transparent)}
@@ -506,11 +504,6 @@
 </svg></div>
   </div>
   <div class="main-title">算法驱动的方块消除智能游戏平台</div>
-  <div class="tags-row" style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1.5vh">
-    <span class="tag tag-b">产品设计</span>
-    <span class="tag tag-o">算法策略</span>
-    <span class="tag tag-p">商业运营</span>
-  </div>
   <div class="scroll-hint">▼ 键盘 ← → 或点击切换 ▼</div>
 </section>
 
@@ -527,7 +520,7 @@
 </svg>
 
 <!-- ═══════ TOC ═══════ -->
-<section class="slide" style="padding:4vh 4vw">
+<section class="slide" style="padding:3vh 4vw 5vh">
   <h2 style="margin-bottom:0.4em"><span class="ch">00</span><span class="tt">目录</span></h2>
   <div class="card-row c3" style="margin-top:0.4em">
     <div class="card accent-b" style="padding:22px 24px">
@@ -539,7 +532,7 @@
       </div>
     </div>
     <div class="card accent-o" style="padding:22px 24px">
-      <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px">🧠</div><div class="tit" style="font-size:1.3rem">算法策略</div></div>
+      <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px"><svg width="1em" height="1em" viewBox="0 0 32 32" fill="none" stroke="#c89050" stroke-width="1.6" stroke-linecap="round"><circle cx="6" cy="8" r="2.5"/><circle cx="6" cy="16" r="2.5"/><circle cx="6" cy="24" r="2.5"/><circle cx="16" cy="6" r="2.5"/><circle cx="16" cy="16" r="2.5"/><circle cx="16" cy="26" r="2.5"/><circle cx="26" cy="8" r="2.5"/><circle cx="26" cy="16" r="2.5"/><circle cx="26" cy="24" r="2.5"/><g stroke="rgba(200,144,80,0.25)"><line x1="8.5" y1="8" x2="13.5" y2="6"/><line x1="8.5" y1="8" x2="13.5" y2="16"/><line x1="8.5" y1="8" x2="13.5" y2="26"/><line x1="8.5" y1="16" x2="13.5" y2="6"/><line x1="8.5" y1="16" x2="13.5" y2="16"/><line x1="8.5" y1="16" x2="13.5" y2="26"/><line x1="8.5" y1="24" x2="13.5" y2="6"/><line x1="8.5" y1="24" x2="13.5" y2="16"/><line x1="8.5" y1="24" x2="13.5" y2="26"/><line x1="18.5" y1="6" x2="23.5" y2="8"/><line x1="18.5" y1="6" x2="23.5" y2="16"/><line x1="18.5" y1="6" x2="23.5" y2="24"/><line x1="18.5" y1="16" x2="23.5" y2="8"/><line x1="18.5" y1="16" x2="23.5" y2="16"/><line x1="18.5" y1="16" x2="23.5" y2="24"/><line x1="18.5" y1="26" x2="23.5" y2="8"/><line x1="18.5" y1="26" x2="23.5" y2="16"/><line x1="18.5" y1="26" x2="23.5" y2="24"/></g></svg></div><div class="tit" style="font-size:1.3rem">算法策略</div></div>
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">
         <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-profile" style="color:inherit;text-decoration:none">画像系统</a></span>
         <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-decision" style="color:inherit;text-decoration:none">决策 AI</a></span>
@@ -551,6 +544,10 @@
       <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px">📊</div><div class="tit" style="font-size:1.3rem">商业运营</div></div>
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">
         <span style="background:rgba(186,104,200,0.1);color:#ba68c8;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-commercial" style="color:inherit;text-decoration:none">商业化算法</a></span>
+        <span style="background:rgba(186,104,200,0.08);color:#a070b0;padding:2px 10px;border-radius:12px;font-size:0.75rem">LTV 评估</span>
+        <span style="background:rgba(186,104,200,0.08);color:#a070b0;padding:2px 10px;border-radius:12px;font-size:0.75rem">Churn 预测</span>
+        <span style="background:rgba(186,104,200,0.08);color:#a070b0;padding:2px 10px;border-radius:12px;font-size:0.75rem">IAP 决策</span>
+        <span style="background:rgba(186,104,200,0.08);color:#a070b0;padding:2px 10px;border-radius:12px;font-size:0.75rem">广告策略</span>
       </div>
     </div>
   </div>
@@ -593,19 +590,19 @@
   <div class="card-row c3">
     <div class="card accent-g" style="cursor:pointer" onclick="document.getElementById('psyc-flow').scrollIntoView({behavior:'smooth'})">
       <div class="head"><div class="icon">😀</div><div class="tit">1 心流理论</div></div>
-      <div class="desc">挑战与能力匹配时产生的最优体验。游戏体验的第一性原理。</div></div>
+      <div class="desc">挑战与能力匹配时产生的最优体验，游戏体验的第一性原理</div></div>
     <div class="card accent-o" style="cursor:pointer" onclick="document.getElementById('psyc-yd').scrollIntoView({behavior:'smooth'})">
       <div class="head"><div class="icon">📈</div><div class="tit">2 唤醒曲线</div></div>
-      <div class="desc">Yerkes-Dodson 倒 U 形：表现随唤醒先升后降，最优唤醒带因人因任务而异。</div></div>
+      <div class="desc">Yerkes-Dodson 倒 U 形：表现随唤醒先升后降，最优唤醒带因人因任务而异</div></div>
     <div class="card accent-p" style="cursor:pointer" onclick="document.getElementById('psyc-sdt').scrollIntoView({behavior:'smooth'})">
       <div class="head"><div class="icon">🎯</div><div class="tit">3 自我决定理论</div></div>
-      <div class="desc">胜任感、自主性、关联性——三大内在动机驱动持续参与。</div></div>
+      <div class="desc">胜任感·自主性·关联性——三大内在动机驱动持续参与</div></div>
     <div class="card accent-r" style="cursor:pointer" onclick="document.getElementById('psyc-helpless').scrollIntoView({behavior:'smooth'})">
       <div class="head"><div class="icon">🛡️</div><div class="tit">4 习得性无助</div></div>
-      <div class="desc">反复挫败导致放弃尝试。救济机制的心理依据。</div></div>
+      <div class="desc">反复挫败导致放弃尝试，救济机制的心理依据</div></div>
     <div class="card accent-b" style="cursor:pointer" onclick="document.getElementById('psyc-peak').scrollIntoView({behavior:'smooth'})">
       <div class="head"><div class="icon">⛰️</div><div class="tit">5 峰值-终末定律</div></div>
-      <div class="desc">记忆由最强烈时刻和结束时的感受决定——峰值制造与结尾设计。</div></div>
+      <div class="desc">记忆由最强烈时刻和结束时的感受决定——峰值制造与结尾设计</div></div>
   </div>
 </section>
 
@@ -616,9 +613,9 @@
   <p>Csikszentmihalyi（1990）提出的心流理论指出，人类最愉悦的状态出现在<strong>技能与挑战恰好匹配</strong>的狭窄通道中——太简单则无聊、太难则焦虑，唯有挑战与能力平衡时才会进入「心流」：专注、忘我、愉悦。</p>
 
   <div class="card-row c3">
-    <div class="card accent-b"><div class="head"><div class="icon">😰</div><div class="tit">焦虑区</div></div><div class="desc">挑战 > 能力，玩家感到紧张、无助想放弃</div></div>
-    <div class="card accent-g" style="border-color:#81c784;background:rgba(129,199,132,0.06);"><div class="icon">😀</div><div class="tit" style="color:#81c784;">心流通道</div><div class="desc">挑战 ≈ 能力，最优体验：专注、忘我、愉悦</div></div>
-    <div class="card accent-o"><div class="head"><div class="icon">😴</div><div class="tit">无聊区</div></div><div class="desc">能力 > 挑战，玩家感到厌倦、注意力分散</div></div>
+    <div class="card accent-b"><div class="head"><div class="icon">😰</div><div class="tit">焦虑区</div></div><div class="desc">挑战 > 能力：紧张、无助、想放弃</div></div>
+    <div class="card accent-g" style="border-color:#81c784;background:rgba(129,199,132,0.06);"><div class="icon">😀</div><div class="tit" style="color:#81c784;">心流通道</div><div class="desc">挑战 ≈ 能力：专注、忘我、愉悦</div></div>
+    <div class="card accent-o"><div class="head"><div class="icon">😴</div><div class="tit">无聊区</div></div><div class="desc">能力 > 挑战：厌倦、注意力分散</div></div>
   </div>
 
   <div class="quo">对游戏设计而言，这意味着「难度」不是一根绝对坐标轴，而是<strong>每个玩家每时每刻以自己为原点的相对坐标系</strong>。最好的游戏不是「让所有人都赢」，而是「让每个人都在自己的心流通道中」。</div>
@@ -680,9 +677,9 @@
   <p>Deci & Ryan（1985）的自我决定理论指出，人类的内在动机来源于三大基本心理需求的满足：<strong>胜任感</strong>（感觉我能行）、<strong>自主性</strong>（感觉我自己在掌控）、<strong>关联性</strong>（感觉与他人有连接）。三者缺一则内在动机下降。</p>
 
   <div class="card-row c3">
-    <div class="card accent-p"><div class="head"><div class="icon">💪</div><div class="tit">胜任感</div></div><div class="desc">感觉自己有能力应对挑战。每次消行、每次破 PB 都在强化。</div></div>
-    <div class="card accent-b"><div class="head"><div class="icon">🎯</div><div class="tit">自主性</div></div><div class="desc">感觉是自己掌控局面而非被系统操控。算法必须隐蔽——玩家永远不觉得"系统在替我玩"。</div></div>
-    <div class="card accent-o"><div class="head"><div class="icon">🤝</div><div class="tit">关联性</div></div><div class="desc">与他人的连接感。排行榜、分享回放、挑战好友——突破自我后被看到、被认可。</div></div>
+    <div class="card accent-p"><div class="head"><div class="icon">💪</div><div class="tit">胜任感</div></div><div class="desc">感觉自己有能力应对挑战——每次消行、每次破 PB 都在强化</div></div>
+    <div class="card accent-b"><div class="head"><div class="icon">🎯</div><div class="tit">自主性</div></div><div class="desc">掌控局面而非被操控——算法必须隐蔽，玩家不觉得"系统在替我玩"</div></div>
+    <div class="card accent-o"><div class="head"><div class="icon">🤝</div><div class="tit">关联性</div></div><div class="desc">与他人的连接感——排行榜、分享回放、挑战好友，突破自我后被看到被认可</div></div>
   </div>
 
   <p style="font-size:0.95rem;color:#98b4d0;margin-top:0.8em">设计启示：难度自适应必须在不破坏自主感的前提下进行。如果玩家明显感觉到"系统在故意放水"，胜任感和自主性会同时受损。算法的隐蔽性是产品设计的关键约束。</p>
@@ -695,8 +692,8 @@
   <p>Seligman（1967）的经典实验表明：当生物体反复经历无法控制的负面事件时，会停止尝试——即使后续环境已经改变。在游戏中表现为：连续失败 → 操作变形 → 进一步失败 → 放弃。</p>
 
   <div class="card-row c2">
-    <div class="card accent-r"><div class="head"><div class="icon">😫</div><div class="tit">习得性无助的恶性循环</div></div><div class="desc">挫败累积 → 操作变形 → 更多挫败 → 放弃尝试。如果不主动干预，系统会自我强化。</div></div>
-    <div class="card accent-g"><div class="head"><div class="icon">🛟</div><div class="tit">救济机制的设计逻辑</div></div><div class="desc">关键在于：救济不是"降低难度"，而是"打破死循环"。救济后玩家恢复正常状态，难度同步回升，让玩家靠自己的操作赢回来——这才是胜任感的真正来源。</div></div>
+    <div class="card accent-r"><div class="head"><div class="icon">😫</div><div class="tit">习得性无助的恶性循环</div></div><div class="desc">挫败累积 → 操作变形 → 更多挫败 → 放弃尝试，不主动干预则系统自我强化</div></div>
+    <div class="card accent-g"><div class="head"><div class="icon">🛟</div><div class="tit">救济机制的设计逻辑</div></div><div class="desc">关键在于救济不是"降低难度"而是"打破死循环"——恢复正常后难度同步回升，让玩家靠操作赢回来，胜任感的真正来源</div></div>
   </div>
 
   <p style="font-size:0.95rem;color:#98b4d0;margin-top:0.8em">设计启示：系统必须能检测挫败累积信号（连续失败、操作间隔变异增大、填充率异常上升），并在玩家真正放弃之前主动干预。救济的时机和幅度需要精确——太早则玩家不觉得自己克服了困难，太晚则已进入无助状态。</p>
@@ -709,8 +706,8 @@
   <p>Kahneman（1993）的研究表明：人们对一段体验的评价记忆并非每一刻的平均，而是主要由两个时刻决定——<strong>情感最强烈的时刻（峰值）</strong>和<strong>结束时的感受（终末）</strong>。其他时刻几乎被忽略。</p>
 
   <div class="card-row c2">
-    <div class="card accent-o"><div class="head"><div class="icon">⛰️</div><div class="tit">峰值制造</div></div><div class="desc">冲击 PB 的时刻是整局情绪自然峰值。系统应在此刻给予足够的挑战感和仪式感——让"冲 PB"的感觉足够剧烈、足够难忘。</div></div>
-    <div class="card accent-b"><div class="head"><div class="icon">🏁</div><div class="tit">终末设计</div></div><div class="desc">局结束时的感受决定了玩家是否点击"再来一局"。高亢收尾（破 PB、近失）和舒缓收尾（疲劳释放）需要交替安排，通过系统自动调控。</div></div>
+    <div class="card accent-o"><div class="head"><div class="icon">⛰️</div><div class="tit">峰值制造</div></div><div class="desc">冲击 PB 是整局情绪自然峰值——给予足够挑战感和仪式感，让冲 PB 足够剧烈难忘</div></div>
+    <div class="card accent-b"><div class="head"><div class="icon">🏁</div><div class="tit">终末设计</div></div><div class="desc">局末感受决定是否"再来一局"——高亢收尾（破 PB、近失）与舒缓收尾（疲劳释放）交替安排</div></div>
   </div>
 
   <p style="font-size:0.95rem;color:#98b4d0;margin-top:0.8em">设计启示：玩家不会记住整局的平均体验——他只记得最爽的那一刻和最后的感受。因此系统的设计重心不是"让整局都舒服"，而是在关键时刻制造高潮、在结束时留下好印象。</p>
@@ -723,17 +720,17 @@
     <div class="card accent-b" style="text-align:center;padding:28px 20px">
       <div style="font-size:4rem;margin-bottom:12px">👥</div>
       <div class="tit" style="font-size:1.4rem">理解玩家</div>
-      <div class="desc" style="font-size:1.0rem;margin-top:8px">心理学原理驱动——心流、唤醒曲线、SDT、习得性无助、峰值终末定律，构建玩家认知模型的底层逻辑</div>
+      <div class="desc" style="font-size:1.0rem;margin-top:8px">心流·唤醒曲线·SDT·习得性无助·峰值终末定律——构建玩家认知模型的底层逻辑</div>
     </div>
     <div class="card accent-o" style="text-align:center;padding:28px 20px">
       <div style="font-size:4rem;margin-bottom:12px">🎨</div>
       <div class="tit" style="font-size:1.4rem">设计体验</div>
-      <div class="desc" style="font-size:1.0rem;margin-top:8px">策略与功能框架——S 形压力曲线、难度相对论、双坐标解耦、PB 七段弧，将心理原理转化为可执行的设计语言</div>
+      <div class="desc" style="font-size:1.0rem;margin-top:8px">S 形压力曲线·难度相对论·双坐标解耦·PB 七段弧——将心理原理转化为可执行的设计语言</div>
     </div>
     <div class="card accent-p" style="text-align:center;padding:28px 20px">
       <div style="font-size:4rem;margin-bottom:12px">⚙️</div>
       <div class="tit" style="font-size:1.4rem">算法实现</div>
-      <div class="desc" style="font-size:1.0rem;margin-top:8px">决策 AI + 生成式 AI + RL 自博弈——画像系统、SpawnPolicyRules/Net、PPO 训练，让设计意图在每一局中精准落地</div>
+      <div class="desc" style="font-size:1.0rem;margin-top:8px">决策 AI + 生成式 AI + RL 自博弈——画像系统·SpawnPolicyRules/Net·PPO 训练，让设计意图在每一局精准落地</div>
     </div>
   </div>
 
@@ -759,10 +756,10 @@
   <div class="card-row c2" style="margin-top:1.6em">
     <div class="card accent-b" style="cursor:pointer" onclick="document.getElementById('strategy-sc').scrollIntoView({behavior:'smooth'})">
       <div class="tit">1.2.1 S 形压力曲线</div>
-      <div class="desc">难度随分数的演进哲学——防止分数膨胀与用户生命透支</div></div>
+      <div class="desc">难度随分数演进——防止分数膨胀与用户生命透支</div></div>
     <div class="card accent-o" style="cursor:pointer" onclick="document.getElementById('strategy-dr').scrollIntoView({behavior:'smooth'})">
       <div class="tit">1.2.2 难度相对论</div>
-      <div class="desc">同一个盘面对不同玩家意味着不同的体验——θ⃗ 六维能力向量</div></div>
+      <div class="desc">同一盘面对不同玩家意味着不同体验——θ⃗ 六维能力向量</div></div>
     <div class="card accent-g" style="cursor:pointer" onclick="document.getElementById('strategy-dc').scrollIntoView({behavior:'smooth'})">
       <div class="tit">1.2.3 双坐标解耦</div>
       <div class="desc">难度坐标 vs 纪录坐标——不同坐标服务于不同系统</div></div>
