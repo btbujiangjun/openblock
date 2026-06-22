@@ -1797,6 +1797,11 @@ def create_rl_blueprint() -> Blueprint:
         # 让 checkpoint 尽早保存“近期最好”而不是退化中的最后权重。
         env.setdefault("RL_BEST_GUARD_WINDOW", "80")
         env.setdefault("RL_BEST_GUARD_EVERY", "40")
+        # 长跑内存碎片治理：MPS allocator owned-unmapped 区域随训练时长单调增长（实测 11.5h
+        # 后 train_ms +44%、25GB footprint + swap）。train.py 周期性自请求退出（exit 99），
+        # 由上方 monitor 的 _maybe_auto_resume_training 不受限速地 resume，从近期 checkpoint
+        # 续训以释放碎片，最多丢 <save_every 局。默认 25000 局（约数小时）触发一次。
+        env.setdefault("RL_AUTO_PERIODIC_RESTART_EVERY", "25000")
         # P1：决定性设置每步搜索相关 env，绝不沿用继承自常驻 Flask 进程 os.environ 的脏值。
         # 历史 bug：performance 预设留下的 RL_LOOKAHEAD=0 会泄漏给后续 balanced+MCTS 启动，
         # 而 MCTS/beam 整段都包在 `if use_lookahead:` 内 → use_lookahead=False 时被静默跳过，

@@ -63,7 +63,7 @@
 - [**RL 训练与推理手册**](./ALGORITHMS_RL.md) —— RL 子系统**统一权威文档**：状态/动作/奖励、网络结构、训练/推理、探索/课程/搜索增强（§1–§20），并整合：
   - [**RL 契约与在线服务**](./RL_CONTRACT_AND_SERVICE.md) —— 玩法边界、Flask `/api/rl/*`、离线 `train.py`；**[§2.6 三条路径对照](./RL_CONTRACT_AND_SERVICE.md#26-rl-训练机制三条路径对照权威)**（离线 MCTS / 浏览器 RL / 线上）为机制事实表唯一维护处
   - [§21 RL 契约与在线服务](./ALGORITHMS_RL.md#二十一rl-契约与在线服务) —— 与上同文摘录（索引入口）
-  - [§22 RL 训练监控与排障](./ALGORITHMS_RL.md#二十二rl-训练监控与排障) —— 看板数据流/趋势解读/数值稳定与裁剪
+  - [§22 RL 训练监控与排障](./ALGORITHMS_RL.md#二十二rl-训练监控与排障) —— 看板数据流/趋势解读/数值稳定与裁剪/辅助头发散防御/防退化(BestGuard)与长跑稳定性调参（原 `RL_TRAINING_MONITORING.md` 整合入此）
   - [§23 RL 研究：复杂度、瓶颈与文献对照](./ALGORITHMS_RL.md#二十三rl-研究复杂度瓶颈与文献对照) —— 复杂度分析/瓶颈诊断/自博弈文献对照
 - [AlphaZero/MCTS 历史实验档案](./RL_ALPHAZERO_OPTIMIZATION.md) —— v6–v8.3 优化实验、消融矩阵与训练配方（独立档案，从手册交叉链接）
 

@@ -2682,6 +2682,16 @@ def train_loop(
     # 完整 Adam state（2.5MB × 含 MPS tensor），是 MPS→CPU 隐式拷贝热点之一。
     _guard_last_ep: int = 0
     _guard_rollbacks: int = 0
+    # 回滚「二次确认」：高方差得分（实测 CV≈100%）下，单个噪声窗口跌破阈值就回滚会
+    # 反复重置优化器、清空窗口、丢进度（历史累计 947 次回滚的放大器之一）。要求连续
+    # _guard_confirm 次检查均跌破阈值才回滚；但跌破 _guard_severe（更深的硬底）时立即回滚，
+    # 兼顾对真实发散的快速响应。RL_BEST_GUARD_CONFIRM=1 时退化为「再观察一窗口」。
+    _guard_confirm = int(os.environ.get("RL_BEST_GUARD_CONFIRM", "1"))
+    _guard_severe = float(os.environ.get("RL_BEST_GUARD_SEVERE", "0.70"))
+    _guard_pending_regress: int = 0
+    # 数值发散回归监控：记录上次告警 episode 与累计次数（限速，避免刷屏）。
+    _loss_warn_last_ep: int = -(10 ** 9)
+    _loss_warn_count: int = 0
 
     # --- KL-to-reference 锚定：以「历史最优快照」为冻结参考策略，软约束当前策略不远离 ---
     # 与硬回滚守护互补：守护是"事后兜底"，KL-ref 是"过程中持续拉回"，抑制策略缓慢漂移。
@@ -3917,6 +3927,48 @@ def train_loop(
                         _jsonl_row["rnd_trigger"] = dict(_last_rnd_trigger)
                     _append_training_jsonl(_jsonl_row)
 
+                    # ── 数值发散回归监控 ────────────────────────────────────
+                    # 记录的是 clamp 进梯度前的「裸」损失值（_safe_metric 上限 1e6）。6/22 前
+                    # aux head 无 bound 致 loss_feas/bq/policy 达 ±1e6，触发梯度炸碎→回滚循环。
+                    # 修复（head 输出 clamp）后裸值应 <50；越界即落 run_warning（仅观测，按 ep 限速），
+                    # 便于回归监控 head clamp 是否失效或出现新发散源。阈值/冷却可经 env 调。
+                    try:
+                        _lw_aux = float(os.environ.get("RL_LOSS_WARN_AUX", "50.0"))
+                        _lw_policy = float(os.environ.get("RL_LOSS_WARN_POLICY", "50.0"))
+                        _lw_value = float(os.environ.get("RL_LOSS_WARN_VALUE", "500.0"))
+                        _lw_cooldown = int(os.environ.get("RL_LOSS_WARN_COOLDOWN", "400"))
+                    except (TypeError, ValueError):
+                        _lw_aux, _lw_policy, _lw_value, _lw_cooldown = 50.0, 50.0, 500.0, 400
+                    if _lw_cooldown > 0 and ep_cursor - _loss_warn_last_ep >= _lw_cooldown:
+                        _offenders: dict = {}
+                        for _lk, _cap in (
+                            ("loss_policy", _lw_policy), ("loss_value", _lw_value),
+                            ("loss_feas", _lw_aux), ("loss_bq", _lw_aux), ("loss_surv", _lw_aux),
+                            ("loss_hole_aux", _lw_aux), ("loss_clear_pred", _lw_aux),
+                            ("loss_topology_aux", _lw_aux), ("loss_spawn_diff_aux", _lw_aux),
+                        ):
+                            _lv = _jsonl_row.get(_lk)
+                            if isinstance(_lv, (int, float)) and abs(float(_lv)) > _cap:
+                                _offenders[_lk] = round(float(_lv), 2)
+                        if _offenders:
+                            _loss_warn_last_ep = ep_cursor
+                            _loss_warn_count += 1
+                            _append_training_jsonl({
+                                "event": "run_warning",
+                                "run_id": _run_id,
+                                "code": "loss_divergence",
+                                "episodes": ep_cursor,
+                                "offenders": _offenders,
+                                "warn_count": _loss_warn_count,
+                                "message": "原始损失越界，疑似 aux head/策略数值发散；"
+                                           "检查 head 输出 clamp / lr / grad_clip。",
+                            })
+                            print(
+                                f"  [LossWarn] ep={ep_cursor} 损失越界 {_offenders} "
+                                f"(累计 {_loss_warn_count} 次)",
+                                file=sys.stderr,
+                            )
+
                 # 累计 entropy 历史，供 RND trigger 监测使用
                 _ent_v = _num_update("entropy") if last_update else None
                 if isinstance(_ent_v, (int, float)) and math.isfinite(float(_ent_v)):
@@ -3938,6 +3990,7 @@ def train_loop(
                     _guard_best_avg = _cur_avg
                 elif _cur_avg >= _guard_best_avg * (1.0 + _guard_margin):
                     # 创新高 → 快照为新 best，并把 KL-ref 参考网同步到该更优策略
+                    _guard_pending_regress = 0
                     _guard_best_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
                     if _ref_net is not None:
                         _ref_net.load_state_dict(net.state_dict())
@@ -3955,38 +4008,58 @@ def train_loop(
                         file=sys.stderr,
                     )
                 elif _cur_avg < _guard_best_avg * _guard_regress:
-                    # 显著回撤 → 回滚到 best 并重置优化器动量，避免沿坏方向继续漂移
-                    net.load_state_dict({k: v.to(device) for k, v in _guard_best_sd.items()})
-                    _guard_rollbacks += 1
-                    # P1-2 · 连续回滚自动降学习率
-                    # 真凶：6/21 日志显示 BestGuard 单日回滚 ~150 次仍在原 lr 上原地打转，
-                    # 训练 2.5h 完全无 best 刷新。lr 自适应衰减让模型在回撤期"减速学习"，
-                    # 给探索一个机会；恢复期触发新 best 时 lr 自动回弹（见上方 _guard_best_sd 分支）。
-                    # 衰减策略：每 _guard_lr_decay_after 次回滚 lr *= _guard_lr_decay_factor，
-                    # 但 lr 不低于 lr_initial × _guard_lr_floor_ratio（避免学不动）。
-                    try:
-                        _lr_decay_after = int(os.environ.get("RL_GUARD_LR_DECAY_AFTER", "5"))
-                        _lr_decay_factor = float(os.environ.get("RL_GUARD_LR_DECAY_FACTOR", "0.7"))
-                        _lr_floor_ratio = float(os.environ.get("RL_GUARD_LR_FLOOR_RATIO", "0.2"))
-                    except (TypeError, ValueError):
-                        _lr_decay_after, _lr_decay_factor, _lr_floor_ratio = 5, 0.7, 0.2
-                    _lr_decayed = False
-                    if _lr_decay_after > 0 and _guard_rollbacks % _lr_decay_after == 0:
-                        # floor 用 _lr_initial（不是当前 lr），否则反复衰减会跌穿
-                        _lr_floor = max(1e-8, _lr_initial * _lr_floor_ratio)
-                        _new_lr = max(_lr_floor, float(lr) * _lr_decay_factor)
-                        if abs(_new_lr - float(lr)) > 1e-12:
-                            lr = _new_lr
-                            _lr_decayed = True
-                    opt = adam_for_training(net.parameters(), lr=lr)
-                    _guard_scores.clear()
-                    print(
-                        f"[BestGuard] ep={ep_cursor}  ✗ 回撤 avg={_cur_avg:.1f} < {_guard_best_avg * _guard_regress:.1f}"
-                        f"  → 已回滚到 best(avg={_guard_best_avg:.1f}) 并重置优化器"
-                        + (f" + lr→{lr:.2e}" if _lr_decayed else "")
-                        + f"  [第{_guard_rollbacks}次]",
-                        file=sys.stderr,
-                    )
+                    # 回滚「二次确认」：累计连续跌破次数；非严重回撤时先观察、不立即回滚，
+                    # 避免单个噪声窗口触发无谓的优化器重置与窗口清空。
+                    _guard_pending_regress += 1
+                    _is_severe = _cur_avg < _guard_best_avg * _guard_severe
+                    if not _is_severe and _guard_pending_regress < max(1, _guard_confirm):
+                        # 观察期：保留窗口继续累积，等待下一次检查确认是否为真实退化
+                        print(
+                            f"[BestGuard] ep={ep_cursor}  ⏳ 观察回撤 avg={_cur_avg:.1f} < "
+                            f"{_guard_best_avg * _guard_regress:.1f}（{_guard_pending_regress}/"
+                            f"{max(1, _guard_confirm)}，未达确认/严重阈值，暂不回滚）",
+                            file=sys.stderr,
+                        )
+                    else:
+                        # 确认退化（连续跌破）或严重回撤 → 回滚到 best 并重置优化器动量
+                        _guard_pending_regress = 0
+                        # 显著回撤 → 回滚到 best 并重置优化器动量，避免沿坏方向继续漂移
+                        net.load_state_dict({k: v.to(device) for k, v in _guard_best_sd.items()})
+                        _guard_rollbacks += 1
+                        # P1-2 · 连续回滚自动降学习率
+                        # 真凶：6/21 日志显示 BestGuard 单日回滚 ~150 次仍在原 lr 上原地打转，
+                        # 训练 2.5h 完全无 best 刷新。lr 自适应衰减让模型在回撤期"减速学习"，
+                        # 给探索一个机会；恢复期触发新 best 时 lr 自动回弹（见上方 _guard_best_sd 分支）。
+                        # 衰减策略：每 _guard_lr_decay_after 次回滚 lr *= _guard_lr_decay_factor，
+                        # 但 lr 不低于 lr_initial × _guard_lr_floor_ratio（避免学不动）。
+                        try:
+                            _lr_decay_after = int(os.environ.get("RL_GUARD_LR_DECAY_AFTER", "5"))
+                            _lr_decay_factor = float(os.environ.get("RL_GUARD_LR_DECAY_FACTOR", "0.7"))
+                            _lr_floor_ratio = float(os.environ.get("RL_GUARD_LR_FLOOR_RATIO", "0.2"))
+                        except (TypeError, ValueError):
+                            _lr_decay_after, _lr_decay_factor, _lr_floor_ratio = 5, 0.7, 0.2
+                        _lr_decayed = False
+                        if _lr_decay_after > 0 and _guard_rollbacks % _lr_decay_after == 0:
+                            # floor 用 _lr_initial（不是当前 lr），否则反复衰减会跌穿
+                            _lr_floor = max(1e-8, _lr_initial * _lr_floor_ratio)
+                            _new_lr = max(_lr_floor, float(lr) * _lr_decay_factor)
+                            if abs(_new_lr - float(lr)) > 1e-12:
+                                lr = _new_lr
+                                _lr_decayed = True
+                        opt = adam_for_training(net.parameters(), lr=lr)
+                        _guard_scores.clear()
+                        print(
+                            f"[BestGuard] ep={ep_cursor}  ✗ 回撤 avg={_cur_avg:.1f} < {_guard_best_avg * _guard_regress:.1f}"
+                            f"  → 已回滚到 best(avg={_guard_best_avg:.1f}) 并重置优化器"
+                            + (f" + lr→{lr:.2e}" if _lr_decayed else "")
+                            + (" [严重]" if _is_severe else "")
+                            + f"  [第{_guard_rollbacks}次]",
+                            file=sys.stderr,
+                        )
+                else:
+                    # 得分回到健康区间（高于回撤阈值、未创新高）→ 清零待确认计数，
+                    # 保证「连续跌破」语义，避免跨越一次恢复后累积陈旧的 pending 触发误回滚。
+                    _guard_pending_regress = 0
 
             # --- 评估门控（v8：软/硬门控 + 历史最优保留）---
             # 软门控（默认）：仅记录，不回滚

@@ -37,8 +37,26 @@ function sleep(ms) {
     return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Web 看板后台训练 batch：小 batch 更快出现首条 loss（balanced+MCTS 单局很慢）。 */
+/** Web 看板后台训练 batch 回退默认值（解析历史运行统计时用，见 lastBg 分支）。 */
 const WEB_DASHBOARD_TRAIN_BATCH = 4;
+
+/**
+ * 按预设解析后台训练 batch_episodes：权衡「首条 loss 反馈速度」与「吞吐 / PPO 梯度稳定性」。
+ *
+ * 旧实现所有预设统一用 4：小 batch 看板首屏 loss 快，但每次 PPO 更新仅 ~4 局样本，
+ * 梯度噪声大、优化器步进过密——既压低吞吐，也放大得分方差、易触发 BestGuard 误回滚。
+ * 改为按预设区分：
+ *  - quality：后台长跑（数十万局），更看重吞吐与梯度稳定，用 16；
+ *  - performance：无每步搜索、单局极快，小 batch 优化器开销占比高，用 24 摊薄；
+ *  - balanced：折中，用 8。
+ * 仍可被服务端 RL_* / 请求体显式覆盖。逐局心跳（train_progress）不受 batch 影响，
+ * 看板得分曲线仍每局更新，仅详细 loss 行（train_episode）按 batch 粒度刷新。
+ */
+function resolveBackgroundTrainBatch(preset) {
+    if (preset === 'quality') return 16;
+    if (preset === 'performance') return 24;
+    return 8;
+}
 
 function resolveBackgroundWorkerCount(preset) {
     const rawCores = Number(
@@ -973,7 +991,7 @@ export function initRLPanel(game) {
                 try {
                     const trainingPreset = selPreset?.value || 'balanced';
                     const workerCount = resolveBackgroundWorkerCount(trainingPreset);
-                    const webBatch = WEB_DASHBOARD_TRAIN_BATCH;
+                    const webBatch = resolveBackgroundTrainBatch(trainingPreset);
                     // 性能档：默认关闭每步前瞻搜索（采集瓶颈是模拟器内循环，数百次 step/restore），
                     // 退化为「每步一次策略前向」，单局快 1~2 个数量级。用户显式勾选 lookahead 时尊重其选择。
                     const fastSampling = trainingPreset === 'performance' && !useLookahead;
@@ -981,7 +999,8 @@ export function initRLPanel(game) {
                         episodes: 500000,
                         resume: true,
                         n_workers: workerCount,
-                        // 看板用小 batch：balanced+MCTS 单局可达 1–3 分钟，batch=16 首屏 loss 要等太久
+                        // batch_episodes 按预设区分（resolveBackgroundTrainBatch）：quality=16 / performance=24 /
+                        // balanced=8，兼顾吞吐与梯度稳定；逐局心跳仍每局刷新，详细 loss 行按 batch 粒度。
                         batch_episodes: webBatch,
                         log_every: webBatch,
                         save_every: 50,

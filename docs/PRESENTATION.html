@@ -5,46 +5,47 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OpenBlock — 自适应算法体系</title>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Kaushan+Script&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  html{scroll-behavior:smooth;font-size:18px;scrollbar-width:none}
+  html{scroll-behavior:smooth;font-size:24px;scrollbar-width:none}
   html::-webkit-scrollbar{display:none}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#060810;color:#d8dce8;line-height:1.7;overflow-x:hidden}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#060810;color:#d8dce8;line-height:1.8;overflow-x:hidden}
 
   /* ═══════ GAME TITLE COVER ═══════ */
-  .cover{min-height:100vh;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:60px 60px;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,#0f1e30 0%,#080c18 55%,#060810 100%)}
+  .cover{min-height:100vh;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:5vh 6vw;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,#0f1e30 0%,#080c18 55%,#060810 100%)}
   .cover::before{content:'';position:absolute;inset:0;background:radial-gradient(2px 2px at 20% 30%,rgba(74,158,255,0.3),transparent 50%),radial-gradient(2px 2px at 80% 70%,rgba(255,183,77,0.2),transparent 50%);background-size:200px 200px;pointer-events:none}
-  .cover .game-brand{position:relative;margin-bottom:14px}
-  .cover .game-brand .logo-sub{position:absolute;top:-28px;left:50%;transform:translateX(-50%);font-size:0.9rem;letter-spacing:0.35em;color:rgba(126,184,255,0.3);font-weight:600}
-  .cover .game-title{font-size:8.5rem;font-weight:900;letter-spacing:0.06em;line-height:1;background:linear-gradient(135deg,#7eb8ff 0%,#4a9eff 35%,#a89060 65%,#ffb74d 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;position:relative;animation:titleGlow 4s ease-in-out infinite alternate;filter:drop-shadow(0 0 60px rgba(74,158,255,0.15))}
-  @keyframes titleGlow{0%{filter:drop-shadow(0 0 40px rgba(74,158,255,0.12))}100%{filter:drop-shadow(0 0 80px rgba(74,158,255,0.28))}}
-  .cover .game-title::after{content:'OpenBlock';position:absolute;left:0;top:0;z-index:-1;-webkit-text-fill-color:transparent;filter:blur(28px);opacity:0.3}
-  .cover .game-tagline{font-size:1.3rem;color:rgba(180,192,220,0.5);letter-spacing:0.18em;font-weight:400;margin-top:16px}
-  .cover .game-meta{position:absolute;bottom:56px;left:50%;transform:translateX(-50%);display:flex;gap:32px;font-size:0.85rem;color:rgba(90,106,138,0.6);letter-spacing:0.06em}
-  .cover .game-meta span{display:flex;align-items:center;gap:8px}
-  .cover .scroll-hint{position:absolute;bottom:18px;font-size:0.8rem;color:rgba(74,106,138,0.4);animation:bounce 2s infinite;letter-spacing:0.2em}
+  .cover .game-brand{position:relative;margin-bottom:1.8vh;width:100%}
+  .cover .game-brand .logo-sub{position:absolute;top:-4rem;left:50%;transform:translateX(-50%);font-family:'Kaushan Script',cursive;font-size:clamp(0.85rem,1.6vw,1.6rem);letter-spacing:0.02em;color:rgba(126,184,255,0.25);font-weight:400;white-space:nowrap}
+  .cover .game-brand .logo-sub .ai{display:inline-block;animation:aiPulse 2.5s ease-in-out infinite}
+  .cover .game-brand .logo-sub .ai .ai-i{font-size:1.4em;font-weight:800;background:linear-gradient(135deg,#7eb8ff 0%,#4af 60%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+  @keyframes aiPulse{0%,100%{filter:drop-shadow(0 0 4px rgba(74,158,255,0.4))}50%{filter:drop-shadow(0 0 18px rgba(74,158,255,0.9))}}
+  .cover .game-title{width:100%}.cover .game-title svg{width:auto;height:auto;max-width:50%;max-height:12vh;display:block;margin:0 auto}
+  .cover .main-title{font-family:'Ma Shan Zheng',cursive;font-size:clamp(1.3rem,2.4vw,2.4rem);font-weight:400;letter-spacing:0.06em;color:#c8d4e4;margin-bottom:0.8vh}
+  .cover .tags-row span{font-family:'Noto Sans SC',sans-serif;font-weight:500}
+  .cover .scroll-hint{position:absolute;bottom:3vh;left:50%;transform:translateX(-50%);font-size:clamp(0.7rem,0.8vw,0.85rem);color:rgba(74,106,138,0.4);animation:bounce 2s infinite;letter-spacing:0.2em}
   @keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(12px)}}
-
+  .cover .tags-row{margin-top:0.8vh}
   /* ═══════ SLIDE LAYOUT ═══════ */
-  .slide{min-height:100vh;height:auto;display:flex;flex-direction:column;justify-content:center;max-width:1200px;margin:0 auto;padding:80px 70px;position:relative}
+  .slide{min-height:100vh;height:auto;display:flex;flex-direction:column;justify-content:center;max-width:1400px;margin:0 auto;padding:4vh 4vw 5vh;position:relative}
   .slide::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:50%;height:1px;background:linear-gradient(90deg,transparent,rgba(74,158,255,0.1),transparent)}
 
   /* ═══════ TYPOGRAPHY ═══════ */
   h1{display:none}
-  h2{font-size:4.2rem;font-weight:800;margin:0 0 0.6em;position:relative;letter-spacing:-0.015em;line-height:1.15}
-  h2 .ch{display:block;font-size:7.5rem;font-weight:900;color:rgba(74,158,255,0.06);line-height:1;letter-spacing:0.02em;margin-bottom:-0.2em;pointer-events:none;-webkit-text-stroke:1px rgba(74,158,255,0.03)}
+  h2{font-size:4.0rem;font-weight:800;margin:0 0 0.3em;position:relative;letter-spacing:-0.015em;line-height:1.2}
+  h2 .ch{display:block;font-size:7rem;font-weight:900;color:rgba(74,158,255,0.06);line-height:1.0;letter-spacing:0.02em;margin-bottom:-0.12em;pointer-events:none;-webkit-text-stroke:1px rgba(74,158,255,0.03)}
   h2 .tt{display:block;position:relative}
-  h2 .tt::after{content:'';position:absolute;bottom:-10px;left:0;width:90px;height:4px;background:linear-gradient(90deg,#4a9eff,transparent);border-radius:2px}
-  h3{font-size:2.4rem;font-weight:700;margin:1.2em 0 0.5em;color:#b8ccf0;letter-spacing:-0.01em}
-  h3 .ch{font-size:0.6em;font-weight:600;color:rgba(74,158,255,0.35);margin-right:14px}
-  h4{font-size:1.5rem;font-weight:600;margin:1.4em 0 0.4em;color:#90acd8}
-  p{margin:0.6em 0;font-size:1.2rem;line-height:1.7}
-  h2,.cover .game-title,h3{word-break:break-word}
+  h2 .tt::after{content:'';position:absolute;bottom:-6px;left:0;width:100px;height:4px;background:linear-gradient(90deg,#4a9eff,transparent);border-radius:2px}
+  h3{font-size:2.2rem;font-weight:700;margin:0.6em 0 0.3em;color:#b8ccf0;letter-spacing:-0.01em}
+  h3 .ch{font-size:0.6em;font-weight:600;color:rgba(74,158,255,0.35);margin-right:12px}
+  h4{font-size:1.4rem;font-weight:600;margin:0.8em 0 0.3em;color:#90acd8}
+  p{margin:0.5em 0;font-size:1.2rem;line-height:1.7}
+  h2,h3{word-break:break-word}
 
   /* ═══════ DIALOG ═══════ */
-  .dialog{display:flex;gap:20px;margin:1.4em 0;padding:22px 28px;border-radius:16px;align-items:flex-start}
-  .dialog .avatar{flex:0 0 52px;width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.3rem;font-weight:700;color:#fff}
+  .dialog{display:flex;gap:14px;margin:0.8em 0;padding:16px 22px;border-radius:14px;align-items:flex-start}
+  .dialog .avatar{flex:0 0 44px;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.2rem;font-weight:700;color:#fff}
   .dialog .body{flex:1;min-width:0}
-  .dialog .body .name{font-weight:700;font-size:0.9rem;margin-bottom:6px;letter-spacing:0.5px;opacity:0.8}
+  .dialog .body .name{font-weight:700;font-size:0.95rem;margin-bottom:4px;letter-spacing:0.5px;opacity:0.8}
   .dialog .body .text{font-size:1.15rem;line-height:1.65}
   .dialog-p{background:rgba(74,158,255,0.06);border-left:4px solid #4a9eff}
   .dialog-p .avatar{background:#4a9eff}
@@ -54,16 +55,17 @@
   .dialog-a .name{color:#ffb74d}
 
   /* ═══════ CARDS ═══════ */
-  .card-row{display:grid;gap:24px;margin:1.2em 0}
+  .card-row{display:grid;gap:16px;margin:0.8em 0}
   .card-row.c2{grid-template-columns:1fr 1fr}
   .card-row.c3{grid-template-columns:1fr 1fr 1fr}
   .card-row.c4{grid-template-columns:1fr 1fr 1fr 1fr}
-  .card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:26px 28px;transition:border-color 0.25s,background 0.25s}
+  .card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:18px 22px;transition:border-color 0.25s,background 0.25s}
   .card:hover{border-color:rgba(255,255,255,0.1);background:rgba(255,255,255,0.04)}
-  .card .icon{font-size:2.2rem;margin-bottom:10px}
-  .card .tit{font-weight:700;font-size:1.15rem;color:#b8ccf0;letter-spacing:0.02em}
-  .card .desc{font-size:0.95rem;color:#8098b8;margin-top:6px;line-height:1.5}
-  .card .sub{font-size:0.85rem;color:#4a6088;margin-top:8px}
+  .card .icon{font-size:1.8rem;margin-right:10px;flex-shrink:0}
+  .card .tit{font-weight:700;font-size:1.2rem;color:#b8ccf0;letter-spacing:0.02em}
+  .card .head{display:flex;align-items:center;flex-wrap:nowrap}
+  .card .desc{font-size:1.0rem;color:#8098b8;margin-top:6px;line-height:1.55}
+  .card .sub{font-size:0.95rem;color:#4a6088;margin-top:6px}
   .card.accent-b{border-left:4px solid #4a9eff}
   .card.accent-o{border-left:4px solid #ffb74d}
   .card.accent-g{border-left:4px solid #81c784}
@@ -71,7 +73,7 @@
   .card.accent-r{border-left:4px solid #e57373}
 
   /* ═══════ FORMULA ═══════ */
-  .formula{background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:22px 26px;margin:1.2em 0;font-family:'SF Mono','Cascadia Code','JetBrains Mono',monospace;font-size:1rem;overflow-x:auto;color:#d0d8e8;line-height:1.65}
+  .formula{background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 18px;margin:0.8em 0;font-family:'SF Mono','Cascadia Code','JetBrains Mono',monospace;font-size:1.1rem;overflow-x:auto;color:#d0d8e8;line-height:1.6}
   .formula .hl{color:#ffb74d}
   .formula .hl2{color:#7eb8ff}
   .formula .hl3{color:#81c784}
@@ -79,69 +81,74 @@
   .formula .cm{color:#4a6088;font-style:italic}
 
   /* ═══════ MISC COMPONENTS ═══════ */
-  .img-frame{margin:1.4em 0;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.25);text-align:center}
+  .img-frame{margin:0.8em 0;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.25);text-align:center}
   .img-frame img{max-width:100%;display:block}
-  .img-frame .cap{padding:14px 22px;font-size:0.9rem;color:#7088a8}
-  .arch-box{background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:28px;margin:1.2em 0;font-family:'SF Mono',monospace;font-size:0.92rem;line-height:1.55;white-space:pre;overflow-x:auto;color:#c8d0e0}
-  .tag{display:inline-block;padding:3px 16px;border-radius:24px;font-size:0.88rem;font-weight:600;margin:0 4px}
+  .img-frame .cap{padding:10px 18px;font-size:0.95rem;color:#7088a8}
+  .arch-box{background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:18px;margin:0.8em 0;font-family:'SF Mono',monospace;font-size:0.95rem;line-height:1.5;white-space:pre;overflow-x:auto;color:#c8d0e0}
+  .tag{display:inline-block;padding:4px 16px;border-radius:20px;font-size:0.95rem;font-weight:600;margin:0 4px}
   .tag-b{background:rgba(74,158,255,0.12);color:#7eb8ff}
   .tag-o{background:rgba(255,183,77,0.12);color:#ffb74d}
   .tag-g{background:rgba(129,199,132,0.12);color:#81c784}
   .tag-p{background:rgba(186,104,200,0.12);color:#ba68c8}
   .tag-r{background:rgba(229,115,115,0.12);color:#e57373}
-  .toc{margin:1.4em 0;padding:32px 36px;background:rgba(255,255,255,0.02);border-radius:18px;border:1px solid rgba(255,255,255,0.04);font-size:1.1rem}
+  .toc{margin:0.8em 0;padding:20px 24px;background:rgba(255,255,255,0.02);border-radius:14px;border:1px solid rgba(255,255,255,0.04);font-size:1.1rem}
   .toc ol{list-style:none;counter-reset:toc}
-  .toc li{counter-increment:toc;margin:12px 0;padding-left:0}
-  .toc li::before{content:counter(toc)'. ';color:#4a9eff;font-weight:700;font-size:1.2rem}
+  .toc li{counter-increment:toc;margin:6px 0;padding-left:0}
+  .toc li::before{content:counter(toc)'. ';color:#4a9eff;font-weight:700;font-size:1.0rem}
   .toc a{color:#88a0c8;text-decoration:none;transition:color 0.2s}
   .toc a:hover{color:#7eb8ff}
-  .toc .s{color:#4a6088;font-size:0.9rem;margin-left:10px}
-  .toc .sub{padding-left:2em;counter-increment:none;list-style:none;font-size:0.95rem;margin:4px 0;color:#6a80a0}
-  .quo{font-size:1.15rem;color:#c0d0e8;border-left:4px solid #ffb74d;padding:12px 0 12px 28px;margin:1.2em 0;font-style:italic;background:rgba(255,183,77,0.03);border-radius:0 12px 12px 0}
-  .quo cite{display:block;font-size:0.85rem;color:#4a6088;margin-top:6px;font-style:normal}
-  .table-wrap{overflow-x:auto;margin:1.2em 0}
-  table{width:100%;border-collapse:collapse;font-size:1rem}
-  table th{background:rgba(74,158,255,0.1);padding:14px 16px;text-align:left;font-weight:600;color:#7eb8ff;border-bottom:1px solid rgba(255,255,255,0.05)}
-  table td{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.03);vertical-align:top}
-  .stress-bar{display:flex;height:44px;border-radius:22px;overflow:hidden;margin:0.8em 0}
-  .stress-bar .seg{flex:1;display:flex;align-items:center;justify-content:center;font-size:0.85rem;font-weight:700;color:rgba(255,255,255,0.3)}
+  .toc .s{color:#4a6088;font-size:0.85rem;margin-left:8px}
+  .toc .sub{padding-left:2em;counter-increment:none;list-style:none;font-size:0.95rem;margin:3px 0;color:#6a80a0}
+  .quo{font-size:1.1rem;color:#c0d0e8;border-left:3px solid #ffb74d;padding:8px 0 8px 20px;margin:0.5em 0;font-style:italic;background:rgba(255,183,77,0.03);border-radius:0 10px 10px 0}
+  .quo cite{display:block;font-size:0.85rem;color:#4a6088;margin-top:4px;font-style:normal}
+  .table-wrap{overflow-x:auto;margin:0.6em 0}
+  table{width:100%;border-collapse:collapse;font-size:1.0rem}
+  table th{background:rgba(74,158,255,0.1);padding:10px 14px;text-align:left;font-weight:600;color:#7eb8ff;border-bottom:1px solid rgba(255,255,255,0.05)}
+  table td{padding:8px 14px;border-bottom:1px solid rgba(255,255,255,0.03);vertical-align:top}
+  .stress-bar{display:flex;height:36px;border-radius:18px;overflow:hidden;margin:0.5em 0}
+  .stress-bar .seg{flex:1;display:flex;align-items:center;justify-content:center;font-size:1.0rem;font-weight:700;color:rgba(255,255,255,0.3)}
   .stress-bar .seg.active{color:#fff;box-shadow:inset 0 0 20px rgba(255,255,255,0.1)}
-  .sec-label{display:inline-block;padding:4px 14px;border-radius:6px;font-size:0.8rem;font-weight:700;margin-right:10px}
+  .sec-label{display:inline-block;padding:5px 16px;border-radius:6px;font-size:1.0rem;font-weight:700;margin-right:10px}
   .sec-rationale{background:rgba(74,158,255,0.1);color:#7eb8ff}
   .sec-selection{background:rgba(255,183,77,0.1);color:#ffb74d}
   .sec-feature{background:rgba(129,199,132,0.1);color:#81c784}
   .sec-arch{background:rgba(186,104,200,0.1);color:#ba68c8}
   hr{opacity:0.12}
-  .section-bridge{margin:2em 0;padding:32px 36px;background:rgba(255,183,77,0.04);border-radius:16px;border:1px solid rgba(255,183,77,0.08);text-align:center}
+  .section-bridge{margin:1em 0;padding:20px 28px;background:rgba(255,183,77,0.04);border-radius:14px;border:1px solid rgba(255,183,77,0.08);text-align:center}
   .section-bridge p{font-size:1.2rem;color:#d0a870;font-weight:700;margin:0}
-  .section-bridge .sub{color:#8098b8;font-size:0.95rem;margin-top:10px;font-weight:400}
+  .section-bridge .sub{color:#8098b8;font-size:1.0rem;margin-top:8px;font-weight:400}
 
   /* ═══════ SLIDE NAV ═══════ */
   .slide-nav{position:fixed;bottom:36px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;z-index:1000;background:rgba(6,8,16,0.7);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);padding:8px 18px;border-radius:24px;border:1px solid rgba(255,255,255,0.06)}
   .slide-nav .dot{width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,0.12);border:none;cursor:pointer;transition:all 0.3s;padding:0}
   .slide-nav .dot:hover{background:rgba(255,255,255,0.25)}
   .slide-nav .dot.active{background:#4a9eff;box-shadow:0 0 12px rgba(74,158,255,0.4);width:28px;border-radius:5px}
-  .slide-nav .nav-btn{background:none;border:none;color:rgba(255,255,255,0.3);font-size:1.2rem;cursor:pointer;padding:4px 8px;transition:color 0.2s;display:flex;align-items:center}
+  .slide-nav .nav-btn{background:none;border:none;color:rgba(255,255,255,0.3);font-size:1.4rem;cursor:pointer;padding:4px 8px;transition:color 0.2s;display:flex;align-items:center}
   .slide-nav .nav-btn:hover{color:rgba(255,255,255,0.7)}
-  .slide-nav .counter{font-size:0.75rem;color:rgba(255,255,255,0.25);letter-spacing:0.1em;min-width:48px;text-align:center}
+  .slide-nav .counter{font-size:0.85rem;color:rgba(255,255,255,0.25);letter-spacing:0.1em;min-width:48px;text-align:center}
 
   @media(max-width:760px){
-    .slide{padding:50px 24px;min-height:100vh}
-    .cover{padding:40px 24px}
-    .cover .game-title{font-size:4rem}
-    .cover .game-meta{flex-direction:column;gap:12px;bottom:60px}
-    h2{font-size:2.2rem}
-    h2 .ch{font-size:3.5rem}
-    h3{font-size:1.5rem}
-    h4{font-size:1.15rem}
-    p{font-size:1rem}
+    .slide{padding:3vh 3vw}
+    .cover{padding:5vh 5vw}
+    .cover .main-title{font-size:1.2rem}
+    .cover .game-brand .logo-sub{font-family:'Kaushan Script',cursive;font-size:0.7rem;top:-2rem}
+    .cover .game-brand{margin-bottom:1.2vh}
+    h2{font-size:2.4rem}
+    h2 .ch{font-size:3.2rem}
+    h3{font-size:1.6rem}
+    h4{font-size:1.2rem}
+    p{font-size:1.1rem}
     .card-row.c2,.card-row.c3,.card-row.c4{grid-template-columns:1fr}
-    .dialog{padding:16px 18px;flex-direction:column}
-    .dialog .avatar{width:40px;height:40px;font-size:1rem}
-    .slide-nav{bottom:16px;padding:6px 12px;gap:8px}
+    .card{padding:14px 16px}
+    .card .tit{font-size:1.1rem}
+    .card .desc{font-size:0.9rem}
+    .dialog{padding:14px 16px;flex-direction:column;gap:10px}
+    .dialog .avatar{width:36px;height:36px;font-size:1.0rem}
+    .dialog .body .text{font-size:1.0rem}
+    .slide-nav{bottom:12px;padding:6px 12px;gap:6px}
     .slide-nav .dot{width:8px;height:8px}
     .slide-nav .dot.active{width:20px}
-    .slide-nav .counter{font-size:0.65rem;min-width:36px}
+    .slide-nav .counter{font-size:0.7rem;min-width:36px}
   }
 
   /* ═══════ ZOOM OVERLAY ═══════ */
@@ -160,18 +167,347 @@
 <!-- ═══════ GAME TITLE SCREEN ═══════ -->
 <section class="cover">
   <div class="game-brand">
-    <div class="logo-sub">ADAPTIVE ALGORITHM SYSTEM</div>
-    <div class="game-title">OpenBlock</div>
+    <div class="logo-sub"><span class="ai"><span class="ai-i">A</span></span>LGORITHMS · <span class="ai"><span class="ai-i">I</span></span>NTELLIGENCE</div>
+    <div class="game-title"><svg viewBox="0 0 1272.1 239.0" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<filter id="wg"><feDropShadow dx="0" dy="3" stdDeviation="10" flood-color="rgba(74,158,255,0.35)"/><feDropShadow dx="0" dy="0" stdDeviation="20" flood-color="rgba(74,158,255,0.12)"/></filter>
+</defs>
+<g filter="url(#wg)" transform="skewX(-8)">
+<rect x="106.5" y="8.0" width="20" height="30" rx="5" fill="hsl(21.4,78%,56%)" stroke="hsla(21.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="107.0" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="128.0" y="8.0" width="20" height="30" rx="5" fill="hsl(28.6,78%,56%)" stroke="hsla(28.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="128.5" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="42.0" y="39.5" width="20" height="30" rx="5" fill="hsl(0.0,78%,56%)" stroke="hsla(0.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="42.5" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="63.5" y="39.5" width="20" height="30" rx="5" fill="hsl(7.1,78%,56%)" stroke="hsla(7.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="64.0" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="128.0" y="39.5" width="20" height="30" rx="5" fill="hsl(28.6,78%,56%)" stroke="hsla(28.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="128.5" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="149.5" y="39.5" width="20" height="30" rx="5" fill="hsl(35.7,78%,56%)" stroke="hsla(35.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="150.0" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="42.0" y="71.0" width="20" height="30" rx="5" fill="hsl(0.0,78%,56%)" stroke="hsla(0.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="42.5" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="63.5" y="71.0" width="20" height="30" rx="5" fill="hsl(7.1,78%,56%)" stroke="hsla(7.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="64.0" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="128.0" y="71.0" width="20" height="30" rx="5" fill="hsl(28.6,78%,56%)" stroke="hsla(28.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="128.5" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="149.5" y="71.0" width="20" height="30" rx="5" fill="hsl(35.7,78%,56%)" stroke="hsla(35.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="150.0" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="42.0" y="102.5" width="20" height="30" rx="5" fill="hsl(0.0,78%,56%)" stroke="hsla(0.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="42.5" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="63.5" y="102.5" width="20" height="30" rx="5" fill="hsl(7.1,78%,56%)" stroke="hsla(7.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="64.0" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="128.0" y="102.5" width="20" height="30" rx="5" fill="hsl(28.6,78%,56%)" stroke="hsla(28.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="128.5" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="149.5" y="102.5" width="20" height="30" rx="5" fill="hsl(35.7,78%,56%)" stroke="hsla(35.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="150.0" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="42.0" y="134.0" width="20" height="30" rx="5" fill="hsl(0.0,78%,56%)" stroke="hsla(0.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="42.5" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="63.5" y="134.0" width="20" height="30" rx="5" fill="hsl(7.1,78%,56%)" stroke="hsla(7.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="64.0" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="128.0" y="134.0" width="20" height="30" rx="5" fill="hsl(28.6,78%,56%)" stroke="hsla(28.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="128.5" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="149.5" y="134.0" width="20" height="30" rx="5" fill="hsl(35.7,78%,56%)" stroke="hsla(35.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="150.0" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="42.0" y="165.5" width="20" height="30" rx="5" fill="hsl(0.0,78%,56%)" stroke="hsla(0.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="42.5" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="63.5" y="165.5" width="20" height="30" rx="5" fill="hsl(7.1,78%,56%)" stroke="hsla(7.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="64.0" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="128.0" y="165.5" width="20" height="30" rx="5" fill="hsl(28.6,78%,56%)" stroke="hsla(28.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="128.5" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="149.5" y="165.5" width="20" height="30" rx="5" fill="hsl(35.7,78%,56%)" stroke="hsla(35.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="150.0" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="63.5" y="197.0" width="20" height="30" rx="5" fill="hsl(7.1,78%,56%)" stroke="hsla(7.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="64.0" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="85.0" y="197.0" width="20" height="30" rx="5" fill="hsl(14.3,78%,56%)" stroke="hsla(14.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="85.5" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="106.5" y="197.0" width="20" height="30" rx="5" fill="hsl(21.4,78%,56%)" stroke="hsla(21.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="107.0" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="128.0" y="197.0" width="20" height="30" rx="5" fill="hsl(28.6,78%,56%)" stroke="hsla(28.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="128.5" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="185.0" y="8.0" width="20" height="30" rx="5" fill="hsl(42.9,78%,56%)" stroke="hsla(42.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="185.5" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="206.5" y="8.0" width="20" height="30" rx="5" fill="hsl(50.0,78%,56%)" stroke="hsla(50.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="207.0" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="228.0" y="8.0" width="20" height="30" rx="5" fill="hsl(57.1,78%,56%)" stroke="hsla(57.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="228.5" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="249.5" y="8.0" width="20" height="30" rx="5" fill="hsl(64.3,78%,56%)" stroke="hsla(64.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="250.0" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="185.0" y="39.5" width="20" height="30" rx="5" fill="hsl(42.9,78%,56%)" stroke="hsla(42.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="185.5" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="249.5" y="39.5" width="20" height="30" rx="5" fill="hsl(64.3,78%,56%)" stroke="hsla(64.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="250.0" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="271.0" y="39.5" width="20" height="30" rx="5" fill="hsl(71.4,78%,56%)" stroke="hsla(71.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="271.5" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="185.0" y="71.0" width="20" height="30" rx="5" fill="hsl(42.9,78%,56%)" stroke="hsla(42.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="185.5" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="249.5" y="71.0" width="20" height="30" rx="5" fill="hsl(64.3,78%,56%)" stroke="hsla(64.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="250.0" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="271.0" y="71.0" width="20" height="30" rx="5" fill="hsl(71.4,78%,56%)" stroke="hsla(71.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="271.5" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="185.0" y="102.5" width="20" height="30" rx="5" fill="hsl(42.9,78%,56%)" stroke="hsla(42.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="185.5" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="206.5" y="102.5" width="20" height="30" rx="5" fill="hsl(50.0,78%,56%)" stroke="hsla(50.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="207.0" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="228.0" y="102.5" width="20" height="30" rx="5" fill="hsl(57.1,78%,56%)" stroke="hsla(57.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="228.5" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="249.5" y="102.5" width="20" height="30" rx="5" fill="hsl(64.3,78%,56%)" stroke="hsla(64.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="250.0" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="185.0" y="134.0" width="20" height="30" rx="5" fill="hsl(42.9,78%,56%)" stroke="hsla(42.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="185.5" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="185.0" y="165.5" width="20" height="30" rx="5" fill="hsl(42.9,78%,56%)" stroke="hsla(42.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="185.5" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="185.0" y="197.0" width="20" height="30" rx="5" fill="hsl(42.9,78%,56%)" stroke="hsla(42.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="185.5" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="306.5" y="8.0" width="20" height="30" rx="5" fill="hsl(78.6,78%,56%)" stroke="hsla(78.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="307.0" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="328.0" y="8.0" width="20" height="30" rx="5" fill="hsl(85.7,78%,56%)" stroke="hsla(85.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="328.5" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="349.5" y="8.0" width="20" height="30" rx="5" fill="hsl(92.9,78%,56%)" stroke="hsla(92.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="350.0" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="371.0" y="8.0" width="20" height="30" rx="5" fill="hsl(100.0,78%,56%)" stroke="hsla(100.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="371.5" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="306.5" y="39.5" width="20" height="30" rx="5" fill="hsl(78.6,78%,56%)" stroke="hsla(78.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="307.0" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="371.0" y="39.5" width="20" height="30" rx="5" fill="hsl(100.0,78%,56%)" stroke="hsla(100.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="371.5" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="306.5" y="71.0" width="20" height="30" rx="5" fill="hsl(78.6,78%,56%)" stroke="hsla(78.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="307.0" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="371.0" y="71.0" width="20" height="30" rx="5" fill="hsl(100.0,78%,56%)" stroke="hsla(100.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="371.5" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="306.5" y="102.5" width="20" height="30" rx="5" fill="hsl(78.6,78%,56%)" stroke="hsla(78.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="307.0" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="328.0" y="102.5" width="20" height="30" rx="5" fill="hsl(85.7,78%,56%)" stroke="hsla(85.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="328.5" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="349.5" y="102.5" width="20" height="30" rx="5" fill="hsl(92.9,78%,56%)" stroke="hsla(92.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="350.0" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="371.0" y="102.5" width="20" height="30" rx="5" fill="hsl(100.0,78%,56%)" stroke="hsla(100.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="371.5" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="306.5" y="134.0" width="20" height="30" rx="5" fill="hsl(78.6,78%,56%)" stroke="hsla(78.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="307.0" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="306.5" y="165.5" width="20" height="30" rx="5" fill="hsl(78.6,78%,56%)" stroke="hsla(78.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="307.0" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="306.5" y="197.0" width="20" height="30" rx="5" fill="hsl(78.6,78%,56%)" stroke="hsla(78.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="307.0" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="328.0" y="197.0" width="20" height="30" rx="5" fill="hsl(85.7,78%,56%)" stroke="hsla(85.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="328.5" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="349.5" y="197.0" width="20" height="30" rx="5" fill="hsl(92.9,78%,56%)" stroke="hsla(92.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="350.0" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="371.0" y="197.0" width="20" height="30" rx="5" fill="hsl(100.0,78%,56%)" stroke="hsla(100.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="371.5" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="406.5" y="8.0" width="20" height="30" rx="5" fill="hsl(107.1,78%,56%)" stroke="hsla(107.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="407.0" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="535.5" y="8.0" width="20" height="30" rx="5" fill="hsl(150.0,78%,56%)" stroke="hsla(150.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="536.0" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="406.5" y="39.5" width="20" height="30" rx="5" fill="hsl(107.1,78%,56%)" stroke="hsla(107.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="407.0" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="428.0" y="39.5" width="20" height="30" rx="5" fill="hsl(114.3,78%,56%)" stroke="hsla(114.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="428.5" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="535.5" y="39.5" width="20" height="30" rx="5" fill="hsl(150.0,78%,56%)" stroke="hsla(150.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="536.0" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="406.5" y="71.0" width="20" height="30" rx="5" fill="hsl(107.1,78%,56%)" stroke="hsla(107.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="407.0" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="449.5" y="71.0" width="20" height="30" rx="5" fill="hsl(121.4,78%,56%)" stroke="hsla(121.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="450.0" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="535.5" y="71.0" width="20" height="30" rx="5" fill="hsl(150.0,78%,56%)" stroke="hsla(150.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="536.0" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="406.5" y="102.5" width="20" height="30" rx="5" fill="hsl(107.1,78%,56%)" stroke="hsla(107.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="407.0" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="471.0" y="102.5" width="20" height="30" rx="5" fill="hsl(128.6,78%,56%)" stroke="hsla(128.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="471.5" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="535.5" y="102.5" width="20" height="30" rx="5" fill="hsl(150.0,78%,56%)" stroke="hsla(150.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="536.0" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="406.5" y="134.0" width="20" height="30" rx="5" fill="hsl(107.1,78%,56%)" stroke="hsla(107.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="407.0" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="492.5" y="134.0" width="20" height="30" rx="5" fill="hsl(135.7,78%,56%)" stroke="hsla(135.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="493.0" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="535.5" y="134.0" width="20" height="30" rx="5" fill="hsl(150.0,78%,56%)" stroke="hsla(150.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="536.0" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="406.5" y="165.5" width="20" height="30" rx="5" fill="hsl(107.1,78%,56%)" stroke="hsla(107.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="407.0" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="514.0" y="165.5" width="20" height="30" rx="5" fill="hsl(142.9,78%,56%)" stroke="hsla(142.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="514.5" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="535.5" y="165.5" width="20" height="30" rx="5" fill="hsl(150.0,78%,56%)" stroke="hsla(150.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="536.0" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="406.5" y="197.0" width="20" height="30" rx="5" fill="hsl(107.1,78%,56%)" stroke="hsla(107.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="407.0" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="535.5" y="197.0" width="20" height="30" rx="5" fill="hsl(150.0,78%,56%)" stroke="hsla(150.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="536.0" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="665.6" y="8.0" width="20" height="30" rx="5" fill="hsl(188.6,78%,56%)" stroke="hsla(188.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="666.1" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="687.1" y="8.0" width="20" height="30" rx="5" fill="hsl(195.7,78%,56%)" stroke="hsla(195.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="687.6" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="708.6" y="8.0" width="20" height="30" rx="5" fill="hsl(202.9,78%,56%)" stroke="hsla(202.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="709.1" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="622.6" y="39.5" width="20" height="30" rx="5" fill="hsl(174.3,78%,56%)" stroke="hsla(174.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="623.1" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="644.1" y="39.5" width="20" height="30" rx="5" fill="hsl(181.4,78%,56%)" stroke="hsla(181.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="644.6" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="708.6" y="39.5" width="20" height="30" rx="5" fill="hsl(202.9,78%,56%)" stroke="hsla(202.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="709.1" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="730.1" y="39.5" width="20" height="30" rx="5" fill="hsl(210.0,78%,56%)" stroke="hsla(210.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="730.6" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="622.6" y="71.0" width="20" height="30" rx="5" fill="hsl(174.3,78%,56%)" stroke="hsla(174.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="623.1" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="644.1" y="71.0" width="20" height="30" rx="5" fill="hsl(181.4,78%,56%)" stroke="hsla(181.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="644.6" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="708.6" y="71.0" width="20" height="30" rx="5" fill="hsl(202.9,78%,56%)" stroke="hsla(202.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="709.1" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="730.1" y="71.0" width="20" height="30" rx="5" fill="hsl(210.0,78%,56%)" stroke="hsla(210.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="730.6" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="622.6" y="102.5" width="20" height="30" rx="5" fill="hsl(174.3,78%,56%)" stroke="hsla(174.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="623.1" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="644.1" y="102.5" width="20" height="30" rx="5" fill="hsl(181.4,78%,56%)" stroke="hsla(181.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="644.6" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="665.6" y="102.5" width="20" height="30" rx="5" fill="hsl(188.6,78%,56%)" stroke="hsla(188.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="666.1" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="687.1" y="102.5" width="20" height="30" rx="5" fill="hsl(195.7,78%,56%)" stroke="hsla(195.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="687.6" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="708.6" y="102.5" width="20" height="30" rx="5" fill="hsl(202.9,78%,56%)" stroke="hsla(202.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="709.1" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="622.6" y="134.0" width="20" height="30" rx="5" fill="hsl(174.3,78%,56%)" stroke="hsla(174.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="623.1" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="644.1" y="134.0" width="20" height="30" rx="5" fill="hsl(181.4,78%,56%)" stroke="hsla(181.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="644.6" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="708.6" y="134.0" width="20" height="30" rx="5" fill="hsl(202.9,78%,56%)" stroke="hsla(202.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="709.1" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="730.1" y="134.0" width="20" height="30" rx="5" fill="hsl(210.0,78%,56%)" stroke="hsla(210.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="730.6" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="622.6" y="165.5" width="20" height="30" rx="5" fill="hsl(174.3,78%,56%)" stroke="hsla(174.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="623.1" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="644.1" y="165.5" width="20" height="30" rx="5" fill="hsl(181.4,78%,56%)" stroke="hsla(181.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="644.6" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="708.6" y="165.5" width="20" height="30" rx="5" fill="hsl(202.9,78%,56%)" stroke="hsla(202.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="709.1" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="730.1" y="165.5" width="20" height="30" rx="5" fill="hsl(210.0,78%,56%)" stroke="hsla(210.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="730.6" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="622.6" y="197.0" width="20" height="30" rx="5" fill="hsl(174.3,78%,56%)" stroke="hsla(174.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="623.1" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="644.1" y="197.0" width="20" height="30" rx="5" fill="hsl(181.4,78%,56%)" stroke="hsla(181.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="644.6" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="665.6" y="197.0" width="20" height="30" rx="5" fill="hsl(188.6,78%,56%)" stroke="hsla(188.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="666.1" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="687.1" y="197.0" width="20" height="30" rx="5" fill="hsl(195.7,78%,56%)" stroke="hsla(195.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="687.6" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="708.6" y="197.0" width="20" height="30" rx="5" fill="hsl(202.9,78%,56%)" stroke="hsla(202.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="709.1" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="787.1" y="8.0" width="20" height="30" rx="5" fill="hsl(224.3,78%,56%)" stroke="hsla(224.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="787.6" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="787.1" y="39.5" width="20" height="30" rx="5" fill="hsl(224.3,78%,56%)" stroke="hsla(224.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="787.6" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="787.1" y="71.0" width="20" height="30" rx="5" fill="hsl(224.3,78%,56%)" stroke="hsla(224.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="787.6" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="787.1" y="102.5" width="20" height="30" rx="5" fill="hsl(224.3,78%,56%)" stroke="hsla(224.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="787.6" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="787.1" y="134.0" width="20" height="30" rx="5" fill="hsl(224.3,78%,56%)" stroke="hsla(224.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="787.6" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="787.1" y="165.5" width="20" height="30" rx="5" fill="hsl(224.3,78%,56%)" stroke="hsla(224.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="787.6" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="787.1" y="197.0" width="20" height="30" rx="5" fill="hsl(224.3,78%,56%)" stroke="hsla(224.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="787.6" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="808.6" y="197.0" width="20" height="30" rx="5" fill="hsl(231.4,78%,56%)" stroke="hsla(231.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="809.1" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="830.1" y="197.0" width="20" height="30" rx="5" fill="hsl(238.6,78%,56%)" stroke="hsla(238.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="830.6" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="851.6" y="197.0" width="20" height="30" rx="5" fill="hsl(245.7,78%,56%)" stroke="hsla(245.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="852.1" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="908.6" y="8.0" width="20" height="30" rx="5" fill="hsl(260.0,78%,56%)" stroke="hsla(260.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="909.1" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="930.1" y="8.0" width="20" height="30" rx="5" fill="hsl(267.1,78%,56%)" stroke="hsla(267.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="930.6" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="951.6" y="8.0" width="20" height="30" rx="5" fill="hsl(274.3,78%,56%)" stroke="hsla(274.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="952.1" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="887.1" y="39.5" width="20" height="30" rx="5" fill="hsl(252.9,78%,56%)" stroke="hsla(252.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="887.6" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="973.1" y="39.5" width="20" height="30" rx="5" fill="hsl(281.4,78%,56%)" stroke="hsla(281.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="973.6" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="887.1" y="71.0" width="20" height="30" rx="5" fill="hsl(252.9,78%,56%)" stroke="hsla(252.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="887.6" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="973.1" y="71.0" width="20" height="30" rx="5" fill="hsl(281.4,78%,56%)" stroke="hsla(281.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="973.6" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="887.1" y="102.5" width="20" height="30" rx="5" fill="hsl(252.9,78%,56%)" stroke="hsla(252.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="887.6" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="973.1" y="102.5" width="20" height="30" rx="5" fill="hsl(281.4,78%,56%)" stroke="hsla(281.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="973.6" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="887.1" y="134.0" width="20" height="30" rx="5" fill="hsl(252.9,78%,56%)" stroke="hsla(252.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="887.6" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="973.1" y="134.0" width="20" height="30" rx="5" fill="hsl(281.4,78%,56%)" stroke="hsla(281.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="973.6" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="887.1" y="165.5" width="20" height="30" rx="5" fill="hsl(252.9,78%,56%)" stroke="hsla(252.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="887.6" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="973.1" y="165.5" width="20" height="30" rx="5" fill="hsl(281.4,78%,56%)" stroke="hsla(281.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="973.6" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="908.6" y="197.0" width="20" height="30" rx="5" fill="hsl(260.0,78%,56%)" stroke="hsla(260.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="909.1" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="930.1" y="197.0" width="20" height="30" rx="5" fill="hsl(267.1,78%,56%)" stroke="hsla(267.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="930.6" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="951.6" y="197.0" width="20" height="30" rx="5" fill="hsl(274.3,78%,56%)" stroke="hsla(274.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="952.1" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1030.1" y="8.0" width="20" height="30" rx="5" fill="hsl(295.7,78%,56%)" stroke="hsla(295.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1030.6" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1051.6" y="8.0" width="20" height="30" rx="5" fill="hsl(302.9,78%,56%)" stroke="hsla(302.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1052.1" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1073.1" y="8.0" width="20" height="30" rx="5" fill="hsl(310.0,78%,56%)" stroke="hsla(310.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1073.6" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1008.6" y="39.5" width="20" height="30" rx="5" fill="hsl(288.6,78%,56%)" stroke="hsla(288.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1009.1" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1094.6" y="39.5" width="20" height="30" rx="5" fill="hsl(317.1,78%,56%)" stroke="hsla(317.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1095.1" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1008.6" y="71.0" width="20" height="30" rx="5" fill="hsl(288.6,78%,56%)" stroke="hsla(288.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1009.1" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1008.6" y="102.5" width="20" height="30" rx="5" fill="hsl(288.6,78%,56%)" stroke="hsla(288.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1009.1" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1008.6" y="134.0" width="20" height="30" rx="5" fill="hsl(288.6,78%,56%)" stroke="hsla(288.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1009.1" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1008.6" y="165.5" width="20" height="30" rx="5" fill="hsl(288.6,78%,56%)" stroke="hsla(288.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1009.1" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1094.6" y="165.5" width="20" height="30" rx="5" fill="hsl(317.1,78%,56%)" stroke="hsla(317.1,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1095.1" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1030.1" y="197.0" width="20" height="30" rx="5" fill="hsl(295.7,78%,56%)" stroke="hsla(295.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1030.6" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1051.6" y="197.0" width="20" height="30" rx="5" fill="hsl(302.9,78%,56%)" stroke="hsla(302.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1052.1" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1073.1" y="197.0" width="20" height="30" rx="5" fill="hsl(310.0,78%,56%)" stroke="hsla(310.0,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1073.6" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1130.1" y="8.0" width="20" height="30" rx="5" fill="hsl(324.3,78%,56%)" stroke="hsla(324.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1130.6" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1216.1" y="8.0" width="20" height="30" rx="5" fill="hsl(352.9,78%,56%)" stroke="hsla(352.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1216.6" y="8.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1130.1" y="39.5" width="20" height="30" rx="5" fill="hsl(324.3,78%,56%)" stroke="hsla(324.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1130.6" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1194.6" y="39.5" width="20" height="30" rx="5" fill="hsl(345.7,78%,56%)" stroke="hsla(345.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1195.1" y="40.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1130.1" y="71.0" width="20" height="30" rx="5" fill="hsl(324.3,78%,56%)" stroke="hsla(324.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1130.6" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1173.1" y="71.0" width="20" height="30" rx="5" fill="hsl(338.6,78%,56%)" stroke="hsla(338.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1173.6" y="71.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1130.1" y="102.5" width="20" height="30" rx="5" fill="hsl(324.3,78%,56%)" stroke="hsla(324.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1130.6" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1151.6" y="102.5" width="20" height="30" rx="5" fill="hsl(331.4,78%,56%)" stroke="hsla(331.4,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1152.1" y="103.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1130.1" y="134.0" width="20" height="30" rx="5" fill="hsl(324.3,78%,56%)" stroke="hsla(324.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1130.6" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1173.1" y="134.0" width="20" height="30" rx="5" fill="hsl(338.6,78%,56%)" stroke="hsla(338.6,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1173.6" y="134.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1130.1" y="165.5" width="20" height="30" rx="5" fill="hsl(324.3,78%,56%)" stroke="hsla(324.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1130.6" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1194.6" y="165.5" width="20" height="30" rx="5" fill="hsl(345.7,78%,56%)" stroke="hsla(345.7,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1195.1" y="166.0" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1130.1" y="197.0" width="20" height="30" rx="5" fill="hsl(324.3,78%,56%)" stroke="hsla(324.3,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1130.6" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<rect x="1216.1" y="197.0" width="20" height="30" rx="5" fill="hsl(352.9,78%,56%)" stroke="hsla(352.9,58%,34%,0.35)" stroke-width="0.8"/>
+<rect x="1216.6" y="197.5" width="19" height="12.6" rx="5" fill="rgba(255,255,255,0.30)"/>
+<text x="74.2" y="42.0" font-size="38" text-anchor="middle" fill="rgba(255,255,255,0.92)" filter="drop-shadow(0 0 4px rgba(255,255,255,0.5))">🎮</text>
+<text x="633.4" y="42.0" font-size="38" text-anchor="middle" fill="rgba(255,255,255,0.92)" filter="drop-shadow(0 0 4px rgba(255,255,255,0.5))">🏆</text>
+<polygon points="596.8,99.5 601.0,111.7 613.9,111.9 603.6,119.7 607.4,132.1 596.8,124.7 586.2,132.1 590.0,119.7 579.7,111.9 592.6,111.7" fill="#fcd34d" filter="drop-shadow(0 0 8px rgba(252,211,77,0.7))"/>
+</g>
+</svg></div>
   </div>
-  <div class="game-tagline">算法驱动的智能休闲游戏</div>
-  <div style="margin-top:28px;display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+  <div class="main-title">算法驱动的方块消除智能游戏平台</div>
+  <div class="tags-row" style="display:flex;gap:16px;flex-wrap:wrap;justify-content:center;margin-top:1.5vh">
     <span class="tag tag-b">产品设计</span>
     <span class="tag tag-o">算法策略</span>
     <span class="tag tag-p">商业运营</span>
-  </div>
-  <div class="game-meta">
-    <span>🎮 玩法设计师 · P</span>
-    <span>⚙ 算法工程师 · A</span>
   </div>
   <div class="scroll-hint">▼ 键盘 ← → 或点击切换 ▼</div>
 </section>
@@ -189,35 +525,32 @@
 </svg>
 
 <!-- ═══════ TOC ═══════ -->
-<section class="slide">
-  <h2><span class="ch">00</span><span class="tt">目录</span></h2>
-  <div class="toc">
-    <ol>
-      <li><a href="#design">一、产品设计</a></li>
-      <li class="sub" style="padding-left:2em;font-size:0.9rem;color:#6a80a0;list-style:none;counter-increment:none;margin:4px 0">
-        1.1 <a href="#psyc" style="color:#6a80a0">心理学基础</a> ·
-        1.2 <a href="#strategy" style="color:#6a80a0">产品策略设计</a> ·
-        1.3 <a href="#product" style="color:#6a80a0">产品功能设计</a>
-      </li>
-      <li class="sub" style="padding-left:2.8em;font-size:0.85rem;color:#4a6088;list-style:none;counter-increment:none;margin:2px 0">
-        <a href="#strategy-sc" style="color:#4a6088">S 形曲线</a> ·
-        <a href="#strategy-dr" style="color:#4a6088">难度相对论</a> ·
-        <a href="#strategy-dc" style="color:#4a6088">双坐标解耦</a> ·
-        <a href="#strategy-pb" style="color:#4a6088">PB 曲线</a>
-      </li>
-      <li><a href="#algo">二、算法策略</a></li>
-      <li class="sub" style="padding-left:2em;font-size:0.9rem;color:#6a80a0;list-style:none;counter-increment:none;margin:4px 0">
-        2.1 <a href="#algo-profile" style="color:#6a80a0">画像系统</a> ·
-        2.2 <a href="#algo-decision" style="color:#6a80a0">决策 AI</a> ·
-        2.3 <a href="#algo-genai" style="color:#6a80a0">生成式 AI</a> ·
-        2.4 <a href="#algo-rl" style="color:#6a80a0">RL 自博弈</a>
-      </li>
-      <li><a href="#commercial">三、商业运营</a></li>
-      <li class="sub" style="padding-left:2em;font-size:0.9rem;color:#6a80a0;list-style:none;counter-increment:none;margin:4px 0">
-        3.1 <a href="#algo-commercial" style="color:#6a80a0">商业化算法</a>
-      </li>
-      <li><a href="#summary">总结：算法即优势</a></li>
-    </ol>
+<section class="slide" style="padding:4vh 4vw">
+  <h2 style="margin-bottom:0.4em"><span class="ch">00</span><span class="tt">目录</span></h2>
+  <div class="card-row c3" style="margin-top:0.4em">
+    <div class="card accent-b" style="padding:22px 24px">
+      <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px">🎮</div><div class="tit" style="font-size:1.3rem">一、产品设计</div></div>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">
+        <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#psyc" style="color:inherit;text-decoration:none">认知理论</a></span>
+        <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#strategy" style="color:inherit;text-decoration:none">策略设计</a></span>
+        <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#product" style="color:inherit;text-decoration:none">功能设计</a></span>
+      </div>
+    </div>
+    <div class="card accent-o" style="padding:22px 24px">
+      <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px">🧩</div><div class="tit" style="font-size:1.3rem">二、算法策略</div></div>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">
+        <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-profile" style="color:inherit;text-decoration:none">画像系统</a></span>
+        <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-decision" style="color:inherit;text-decoration:none">决策 AI</a></span>
+        <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-genai" style="color:inherit;text-decoration:none">生成式 AI</a></span>
+        <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-rl" style="color:inherit;text-decoration:none">RL 自博弈</a></span>
+      </div>
+    </div>
+    <div class="card accent-p" style="padding:22px 24px">
+      <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px">📊</div><div class="tit" style="font-size:1.3rem">三、商业运营</div></div>
+      <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">
+        <span style="background:rgba(186,104,200,0.1);color:#ba68c8;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-commercial" style="color:inherit;text-decoration:none">商业化算法</a></span>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -242,7 +575,7 @@
 
 <!-- ═══════ 1.1 PSYCHOLOGY OVERVIEW ═══════ -->
 <section class="slide" id="psyc">
-  <h3><span class="ch">1.1</span> 心理学基础</h3>
+  <h3><span class="ch">1.1</span> 认知理论</h3>
 
   <div class="dialog dialog-p">
     <div class="avatar">P</div><div class="body">
@@ -257,19 +590,19 @@
 
   <div class="card-row c3">
     <div class="card accent-g" style="cursor:pointer" onclick="document.getElementById('psyc-flow').scrollIntoView({behavior:'smooth'})">
-      <div class="icon">😀</div><div class="tit">1.1.1 心流理论</div>
+      <div class="head"><div class="icon">😀</div><div class="tit">1 心流理论</div></div>
       <div class="desc">挑战与能力匹配时产生的最优体验。游戏体验的第一性原理。</div></div>
     <div class="card accent-o" style="cursor:pointer" onclick="document.getElementById('psyc-yd').scrollIntoView({behavior:'smooth'})">
-      <div class="icon">📈</div><div class="tit">1.1.2 唤醒曲线</div>
+      <div class="head"><div class="icon">📈</div><div class="tit">2 唤醒曲线</div></div>
       <div class="desc">Yerkes-Dodson 倒 U 形：表现随唤醒先升后降，最优唤醒带因人因任务而异。</div></div>
     <div class="card accent-p" style="cursor:pointer" onclick="document.getElementById('psyc-sdt').scrollIntoView({behavior:'smooth'})">
-      <div class="icon">🎯</div><div class="tit">1.1.3 自我决定理论</div>
+      <div class="head"><div class="icon">🎯</div><div class="tit">3 自我决定理论</div></div>
       <div class="desc">胜任感、自主性、关联性——三大内在动机驱动持续参与。</div></div>
     <div class="card accent-r" style="cursor:pointer" onclick="document.getElementById('psyc-helpless').scrollIntoView({behavior:'smooth'})">
-      <div class="icon">🛡️</div><div class="tit">1.1.4 习得性无助</div>
+      <div class="head"><div class="icon">🛡️</div><div class="tit">4 习得性无助</div></div>
       <div class="desc">反复挫败导致放弃尝试。救济机制的心理依据。</div></div>
     <div class="card accent-b" style="cursor:pointer" onclick="document.getElementById('psyc-peak').scrollIntoView({behavior:'smooth'})">
-      <div class="icon">⛰️</div><div class="tit">1.1.5 峰值-终末定律</div>
+      <div class="head"><div class="icon">⛰️</div><div class="tit">5 峰值-终末定律</div></div>
       <div class="desc">记忆由最强烈时刻和结束时的感受决定——峰值制造与结尾设计。</div></div>
   </div>
 </section>
@@ -281,9 +614,9 @@
   <p>Csikszentmihalyi（1990）提出的心流理论指出，人类最愉悦的状态出现在<strong>技能与挑战恰好匹配</strong>的狭窄通道中——太简单则无聊、太难则焦虑，唯有挑战与能力平衡时才会进入「心流」：专注、忘我、愉悦。</p>
 
   <div class="card-row c3">
-    <div class="card accent-b"><div class="icon">😰</div><div class="tit">焦虑区</div><div class="desc">挑战 > 能力，玩家感到紧张、无助想放弃</div></div>
+    <div class="card accent-b"><div class="head"><div class="icon">😰</div><div class="tit">焦虑区</div></div><div class="desc">挑战 > 能力，玩家感到紧张、无助想放弃</div></div>
     <div class="card accent-g" style="border-color:#81c784;background:rgba(129,199,132,0.06);"><div class="icon">😀</div><div class="tit" style="color:#81c784;">心流通道</div><div class="desc">挑战 ≈ 能力，最优体验：专注、忘我、愉悦</div></div>
-    <div class="card accent-o"><div class="icon">😴</div><div class="tit">无聊区</div><div class="desc">能力 > 挑战，玩家感到厌倦、注意力分散</div></div>
+    <div class="card accent-o"><div class="head"><div class="icon">😴</div><div class="tit">无聊区</div></div><div class="desc">能力 > 挑战，玩家感到厌倦、注意力分散</div></div>
   </div>
 
   <div class="quo">对游戏设计而言，这意味着「难度」不是一根绝对坐标轴，而是<strong>每个玩家每时每刻以自己为原点的相对坐标系</strong>。最好的游戏不是「让所有人都赢」，而是「让每个人都在自己的心流通道中」。</div>
@@ -345,9 +678,9 @@
   <p>Deci & Ryan（1985）的自我决定理论指出，人类的内在动机来源于三大基本心理需求的满足：<strong>胜任感</strong>（感觉我能行）、<strong>自主性</strong>（感觉我自己在掌控）、<strong>关联性</strong>（感觉与他人有连接）。三者缺一则内在动机下降。</p>
 
   <div class="card-row c3">
-    <div class="card accent-p"><div class="icon">💪</div><div class="tit">胜任感</div><div class="desc">感觉自己有能力应对挑战。每次消行、每次破 PB 都在强化。</div></div>
-    <div class="card accent-b"><div class="icon">🎯</div><div class="tit">自主性</div><div class="desc">感觉是自己掌控局面而非被系统操控。算法必须隐蔽——玩家永远不觉得"系统在替我玩"。</div></div>
-    <div class="card accent-o"><div class="icon">🤝</div><div class="tit">关联性</div><div class="desc">与他人的连接感。排行榜、分享回放、挑战好友——突破自我后被看到、被认可。</div></div>
+    <div class="card accent-p"><div class="head"><div class="icon">💪</div><div class="tit">胜任感</div></div><div class="desc">感觉自己有能力应对挑战。每次消行、每次破 PB 都在强化。</div></div>
+    <div class="card accent-b"><div class="head"><div class="icon">🎯</div><div class="tit">自主性</div></div><div class="desc">感觉是自己掌控局面而非被系统操控。算法必须隐蔽——玩家永远不觉得"系统在替我玩"。</div></div>
+    <div class="card accent-o"><div class="head"><div class="icon">🤝</div><div class="tit">关联性</div></div><div class="desc">与他人的连接感。排行榜、分享回放、挑战好友——突破自我后被看到、被认可。</div></div>
   </div>
 
   <p style="font-size:0.95rem;color:#7088a8;margin-top:0.8em">设计启示：难度自适应必须在不破坏自主感的前提下进行。如果玩家明显感觉到"系统在故意放水"，胜任感和自主性会同时受损。算法的隐蔽性是产品设计的关键约束。</p>
@@ -360,8 +693,8 @@
   <p>Seligman（1967）的经典实验表明：当生物体反复经历无法控制的负面事件时，会停止尝试——即使后续环境已经改变。在游戏中表现为：连续失败 → 操作变形 → 进一步失败 → 放弃。</p>
 
   <div class="card-row c2">
-    <div class="card accent-r"><div class="icon">😫</div><div class="tit">习得性无助的恶性循环</div><div class="desc">挫败累积 → 操作变形 → 更多挫败 → 放弃尝试。如果不主动干预，系统会自我强化。</div></div>
-    <div class="card accent-g"><div class="icon">🛟</div><div class="tit">救济机制的设计逻辑</div><div class="desc">关键在于：救济不是"降低难度"，而是"打破死循环"。救济后玩家恢复正常状态，难度同步回升，让玩家靠自己的操作赢回来——这才是胜任感的真正来源。</div></div>
+    <div class="card accent-r"><div class="head"><div class="icon">😫</div><div class="tit">习得性无助的恶性循环</div></div><div class="desc">挫败累积 → 操作变形 → 更多挫败 → 放弃尝试。如果不主动干预，系统会自我强化。</div></div>
+    <div class="card accent-g"><div class="head"><div class="icon">🛟</div><div class="tit">救济机制的设计逻辑</div></div><div class="desc">关键在于：救济不是"降低难度"，而是"打破死循环"。救济后玩家恢复正常状态，难度同步回升，让玩家靠自己的操作赢回来——这才是胜任感的真正来源。</div></div>
   </div>
 
   <p style="font-size:0.95rem;color:#7088a8;margin-top:0.8em">设计启示：系统必须能检测挫败累积信号（连续失败、操作间隔变异增大、填充率异常上升），并在玩家真正放弃之前主动干预。救济的时机和幅度需要精确——太早则玩家不觉得自己克服了困难，太晚则已进入无助状态。</p>
@@ -374,17 +707,40 @@
   <p>Kahneman（1993）的研究表明：人们对一段体验的评价记忆并非每一刻的平均，而是主要由两个时刻决定——<strong>情感最强烈的时刻（峰值）</strong>和<strong>结束时的感受（终末）</strong>。其他时刻几乎被忽略。</p>
 
   <div class="card-row c2">
-    <div class="card accent-o"><div class="icon">⛰️</div><div class="tit">峰值制造</div><div class="desc">冲击 PB 的时刻是整局情绪自然峰值。系统应在此刻给予足够的挑战感和仪式感——让"冲 PB"的感觉足够剧烈、足够难忘。</div></div>
-    <div class="card accent-b"><div class="icon">🏁</div><div class="tit">终末设计</div><div class="desc">局结束时的感受决定了玩家是否点击"再来一局"。高亢收尾（破 PB、近失）和舒缓收尾（疲劳释放）需要交替安排，通过系统自动调控。</div></div>
+    <div class="card accent-o"><div class="head"><div class="icon">⛰️</div><div class="tit">峰值制造</div></div><div class="desc">冲击 PB 的时刻是整局情绪自然峰值。系统应在此刻给予足够的挑战感和仪式感——让"冲 PB"的感觉足够剧烈、足够难忘。</div></div>
+    <div class="card accent-b"><div class="head"><div class="icon">🏁</div><div class="tit">终末设计</div></div><div class="desc">局结束时的感受决定了玩家是否点击"再来一局"。高亢收尾（破 PB、近失）和舒缓收尾（疲劳释放）需要交替安排，通过系统自动调控。</div></div>
   </div>
 
   <p style="font-size:0.95rem;color:#7088a8;margin-top:0.8em">设计启示：玩家不会记住整局的平均体验——他只记得最爽的那一刻和最后的感受。因此系统的设计重心不是"让整局都舒服"，而是在关键时刻制造高潮、在结束时留下好印象。</p>
 </section>
 
-<section class="slide" style="justify-content:center;min-height:50vh">
-  <div class="section-bridge">
-    <p>理解玩家 → 设计体验 → 算法实现</p>
-    <div class="sub">产品设计的三个层级，逐层展开。</div>
+<section class="slide" id="bridge3" style="padding:4vh 4vw">
+  <h2><span class="ch">产品设计的三个层级</span><span class="tt">理解玩家 → 设计体验 → 算法实现</span></h2>
+
+  <div class="card-row c3" style="margin-top:1.2em">
+    <div class="card accent-b" style="text-align:center;padding:28px 20px">
+      <div style="font-size:4rem;margin-bottom:12px">👥</div>
+      <div class="tit" style="font-size:1.4rem">理解玩家</div>
+      <div class="desc" style="font-size:1.0rem;margin-top:8px">心理学原理驱动——心流、唤醒曲线、SDT、习得性无助、峰值终末定律，构建玩家认知模型的底层逻辑</div>
+    </div>
+    <div class="card accent-o" style="text-align:center;padding:28px 20px">
+      <div style="font-size:4rem;margin-bottom:12px">🎨</div>
+      <div class="tit" style="font-size:1.4rem">设计体验</div>
+      <div class="desc" style="font-size:1.0rem;margin-top:8px">策略与功能框架——S 形压力曲线、难度相对论、双坐标解耦、PB 七段弧，将心理原理转化为可执行的设计语言</div>
+    </div>
+    <div class="card accent-p" style="text-align:center;padding:28px 20px">
+      <div style="font-size:4rem;margin-bottom:12px">⚙️</div>
+      <div class="tit" style="font-size:1.4rem">算法实现</div>
+      <div class="desc" style="font-size:1.0rem;margin-top:8px">决策 AI + 生成式 AI + RL 自博弈——画像系统、SpawnPolicyRules/Net、PPO 训练，让设计意图在每一局中精准落地</div>
+    </div>
+  </div>
+
+  <div style="text-align:center;margin-top:1em;display:flex;align-items:center;justify-content:center;gap:8px;font-size:1.0rem;color:#4a6088">
+    <span style="background:rgba(74,158,255,0.15);color:#7eb8ff;padding:4px 16px;border-radius:20px">心理学</span>
+    <span style="color:#4a6088">→</span>
+    <span style="background:rgba(255,183,77,0.15);color:#ffb74d;padding:4px 16px;border-radius:20px">设计学</span>
+    <span style="color:#4a6088">→</span>
+    <span style="background:rgba(186,104,200,0.15);color:#ba68c8;padding:4px 16px;border-radius:20px">计算机科学</span>
   </div>
 </section>
 
@@ -710,7 +1066,7 @@ multiplier = exp(−λ × sharpness × dist)
 
   <h4>12 条 Bypass 规则</h4>
   <p>难度相对论不是在所有情况下都激活。当任何一条 bypass 条件触发时，系统回退到 identity 映射（b* = d*）：</p>
-  <div class="card-row c4" style="font-size:0.86rem;">
+  <div class="card-row c4" style="font-size:1.05rem;">
     <div class="card"><div class="tit">disabled</div><div class="desc">配置关闭</div></div>
     <div class="card"><div class="tit">rollout_out</div><div class="desc">A/B 未命中</div></div>
     <div class="card"><div class="tit">recovery</div><div class="desc">玩家需恢复</div></div>
@@ -988,7 +1344,7 @@ multiplier = exp(−λ × sharpness × dist)
     <tr><td>新鲜度</td><td>—</td><td>+0.05·B</td><td>—</td></tr>
   </table>
   </div>
-  <p style="font-size:0.85rem;color:#8090b0;">注：T = pbTension, B = pbBrake。值均为 sigmoid 输出 [0,1]。</p>
+  <p style="font-size:1.0rem;color:#8090b0;">注：T = pbTension, B = pbBrake。值均为 sigmoid 输出 [0,1]。</p>
 
   <h4>pbOvershootBoost：超越 PB 后的对数增压</h4>
   <p>当 score > PB (r > 1.0) 且 pbTension 已饱和、pbBrake 尚未激活时，pbOvershootBoost 提供额外的对数压力：</p>
@@ -1078,7 +1434,7 @@ multiplier = exp(−λ × sharpness × dist)
     <div class="seg" style="background:#ff8a65;">😰 紧张</div>
     <div class="seg" style="background:#e57373;">🥵 高压</div>
   </div>
-  <p style="font-size:0.85rem;color:#8090b0;">压力表 6 级映射：从 S 曲线输出的 stress 值，经情绪等级划分 + 基线趋势检测 + 叙事生成，最终呈现为玩家可感知的情绪状态。</p>
+  <p style="font-size:1.0rem;color:#8090b0;">压力表 6 级映射：从 S 曲线输出的 stress 值，经情绪等级划分 + 基线趋势检测 + 叙事生成，最终呈现为玩家可感知的情绪状态。</p>
 
   <h3><span class="ch">1.3.1</span> 压力表叙事中的策略体现</h3>
   <p>压力表叙事直接暴露产品的四条策略：</p>
@@ -1126,7 +1482,7 @@ multiplier = exp(−λ × sharpness × dist)
     <img src="/docs/asset/architecture/assets/architecture-overview.png" alt="Architecture Overview">
     <div class="cap">全栈架构——数据源 → 规则系统 → 离线模型 → 在线推理 → 监控面板</div>
   </div>
-  <p style="color:#7088a8;font-size:0.88rem;margin-top:12px;">每个模块按「设计初衷 → 技术选型 → 特征设计 → 网络结构（如有）→ 核心公式」五个维度详细展开。</p>
+  <p style="color:#7088a8;font-size:1.0rem;margin-top:12px;">每个模块按「设计初衷 → 技术选型 → 特征设计 → 网络结构（如有）→ 核心公式」五个维度详细展开。</p>
 </section>
 
 <!-- 4.1 PROFILE -->
@@ -1713,6 +2069,7 @@ coldStartThreshold = 10 <span class="cm">// 10 步后开始置信当前局估计
   </div>
 
   <p>5 个输入源（棋盘状态、目标难度、玩家风格、出块历史、CLS）各自投影到 128 维，组成 13 个 token 的序列，送入 2 层 4 头 TransformerEncoder。输出的 <strong>h_c 是融合了全局信息的上下文向量</strong>，它同时驱动两条输出路径：<strong>自回归三头</strong>（head₀ 只看上下文预测第一块，head₁ 看到第一块后预测第二块，head₂ 看到前两块后预测第三块——完整的三槽联合分布）和 <strong>5 个辅助头</strong>（为多样性、难度保真、可行性、风格判别、意图学习提供多任务监督信号）。</p>
+</section>
 
 <section class="slide" id="algo-genai-2">
   <h3><span class="ch">2.3</span> 生成式 AI · 预测与训练</h3>
@@ -2479,10 +2836,10 @@ wrapWithExplorer(_deterministicPolicy, { epsilon: 0.05 })
   <div style="text-align:center;margin-top:80px;padding:50px 20px;border-top:1px solid rgba(255,255,255,0.04);">
     <div style="font-size:3rem;margin-bottom:20px;font-weight:900;background:linear-gradient(135deg,#7eb8ff,#ffb74d);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:0.04em">OpenBlock</div>
     <p style="font-size:1.1rem;color:#7eb8ff;font-weight:600;margin-top:8px">产品设计 · 算法策略 · 商业运营</p>
-    <p style="color:#4a6088;margin-top:12px;font-size:0.85rem;letter-spacing:0.05em">
+    <p style="color:#4a6088;margin-top:12px;font-size:1.0rem;letter-spacing:0.05em">
       这不是一个随机生成器，这是一个系统化设计的智能休闲游戏。
     </p>
-    <p style="color:#3a5070;margin-top:4px;font-size:0.78rem;letter-spacing:0.1em">
+    <p style="color:#3a5070;margin-top:4px;font-size:0.9rem;letter-spacing:0.1em">
       OpenBlock Adaptive Algorithm System · 2026
     </p>
   </div>
