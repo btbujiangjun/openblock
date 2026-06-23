@@ -33,6 +33,15 @@ _stop_pid() {
 _stop_pid logs/server.pid "server"
 _stop_pid logs/dev.pid "dev"
 
+# 停止 RL 训练进程
+RL_PID=$(pgrep -f 'rl_pytorch\.train' 2>/dev/null || true)
+if [[ -n "$RL_PID" ]]; then
+  kill "$RL_PID" 2>/dev/null || true
+  sleep 0.3
+  kill -0 "$RL_PID" 2>/dev/null && kill -KILL "$RL_PID" 2>/dev/null || true
+  echo "已停止 RL 训练 pid=${RL_PID}"
+fi
+
 if command -v lsof >/dev/null 2>&1; then
   for port in "$API_PORT" "$DEV_PORT"; do
     pids=$(lsof -nP -iTCP:"${port}" -sTCP:LISTEN -t 2>/dev/null || true)

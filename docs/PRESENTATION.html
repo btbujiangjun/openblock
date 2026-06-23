@@ -34,14 +34,14 @@
   h2 .ch{display:block;font-size:7rem;font-weight:900;color:rgba(74,158,255,0.06);line-height:1.0;letter-spacing:0.02em;margin-bottom:-0.12em;pointer-events:none;-webkit-text-stroke:1px rgba(74,158,255,0.03)}
   h2 .tt{display:block;position:relative}
   h2 .tt::after{content:'';position:absolute;bottom:-6px;left:0;width:100px;height:4px;background:linear-gradient(90deg,#4a9eff,transparent);border-radius:2px}
-  h3{font-size:2.2rem;font-weight:700;margin:0.6em 0 0.3em;color:#d8e8ff;letter-spacing:-0.01em}
+  h3{font-size:2.2rem;font-weight:700;margin:0.3em 0 0.15em;color:#d8e8ff;letter-spacing:-0.01em}
   h3 .ch{font-size:0.6em;font-weight:600;color:rgba(74,158,255,0.35);margin-right:12px}
-  h4{font-size:1.4rem;font-weight:600;margin:0.8em 0 0.3em;color:#bcd8f0}
-  p{margin:0.5em 0;font-size:1.2rem;line-height:1.7}
+  h4{font-size:1.4rem;font-weight:600;margin:0.4em 0 0.15em;color:#bcd8f0}
+  p{margin:0.3em 0;font-size:1.2rem;line-height:1.65}
   h2,h3{word-break:break-word}
 
   /* ═══════ DIALOG ═══════ */
-  .dialog{display:flex;gap:14px;margin:0.8em 0;padding:16px 22px;border-radius:14px;align-items:flex-start}
+  .dialog{display:flex;gap:12px;margin:0.5em 0;padding:12px 16px;border-radius:14px;align-items:flex-start}
   .dialog .avatar{flex:0 0 44px;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.2rem;font-weight:700;color:#fff}
   .dialog .body{flex:1;min-width:0}
   .dialog .body .name{font-weight:700;font-size:0.95rem;margin-bottom:4px;letter-spacing:0.5px;opacity:0.8}
@@ -54,14 +54,14 @@
   .dialog-a .name{color:#ffb74d}
 
   /* ═══════ CARDS ═══════ */
-  .card-row{display:grid;gap:16px;margin:0.8em 0}
+  .card-row{display:grid;gap:10px;margin:0.35em 0}
   .card-row.c2{grid-template-columns:1fr 1fr}
   .card-row.c3{grid-template-columns:1fr 1fr 1fr}
   .card-row.c4{grid-template-columns:1fr 1fr 1fr 1fr}
-  .card{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.06);border-radius:14px;padding:18px 22px;transition:border-color 0.25s,background 0.25s}
+  .card{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 18px;transition:border-color 0.25s,background 0.25s}
   .card:hover{border-color:rgba(255,255,255,0.1);background:rgba(255,255,255,0.08)}
-  .card .icon{font-size:1.8rem;margin-right:10px;flex-shrink:0}
-  .card .tit{font-weight:700;font-size:1.2rem;color:#d8e8ff;letter-spacing:0.02em}
+  .card .icon{font-size:1.5rem;margin-right:8px;flex-shrink:0}
+  .card .tit{font-weight:700;font-size:1.1rem;color:#d8e8ff;letter-spacing:0.02em}
   .card .head{display:flex;align-items:center;flex-wrap:nowrap}
   .card .desc{font-size:1.0rem;color:#a8c0dc;margin-top:6px;line-height:1.55}
   .card .sub{font-size:0.95rem;color:#4a6088;margin-top:6px}
@@ -72,7 +72,7 @@
   .card.accent-r{border-left:4px solid #e57373}
 
   /* ═══════ FORMULA ═══════ */
-  .formula{background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px 18px;margin:0.8em 0;font-family:'JetBrains Mono','SF Mono','Cascadia Code','Fira Code',monospace;font-size:1.1rem;overflow-x:auto;color:#e4eaf4;line-height:1.6}
+  .formula{background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:12px 16px;margin:0.4em 0;font-family:'JetBrains Mono','SF Mono','Cascadia Code','Fira Code',monospace;font-size:1.1rem;overflow-x:auto;color:#e4eaf4;line-height:1.6}
   .formula .hl{color:#ffb74d}
   .formula .hl2{color:#7eb8ff}
   .formula .hl3{color:#81c784}
@@ -80,10 +80,10 @@
   .formula .cm{display:block;color:#4a6088;font-style:italic;font-size:0.85rem;margin-top:2px}
 
   /* ═══════ MISC COMPONENTS ═══════ */
-  .img-frame{margin:0.8em 0;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.25);text-align:center}
+  .img-frame{margin:0.4em 0;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.25);text-align:center}
   .img-frame img{max-width:100%;display:block}
   .img-frame .cap{padding:10px 18px;font-size:0.95rem;color:#98b4d0}
-  .arch-box{background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:18px;margin:0.8em 0;font-family:'JetBrains Mono','SF Mono','Cascadia Code','Fira Code',monospace;font-size:0.95rem;line-height:1.5;white-space:pre;overflow-x:auto;color:#e0e6f0}
+  .arch-box{background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px;margin:0.4em 0;font-family:'JetBrains Mono','SF Mono','Cascadia Code','Fira Code',monospace;font-size:0.95rem;line-height:1.5;white-space:pre;overflow-x:auto;color:#e0e6f0}
   .tag{display:inline-block;padding:4px 16px;border-radius:20px;font-size:0.95rem;font-weight:600;margin:0 4px}
   .tag-b{background:rgba(74,158,255,0.12);color:#7eb8ff}
   .tag-o{background:rgba(255,183,77,0.12);color:#ffb74d}
@@ -98,7 +98,7 @@
   .toc a:hover{color:#7eb8ff}
   .toc .s{color:#4a6088;font-size:0.85rem;margin-left:8px}
   .toc .sub{padding-left:2em;counter-increment:none;list-style:none;font-size:0.95rem;margin:3px 0;color:#90aac8}
-  .quo{font-size:1.1rem;color:#dce6f4;border-left:3px solid #ffb74d;padding:8px 0 8px 20px;margin:0.5em 0;font-style:italic;background:rgba(255,183,77,0.03);border-radius:0 10px 10px 0}
+  .quo{font-size:1.1rem;color:#dce6f4;border-left:3px solid #ffb74d;padding:6px 0 6px 16px;margin:0.3em 0;font-style:italic;background:rgba(255,183,77,0.03);border-radius:0 10px 10px 0}
   .quo cite{display:block;font-size:0.85rem;color:#4a6088;margin-top:4px;font-style:normal}
   .table-wrap{overflow-x:auto;margin:0.6em 0}
   table{width:100%;border-collapse:collapse;font-size:1.0rem}
@@ -138,9 +138,9 @@
     h4{font-size:1.2rem}
     p{font-size:1.1rem}
     .card-row.c2,.card-row.c3,.card-row.c4{grid-template-columns:1fr}
-    .card{padding:14px 16px}
-    .card .tit{font-size:1.1rem}
-    .card .desc{font-size:0.9rem}
+    .card{padding:12px 14px}
+    .card .tit{font-size:1.0rem}
+    .card .desc{font-size:0.85rem}
     .dialog{padding:14px 16px;flex-direction:column;gap:10px}
     .dialog .avatar{width:36px;height:36px;font-size:1.0rem}
     .dialog .body .text{font-size:1.0rem}
@@ -507,6 +507,54 @@
   <div class="scroll-hint">▼ 键盘 ← → 或点击切换 ▼</div>
 </section>
 
+<!-- ═══════ BUSINESS ARCHITECTURE ═══════ -->
+<section class="slide" id="biz-arch" style="padding:0;position:relative;overflow:hidden">
+  <div class="img-frame" style="padding:6px;background:rgba(0,0,0,0.3);max-width:98%;margin:2vh auto;cursor:zoom-in">
+    <img src="/docs/asset/architecture/assets/business-architecture.png" alt="OpenBlock 业务架构" style="width:100%;height:auto;display:block;margin:0 auto" class="zoomable-img">
+  </div>
+  <div id="arch-annotations" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.35s;background:rgba(4,6,16,0.88);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)">
+    <div style="display:flex;gap:16px;padding:4vh 4vw;max-width:92%">
+      <div style="flex:0 0 48%">
+        <div class="img-frame" style="padding:6px;background:rgba(0,0,0,0.25);cursor:zoom-in">
+          <img src="/docs/asset/architecture/assets/business-architecture.png" alt="OpenBlock 业务架构" style="width:100%;height:auto;display:block" class="zoomable-img">
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:7px">
+        <div class="card" style="border-color:rgba(74,158,255,0.25);background:rgba(74,158,255,0.07);padding:9px 12px;flex-shrink:0">
+          <div style="display:flex;align-items:center;gap:6px"><span style="font-size:1rem">🎮</span><span style="font-size:0.8rem;font-weight:700;color:#7eb8ff">游戏引擎</span></div>
+          <div style="font-size:0.72rem;color:#a0b8d0;margin-top:2px;line-height:1.5">8×8 核心循环 — 留存与活跃入口，单局 2-5min 碎片体验</div>
+        </div>
+        <div class="card" style="border-color:rgba(255,183,77,0.25);background:rgba(255,183,77,0.07);padding:9px 12px;flex-shrink:0">
+          <div style="display:flex;align-items:center;gap:6px"><span style="font-size:1rem">🧠</span><span style="font-size:0.8rem;font-weight:700;color:#ffb74d">自适应出块 AI</span></div>
+          <div style="font-size:0.72rem;color:#a0b8d0;margin-top:2px;line-height:1.5">L1→L4 压力管线，9 层出块流水线，难度随玩家实时调节</div>
+        </div>
+        <div class="card" style="border-color:rgba(129,199,132,0.25);background:rgba(129,199,132,0.07);padding:9px 12px;flex-shrink:0">
+          <div style="display:flex;align-items:center;gap:6px"><span style="font-size:1rem">🤖</span><span style="font-size:0.8rem;font-weight:700;color:#81c784">强化学习</span></div>
+          <div style="font-size:0.72rem;color:#a0b8d0;margin-top:2px;line-height:1.5">SpawnTransformer + 四模型体系，自博弈训练注入出块管线</div>
+        </div>
+        <div class="card" style="border-color:rgba(186,104,200,0.25);background:rgba(186,104,200,0.07);padding:9px 12px;flex-shrink:0">
+          <div style="display:flex;align-items:center;gap:6px"><span style="font-size:1rem">💰</span><span style="font-size:0.8rem;font-weight:700;color:#ba68c8">商业化</span></div>
+          <div style="font-size:0.72rem;color:#a0b8d0;margin-top:2px;line-height:1.5">IAA+IAP 混合架构，用户分层，压力抑制期降变现</div>
+        </div>
+        <div class="card" style="border-color:rgba(78,204,163,0.25);background:rgba(78,204,163,0.07);padding:9px 12px;flex-shrink:0">
+          <div style="display:flex;align-items:center;gap:6px"><span style="font-size:1rem">🔗</span><span style="font-size:0.8rem;font-weight:700;color:#4ecca3">共享基础设施</span></div>
+          <div style="font-size:0.72rem;color:#a0b8d0;margin-top:2px;line-height:1.5">玩家画像 S0–S4 × M0–M4 + 统一事件总线，四支柱共用</div>
+        </div>
+      </div>
+    </div>
+    <div style="position:absolute;bottom:2.5vh;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.25);font-size:0.75rem">点击任意位置关闭</div>
+  </div>
+  <div style="position:absolute;bottom:2vh;left:50%;transform:translateX(-50%);color:rgba(255,255,255,0.18);font-size:0.7rem;letter-spacing:0.15em;pointer-events:none">点击显示解读 · 再次点击关闭</div>
+</section>
+<script>
+document.getElementById('biz-arch').addEventListener('click', function(e){
+  const ann = document.getElementById('arch-annotations');
+  if(e.target.closest('.zoomable-img') || e.target.closest('.zoom-overlay')) return;
+  ann.style.opacity = ann.style.opacity === '1' ? '0' : '1';
+  ann.style.pointerEvents = ann.style.pointerEvents === 'auto' ? 'none' : 'auto';
+});
+</script>
+
 <!-- ═══════ GLOBAL SVG MARKERS (for cross-SVG reference) ═══════ -->
 <svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
   <defs>
@@ -524,11 +572,10 @@
   <h2 style="padding:4vh 4vw 0;margin-bottom:0"><span class="ch">00</span><span class="tt">目录</span></h2>
   <div class="card-row c3" style="padding:0 4vw;margin-top:2vh">
     <div class="card accent-b" style="padding:22px 24px">
-      <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px">🎮</div><div class="tit" style="font-size:1.3rem">产品设计</div></div>
+      <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px">🎮</div><div class="tit" style="font-size:1.3rem">产品策略</div></div>
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">
         <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#psyc" style="color:inherit;text-decoration:none">认知理论</a></span>
-        <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#design-principles" style="color:inherit;text-decoration:none">产品设计</a></span>
-        <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#strategy" style="color:inherit;text-decoration:none">策略设计</a></span>
+        <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#design-principles" style="color:inherit;text-decoration:none">产品策略</a></span>
         <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#product" style="color:inherit;text-decoration:none">功能设计</a></span>
       </div>
     </div>
@@ -542,7 +589,7 @@
       </div>
     </div>
     <div class="card accent-p" style="padding:22px 24px">
-      <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px">📊</div><div class="tit" style="font-size:1.3rem">商业运营</div></div>
+      <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px">💰</div><div class="tit" style="font-size:1.3rem">商业运营</div></div>
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">
         <span style="background:rgba(186,104,200,0.1);color:#ba68c8;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-commercial" style="color:inherit;text-decoration:none">商业化算法</a></span>
         <span style="background:rgba(186,104,200,0.08);color:#a070b0;padding:2px 10px;border-radius:12px;font-size:0.75rem">LTV 评估</span>
@@ -554,24 +601,19 @@
   </div>
 </section>
 
-<!-- ═══════ I. PRODUCT DESIGN ═══════ -->
+<!-- ═══════ I. PRODUCT STRATEGY ═══════ -->
 <section class="slide" id="design">
-  <h2><span class="ch">01</span><span class="tt">产品设计</span></h2>
-  <div class="card-row c3">
+  <h2><span class="ch">01</span><span class="tt">产品策略</span></h2>
+  <div class="card-row c2">
     <div class="card" style="text-align:center;padding:32px 20px;background:rgba(74,158,255,0.04);border-color:rgba(74,158,255,0.12)">
       <div style="font-size:4rem;margin-bottom:14px">👥</div>
       <div class="tit" style="font-size:1.5rem;color:#7eb8ff">认知理论</div>
     </div>
     <div class="card" style="text-align:center;padding:32px 20px;background:rgba(255,183,77,0.04);border-color:rgba(255,183,77,0.12)">
       <div style="font-size:4rem;margin-bottom:14px">🎨</div>
-      <div class="tit" style="font-size:1.5rem;color:#ffb74d">产品设计</div>
-    </div>
-    <div class="card" style="text-align:center;padding:32px 20px;background:rgba(186,104,200,0.04);border-color:rgba(186,104,200,0.12)">
-      <div style="font-size:4rem;margin-bottom:14px">⚙️</div>
-      <div class="tit" style="font-size:1.5rem;color:#ba68c8">策略设计</div>
+      <div class="tit" style="font-size:1.5rem;color:#ffb74d">产品策略</div>
     </div>
   </div>
-
 </section>
 
 <!-- ═══════ 1.1 PSYCHOLOGY OVERVIEW ═══════ -->
@@ -612,61 +654,61 @@
   <p>Csikszentmihalyi（1990）指出，人类最愉悦的状态出现在<span style="color:#81c784">技能与挑战恰好匹配</span>的狭窄通道——太简单则无聊、太难则焦虑，唯有平衡时进入<strong style="color:#ffb74d">心流</strong>：<span style="color:#7eb8ff;font-weight:700">专注</span>·<span style="color:#81c784;font-weight:700">忘我</span>·<span style="color:#ba68c8;font-weight:700">愉悦</span></p>
 
   <div class="card-row c3">
-    <div class="card" style="background:rgba(229,115,115,0.06);border-color:rgba(229,115,115,0.12);text-align:center;padding:20px">
-      <div style="font-size:3rem;margin-bottom:8px">😰</div>
-      <div class="tit" style="color:#e57373;font-size:1.3rem">焦虑区</div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px">
-        <span style="font-size:0.9rem;color:#e57373">挑战</span>
-        <span style="font-size:1.4rem;color:#e57373;font-weight:700">››</span>
-        <span style="font-size:0.9rem;color:rgba(229,115,115,0.5)">技能</span>
-      </div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:4px">
-        <span style="width:40px;height:8px;background:rgba(229,115,115,0.3);border-radius:4px;position:relative"><span style="position:absolute;right:0;top:0;width:28px;height:8px;background:#e57373;border-radius:4px"></span></span>
-        <span style="width:40px;height:8px;background:rgba(229,115,115,0.15);border-radius:4px"></span>
-      </div>
-    </div>
-    <div class="card" style="background:rgba(129,199,132,0.08);border-color:rgba(129,199,132,0.2);text-align:center;padding:20px;transform:scale(1.05)">
-      <div style="font-size:3rem;margin-bottom:8px">😀</div>
-      <div class="tit" style="color:#81c784;font-size:1.3rem">心流通道</div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px">
-        <span style="font-size:0.9rem;color:#81c784">挑战</span>
-        <span style="font-size:1.4rem;color:#81c784;font-weight:700">≈</span>
-        <span style="font-size:0.9rem;color:#81c784">技能</span>
-      </div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:4px">
-        <span style="width:40px;height:8px;background:rgba(129,199,132,0.2);border-radius:4px;position:relative"><span style="position:absolute;right:6px;top:0;width:16px;height:8px;background:#81c784;border-radius:4px"></span></span>
-        <span style="width:40px;height:8px;background:rgba(129,199,132,0.2);border-radius:4px;position:relative"><span style="position:absolute;left:6px;top:0;width:16px;height:8px;background:#81c784;border-radius:4px"></span></span>
-      </div>
-    </div>
-    <div class="card" style="background:rgba(255,183,77,0.06);border-color:rgba(255,183,77,0.12);text-align:center;padding:20px">
-      <div style="font-size:3rem;margin-bottom:8px">😴</div>
-      <div class="tit" style="color:#ffb74d;font-size:1.3rem">无聊区</div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px">
-        <span style="font-size:0.9rem;color:rgba(255,183,77,0.5)">挑战</span>
-        <span style="font-size:1.4rem;color:#ffb74d;font-weight:700">‹‹</span>
-        <span style="font-size:0.9rem;color:#ffb74d">技能</span>
-      </div>
-      <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:4px">
-        <span style="width:40px;height:8px;background:rgba(255,183,77,0.15);border-radius:4px"></span>
-        <span style="width:40px;height:8px;background:rgba(255,183,77,0.3);border-radius:4px;position:relative"><span style="position:absolute;left:0;top:0;width:28px;height:8px;background:#ffb74d;border-radius:4px"></span></span>
-      </div>
-    </div>
-  </div>
+     <div class="card" style="background:rgba(229,115,115,0.06);border-color:rgba(229,115,115,0.12);text-align:center;padding:14px">
+       <div style="font-size:2.4rem;margin-bottom:4px">😰</div>
+       <div class="tit" style="color:#e57373;font-size:1.1rem">焦虑区</div>
+       <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:6px">
+         <span style="font-size:0.85rem;color:#e57373">挑战</span>
+         <span style="font-size:1.2rem;color:#e57373;font-weight:700">››</span>
+         <span style="font-size:0.85rem;color:rgba(229,115,115,0.5)">技能</span>
+       </div>
+       <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px">
+         <span style="width:32px;height:5px;background:rgba(229,115,115,0.3);border-radius:4px;position:relative"><span style="position:absolute;right:0;top:0;width:22px;height:5px;background:#e57373;border-radius:4px"></span></span>
+         <span style="width:32px;height:5px;background:rgba(229,115,115,0.15);border-radius:4px"></span>
+       </div>
+     </div>
+     <div class="card" style="background:rgba(129,199,132,0.08);border-color:rgba(129,199,132,0.2);text-align:center;padding:14px;transform:scale(1.03)">
+       <div style="font-size:2.4rem;margin-bottom:4px">😀</div>
+       <div class="tit" style="color:#81c784;font-size:1.1rem">心流通道</div>
+       <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:6px">
+         <span style="font-size:0.85rem;color:#81c784">挑战</span>
+         <span style="font-size:1.2rem;color:#81c784;font-weight:700">≈</span>
+         <span style="font-size:0.85rem;color:#81c784">技能</span>
+       </div>
+       <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px">
+         <span style="width:32px;height:5px;background:rgba(129,199,132,0.2);border-radius:4px;position:relative"><span style="position:absolute;right:4px;top:0;width:12px;height:5px;background:#81c784;border-radius:4px"></span></span>
+         <span style="width:32px;height:5px;background:rgba(129,199,132,0.2);border-radius:4px;position:relative"><span style="position:absolute;left:4px;top:0;width:12px;height:5px;background:#81c784;border-radius:4px"></span></span>
+       </div>
+     </div>
+     <div class="card" style="background:rgba(255,183,77,0.06);border-color:rgba(255,183,77,0.12);text-align:center;padding:14px">
+       <div style="font-size:2.4rem;margin-bottom:4px">😴</div>
+       <div class="tit" style="color:#ffb74d;font-size:1.1rem">无聊区</div>
+       <div style="display:flex;align-items:center;justify-content:center;gap:6px;margin-top:6px">
+         <span style="font-size:0.85rem;color:rgba(255,183,77,0.5)">挑战</span>
+         <span style="font-size:1.2rem;color:#ffb74d;font-weight:700">‹‹</span>
+         <span style="font-size:0.85rem;color:#ffb74d">技能</span>
+       </div>
+       <div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:2px">
+         <span style="width:32px;height:5px;background:rgba(255,183,77,0.15);border-radius:4px"></span>
+         <span style="width:32px;height:5px;background:rgba(255,183,77,0.3);border-radius:4px;position:relative"><span style="position:absolute;left:0;top:0;width:22px;height:5px;background:#ffb74d;border-radius:4px"></span></span>
+       </div>
+     </div>
+   </div>
 
    <div class="quo">对游戏设计而言，这意味着<span style="color:#7eb8ff;font-weight:700">难度不是一根绝对坐标轴</span>，而是<span style="color:#81c784;font-weight:700">每个玩家每时每刻以自己为原点的相对坐标系</span> — 最好的游戏不是<span style="color:#ffb74d;font-weight:700">让所有人都赢</span>，而是<span style="color:#ba68c8;font-weight:700">让每个人都在自己的心流通道中</span></div>
 
-   <p style="font-size:0.95rem;color:#98b4d0;margin-top:1.2em">设计启示：难度必须随玩家能力实时适配，而非预设一条固定曲线 — 心流通道的宽度因人而异（高玩通道宽、新手通道窄），系统需要<span style="color:#ffb74d;font-weight:700">持续感知玩家的能力状态并动态调整出块难度</span></p>
+   <p style="font-size:0.9rem;color:#98b4d0;margin-top:0.35em">设计启示：难度必须随玩家能力实时适配，而非预设一条固定曲线 — 心流通道的宽度因人而异（高玩通道宽、新手通道窄），系统需要<span style="color:#ffb74d;font-weight:700">持续感知玩家的能力状态并动态调整出块难度</span></p>
 </section>
 
 <!-- ═══════ 1.1.2 YERKES-DODSON ═══════ -->
-<section class="slide" id="psyc-yd">
+<section class="slide" id="psyc-yd" style="justify-content:flex-start;padding-top:4vh">
   <h3><span class="ch">1.1.2</span> Yerkes-Dodson 唤醒曲线</h3>
 
-   <p>Yerkes & Dodson（1908）发现，表现水平随唤醒（压力）呈<strong>倒 U 型</strong>——唤醒太低则无聊、表现差；唤醒太高则焦虑、表现也差；中段为最优表现带，且<strong>任务越复杂，最优唤醒带越偏左</strong>（复杂任务承受不了高唤醒）</p>
-   <div class="quo" style="margin-top:0.6em"><span style="color:#ffb74d;font-weight:700">stress 不是要让玩家难受，而是把玩家推送到倒 U 曲线的顶点</span> — 每个人的曲线不同：新手的顶点在左下方，老手的顶点在右上方</div>
+   <p>Yerkes & Dodson（1908）发现，表现水平随唤醒（压力）呈<strong>倒 U 型</strong>——<span style="color:#7eb8ff;font-weight:600">唤醒太低 → 无聊、表现差</span> · <span style="color:#e57373;font-weight:600">唤醒太高 → 焦虑、表现也差</span> · <span style="color:#81c784;font-weight:700">中段 = 最优表现带</span>。且<strong>任务越复杂，最优唤醒带越偏左</strong>（高唤醒会压垮复杂认知）</p>
+   <div class="quo" style="margin-top:0.3em"><span style="color:#ffb74d;font-weight:700">stress 不是要让玩家难受，而是把玩家推送到倒 U 曲线的顶点</span> — 每个人的曲线不同：新手的顶点在左下方，老手的顶点在右上方</div>
 
-  <div class="img-frame" style="padding:16px 20px;background:rgba(0,0,0,0.35)">
-    <svg viewBox="0 0 860 340" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+  <div class="img-frame" style="padding:8px 14px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 860 260" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
       <defs>
         <linearGradient id="ydGrad" x1="0" y1="0.5" x2="1" y2="0.5">
           <stop offset="0%" stop-color="#4a9eff" stop-opacity="0.2"/>
@@ -676,32 +718,32 @@
           <stop offset="100%" stop-color="#e57373" stop-opacity="0.2"/>
         </linearGradient>
       </defs>
-      <line x1="60" y1="300" x2="820" y2="300" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>
-      <line x1="60" y1="30" x2="60" y2="300" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>
-      <text x="820" y="318" fill="rgba(255,255,255,0.7)" font-size="13" text-anchor="end">唤醒水平 →</text>
-      <text x="40" y="30" fill="rgba(255,255,255,0.7)" font-size="13" text-anchor="end">← 表现</text>
-      <rect x="60" y="30" width="190" height="270" fill="#4a9eff" opacity="0.03"/>
-      <text x="155" y="280" fill="#7eb8ff" font-size="14" text-anchor="middle" font-weight="700">无聊</text>
-      <rect x="250" y="30" width="280" height="270" fill="#81c784" opacity="0.03"/>
-      <rect x="530" y="30" width="290" height="270" fill="#e57373" opacity="0.03"/>
-      <text x="675" y="280" fill="#e57373" font-size="14" text-anchor="middle" font-weight="700">焦虑</text>
-      <path d="M 130,290 C 180,290 230,260 270,210 C 300,170 320,150 350,130 C 380,110 410,100 440,95 C 470,90 500,95 530,110 C 560,130 590,160 620,210 C 650,250 680,280 710,290"
+      <line x1="60" y1="230" x2="820" y2="230" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>
+      <line x1="60" y1="20" x2="60" y2="230" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>
+      <text x="820" y="246" fill="rgba(255,255,255,0.7)" font-size="12" text-anchor="end">唤醒水平 →</text>
+      <text x="40" y="22" fill="rgba(255,255,255,0.7)" font-size="12" text-anchor="end">← 表现</text>
+      <rect x="60" y="20" width="190" height="210" fill="#4a9eff" opacity="0.03"/>
+      <text x="155" y="216" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="700">无聊</text>
+      <rect x="250" y="20" width="280" height="210" fill="#81c784" opacity="0.03"/>
+      <rect x="530" y="20" width="290" height="210" fill="#e57373" opacity="0.03"/>
+      <text x="675" y="216" fill="#e57373" font-size="12" text-anchor="middle" font-weight="700">焦虑</text>
+      <path d="M 130,230 C 180,230 230,205 270,165 C 300,135 320,120 350,105 C 380,90 410,82 440,75 C 470,72 500,75 530,85 C 560,105 590,125 620,165 C 650,195 680,220 710,230"
             fill="none" stroke="#ffb74d" stroke-width="3" stroke-linecap="round"/>
-      <path d="M 130,290 C 180,290 230,260 270,210 C 300,170 320,150 350,130 C 380,110 410,100 440,95 C 470,90 500,95 530,110 C 560,130 590,160 620,210 C 650,250 680,280 710,290 L 710,300 L 130,300 Z"
+      <path d="M 130,230 C 180,230 230,205 270,165 C 300,135 320,120 350,105 C 380,90 410,82 440,75 C 470,72 500,75 530,85 C 560,105 590,125 620,165 C 650,195 680,220 710,230 L 710,240 L 130,240 Z"
             fill="url(#ydGrad)" opacity="0.18"/>
-      <path d="M 100,290 C 130,290 160,270 190,230 C 210,200 230,180 250,170 C 270,160 290,165 310,180 C 330,200 350,230 370,260 C 385,280 400,290 420,295"
+      <path d="M 100,230 C 130,230 160,210 190,180 C 210,160 230,140 250,130 C 270,125 290,128 310,140 C 330,155 350,180 370,200 C 385,215 400,225 420,230"
             fill="none" stroke="#4a9eff" stroke-width="2" stroke-dasharray="5,4" opacity="0.5"/>
-      <circle cx="440" cy="95" r="4" fill="#ffb74d"/>
-      <text x="440" y="82" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">高玩顶点</text>
-      <text x="440" y="115" fill="rgba(255,220,160,0.55)" font-size="10" text-anchor="middle">高 skill · 高承受力</text>
-      <circle cx="250" cy="170" r="4" fill="#4a9eff" opacity="0.6"/>
-      <text x="250" y="158" fill="#4a9eff" font-size="11" text-anchor="middle" font-weight="600">新手顶点</text>
-      <text x="250" y="190" fill="rgba(160,200,255,0.55)" font-size="10" text-anchor="middle">低 skill · 低承受力</text>
-      <text x="60" y="330" fill="rgba(255,255,255,0.3)" font-size="10">任务越复杂 → 最优唤醒带越偏左 · 8×8 消块是中等复杂度，最优带居中偏左</text>
+      <circle cx="440" cy="75" r="4" fill="#ffb74d"/>
+      <text x="440" y="62" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">高玩顶点</text>
+      <text x="440" y="82" fill="rgba(255,220,160,0.55)" font-size="10" text-anchor="middle">高 skill · 高承受力</text>
+      <circle cx="250" cy="130" r="4" fill="#4a9eff" opacity="0.6"/>
+      <text x="250" y="120" fill="#4a9eff" font-size="11" text-anchor="middle" font-weight="600">新手顶点</text>
+      <text x="250" y="140" fill="rgba(160,200,255,0.55)" font-size="10" text-anchor="middle">低 skill · 低承受力</text>
+      <text x="60" y="256" fill="rgba(255,255,255,0.3)" font-size="9">任务越复杂 → 最优唤醒带越偏左 · 8×8 消块是中等复杂度，最优带居中偏左</text>
     </svg>
   </div>
 
-   <p style="font-size:0.95rem;color:#98b4d0;margin-top:0.8em">设计启示：压力不是敌人而是工具 — 关键是把玩家推送到个体倒 U 曲线的顶点附近，既不让他在无聊区滞留也不让他滑入焦虑区 — 这意味着系统必须<span style="color:#ffb74d;font-weight:700">实时感知玩家的压力状态并做出微调</span></p>
+   <p style="font-size:0.9rem;color:#98b4d0;margin-top:0.35em">设计启示：压力不是敌人而是工具 — 关键是把玩家推送到个体倒 U 曲线的顶点附近，既不让他在无聊区滞留也不让他滑入焦虑区 — 这意味着系统必须<span style="color:#ffb74d;font-weight:700">实时感知玩家的压力状态并做出微调</span></p>
 </section>
 
 <!-- ═══════ 1.1.3 SDT ═══════ -->
@@ -716,58 +758,147 @@
      <div class="card accent-o"><div class="head"><div class="icon">🤝</div><div class="tit">关联性</div></div><div class="desc">与他人的连接感——排行榜、分享回放、挑战好友，突破自我后被看到被认可</div></div>
    </div>
 
-   <p style="font-size:0.95rem;color:#98b4d0;margin-top:0.8em">设计启示：难度自适应必须在不破坏自主感的前提下进行 — 如果玩家明显感觉到"系统在故意放水"，胜任感和自主性会同时受损，算法的隐蔽性是产品设计的关键约束</p>
+   <p style="font-size:0.9rem;color:#98b4d0;margin-top:0.35em">设计启示：难度自适应必须在不破坏自主感的前提下进行 — 如果玩家明显感觉到<span style="color:#e57373;font-weight:700">系统在故意放水</span>，胜任感和自主性会同时受损。<span style="color:#ffb74d;font-weight:700">算法的隐蔽性</span>是产品设计的关键约束 — 玩家可以感受到难度变了，但不能觉得系统在替我玩</p>
 </section>
 
 <!-- ═══════ 1.1.4 LEARNED HELPLESSNESS ═══════ -->
 <section class="slide" id="psyc-helpless">
   <h3><span class="ch">1.1.4</span> 习得性无助与挫败累积</h3>
 
-   <p>Seligman（1967）的经典实验表明：当生物体反复经历无法控制的负面事件时，会停止尝试——即使后续环境已经改变 — 在游戏中表现为：连续失败 → 操作变形 → 进一步失败 → 放弃</p>
+   <p>Seligman（1967）的经典实验表明：当生物体反复经历无法控制的负面事件时，会停止尝试——即使后续环境已经改变 — 在游戏中表现为：<span style="color:#e57373;font-weight:700">连续失败</span> → <span style="color:#ff8a65;font-weight:600">操作变形</span> → <span style="color:#e57373;font-weight:700">进一步失败</span> → <span style="color:#ba68c8;font-weight:700">放弃</span></p>
 
    <div class="card-row c2">
      <div class="card accent-r"><div class="head"><div class="icon">😫</div><div class="tit">习得性无助的恶性循环</div></div><div class="desc">挫败累积 → 操作变形 → 更多挫败 → 放弃尝试，不主动干预则系统自我强化</div></div>
      <div class="card accent-g"><div class="head"><div class="icon">🛟</div><div class="tit">救济机制的设计逻辑</div></div><div class="desc">关键在于救济不是"降低难度"而是"打破死循环"——恢复正常后难度同步回升，让玩家靠操作赢回来，胜任感的真正来源</div></div>
    </div>
 
-   <p style="font-size:0.95rem;color:#98b4d0;margin-top:0.8em">设计启示：系统必须能检测挫败累积信号（连续失败、操作间隔变异增大、填充率异常上升），并在玩家真正放弃之前主动干预 — 救济的时机和幅度需要精确：太早则玩家不觉得自己克服了困难，太晚则已进入无助状态</p>
+   <p style="font-size:0.9rem;color:#98b4d0;margin-top:0.35em">设计启示：系统必须能<span style="color:#7eb8ff;font-weight:700">检测挫败累积信号</span>（连续失败、操作间隔变异增大、填充率异常上升），并在玩家真正放弃之前<span style="color:#81c784;font-weight:700">主动干预</span> — 救济的时机和幅度需要精确：太早则玩家不觉得自己克服了困难，太晚则已进入无助状态</p>
 </section>
 
 <!-- ═══════ 1.1.5 PEAK-END ═══════ -->
 <section class="slide" id="psyc-peak">
   <h3><span class="ch">1.1.5</span> 峰值-终末定律（Peak-End Rule）</h3>
 
-   <p>Kahneman（1993）的研究表明：人们对一段体验的评价记忆并非每一刻的平均，而是主要由两个时刻决定——<strong>情感最强烈的时刻（峰值）</strong>和<strong>结束时的感受（终末）</strong>，其他时刻几乎被忽略</p>
+   <p>Kahneman（1993）的研究表明：人们对一段体验的评价记忆并非每一刻的平均，而是主要由两个时刻决定——<span style="color:#ffb74d;font-weight:700">情感最强烈的时刻（峰值）</span>和<span style="color:#7eb8ff;font-weight:700">结束时的感受（终末）</span>，其他时刻几乎被忽略</p>
 
   <div class="card-row c2">
     <div class="card accent-o"><div class="head"><div class="icon">⛰️</div><div class="tit">峰值制造</div></div><div class="desc">冲击 PB 是整局情绪自然峰值——给予足够挑战感和仪式感，让冲 PB 足够剧烈难忘</div></div>
     <div class="card accent-b"><div class="head"><div class="icon">🏁</div><div class="tit">终末设计</div></div><div class="desc">局末感受决定是否"再来一局"——高亢收尾（破 PB、近失）与舒缓收尾（疲劳释放）交替安排</div></div>
   </div>
 
-   <p style="font-size:0.95rem;color:#98b4d0;margin-top:0.8em">设计启示：玩家不会记住整局的平均体验——他只记得最爽的那一刻和最后的感受 — 因此系统的设计重心不是"让整局都舒服"，而是在关键时刻制造高潮、在结束时留下好印象</p>
+   <p style="font-size:0.9rem;color:#98b4d0;margin-top:0.35em">设计启示：玩家不会记住整局的平均体验——他只记得最爽的那一刻和最后的感受 — 因此系统的设计重心不是"让整局都舒服"，而是在<span style="color:#ffb74d;font-weight:700">关键时刻制造高潮</span>、在<span style="color:#7eb8ff;font-weight:700">结束时留下好印象</span></p>
 </section>
 
 <!-- ═══════ 1.1.6 NEAR-MISS ═══════ -->
 <section class="slide" id="psyc-nearmiss">
   <h3><span class="ch">1.1.6</span> 近失理论——「差一点就破 PB」的驱动力</h3>
 
-   <p>Reid（1986）在老虎机研究中发现：<strong>近失（near-miss）——即结果非常接近胜利但最终失败——对玩家的激励作用甚至超过胜利本身</strong> — fMRI 研究（Chase & Clark, 2010）表明近失激活的脑区（腹侧纹状体）与获胜几乎相同，多巴胺释放量显著高于完全失败</p>
+   <p>Reid（1986）在老虎机研究中发现：<strong>近失（near-miss）——即结果非常接近胜利但最终失败——<span style="color:#ffb74d;font-weight:800">对玩家的激励作用甚至超过胜利本身</span></strong> — fMRI 研究（Chase & Clark, 2010）表明近失激活的脑区（<span style="color:#81c784;font-weight:700">腹侧纹状体</span>）与获胜几乎相同，<span style="color:#ffb74d;font-weight:700">多巴胺</span>释放量显著高于完全失败</p>
 
    <div class="card-row c2">
      <div class="card accent-o"><div class="head"><div class="icon">🎯</div><div class="tit">近失的心理机制</div></div><div class="desc">玩家将近失编码为「几乎成功」而非「失败」——激发「再试一次就能成」的信念，这在消除类游戏中直接表现为连续重开率上升</div></div>
      <div class="card accent-r"><div class="head"><div class="icon">⚠️</div><div class="tit">近失的伦理边界</div></div><div class="desc">与赌博不同——近失在此不是欺骗玩家，而是 PB 的自然逼近过程 — pbBrake 的制动不制造幻觉，只防止突破后失控，玩家的每一次近失都是真实操作的结果</div></div>
    </div>
 
-  <div class="formula">
-<span class="hl2">pbTension</span> = sigmoid((r − <span class="hl">0.82</span>) / <span class="hl3">0.08</span>)  <span class="cm">// r 接近 PB 时紧张感陡升，这正是近失情绪的工程化实现</span>
+  <div class="img-frame" style="padding:8px 14px;background:rgba(0,0,0,0.3)">
+    <svg viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs>
+        <linearGradient id="sigGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#ffb74d" stop-opacity="0.3"/>
+          <stop offset="100%" stop-color="#ffb74d" stop-opacity="0.01"/>
+        </linearGradient>
+      </defs>
+
+      <!-- x(r) = 80 + r × 670, y(t) = 170 - t × 140 -->
+      <line x1="80" y1="170" x2="750" y2="170" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+      <line x1="80" y1="20" x2="80" y2="170" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+
+      <!-- X ticks: r=0→80, 0.2→214, 0.4→348, 0.6→482, 0.8→616, 1.0→750 -->
+      <text x="80" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0</text>
+      <text x="214" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.2</text>
+      <text x="348" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.4</text>
+      <text x="482" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.6</text>
+      <text x="616" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.8</text>
+      <text x="750" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">1.0</text>
+      <text x="750" y="186" fill="rgba(255,255,255,0.2)" font-size="9" text-anchor="end" style="letter-spacing:0.5px">r →</text>
+
+      <!-- Y ticks -->
+      <text x="72" y="174" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">0</text>
+      <text x="72" y="100" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">0.5</text>
+      <text x="72" y="30" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">1.0</text>
+
+      <!-- r=0.82 vertical: x = 80 + 0.82×670 = 629 -->
+      <line x1="629" y1="20" x2="629" y2="170" stroke="rgba(255,183,77,0.25)" stroke-width="1.5" stroke-dasharray="3,3"/>
+      <text x="629" y="196" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">r=0.82</text>
+
+      <!-- Sigmoid curve → polyline: x=80+r×670, y=170−sigmoid×140 -->
+      <polyline points="
+        80,170  147,170  214,170  281,170  348,169
+        415,167  449,165  482,162  516,155  549,145
+        566,139  583,132  599,125  616,109  629,100
+        643,91  656,83  670,75  683,68  696,61
+        710,55  723,51  736,47  750,43
+      " fill="none" stroke="#ffb74d" stroke-width="2.5" stroke-linecap="round"/>
+
+      <!-- Gradient fill -->
+      <path d="M 80,170 L 147,170 L 214,170 L 281,170 L 348,169 L 415,167 L 449,165 L 482,162 L 516,155 L 549,145 L 566,139 L 583,132 L 599,125 L 616,109 L 629,100 L 643,91 L 656,83 L 670,75 L 683,68 L 696,61 L 710,55 L 723,51 L 736,47 L 750,43 L 750,170 Z"
+            fill="url(#sigGrad)" opacity="0.6"/>
+
+      <!-- Formula overlay (placed in flat left region) -->
+      <rect x="88" y="40" width="296" height="24" rx="6" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <text x="236" y="56" fill="#e0e6f0" font-size="11" text-anchor="middle" font-family="'JetBrains Mono','SF Mono','Cascadia Code','Fira Code',monospace">
+        pbTension = sigmoid((r − <tspan fill="#ffb74d" font-weight="700">0.82</tspan>) / <tspan fill="#81c784" font-weight="700">0.08</tspan>)
+      </text>
+
+      <!-- Near-miss annotation (r≈0.86, steepest climb) -->
+      <circle cx="656" cy="83" r="4" fill="#ffb74d"/>
+      <line x1="656" y1="83" x2="688" y2="52" stroke="rgba(255,183,77,0.4)" stroke-width="1" stroke-dasharray="2,2"/>
+      <rect x="688" y="38" width="100" height="20" rx="5" fill="rgba(255,183,77,0.08)" stroke="rgba(255,183,77,0.15)" stroke-width="1"/>
+      <text x="738" y="51" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">近失情绪</text>
+    </svg>
   </div>
 
-   <p style="font-size:0.95rem;color:#98b4d0;margin-top:0.8em">设计启示：系统不需要让每局都破 PB——实际上，<strong>让玩家「差一点就破」比「轻松突破」更能驱动长期留存</strong> — pbBrake 的关键作用不是惩罚高手，而是创造可控的近失体验，让下一局的期待感始终在线</p>
+   <p style="font-size:0.9rem;color:#98b4d0;margin-top:0.35em">设计启示：系统不需要让每局都破 PB——实际上，<strong>让玩家「差一点就破」比「轻松突破」更能驱动长期留存</strong> — pbBrake 的关键作用不是惩罚高手，而是创造可控的近失体验，让下一局的期待感始终在线</p>
 </section>
 
-<!-- ═══════ 1.2 PRODUCT DESIGN PRINCIPLES ═══════ -->
+<!-- ═══════ 1.1.7 PSYCHOLOGY SUMMARY ═══════ -->
+<section class="slide" id="psyc-summary">
+  <h3><span class="ch">1.1.7</span> 六条心理机制 → 两条设计主线</h3>
+
+  <p style="margin-bottom:0.2em">六条心理学原理并非独立的知识碎片 — 它们共同指向两条交织的设计主线：<strong style="color:#7eb8ff">难度管控</strong>与<strong style="color:#ffb74d">情绪弧线</strong></p>
+
+  <div class="card-row c2">
+    <div class="card" style="border-color:rgba(74,158,255,0.15);background:rgba(74,158,255,0.03)">
+      <div class="head"><div class="icon" style="font-size:1.3rem;margin-right:8px">📐</div><div class="tit" style="color:#7eb8ff">主线一：难度管控</div></div>
+      <div class="desc" style="margin-top:8px;font-size:0.95rem">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:1.2rem">①</span><span>心流通道 → 难度必须随能力实时适配</span></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:1.2rem">②</span><span>Yerkes-Dodson → 压力推送到倒 U 顶点</span></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:1.2rem">③</span><span>习得性无助 → 挫败累积必须被检测并干预</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:1.2rem">④</span><span>SDT 自主性 → 算法隐蔽，不能破坏掌控感</span></div>
+      </div>
+      <div style="margin-top:10px;padding:6px 12px;background:rgba(74,158,255,0.06);border-radius:8px;color:#7eb8ff;font-size:0.9rem;font-weight:600">→ S 形压力曲线 · 难度相对论 · 双坐标解耦</div>
+    </div>
+    <div class="card" style="border-color:rgba(255,183,77,0.15);background:rgba(255,183,77,0.03)">
+      <div class="head"><div class="icon" style="font-size:1.3rem;margin-right:8px">📈</div><div class="tit" style="color:#ffb74d">主线二：情绪弧线</div></div>
+      <div class="desc" style="margin-top:8px;font-size:0.95rem">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:1.2rem">①</span><span>峰值-终末定律 → 高潮要够高、收尾要漂亮</span></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:1.2rem">②</span><span>近失理论 → 「差一点就破」比「轻松破」更上瘾</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:1.2rem">③</span><span>心流愉悦感 → 专注·忘我·愉悦是情绪弧线的锚点</span></div>
+      </div>
+      <div style="margin-top:10px;padding:6px 12px;background:rgba(255,183,77,0.06);border-radius:8px;color:#ffb74d;font-size:0.9rem;font-weight:600">→ PB 七段弧 · pbTension/pbBrake · Warm Run</div>
+    </div>
+  </div>
+
+  <div class="dialog dialog-p" style="margin-top:0.3em">
+    <div class="avatar">P</div><div class="body">
+      <div class="name">玩法设计师</div>
+      <div class="text">两条主线最终要落到同一个问题：<strong style="color:#7eb8ff">难度怎么变</strong>和<strong style="color:#ffb74d">情绪怎么走</strong>必须协同设计，不能各自为政 — 这就是 1.2 节要展开的产品设计框架</div></div>
+  </div>
+</section>
+
+<!-- ═══════ 1.2 PRODUCT STRATEGY ═══════ -->
 <section class="slide" id="design-principles">
-  <h3><span class="ch">1.2</span> 产品设计</h3>
+  <h3><span class="ch">1.2</span> 产品策略</h3>
 
   <div class="dialog dialog-p">
     <div class="avatar">P</div><div class="body">
@@ -776,72 +907,113 @@
   </div>
 
   <div class="section-bridge" style="margin:0.8em 0;background:rgba(74,158,255,0.04);border-color:rgba(74,158,255,0.08)">
-    <p>心理学根基 → 休闲游戏理念 → 5 轴体验结构</p>
-    <div class="sub">从 6 条心理学研究，到 1 条核心设计哲学，再到 5 个正交体验关注点</div>
+    <p>6 条认知理论 → 2 条设计线索 → 5 轴体验结构</p>
+    <div class="sub">理论不直接变代码——先汇成两股设计合力，再组织成五条正交关注轴</div>
   </div>
 
-  <div class="card-row c4" style="margin-top:0.4em">
-    <div class="card accent-b" style="text-align:center;padding:16px">
-      <div style="font-size:1.6rem;font-weight:700;color:#7eb8ff">C-1</div>
-      <div class="tit" style="font-size:1.0rem;margin-top:4px">挑战</div>
-      <div class="desc" style="font-size:0.85rem">心流带管控，压力曲线适配每局</div>
+  <div class="card-row" style="grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:0.3em">
+    <div class="card" style="border-color:rgba(78,204,163,0.25);background:rgba(78,204,163,0.05);padding:10px">
+      <div style="font-size:0.7rem;color:#4ecca3;font-weight:700;letter-spacing:0.5px">心流理论</div>
+      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">挑战≈能力 → 心流带</div>
+      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">skillLevel × stress 联合判定</div>
     </div>
-    <div class="card accent-o" style="text-align:center;padding:16px">
-      <div style="font-size:1.6rem;font-weight:700;color:#ffb74d">C-2</div>
-      <div class="tit" style="font-size:1.0rem;margin-top:4px">兑现</div>
-      <div class="desc" style="font-size:0.85rem">消行保证，布局与兑现的节奏交替</div>
+    <div class="card" style="border-color:rgba(255,183,77,0.25);background:rgba(255,183,77,0.05);padding:10px">
+      <div style="font-size:0.7rem;color:#ffb74d;font-weight:700;letter-spacing:0.5px">Yerkes-Dodson</div>
+      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">倒 U 形表现曲线</div>
+      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">flowPayoffCap + shapeWeights 分级</div>
     </div>
-    <div class="card accent-g" style="text-align:center;padding:16px">
-      <div style="font-size:1.6rem;font-weight:700;color:#81c784">C-3</div>
-      <div class="tit" style="font-size:1.0rem;margin-top:4px">掌控</div>
-      <div class="desc" style="font-size:0.85rem">玩家自主感，提示按需隐蔽不干扰</div>
+    <div class="card" style="border-color:rgba(129,199,132,0.25);background:rgba(129,199,132,0.05);padding:10px">
+      <div style="font-size:0.7rem;color:#81c784;font-weight:700;letter-spacing:0.5px">SDT 自我决定</div>
+      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">自主·胜任·关联</div>
+      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">难度可选·建议非命令·画像可见</div>
     </div>
-    <div class="card accent-p" style="text-align:center;padding:16px">
-      <div style="font-size:1.6rem;font-weight:700;color:#ba68c8">C-4</div>
-      <div class="tit" style="font-size:1.0rem;margin-top:4px">情感</div>
-      <div class="desc" style="font-size:0.85rem">叙事与盘面一致，不出现体感错位</div>
+    <div class="card" style="border-color:rgba(229,115,115,0.25);background:rgba(229,115,115,0.05);padding:10px">
+      <div style="font-size:0.7rem;color:#e57373;font-weight:700;letter-spacing:0.5px">习得性无助</div>
+      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">挫败累积→主动干预</div>
+      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">bottleneckRelief + Warm Run</div>
+    </div>
+    <div class="card" style="border-color:rgba(186,104,200,0.25);background:rgba(186,104,200,0.05);padding:10px">
+      <div style="font-size:0.7rem;color:#ba68c8;font-weight:700;letter-spacing:0.5px">峰终定律</div>
+      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">记忆 = 峰值 + 结尾</div>
+      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">flowPayoff + endGame 总结</div>
+    </div>
+    <div class="card" style="border-color:rgba(255,183,77,0.25);background:rgba(255,183,77,0.05);padding:10px">
+      <div style="font-size:0.7rem;color:#ffb74d;font-weight:700;letter-spacing:0.5px">近失理论</div>
+      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">「差一点」激活「再试一次」</div>
+      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">nearMissAdjust + revive 窗口</div>
     </div>
   </div>
 
-  <div class="card-row c4" style="margin-top:-0.4em">
-    <div class="card accent-r" style="text-align:center;padding:16px;grid-column:2/3">
-      <div style="font-size:1.6rem;font-weight:700;color:#e57373">C-5</div>
-      <div class="tit" style="font-size:1.0rem;margin-top:4px">成长</div>
-      <div class="desc" style="font-size:0.85rem">热身→高峰→冷却，单局自然弧线</div>
+  <div class="card-row c2" style="margin-top:0.6em;gap:8px">
+    <div class="card" style="border-color:rgba(74,158,255,0.2);background:rgba(74,158,255,0.06);padding:10px">
+      <div style="font-size:0.8rem;color:#7eb8ff;font-weight:700;margin-bottom:4px">线索 A：压力·心流通道</div>
+      <div style="font-size:0.7rem;color:#a0b8d0;line-height:1.5">
+        心流 + Yerkes-Dodson + 习得性无助 + SDT 自主性 → 
+        共同决定 stress 升降与释放时机，核心系统：adaptiveSpawn / stressMeter / relief
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.06);padding:10px">
+      <div style="font-size:0.8rem;color:#ffb74d;font-weight:700;margin-bottom:4px">线索 B：情绪·记忆弧线</div>
+      <div style="font-size:0.7rem;color:#a0b8d0;line-height:1.5">
+        峰终 + 近失 + 心流愉悦 → 
+        共同决定单局情感记忆，核心系统：delight / nearMiss / endGame / score-push 守卫
+      </div>
     </div>
   </div>
 
-   <p style="color:#4a6088;font-size:0.95rem;margin-top:0.4em">五轴互抑——任一轴过度优化会反噬其他轴，系统内置守卫机制 — 下一章的策略设计围绕这五轴展开</p>
+  <div class="card-row c4" style="margin-top:0.5em">
+    <div class="card accent-b" style="text-align:center;padding:14px">
+      <div style="font-size:1.4rem;font-weight:700;color:#7eb8ff">C-1</div>
+      <div class="tit" style="font-size:0.9rem;margin-top:3px">挑战·能力</div>
+      <div class="desc" style="font-size:0.75rem">心流带·压力曲线适配每局</div>
+      <div style="font-size:0.6rem;color:#4a6088;margin-top:3px">心流 · Yerkes-Dodson</div>
+    </div>
+    <div class="card accent-o" style="text-align:center;padding:14px">
+      <div style="font-size:1.4rem;font-weight:700;color:#ffb74d">C-2</div>
+      <div class="tit" style="font-size:0.9rem;margin-top:3px">节奏·兑现</div>
+      <div class="desc" style="font-size:0.75rem">消行保证·布局/兑现节奏交替</div>
+      <div style="font-size:0.6rem;color:#4a6088;margin-top:3px">心流 · 变比奖励</div>
+    </div>
+    <div class="card accent-g" style="text-align:center;padding:14px">
+      <div style="font-size:1.4rem;font-weight:700;color:#81c784">C-3</div>
+      <div class="tit" style="font-size:0.9rem;margin-top:3px">掌控·自主</div>
+      <div class="desc" style="font-size:0.75rem">玩家自主感·提示按需隐蔽</div>
+      <div style="font-size:0.6rem;color:#4a6088;margin-top:3px">SDT · 隐蔽 DDA</div>
+    </div>
+    <div class="card accent-p" style="text-align:center;padding:14px">
+      <div style="font-size:1.4rem;font-weight:700;color:#ba68c8">C-4</div>
+      <div class="tit" style="font-size:0.9rem;margin-top:3px">情感·回响</div>
+      <div class="desc" style="font-size:0.75rem">叙事与盘面一致·体感不错位</div>
+      <div style="font-size:0.6rem;color:#4a6088;margin-top:3px">峰终 · 近失 · 习得性无助</div>
+    </div>
+  </div>
+
+  <div class="card-row c4" style="margin-top:-0.3em">
+    <div class="card accent-r" style="text-align:center;padding:14px;grid-column:2/3">
+      <div style="font-size:1.4rem;font-weight:700;color:#e57373">C-5</div>
+      <div class="tit" style="font-size:0.9rem;margin-top:3px">成长·沉没</div>
+      <div class="desc" style="font-size:0.75rem">热身→高峰→冷却·自然弧线</div>
+      <div style="font-size:0.6rem;color:#4a6088;margin-top:3px">Hooked · 多层次进度</div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:6px;margin-top:0.4em;justify-content:center;flex-wrap:wrap">
+    <span style="background:rgba(74,158,255,0.08);color:#5a78aa;padding:2px 10px;border-radius:10px;font-size:0.65rem">C-1 压顶 → immediateRelief 短路</span>
+    <span style="background:rgba(255,183,77,0.08);color:#5a78aa;padding:2px 10px;border-radius:10px;font-size:0.65rem">C-2 过频 → clearGuarantee 回钳</span>
+    <span style="background:rgba(129,199,132,0.08);color:#5a78aa;padding:2px 10px;border-radius:10px;font-size:0.65rem">C-3 过强 → tip 类别多样性</span>
+    <span style="background:rgba(186,104,200,0.08);color:#5a78aa;padding:2px 10px;border-radius:10px;font-size:0.65rem">C-4 错位 → score-push 守卫</span>
+    <span style="background:rgba(229,115,115,0.08);color:#5a78aa;padding:2px 10px;border-radius:10px;font-size:0.65rem">C-5 过快 → sessionArc cooldown</span>
+  </div>
 </section>
 
-<!-- ═══════ 1.3 STRATEGY ═══════ -->
-<section class="slide" id="strategy">
-  <h3><span class="ch">1.3</span> 策略设计</h3>
+<div class="section-bridge" style="margin:1em 6vw;background:rgba(255,183,77,0.04);border-color:rgba(255,183,77,0.08)">
+  <p>6 条理论 → 2 条线索 → 5 轴结构 → 4 条核心策略</p>
+  <div class="sub">五轴框架指明"关注什么"，接下来四条策略回答"具体怎么做"</div>
+</div>
 
-  <div class="dialog dialog-a">
-    <div class="avatar">A</div><div class="body">
-      <div class="name">算法工程师</div>
-      <div class="text">产品策略是连接心理学与算法实现的桥梁 — 它不是零散的功能列表，而是<strong>一套连贯的设计哲学</strong> — 我们提炼出三条核心策略：<strong>S 形压力曲线</strong>（难度如何随分数演进）、<strong>难度相对论</strong>（同一个盘面对不同玩家意味着不同的体验）、<strong>双坐标解耦</strong>（难度坐标与纪录坐标分离），以及<strong>PB 七段弧</strong>（冲击 PB 的微观情绪时序），这四条策略交织出完整的出块策略</div></div>
-  </div>
-
-  <div class="card-row c2" style="margin-top:1.6em">
-    <div class="card accent-b" style="cursor:pointer" onclick="document.getElementById('strategy-sc').scrollIntoView({behavior:'smooth'})">
-      <div class="tit">1.3.1 S 形压力曲线</div>
-      <div class="desc">难度随分数演进——防止分数膨胀与用户生命透支</div></div>
-    <div class="card accent-o" style="cursor:pointer" onclick="document.getElementById('strategy-dr').scrollIntoView({behavior:'smooth'})">
-      <div class="tit">1.3.2 难度相对论</div>
-      <div class="desc">同一盘面对不同玩家意味着不同体验——θ⃗ 六维能力向量</div></div>
-    <div class="card accent-g" style="cursor:pointer" onclick="document.getElementById('strategy-dc').scrollIntoView({behavior:'smooth'})">
-      <div class="tit">1.3.3 双坐标解耦</div>
-      <div class="desc">难度坐标 vs 纪录坐标——不同坐标服务于不同系统</div></div>
-    <div class="card accent-p" style="cursor:pointer" onclick="document.getElementById('strategy-pb').scrollIntoView({behavior:'smooth'})">
-      <div class="tit">1.3.4 PB 曲线</div>
-      <div class="desc">7 段弧线的张力与制动——冲击 PB 的微观情绪弧线</div></div>
-  </div>
-</section>
-
+<!-- ═══════ 1.2.1 S-CURVE ═══════ -->
 <section class="slide" id="strategy-sc">
-  <h3><span class="ch">1.3.1</span> S 形压力曲线——难度演进的底层哲学</h3>
+  <h3><span class="ch">1.2.1</span> S 形压力曲线——难度演进的底层哲学</h3>
 
   <div class="dialog dialog-p">
     <div class="avatar">P</div><div class="body">
@@ -1012,7 +1184,7 @@
 </section>
 
 <section class="slide" id="strategy-dr">
-  <h3><span class="ch">1.3.2</span> 难度相对论——「难」是相对能力的主观量</h3>
+  <h3><span class="ch">1.2.2</span> 难度相对论——「难」是相对能力的主观量</h3>
 
   <div class="dialog dialog-p">
     <div class="avatar">P</div><div class="body">
@@ -1149,7 +1321,7 @@
 </section>
 
 <section class="slide" id="strategy-dc">
-  <h3><span class="ch">1.3.3</span> 双坐标解耦——难度坐标 vs 纪录坐标</h3>
+  <h3><span class="ch">1.2.3</span> 双坐标解耦——难度坐标 vs 纪录坐标</h3>
 
   <div class="dialog dialog-p">
     <div class="avatar">P</div><div class="body">
@@ -1229,7 +1401,7 @@
 </section>
 
 <section class="slide" id="strategy-pb">
-  <h3><span class="ch">1.3.4</span> PB 曲线——7 段弧线的张力与制动</h3>
+  <h3><span class="ch">1.2.4</span> PB 曲线——7 段弧线的张力与制动</h3>
 
    <p>如果说 S 曲线定义了「难度-分数」的宏观关系，PB 曲线定义了<strong>玩家冲击 PB 旅程中的微观情绪弧线</strong>——从 warmup 到 overshoot 的 7 个阶段，每个阶段有不同的出块调整策略</p>
 
@@ -3012,9 +3184,11 @@ wrapWithExplorer(_deterministicPolicy, { epsilon: 0.05 })
   const content = overlay.querySelector('.zoom-content');
   const close = overlay.querySelector('.zoom-close');
 
-  function openZoom(svg){
-    const clone = svg.cloneNode(true);
-    clone.removeAttribute('style');
+  function openZoom(el){
+    const isSvg = el.tagName === 'svg';
+    const clone = isSvg ? el.cloneNode(true) : el.cloneNode(true);
+    if(!isSvg) clone.style.cssText = 'max-width:96vw;max-height:88vh;width:auto;height:auto;display:block';
+    else clone.removeAttribute('style');
     content.innerHTML = '';
     content.appendChild(clone);
     overlay.classList.add('show');
@@ -3025,10 +3199,10 @@ wrapWithExplorer(_deterministicPolicy, { epsilon: 0.05 })
     document.body.style.overflow = '';
   }
 
-  document.querySelectorAll('.img-frame svg').forEach(svg => {
-    svg.addEventListener('click', e => {
+  document.querySelectorAll('.img-frame svg, .img-frame img.zoomable-img').forEach(el => {
+    el.addEventListener('click', e => {
       e.stopPropagation();
-      openZoom(svg);
+      openZoom(el);
     });
   });
   close.addEventListener('click', closeZoom);

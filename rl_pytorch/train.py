@@ -413,8 +413,15 @@ def _pack_training_state(
     guard_best_avg: float,
     guard_rollbacks: int,
     guard_scores,
+    guard_best_stats=None,
+    guard_observed_means=None,
+    guard_health=None,
 ) -> dict:
-    """落盘 quantile 课程 + BestGuard 运行时状态，供 resume 续训不重新 bootstrap。"""
+    """落盘 quantile 课程 + BestGuard 运行时状态，供 resume 续训不重新 bootstrap。
+
+    v2: 新增 guard_best_stats / guard_observed_means / guard_health 三项，
+    用于显著性检验、启动自检和健康度恢复。三者均可选（旧 ckpt 兼容）。
+    """
     state: dict = {}
     if use_quantile:
         state["quantile"] = {
@@ -427,11 +434,28 @@ def _pack_training_state(
             "last_target": float(quant_last_target),
         }
     if guard_on and guard_best_sd is not None:
-        state["best_guard"] = {
+        bg_entry: dict = {
             "best_avg": float(guard_best_avg),
             "rollbacks": int(guard_rollbacks),
             "recent_scores": [float(x) for x in guard_scores],
         }
+        if guard_best_stats is not None:
+            bg_entry["best_stats"] = {
+                "avg": float(guard_best_stats.avg),
+                "std": float(guard_best_stats.std),
+                "n": int(guard_best_stats.n),
+                "median": float(guard_best_stats.median),
+            }
+        if guard_observed_means is not None:
+            bg_entry["observed_means"] = [float(x) for x in guard_observed_means]
+        if guard_health is not None:
+            bg_entry["health"] = {
+                "rollback_events": list(guard_health.rollback_events),
+                "suspended_until_ep": int(guard_health.suspended_until_ep),
+                "last_alert_ep": int(guard_health.last_alert_ep),
+                "consecutive_severe": int(guard_health.consecutive_severe),
+            }
+        state["best_guard"] = bg_entry
     return state
 
 
@@ -500,6 +524,37 @@ def _restore_training_runtime_state(
                 (float(x) for x in rs),
                 maxlen=max(1, guard_window),
             )
+        # v2: 恢复 best 窗口统计量；旧 ckpt 没有该字段时回退到 (avg, 0, 200)
+        bs = bg.get("best_stats") or {}
+        if bs:
+            patches["guard_best_stats"] = {
+                "avg": float(bs.get("avg", best_avg)),
+                "std": float(bs.get("std", 0.0)),
+                "n": int(bs.get("n", max(1, guard_window))),
+                "median": float(bs.get("median", 0.0)),
+            }
+        else:
+            patches["guard_best_stats"] = {
+                "avg": float(best_avg),
+                "std": 0.0,
+                "n": max(1, guard_window),
+                "median": 0.0,
+            }
+        # v2: 恢复观测历史和健康度（用于启动自检与速率限制）
+        obs = bg.get("observed_means") or []
+        if obs:
+            patches["guard_observed_means"] = collections.deque(
+                (float(x) for x in obs),
+                maxlen=500,
+            )
+        hs = bg.get("health") or {}
+        if hs:
+            patches["guard_health"] = {
+                "rollback_events": tuple(int(x) for x in hs.get("rollback_events", [])),
+                "suspended_until_ep": int(hs.get("suspended_until_ep", -1)),
+                "last_alert_ep": int(hs.get("last_alert_ep", -(10 ** 9))),
+                "consecutive_severe": int(hs.get("consecutive_severe", 0)),
+            }
         patches["rebuild_optimizer"] = True
         if ref_net is not None:
             ref_net.load_state_dict(net.state_dict())
@@ -2668,26 +2723,55 @@ def train_loop(
     # 重型 eval_gate_check 因 self-play 评估会卡顿故看板模式默认关闭；这里改用「免费」的
     # 训练 rollout 滚动均分做守护：均分创新高即快照 best，显著回撤即回滚到 best 并重置
     # 优化器动量。直接对症「得分越来越低」——保证模型权重单调不退化。
+    #
+    # v2 升级（治根 8834 / 28 次误回滚问题）：判定改为基于 pooled standard error
+    # 的 z-test（统计学显著性检验），并引入：
+    #   1) 启动自检：检测 ckpt.guard_best_avg 是否被运气峰值污染，自动暴露并修复。
+    #   2) 健康度跟踪：回滚速率限制 + 自动暂停，杜绝"自我实现的衰减循环"。
+    #   3) Trimmed mean：双侧 5% 裁剪，抗右偏长尾分布对窗口均值的拉动。
+    # 详见 rl_pytorch/best_guard.py 文档。
+    from .best_guard import (
+        BestGuardConfig,
+        BestGuardStats,
+        HealthState,
+        assess_best_avg_pollution,
+        decide_best_guard_action,
+        update_health_state,
+    )
+
     _guard_on = os.environ.get("RL_BEST_GUARD", "1").lower() not in ("0", "false", "no")
     _guard_every = int(os.environ.get("RL_BEST_GUARD_EVERY", "200"))
     _guard_window = int(os.environ.get("RL_BEST_GUARD_WINDOW", "200"))
-    _guard_margin = float(os.environ.get("RL_BEST_GUARD_MARGIN", "0.02"))
-    _guard_regress = float(os.environ.get("RL_BEST_GUARD_REGRESS", "0.85"))
+    # v2 z-score 阈值（覆盖 v1 的 _guard_margin / _guard_regress / _guard_severe 固定比例）
+    _bg_cfg = BestGuardConfig(
+        window=max(1, _guard_window),
+        check_every=max(1, int(os.environ.get("RL_BEST_GUARD_EVERY", "200"))),
+        k_upgrade=float(os.environ.get("RL_BEST_GUARD_K_UPGRADE", "1.5")),
+        k_regress=float(os.environ.get("RL_BEST_GUARD_K_REGRESS", "2.0")),
+        k_severe=float(os.environ.get("RL_BEST_GUARD_K_SEVERE", "3.5")),
+        confirm=max(1, int(os.environ.get("RL_BEST_GUARD_CONFIRM", "2"))),
+        max_pollution_margin=float(os.environ.get("RL_BEST_GUARD_POLLUTION_MARGIN", "0.10")),
+        rate_limit_window=max(1, int(os.environ.get("RL_BEST_GUARD_RATE_WINDOW", "1000"))),
+        rate_limit_threshold=max(1, int(os.environ.get("RL_BEST_GUARD_RATE_LIMIT", "5"))),
+        suspend_episodes=max(0, int(os.environ.get("RL_BEST_GUARD_SUSPEND_EP", "2000"))),
+        use_trimmed_mean=os.environ.get("RL_BEST_GUARD_TRIM", "1").lower() not in ("0", "false", "no"),
+        trim_ratio=float(os.environ.get("RL_BEST_GUARD_TRIM_RATIO", "0.05")),
+    )
     _guard_scores: collections.deque = collections.deque(maxlen=max(1, _guard_window))
+    # v2: best_stats 替代单值 best_avg（包含 mean/std/n 以支持显著性检验）；
+    # 仍保留 _guard_best_avg 浮点字段以兼容现有持久化/日志 API。
+    _guard_best_stats = BestGuardStats(avg=0.0, std=0.0, n=0, median=0.0)
     _guard_best_avg: float = 0.0
     _guard_best_sd: dict | None = None
+    _guard_health = HealthState()
+    # 观测历史：用于启动时检测 best_avg 污染；每次 decide 后追加 cur 窗口均值。
+    _guard_observed_means: collections.deque = collections.deque(maxlen=500)
     # L2 死代码移除：历史上 _guard_best_opt_sd 保存 best 时刻的 opt.state_dict()，
     # 但回滚路径只调 `opt = adam_for_training(net.parameters(), lr=lr)` 重建优化器，
     # 从未真正 load_state_dict(_guard_best_opt_sd)；每次 best 创建/刷新 deepcopy
     # 完整 Adam state（2.5MB × 含 MPS tensor），是 MPS→CPU 隐式拷贝热点之一。
     _guard_last_ep: int = 0
     _guard_rollbacks: int = 0
-    # 回滚「二次确认」：高方差得分（实测 CV≈100%）下，单个噪声窗口跌破阈值就回滚会
-    # 反复重置优化器、清空窗口、丢进度（历史累计 947 次回滚的放大器之一）。要求连续
-    # _guard_confirm 次检查均跌破阈值才回滚；但跌破 _guard_severe（更深的硬底）时立即回滚，
-    # 兼顾对真实发散的快速响应。RL_BEST_GUARD_CONFIRM=1 时退化为「再观察一窗口」。
-    _guard_confirm = int(os.environ.get("RL_BEST_GUARD_CONFIRM", "1"))
-    _guard_severe = float(os.environ.get("RL_BEST_GUARD_SEVERE", "0.70"))
     _guard_pending_regress: int = 0
     # 数值发散回归监控：记录上次告警 episode 与累计次数（限速，避免刷屏）。
     _loss_warn_last_ep: int = -(10 ** 9)
@@ -2957,8 +3041,77 @@ def train_loop(
                 _guard_best_sd = _rt_patches["guard_best_sd"]
                 if "guard_scores" in _rt_patches:
                     _guard_scores = _rt_patches["guard_scores"]
+                # v2: 恢复 best 统计量、观测历史、健康度
+                if "guard_best_stats" in _rt_patches:
+                    _bs = _rt_patches["guard_best_stats"]
+                    _guard_best_stats = BestGuardStats(
+                        avg=_bs["avg"], std=_bs["std"], n=_bs["n"], median=_bs["median"],
+                    )
+                else:
+                    _guard_best_stats = BestGuardStats(
+                        avg=_guard_best_avg, std=0.0,
+                        n=max(1, _guard_window), median=0.0,
+                    )
+                if "guard_observed_means" in _rt_patches:
+                    _guard_observed_means = _rt_patches["guard_observed_means"]
+                if "guard_health" in _rt_patches:
+                    _hs = _rt_patches["guard_health"]
+                    _guard_health = HealthState(
+                        rollback_events=_hs["rollback_events"],
+                        suspended_until_ep=_hs["suspended_until_ep"],
+                        last_alert_ep=_hs["last_alert_ep"],
+                        consecutive_severe=_hs["consecutive_severe"],
+                    )
                 if _rt_patches.get("rebuild_optimizer"):
                     opt = adam_for_training(net.parameters(), lr=lr)
+
+                # v2 启动自检：检测 best_avg 是否被运气峰值污染（治根 8834 / 7209 问题）
+                _pollution = assess_best_avg_pollution(
+                    _guard_best_avg,
+                    _guard_observed_means,
+                    _bg_cfg,
+                )
+                if _pollution.polluted:
+                    _auto_fix = os.environ.get(
+                        "RL_BEST_GUARD_AUTO_FIX_POLLUTION", "1",
+                    ).lower() not in ("0", "false", "no")
+                    _fix_tag = " → 自动重置" if _auto_fix else " (设 RL_BEST_GUARD_AUTO_FIX_POLLUTION=1 启用自动修复)"
+                    print(
+                        f"[BestGuard:HEALTH:CRITICAL] checkpoint best_avg 污染检测：\n"
+                        f"  {_pollution.reason}{_fix_tag}",
+                        file=sys.stderr,
+                    )
+                    try:
+                        _append_training_jsonl({
+                            "event": "best_guard_pollution",
+                            "ts": int(time.time()),
+                            "episodes": int(start_ep),
+                            "best_avg": _pollution.best_avg,
+                            "observed_max": _pollution.observed_max,
+                            "pollution_ratio": round(_pollution.pollution_ratio, 3),
+                            "suggested_reset_to": _pollution.suggested_reset_to,
+                            "reason": _pollution.reason,
+                            "auto_fixed": bool(_auto_fix),
+                        })
+                    except Exception:
+                        pass
+                    if _auto_fix:
+                        _guard_best_avg = _pollution.suggested_reset_to
+                        _guard_best_stats = BestGuardStats(
+                            avg=_pollution.suggested_reset_to,
+                            std=max(_guard_best_stats.std, 1.0),
+                            n=max(1, _guard_best_stats.n),
+                            median=_pollution.suggested_reset_to,
+                        )
+                        # 重置 health 状态，避免延续之前的 rollback 风暴
+                        _guard_health = HealthState()
+                        _guard_pending_regress = 0
+                        _guard_rollbacks = 0
+                        print(
+                            f"  ↳ best_avg 已重置为 {_guard_best_avg:.1f}；"
+                            f"rollback 历史与健康度状态已清零。",
+                            file=sys.stderr,
+                        )
             print(f"已从 {resume} 恢复，继续自第 {start_ep} 局", file=sys.stderr)
             for _ln in _rt_logs:
                 print(_ln, file=sys.stderr)
@@ -3976,90 +4129,133 @@ def train_loop(
 
                 t0 = time.perf_counter()
 
-            # --- 轻量 best-checkpoint 守护：用训练滚动均分快照/回滚（防退化主力）---
+            # --- BestGuard v2：基于显著性检验的轻量 best-checkpoint 守护 ---
+            # 详见 rl_pytorch/best_guard.py：纯函数 decide_best_guard_action()
+            # 返回 action ∈ {init, upgrade, regress_pending, regress_severe,
+            # regress_confirmed, hold, suspended}，本处仅做副作用执行。
             if (
                 _guard_on
                 and len(_guard_scores) >= _guard_window
                 and ep_cursor - _guard_last_ep >= _guard_every
             ):
                 _guard_last_ep = ep_cursor
-                _cur_avg = float(sum(_guard_scores) / len(_guard_scores))
-                if _guard_best_sd is None:
-                    # 首次：以当前为基准 best
+                _bg_decision = decide_best_guard_action(
+                    _bg_cfg,
+                    _guard_best_stats,
+                    list(_guard_scores),
+                    pending_count=_guard_pending_regress,
+                    health=_guard_health,
+                    ep_cursor=ep_cursor,
+                )
+                _cur_stats = _bg_decision.cur_stats
+                _cur_avg = _cur_stats.avg  # 兼容下游日志/事件
+                _guard_observed_means.append(float(_cur_avg))
+                _guard_pending_regress = _bg_decision.pending_count
+
+                if _bg_decision.action in ("init", "upgrade"):
+                    # 首次或显著提升 → 快照为新 best，并同步 KL-ref 参考网
                     _guard_best_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
+                    _prev_avg = _guard_best_stats.avg
+                    _guard_best_stats = _cur_stats
                     _guard_best_avg = _cur_avg
-                elif _cur_avg >= _guard_best_avg * (1.0 + _guard_margin):
-                    # 创新高 → 快照为新 best，并把 KL-ref 参考网同步到该更优策略
-                    _guard_pending_regress = 0
-                    _guard_best_sd = {k: v.clone().cpu() for k, v in net.state_dict().items()}
                     if _ref_net is not None:
                         _ref_net.load_state_dict(net.state_dict())
-                    _prev = _guard_best_avg
-                    _guard_best_avg = _cur_avg
                     # P1-2 · 创新高时 lr 回弹到初始值，避免衰减期 lr 永久停在低位学不动
                     _lr_restored = False
-                    if abs(float(lr) - _lr_initial) > 1e-12:
+                    if _bg_decision.action == "upgrade" and abs(float(lr) - _lr_initial) > 1e-12:
                         lr = _lr_initial
                         opt = adam_for_training(net.parameters(), lr=lr)
                         _lr_restored = True
-                    print(
-                        f"[BestGuard] ep={ep_cursor}  ★ 新高 avg={_cur_avg:.1f} (prev={_prev:.1f}) → 已快照 best"
-                        + (f" + lr↺{lr:.2e}" if _lr_restored else ""),
-                        file=sys.stderr,
-                    )
-                elif _cur_avg < _guard_best_avg * _guard_regress:
-                    # 回滚「二次确认」：累计连续跌破次数；非严重回撤时先观察、不立即回滚，
-                    # 避免单个噪声窗口触发无谓的优化器重置与窗口清空。
-                    _guard_pending_regress += 1
-                    _is_severe = _cur_avg < _guard_best_avg * _guard_severe
-                    if not _is_severe and _guard_pending_regress < max(1, _guard_confirm):
-                        # 观察期：保留窗口继续累积，等待下一次检查确认是否为真实退化
+                    if _bg_decision.action == "init":
                         print(
-                            f"[BestGuard] ep={ep_cursor}  ⏳ 观察回撤 avg={_cur_avg:.1f} < "
-                            f"{_guard_best_avg * _guard_regress:.1f}（{_guard_pending_regress}/"
-                            f"{max(1, _guard_confirm)}，未达确认/严重阈值，暂不回滚）",
+                            f"[BestGuard] ep={ep_cursor}  ◇ 初始化 best avg={_cur_avg:.1f}"
+                            f" std={_cur_stats.std:.1f} n={_cur_stats.n}",
                             file=sys.stderr,
                         )
                     else:
-                        # 确认退化（连续跌破）或严重回撤 → 回滚到 best 并重置优化器动量
-                        _guard_pending_regress = 0
-                        # 显著回撤 → 回滚到 best 并重置优化器动量，避免沿坏方向继续漂移
-                        net.load_state_dict({k: v.to(device) for k, v in _guard_best_sd.items()})
-                        _guard_rollbacks += 1
-                        # P1-2 · 连续回滚自动降学习率
-                        # 真凶：6/21 日志显示 BestGuard 单日回滚 ~150 次仍在原 lr 上原地打转，
-                        # 训练 2.5h 完全无 best 刷新。lr 自适应衰减让模型在回撤期"减速学习"，
-                        # 给探索一个机会；恢复期触发新 best 时 lr 自动回弹（见上方 _guard_best_sd 分支）。
-                        # 衰减策略：每 _guard_lr_decay_after 次回滚 lr *= _guard_lr_decay_factor，
-                        # 但 lr 不低于 lr_initial × _guard_lr_floor_ratio（避免学不动）。
-                        try:
-                            _lr_decay_after = int(os.environ.get("RL_GUARD_LR_DECAY_AFTER", "5"))
-                            _lr_decay_factor = float(os.environ.get("RL_GUARD_LR_DECAY_FACTOR", "0.7"))
-                            _lr_floor_ratio = float(os.environ.get("RL_GUARD_LR_FLOOR_RATIO", "0.2"))
-                        except (TypeError, ValueError):
-                            _lr_decay_after, _lr_decay_factor, _lr_floor_ratio = 5, 0.7, 0.2
-                        _lr_decayed = False
-                        if _lr_decay_after > 0 and _guard_rollbacks % _lr_decay_after == 0:
-                            # floor 用 _lr_initial（不是当前 lr），否则反复衰减会跌穿
-                            _lr_floor = max(1e-8, _lr_initial * _lr_floor_ratio)
-                            _new_lr = max(_lr_floor, float(lr) * _lr_decay_factor)
-                            if abs(_new_lr - float(lr)) > 1e-12:
-                                lr = _new_lr
-                                _lr_decayed = True
-                        opt = adam_for_training(net.parameters(), lr=lr)
-                        _guard_scores.clear()
                         print(
-                            f"[BestGuard] ep={ep_cursor}  ✗ 回撤 avg={_cur_avg:.1f} < {_guard_best_avg * _guard_regress:.1f}"
-                            f"  → 已回滚到 best(avg={_guard_best_avg:.1f}) 并重置优化器"
-                            + (f" + lr→{lr:.2e}" if _lr_decayed else "")
-                            + (" [严重]" if _is_severe else "")
-                            + f"  [第{_guard_rollbacks}次]",
+                            f"[BestGuard] ep={ep_cursor}  ★ 新高 avg={_cur_avg:.1f} "
+                            f"(prev={_prev_avg:.1f}, z=+{_bg_decision.z_score:.2f}σ) "
+                            f"→ 已快照 best"
+                            + (f" + lr↺{lr:.2e}" if _lr_restored else ""),
                             file=sys.stderr,
                         )
-                else:
-                    # 得分回到健康区间（高于回撤阈值、未创新高）→ 清零待确认计数，
-                    # 保证「连续跌破」语义，避免跨越一次恢复后累积陈旧的 pending 触发误回滚。
-                    _guard_pending_regress = 0
+                elif _bg_decision.action == "regress_pending":
+                    # 观察期：保留窗口继续累积，等待下一次检查确认是否为真实退化
+                    print(
+                        f"[BestGuard] ep={ep_cursor}  ⏳ 观察回撤 avg={_cur_avg:.1f} "
+                        f"(z={_bg_decision.z_score:+.2f}σ) "
+                        f"[{_guard_pending_regress}/{_bg_cfg.confirm}，未达确认/严重阈值]",
+                        file=sys.stderr,
+                    )
+                elif _bg_decision.action in ("regress_severe", "regress_confirmed"):
+                    # 确认/严重回撤 → 回滚到 best 并重置优化器动量
+                    if _guard_best_sd is not None:
+                        net.load_state_dict({k: v.to(device) for k, v in _guard_best_sd.items()})
+                    _guard_rollbacks += 1
+                    _is_severe = _bg_decision.action == "regress_severe"
+                    # P1-2 · 连续回滚自动降学习率
+                    try:
+                        _lr_decay_after = int(os.environ.get("RL_GUARD_LR_DECAY_AFTER", "5"))
+                        _lr_decay_factor = float(os.environ.get("RL_GUARD_LR_DECAY_FACTOR", "0.7"))
+                        _lr_floor_ratio = float(os.environ.get("RL_GUARD_LR_FLOOR_RATIO", "0.2"))
+                    except (TypeError, ValueError):
+                        _lr_decay_after, _lr_decay_factor, _lr_floor_ratio = 5, 0.7, 0.2
+                    _lr_decayed = False
+                    if _lr_decay_after > 0 and _guard_rollbacks % _lr_decay_after == 0:
+                        _lr_floor = max(1e-8, _lr_initial * _lr_floor_ratio)
+                        _new_lr = max(_lr_floor, float(lr) * _lr_decay_factor)
+                        if abs(_new_lr - float(lr)) > 1e-12:
+                            lr = _new_lr
+                            _lr_decayed = True
+                    opt = adam_for_training(net.parameters(), lr=lr)
+                    _guard_scores.clear()
+                    print(
+                        f"[BestGuard] ep={ep_cursor}  ✗ 回撤 avg={_cur_avg:.1f} "
+                        f"(z={_bg_decision.z_score:.2f}σ, thr={_bg_decision.regress_threshold:.1f}, "
+                        f"sev_thr={_bg_decision.severe_threshold:.1f})"
+                        f"  → 已回滚到 best(avg={_guard_best_stats.avg:.1f}) 并重置优化器"
+                        + (f" + lr→{lr:.2e}" if _lr_decayed else "")
+                        + (" [严重]" if _is_severe else " [确认]")
+                        + f"  [第{_guard_rollbacks}次]",
+                        file=sys.stderr,
+                    )
+
+                # 健康度跟踪：根据决策更新 HealthState，必要时发出 health alert
+                _guard_health, _bg_alert = update_health_state(
+                    _guard_health, _bg_decision, ep_cursor, _bg_cfg,
+                )
+                if _bg_alert:
+                    print(_bg_alert, file=sys.stderr)
+                # 把 health/decision 写入 jsonl 训练日志，供看板/事后审计
+                try:
+                    _append_training_jsonl({
+                        "event": "best_guard",
+                        "ts": int(time.time()),
+                        "episodes": ep_cursor,
+                        "action": _bg_decision.action,
+                        "cur_avg": round(_cur_avg, 2),
+                        "cur_std": round(_cur_stats.std, 2),
+                        "cur_n": _cur_stats.n,
+                        "best_avg": round(_guard_best_stats.avg, 2),
+                        "best_std": round(_guard_best_stats.std, 2),
+                        "best_n": _guard_best_stats.n,
+                        "pooled_se": round(_bg_decision.pooled_se, 2),
+                        "z_score": round(_bg_decision.z_score, 3),
+                        "upgrade_thr": round(_bg_decision.upgrade_threshold, 2),
+                        "regress_thr": round(_bg_decision.regress_threshold, 2),
+                        "severe_thr": round(_bg_decision.severe_threshold, 2),
+                        "rollbacks_total": _guard_rollbacks,
+                        "rollbacks_recent": _guard_health.rollbacks_in_window(
+                            ep_cursor, _bg_cfg.rate_limit_window,
+                        ),
+                        "suspended_until": _guard_health.suspended_until_ep,
+                        "consec_severe": _guard_health.consecutive_severe,
+                        "lr": float(lr),
+                        "note": _bg_decision.note,
+                    })
+                except Exception:
+                    pass
 
             # --- 评估门控（v8：软/硬门控 + 历史最优保留）---
             # 软门控（默认）：仅记录，不回滚
@@ -4153,6 +4349,9 @@ def train_loop(
                     guard_best_avg=_guard_best_avg,
                     guard_rollbacks=_guard_rollbacks,
                     guard_scores=_guard_scores,
+                    guard_best_stats=_guard_best_stats,
+                    guard_observed_means=_guard_observed_means,
+                    guard_health=_guard_health,
                 )
                 _save_payload: dict = {
                     "model": model_sd,
