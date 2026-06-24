@@ -6,7 +6,6 @@
 <title>OpenBlock — 自适应算法体系</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS3DRenderer.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Kaushan+Script&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -23,8 +22,12 @@
   .cover .game-brand .logo-sub .ai .ai-i{display:inline-block;font-size:1.4em;font-weight:800;background:linear-gradient(135deg,#4a9eff 0%,#7eb8ff 60%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
   @keyframes aiBreathe{0%,100%{transform:scale(1);filter:drop-shadow(0 0 6px rgba(255,255,255,0.3))}50%{transform:scale(1.3);filter:drop-shadow(0 0 24px rgba(120,180,255,1))}}
   .cover .game-title{width:100%}.cover .game-title svg{width:auto;height:auto;max-width:50%;max-height:12vh;display:block;margin:0 auto}
-  .cover .main-title-3d-wrap{width:100%;height:clamp(3rem,5vh,5rem);margin-bottom:0.8vh;position:relative}
-  .cover .main-title-3d-wrap .title-css3d{font-family:'Ma Shan Zheng',cursive;font-size:clamp(1.3rem,2.4vw,2.4rem);font-weight:400;letter-spacing:0.06em;color:#e8ecf6;white-space:nowrap;padding:0 40px;text-shadow:0 1px 0 rgba(255,255,255,0.15),0 2px 0 rgba(255,255,255,0.1),0 3px 0 rgba(255,255,255,0.05),0 4px 8px rgba(0,0,0,0.3)}
+  .cover .main-title-3d-wrap{width:100%;margin-bottom:0.8vh;position:relative;perspective:600px;display:flex;flex-direction:column;align-items:center}
+  .cover .main-title-3d-wrap .title-css3d{font-family:'Ma Shan Zheng',cursive;font-size:clamp(1.3rem,2.4vw,2.4rem);font-weight:400;letter-spacing:0.06em;color:#e8ecf6;white-space:nowrap;position:relative;display:inline-block;transform-style:preserve-3d;will-change:transform;animation:titleGlow 3s ease-in-out infinite alternate;text-shadow:0 0 10px rgba(74,158,255,0.6),0 0 30px rgba(74,158,255,0.3),0 0 60px rgba(74,158,255,0.15),0 2px 0 rgba(255,255,255,0.12),0 4px 0 rgba(255,255,255,0.06),0 6px 12px rgba(0,0,0,0.4)}
+  .cover .main-title-3d-wrap .title-css3d::before{content:'';position:absolute;top:50%;left:-20px;right:-20px;height:2px;background:linear-gradient(90deg,transparent,rgba(74,158,255,0.8),rgba(255,183,77,0.6),rgba(74,158,255,0.8),transparent);filter:blur(4px);opacity:0;animation:rayFlash 4s ease-in-out infinite;pointer-events:none}
+  .cover .main-title-3d-wrap .title-css3d::after{content:'算法驱动的方块消除类智能游戏平台';position:absolute;top:0;left:0;right:0;font-family:'Ma Shan Zheng',cursive;font-size:clamp(1.3rem,2.4vw,2.4rem);font-weight:400;letter-spacing:0.06em;color:rgba(74,158,255,0.15);transform:scaleY(-1) translateY(-0.15em);mask-image:linear-gradient(to bottom,rgba(0,0,0,0.4) 0%,transparent 60%);-webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,0.4) 0%,transparent 60%);pointer-events:none}
+  @keyframes titleGlow{0%{text-shadow:0 0 10px rgba(74,158,255,0.6),0 0 30px rgba(74,158,255,0.3),0 0 60px rgba(74,158,255,0.15),0 2px 0 rgba(255,255,255,0.12),0 4px 0 rgba(255,255,255,0.06),0 6px 12px rgba(0,0,0,0.4)}100%{text-shadow:0 0 15px rgba(255,183,77,0.7),0 0 40px rgba(255,183,77,0.35),0 0 80px rgba(255,183,77,0.15),0 2px 0 rgba(255,255,255,0.12),0 4px 0 rgba(255,255,255,0.06),0 6px 12px rgba(0,0,0,0.4)}}
+  @keyframes rayFlash{0%,100%{opacity:0;transform:scaleX(0.5)}50%{opacity:0.8;transform:scaleX(1.2)}}
   .cover .scroll-hint{position:absolute;bottom:3vh;left:50%;transform:translateX(-50%);font-size:clamp(0.7rem,0.8vw,0.85rem);color:rgba(126,184,255,0.45);animation:bounce 2s infinite;letter-spacing:0.2em}
   /* ═══════ SLIDE LAYOUT ═══════ */
   .slide{min-height:100vh;height:auto;display:flex;flex-direction:column;justify-content:flex-start;max-width:1400px;margin:0 auto;padding:4vh 4vw 5vh;position:relative}
@@ -137,7 +140,9 @@
   @media(max-width:760px){
     .slide{padding:3vh 3vw}
     .cover{padding:5vh 5vw}
+    .cover .main-title-3d-wrap{perspective:400px}
     .cover .main-title-3d-wrap .title-css3d{font-size:1.2rem}
+    .cover .main-title-3d-wrap .title-css3d::after{font-size:1.2rem}
     .cover .game-brand .logo-sub{font-family:'Kaushan Script',cursive;font-size:0.7rem;top:-2rem}
     .cover .game-brand{margin-bottom:1.2vh}
     h2{font-size:2.4rem}
@@ -510,7 +515,7 @@
 </g>
 </svg></div>
   </div>
-  <div class="main-title-3d-wrap" id="title3d"></div>
+  <div class="main-title-3d-wrap"><span class="title-css3d">算法驱动的方块消除类智能游戏平台</span></div>
   <div id="cover-date" style="margin-top:1.5vh;font-size:clamp(0.85rem,1.1vw,1.1rem);color:rgba(126,184,255,0.55);letter-spacing:0.15em;font-family:'JetBrains Mono','SF Mono','Fira Code',monospace"></div>
   <div class="scroll-hint">▼ 键盘 ← → 或点击切换 ▼</div>
 </section>
@@ -4252,54 +4257,24 @@ document.addEventListener('DOMContentLoaded', function(){
 </script>
 <script>
 (function(){
-  var container = document.getElementById('title3d');
-  if(!container || typeof THREE === 'undefined' || typeof THREE.CSS3DRenderer === 'undefined') return;
-
-  var wrap = container.parentElement;
-  var w = wrap.clientWidth || 600;
-  var h = wrap.clientHeight || 80;
-
-  var scene = new THREE.Scene();
-  var camera = new THREE.PerspectiveCamera(50, w / h, 1, 10000);
-  camera.position.z = 1800;
-
-  var renderer = new THREE.CSS3DRenderer();
-  renderer.setSize(w, h);
-  renderer.domElement.style.position = 'absolute';
-  renderer.domElement.style.top = '0';
-  renderer.domElement.style.left = '0';
-  container.appendChild(renderer.domElement);
-
-  var titleEl = document.createElement('div');
-  titleEl.className = 'title-css3d';
-  titleEl.textContent = '算法驱动的方块消除类智能游戏平台';
-
-  var css3dObj = new THREE.CSS3DObject(titleEl);
-  scene.add(css3dObj);
-
-  var mouseX = 0, mouseY = 0;
+  var el = document.querySelector('.cover .main-title-3d-wrap .title-css3d');
+  if(!el) return;
+  var mx = 0, my = 0, tx = 0, ty = 0;
   document.addEventListener('mousemove', function(e){
-    mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
-    mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+    mx = (e.clientX / window.innerWidth - 0.5) * 2;
+    my = (e.clientY / window.innerHeight - 0.5) * 2;
   });
-
-  function animate(){
-    requestAnimationFrame(animate);
+  function tick(){
     var t = Date.now() * 0.001;
-    css3dObj.rotation.x += (mouseY * 0.06 - css3dObj.rotation.x) * 0.04;
-    css3dObj.rotation.y += (mouseX * 0.10 - css3dObj.rotation.y) * 0.04;
-    css3dObj.position.y = Math.sin(t * 0.8) * 8;
-    renderer.render(scene, camera);
+    tx += (mx * 8 - tx) * 0.06;
+    ty += (-my * 5 - ty) * 0.06;
+    var idleX = Math.sin(t * 0.7) * 2;
+    var idleY = Math.cos(t * 0.5) * 1.5;
+    var z = 10 + Math.abs(mx) * 8 + Math.sin(t) * 3;
+    el.style.transform = 'rotateX('+(ty+idleX)+'deg) rotateY('+(tx+idleY)+'deg) translateZ('+z+'px)';
+    requestAnimationFrame(tick);
   }
-  animate();
-
-  window.addEventListener('resize', function(){
-    var nw = wrap.clientWidth || 600;
-    var nh = wrap.clientHeight || 80;
-    camera.aspect = nw / nh;
-    camera.updateProjectionMatrix();
-    renderer.setSize(nw, nh);
-  });
+  tick();
 })();
 </script>
 </body>
