@@ -4298,88 +4298,119 @@ document.addEventListener('DOMContentLoaded', function(){
   var canvas = document.createElement('canvas');
   cover.insertBefore(canvas, cover.firstChild);
 
+  var W = window.innerWidth, H = window.innerHeight;
   var scene = new THREE.Scene();
-  var camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 3000);
-  camera.position.z = 600;
+  var camera = new THREE.PerspectiveCamera(60, W / H, 0.1, 4000);
+  camera.position.z = 700;
 
   var renderer = new THREE.WebGLRenderer({canvas:canvas, alpha:true, antialias:true});
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(W, H);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x000000, 0);
 
-  var starCount = 350;
-  var starGeo = new THREE.BufferGeometry();
-  var starPos = new Float32Array(starCount * 3);
-  for(var i = 0; i < starCount; i++){
-    starPos[i*3]   = (Math.random() - 0.5) * 2400;
-    starPos[i*3+1] = (Math.random() - 0.5) * 1400;
-    starPos[i*3+2] = -200 - Math.random() * 800;
+  var farGeo = new THREE.BufferGeometry();
+  var farCount = 500;
+  var farPos = new Float32Array(farCount * 3);
+  for(var i = 0; i < farCount; i++){
+    farPos[i*3]   = (Math.random()-0.5)*3000;
+    farPos[i*3+1] = (Math.random()-0.5)*1800;
+    farPos[i*3+2] = -600 - Math.random()*1200;
   }
-  starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
-  var starMat = new THREE.PointsMaterial({color:0xffffff, size:1, transparent:true, opacity:0.6, sizeAttenuation:true, depthWrite:false});
-  var stars = new THREE.Points(starGeo, starMat);
-  scene.add(stars);
+  farGeo.setAttribute('position', new THREE.BufferAttribute(farPos, 3));
+  var farMat = new THREE.PointsMaterial({color:0xffffff, size:0.8, transparent:true, opacity:0.45, sizeAttenuation:true, depthWrite:false});
+  scene.add(new THREE.Points(farGeo, farMat));
 
-  var brightGeo = new THREE.BufferGeometry();
-  var bCount = 60;
-  var bPos = new Float32Array(bCount * 3);
-  var bSpeed = [];
-  for(var i = 0; i < bCount; i++){
-    bPos[i*3]   = (Math.random() - 0.5) * 2000;
-    bPos[i*3+1] = (Math.random() - 0.5) * 1200;
-    bPos[i*3+2] = -100 - Math.random() * 500;
-    bSpeed.push(0.8 + Math.random() * 2.5);
+  var midGeo = new THREE.BufferGeometry();
+  var midCount = 300;
+  var midPos = new Float32Array(midCount * 3);
+  for(var i = 0; i < midCount; i++){
+    midPos[i*3]   = (Math.random()-0.5)*2400;
+    midPos[i*3+1] = (Math.random()-0.5)*1400;
+    midPos[i*3+2] = -200 - Math.random()*500;
   }
-  brightGeo.setAttribute('position', new THREE.BufferAttribute(bPos, 3));
-  var brightMat = new THREE.PointsMaterial({color:0xccddff, size:2, transparent:true, opacity:0, sizeAttenuation:true, depthWrite:false});
-  var bright = new THREE.Points(brightGeo, brightMat);
-  scene.add(bright);
+  midGeo.setAttribute('position', new THREE.BufferAttribute(midPos, 3));
+  var midMat = new THREE.PointsMaterial({color:0xffffff, size:1.2, transparent:true, opacity:0.7, sizeAttenuation:true, depthWrite:false});
+  var midStars = new THREE.Points(midGeo, midMat);
+  scene.add(midStars);
+
+  var starColors = [0xffffff, 0xffffff, 0xffffff, 0xaaddff, 0xffeedd, 0xccccff, 0xffddaa];
+  var nearGeo = new THREE.BufferGeometry();
+  var nearCount = 80;
+  var nearPos = new Float32Array(nearCount * 3);
+  var nearCol = new Float32Array(nearCount * 3);
+  for(var i = 0; i < nearCount; i++){
+    nearPos[i*3]   = (Math.random()-0.5)*2000;
+    nearPos[i*3+1] = (Math.random()-0.5)*1200;
+    nearPos[i*3+2] = -50 - Math.random()*300;
+    var c = new THREE.Color(starColors[Math.floor(Math.random()*starColors.length)]);
+    nearCol[i*3]=c.r; nearCol[i*3+1]=c.g; nearCol[i*3+2]=c.b;
+  }
+  nearGeo.setAttribute('position', new THREE.BufferAttribute(nearPos, 3));
+  nearGeo.setAttribute('color', new THREE.BufferAttribute(nearCol, 3));
+  var nearMat = new THREE.PointsMaterial({size:2.5, vertexColors:true, transparent:true, opacity:0.9, sizeAttenuation:true, depthWrite:false});
+  var nearStars = new THREE.Points(nearGeo, nearMat);
+  scene.add(nearStars);
+
+  var twGeo = new THREE.BufferGeometry();
+  var twCount = 50;
+  var twPos = new Float32Array(twCount * 3);
+  var twSpeed = [];
+  for(var i = 0; i < twCount; i++){
+    twPos[i*3]   = (Math.random()-0.5)*2200;
+    twPos[i*3+1] = (Math.random()-0.5)*1300;
+    twPos[i*3+2] = -80 - Math.random()*400;
+    twSpeed.push(1.5 + Math.random()*3);
+  }
+  twGeo.setAttribute('position', new THREE.BufferAttribute(twPos, 3));
+  var twMat = new THREE.PointsMaterial({color:0xffffff, size:3, transparent:true, opacity:0, sizeAttenuation:true, depthWrite:false});
+  var twinkle = new THREE.Points(twGeo, twMat);
+  scene.add(twinkle);
 
   var meteors = [];
   function spawnMeteor(){
-    var length = 100 + Math.random() * 300;
+    var length = 120 + Math.random()*350;
     var geo = new THREE.BufferGeometry();
-    var tail = new Float32Array([0,0,0, -length,0,0]);
+    var tail = new Float32Array([0,0,0, -length*0.3,-length*0.7,0]);
     geo.setAttribute('position', new THREE.BufferAttribute(tail, 3));
-    var col = Math.random() > 0.3 ? 0xffffff : (Math.random() > 0.5 ? 0xaaccff : 0xffddaa);
-    var mat = new THREE.LineBasicMaterial({color:col, transparent:true, opacity:0.8 + Math.random()*0.2, linewidth:1});
+    var col = Math.random()>0.4 ? 0xffffff : (Math.random()>0.5 ? 0xaaddff : 0xffeedd);
+    var mat = new THREE.LineBasicMaterial({color:col, transparent:true, opacity:0.9, linewidth:1});
     var line = new THREE.Line(geo, mat);
 
-    var sx = (Math.random() - 0.5) * 1600;
-    var sy = 200 + Math.random() * 500;
-    var sz = -300 + Math.random() * 200;
-    var angle = -0.15 - Math.random() * 0.8;
-    var speed = 500 + Math.random() * 1200;
+    var sx = (Math.random()-0.5)*1800;
+    var sy = 250 + Math.random()*600;
+    var sz = -400 + Math.random()*300;
+    var angle = -0.2 - Math.random()*0.7;
+    var speed = 600 + Math.random()*1400;
 
     line.position.set(sx, sy, sz);
     line.rotation.z = angle;
-    line.userData = {speed:speed, life:1, decay:0.003 + Math.random()*0.008, angle:angle};
+    line.userData = {speed:speed, life:1, decay:0.002+Math.random()*0.006, angle:angle};
     scene.add(line);
     meteors.push(line);
 
     var headGeo = new THREE.BufferGeometry();
     headGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0,0,0]), 3));
-    var headMat = new THREE.PointsMaterial({color:col, size:3, transparent:true, opacity:1, sizeAttenuation:true, depthWrite:false});
+    var headMat = new THREE.PointsMaterial({color:col, size:4, transparent:true, opacity:1, sizeAttenuation:true, depthWrite:false});
     var head = new THREE.Points(headGeo, headMat);
     head.position.copy(line.position);
     scene.add(head);
     line.userData.head = head;
   }
 
-  var nebulaGeo = new THREE.PlaneGeometry(2600, 1400);
+  var nebulaGeo = new THREE.PlaneGeometry(3000, 1800);
   var nebulaMat = new THREE.ShaderMaterial({
     transparent:true, depthWrite:false,
     uniforms:{
       uTime:{value:0},
-      uC1:{value:new THREE.Color(0x080e22)},
-      uC2:{value:new THREE.Color(0x14081e)},
-      uC3:{value:new THREE.Color(0x061a30)}
+      uC1:{value:new THREE.Color(0x0a1030)},
+      uC2:{value:new THREE.Color(0x1a0830)},
+      uC3:{value:new THREE.Color(0x082040)}
     },
     vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-    fragmentShader:'uniform float uTime;uniform vec3 uC1,uC2,uC3;varying vec2 vUv;float n(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}void main(){vec2 uv=vUv;float a=n(uv*3.0+uTime*0.04);float b=n(uv*5.0-uTime*0.025);vec3 c=mix(uC1,uC2,a);c=mix(c,uC3,b*0.4);float alpha=smoothstep(0.0,0.5,a)*0.18+smoothstep(0.3,0.7,b)*0.1;gl_FragColor=vec4(c,alpha);}'
+    fragmentShader:'uniform float uTime;uniform vec3 uC1,uC2,uC3;varying vec2 vUv;float n(vec2 p){return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453);}float fb(vec2 p){float v=0.0,a=0.5;for(int i=0;i<5;i++){v+=a*n(p);p*=2.1;a*=0.48;}return v;}void main(){vec2 uv=vUv;float a=fb(uv*4.0+uTime*0.03);float b=fb(uv*6.0-uTime*0.02);vec3 c=mix(uC1,uC2,a);c=mix(c,uC3,b*0.5);float glow=a*0.25+b*0.12;gl_FragColor=vec4(c,glow);}'
   });
   var nebula = new THREE.Mesh(nebulaGeo, nebulaMat);
-  nebula.position.z = -500;
+  nebula.position.z = -600;
   scene.add(nebula);
 
   var mxx=0, myy=0;
@@ -4388,23 +4419,23 @@ document.addEventListener('DOMContentLoaded', function(){
     myy=(e.clientY/window.innerHeight-0.5)*2;
   });
 
-  var meteorTimer=0, meteorInterval=2+Math.random()*4;
+  var meteorTimer=0, meteorInterval=3+Math.random()*5;
   function animate(){
     requestAnimationFrame(animate);
     var t=Date.now()*0.001, dt=0.016;
-    camera.position.x+=(mxx*50-camera.position.x)*0.02;
-    camera.position.y+=(-myy*30-camera.position.y)*0.02;
+    camera.position.x+=(mxx*40-camera.position.x)*0.015;
+    camera.position.y+=(-myy*25-camera.position.y)*0.015;
     camera.lookAt(0,0,-100);
 
-    for(var i=0;i<bCount;i++){
-      brightMat.opacity=Math.abs(Math.sin(t*bSpeed[i]+i*1.3))*0.85;
+    for(var i=0;i<twCount;i++){
+      twMat.opacity=Math.abs(Math.sin(t*twSpeed[i]+i*1.7))*0.95;
     }
 
     meteorTimer+=dt;
     if(meteorTimer>meteorInterval){
       spawnMeteor();
       meteorTimer=0;
-      meteorInterval=2+Math.random()*5;
+      meteorInterval=3+Math.random()*6;
     }
     for(var i=meteors.length-1;i>=0;i--){
       var m=meteors[i];
@@ -4425,17 +4456,18 @@ document.addEventListener('DOMContentLoaded', function(){
     }
 
     nebulaMat.uniforms.uTime.value=t;
-    stars.rotation.y=t*0.002;
-    stars.rotation.x=Math.sin(t*0.08)*0.005;
+    midStars.rotation.y=t*0.0015;
+    midStars.rotation.x=Math.sin(t*0.06)*0.003;
 
     renderer.render(scene,camera);
   }
   animate();
 
   window.addEventListener('resize',function(){
-    camera.aspect=window.innerWidth/window.innerHeight;
+    W=window.innerWidth;H=window.innerHeight;
+    camera.aspect=W/H;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth,window.innerHeight);
+    renderer.setSize(W,H);
   });
 })();
 </script>
