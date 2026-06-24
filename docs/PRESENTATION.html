@@ -807,7 +807,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
    </div>
 
   <div class="img-frame" style="padding:6px 12px;background:rgba(0,0,0,0.3)">
-    <svg viewBox="0 0 800 160" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+    <svg viewBox="0 0 640 160" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
       <defs>
         <linearGradient id="sigGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#ffb74d" stop-opacity="0.3"/>
@@ -815,52 +815,52 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
         </linearGradient>
       </defs>
 
-      <!-- x(r) = 80 + r × 670, y(t) = 136 - t × 124 -->
-      <line x1="80" y1="136" x2="750" y2="136" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
-      <line x1="80" y1="8" x2="80" y2="136" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+      <!-- x(r) = 50 + r × 560, y(t) = 136 - t × 124 -->
+      <line x1="50" y1="136" x2="610" y2="136" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+      <line x1="50" y1="8" x2="50" y2="136" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
 
-      <!-- X ticks -->
-      <text x="80" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0</text>
-      <text x="214" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.2</text>
-      <text x="348" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.4</text>
-      <text x="482" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.6</text>
-      <text x="616" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.8</text>
-      <text x="750" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">1.0</text>
-      <text x="750" y="149" fill="rgba(255,255,255,0.2)" font-size="9" text-anchor="end" style="letter-spacing:0.5px">r →</text>
+      <!-- X ticks: r=0→50, 0.2→162, 0.4→274, 0.6→386, 0.8→498, 1.0→610 -->
+      <text x="50" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0</text>
+      <text x="162" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.2</text>
+      <text x="274" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.4</text>
+      <text x="386" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.6</text>
+      <text x="498" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.8</text>
+      <text x="610" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">1.0</text>
+      <text x="610" y="149" fill="rgba(255,255,255,0.2)" font-size="9" text-anchor="end" style="letter-spacing:0.5px">r →</text>
 
       <!-- Y ticks -->
-      <text x="72" y="140" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">0</text>
-      <text x="72" y="80" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">0.5</text>
-      <text x="72" y="24" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">1.0</text>
+      <text x="42" y="140" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">0</text>
+      <text x="42" y="80" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">0.5</text>
+      <text x="42" y="24" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">1.0</text>
 
-      <!-- r=0.82 vertical: x = 80 + 0.82×670 = 629 -->
-      <line x1="629" y1="8" x2="629" y2="136" stroke="rgba(255,183,77,0.25)" stroke-width="1.5" stroke-dasharray="3,3"/>
-      <text x="629" y="155" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">r=0.82</text>
+      <!-- r=0.82 vertical: x = 50 + 0.82×560 = 509 -->
+      <line x1="509" y1="8" x2="509" y2="136" stroke="rgba(255,183,77,0.25)" stroke-width="1.5" stroke-dasharray="3,3"/>
+      <text x="509" y="155" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">r=0.82</text>
 
-      <!-- Sigmoid curve -->
+      <!-- Sigmoid curve: x=50+r×560, y=136−sigmoid×124 -->
       <polyline points="
-        80,136  147,136  214,136  281,136  348,135
-        415,134  449,132  482,130  516,124  549,116
-        566,111  583,106  599,100  616,87  629,80
-        643,73  656,66  670,60  683,54  696,49
-        710,44  723,41  736,38  750,34
+        50,136  106,136  162,136  218,136  274,135
+        330,134  358,132  386,130  414,124  442,116
+        456,111  470,106  484,100  498,87  509,80
+        520,73  531,66  543,60  554,54  565,49
+        577,44  588,41  599,38  610,34
       " fill="none" stroke="#ffb74d" stroke-width="2.5" stroke-linecap="round"/>
 
       <!-- Gradient fill -->
-      <path d="M 80,136 L 147,136 L 214,136 L 281,136 L 348,135 L 415,134 L 449,132 L 482,130 L 516,124 L 549,116 L 566,111 L 583,106 L 599,100 L 616,87 L 629,80 L 643,73 L 656,66 L 670,60 L 683,54 L 696,49 L 710,44 L 723,41 L 736,38 L 750,34 L 750,136 Z"
+      <path d="M 50,136 L 106,136 L 162,136 L 218,136 L 274,135 L 330,134 L 358,132 L 386,130 L 414,124 L 442,116 L 456,111 L 470,106 L 484,100 L 498,87 L 509,80 L 520,73 L 531,66 L 543,60 L 554,54 L 565,49 L 577,44 L 588,41 L 599,38 L 610,34 L 610,136 Z"
             fill="url(#sigGrad)" opacity="0.6"/>
 
       <!-- Formula overlay -->
-      <rect x="88" y="28" width="296" height="24" rx="6" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-      <text x="236" y="44" fill="#e0e6f0" font-size="11" text-anchor="middle" font-family="'JetBrains Mono','SF Mono','Cascadia Code','Fira Code',monospace">
+      <rect x="56" y="28" width="240" height="24" rx="6" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <text x="176" y="44" fill="#e0e6f0" font-size="11" text-anchor="middle" font-family="'JetBrains Mono','SF Mono','Cascadia Code','Fira Code',monospace">
         pbTension = sigmoid((r − <tspan fill="#ffb74d" font-weight="700">0.82</tspan>) / <tspan fill="#81c784" font-weight="700">0.08</tspan>)
       </text>
 
       <!-- Near-miss annotation -->
-      <circle cx="656" cy="66" r="4" fill="#ffb74d"/>
-      <line x1="656" y1="66" x2="688" y2="16" stroke="rgba(255,183,77,0.4)" stroke-width="1" stroke-dasharray="2,2"/>
-      <rect x="688" y="4" width="100" height="20" rx="5" fill="rgba(0,0,0,0.7)" stroke="rgba(255,183,77,0.2)" stroke-width="1"/>
-      <text x="738" y="18" fill="#f0f2f8" font-size="10" text-anchor="middle" font-weight="700">近失情绪</text>
+      <circle cx="531" cy="66" r="4" fill="#ffb74d"/>
+      <line x1="531" y1="66" x2="558" y2="16" stroke="rgba(255,183,77,0.4)" stroke-width="1" stroke-dasharray="2,2"/>
+      <rect x="540" y="4" width="90" height="20" rx="5" fill="rgba(0,0,0,0.7)" stroke="rgba(255,183,77,0.2)" stroke-width="1"/>
+      <text x="585" y="18" fill="#f0f2f8" font-size="10" text-anchor="middle" font-weight="700">近失情绪</text>
     </svg>
   </div>
 
