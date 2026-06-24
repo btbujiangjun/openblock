@@ -799,15 +799,14 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 <section class="slide" id="psyc-nearmiss">
   <h3><span class="ch">1.1.6</span> 近失理论——「差一点就破 PB」的驱动力</h3>
 
-   <p>Reid（1986）在老虎机研究中发现：<strong>近失（near-miss）——即结果非常接近胜利但最终失败——<span style="color:#ffb74d;font-weight:800">对玩家的激励作用甚至超过胜利本身</span></strong> — fMRI 研究（Chase & Clark, 2010）表明近失激活的脑区（<span style="color:#81c784;font-weight:700">腹侧纹状体</span>）与获胜几乎相同，<span style="color:#ffb74d;font-weight:700">多巴胺</span>释放量显著高于完全失败</p>
+   <p><strong>近失（near-miss）——结果接近胜利但最终失败——<span style="color:#ffb74d;font-weight:800">对玩家的激励作用甚至超过胜利本身</span></strong>：近失激活的脑区与获胜几乎相同，多巴胺释放量显著高于完全失败。玩家将近失编码为「几乎成功」而非「失败」，激发「再试一次就能成」的信念。</p>
 
    <div class="card-row c2">
-     <div class="card accent-o"><div class="head"><div class="icon">🎯</div><div class="tit">近失的心理机制</div></div><div class="desc">玩家将近失编码为「几乎成功」而非「失败」——激发「再试一次就能成」的信念，这在消除类游戏中直接表现为连续重开率上升</div></div>
-     <div class="card accent-r"><div class="head"><div class="icon">⚠️</div><div class="tit">近失的伦理边界</div></div><div class="desc">与赌博不同——近失在此不是欺骗玩家，而是 PB 的自然逼近过程 — pbBrake 的制动不制造幻觉，只防止突破后失控，玩家的每一次近失都是真实操作的结果</div></div>
+     <div class="card accent-r"><div class="head"><div class="icon">⚠️</div><div class="tit">伦理边界</div></div><div class="desc">与赌博不同——近失在此不是欺骗玩家，而是 PB 的自然逼近过程。pbBrake 的制动不制造幻觉，玩家的每一次近失都是真实操作的结果。</div></div>
    </div>
 
   <div class="img-frame" style="padding:8px 14px;background:rgba(0,0,0,0.3)">
-    <svg viewBox="0 0 800 200" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+    <svg viewBox="0 0 800 175" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
       <defs>
         <linearGradient id="sigGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stop-color="#ffb74d" stop-opacity="0.3"/>
@@ -815,60 +814,54 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
         </linearGradient>
       </defs>
 
-      <!-- x(r) = 80 + r × 670, y(t) = 170 - t × 140 -->
-      <line x1="80" y1="170" x2="750" y2="170" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
-      <line x1="80" y1="20" x2="80" y2="170" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+      <!-- x(r) = 80 + r × 670, y(t) = 145 - t × 127 -->
+      <line x1="80" y1="145" x2="750" y2="145" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
+      <line x1="80" y1="20" x2="80" y2="145" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
 
-      <!-- X ticks: r=0→80, 0.2→214, 0.4→348, 0.6→482, 0.8→616, 1.0→750 -->
-      <text x="80" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0</text>
-      <text x="214" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.2</text>
-      <text x="348" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.4</text>
-      <text x="482" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.6</text>
-      <text x="616" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.8</text>
-      <text x="750" y="186" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">1.0</text>
-      <text x="750" y="186" fill="rgba(255,255,255,0.2)" font-size="9" text-anchor="end" style="letter-spacing:0.5px">r →</text>
+      <!-- X ticks -->
+      <text x="80" y="161" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0</text>
+      <text x="214" y="161" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.2</text>
+      <text x="348" y="161" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.4</text>
+      <text x="482" y="161" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.6</text>
+      <text x="616" y="161" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">0.8</text>
+      <text x="750" y="161" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="middle">1.0</text>
 
       <!-- Y ticks -->
-      <text x="72" y="174" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">0</text>
-      <text x="72" y="100" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">0.5</text>
+      <text x="72" y="149" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">0</text>
+      <text x="72" y="86" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">0.5</text>
       <text x="72" y="30" fill="rgba(255,255,255,0.4)" font-size="9" text-anchor="end">1.0</text>
 
-      <!-- r=0.82 vertical: x = 80 + 0.82×670 = 629 -->
-      <line x1="629" y1="20" x2="629" y2="170" stroke="rgba(255,183,77,0.25)" stroke-width="1.5" stroke-dasharray="3,3"/>
-      <text x="629" y="196" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">r=0.82</text>
+      <!-- r=0.82 vertical -->
+      <line x1="629" y1="20" x2="629" y2="145" stroke="rgba(255,183,77,0.25)" stroke-width="1.5" stroke-dasharray="3,3"/>
+      <text x="629" y="171" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">r=0.82</text>
 
-      <!-- Sigmoid curve → polyline: x=80+r×670, y=170−sigmoid×140 -->
+      <!-- Sigmoid curve -->
       <polyline points="
-        80,170  147,170  214,170  281,170  348,169
-        415,167  449,165  482,162  516,155  549,145
-        566,139  583,132  599,125  616,109  629,100
-        643,91  656,83  670,75  683,68  696,61
-        710,55  723,51  736,47  750,43
+        80,145  147,145  214,145  281,145  348,144
+        415,142  449,140  482,137  516,130  549,120
+        566,114  583,107  599,100  616,84  629,75
+        643,66  656,58  670,50  683,43  696,36
+        710,30  723,26  736,22  750,18
       " fill="none" stroke="#ffb74d" stroke-width="2.5" stroke-linecap="round"/>
 
-      <!-- Gradient fill -->
-      <path d="M 80,170 L 147,170 L 214,170 L 281,170 L 348,169 L 415,167 L 449,165 L 482,162 L 516,155 L 549,145 L 566,139 L 583,132 L 599,125 L 616,109 L 629,100 L 643,91 L 656,83 L 670,75 L 683,68 L 696,61 L 710,55 L 723,51 L 736,47 L 750,43 L 750,170 Z"
+      <path d="M 80,145 L 147,145 L 214,145 L 281,145 L 348,144 L 415,142 L 449,140 L 482,137 L 516,130 L 549,120 L 566,114 L 583,107 L 599,100 L 616,84 L 629,75 L 643,66 L 656,58 L 670,50 L 683,43 L 696,36 L 710,30 L 723,26 L 736,22 L 750,18 L 750,145 Z"
             fill="url(#sigGrad)" opacity="0.6"/>
 
-      <!-- Formula overlay (placed in flat left region) -->
-      <rect x="88" y="40" width="296" height="24" rx="6" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
-      <text x="236" y="56" fill="#e0e6f0" font-size="11" text-anchor="middle" font-family="'JetBrains Mono','SF Mono','Cascadia Code','Fira Code',monospace">
+      <!-- Formula overlay -->
+      <rect x="88" y="36" width="296" height="24" rx="6" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      <text x="236" y="52" fill="#e0e6f0" font-size="11" text-anchor="middle" font-family="'JetBrains Mono','SF Mono','Cascadia Code','Fira Code',monospace">
         pbTension = sigmoid((r − <tspan fill="#ffb74d" font-weight="700">0.82</tspan>) / <tspan fill="#81c784" font-weight="700">0.08</tspan>)
       </text>
 
-      <!-- Near-miss annotation (r≈0.86, steepest climb) -->
-      <circle cx="656" cy="83" r="4" fill="#ffb74d"/>
-      <line x1="656" y1="83" x2="688" y2="28" stroke="rgba(255,183,77,0.4)" stroke-width="1" stroke-dasharray="2,2"/>
+      <!-- Near-miss annotation -->
+      <circle cx="656" cy="58" r="4" fill="#ffb74d"/>
+      <line x1="656" y1="58" x2="688" y2="28" stroke="rgba(255,183,77,0.4)" stroke-width="1" stroke-dasharray="2,2"/>
       <rect x="688" y="16" width="100" height="20" rx="5" fill="rgba(0,0,0,0.7)" stroke="rgba(255,183,77,0.2)" stroke-width="1"/>
       <text x="738" y="30" fill="#f0f2f8" font-size="10" text-anchor="middle" font-weight="700">近失情绪</text>
     </svg>
   </div>
 
-   <div style="margin-top:0.5em;padding:0.5em 1em;background:linear-gradient(90deg,rgba(255,183,77,0.08),rgba(255,138,101,0.05));border-left:3px solid #ffb74d;border-radius:0 8px 8px 0">
-     <p style="font-size:0.95rem;color:#e8eef4;margin:0;line-height:1.5">💡 <span style="color:#ffb74d;font-weight:800">差一点就破 PB</span><span style="color:#5a7a9a;font-weight:400"> 比 </span><span style="color:#81c784;font-weight:800">轻松破 PB</span><span style="color:#5a7a9a;font-weight:400"> 更能驱动长期留存</span></p>
-   </div>
-
-   <p style="font-size:0.9rem;color:#98b4d0;margin-top:0.4em">设计启示：系统不需要让每局都破 PB — pbBrake 的关键作用不是惩罚高手，而是创造可控的近失体验，让下一局的期待感始终在线</p>
+   <p style="font-size:0.9rem;color:#98b4d0;margin-top:0.4em">设计启示：系统不需要让每局都破 PB — <span style="color:#ffb74d;font-weight:700">差一点就破 PB 比轻松破 PB 更能驱动长期留存</span>；pbBrake 的关键作用不是惩罚高手，而是创造可控的近失体验，让下一局的期待感始终在线。</p>
 </section>
 
 <!-- ═══════ 1.1.7 PSYCHOLOGY SUMMARY ═══════ -->
