@@ -973,154 +973,278 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
     </svg>
   </div>
 </section>
+
+<!-- ═══════ 1.2 OVERVIEW ═══════ -->
+<section class="slide v-center" id="design-overview">
+  <h3><span class="ch">1.2</span> 策略设计总览</h3>
+  <p style="margin-top:0.8em">六条心理学原理不会自动变成产品——它们先被提炼为工业应对模式（设计理念），再汇聚成两股设计合力，组织成五条正交关注轴，最终产出四条可执行策略</p>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:0.6em;margin:1.2em 0">
+    <div style="background:rgba(78,204,163,0.08);border:1px solid rgba(78,204,163,0.15);border-radius:12px;padding:14px 40px;text-align:center;width:auto">
+      <div style="font-size:1.3rem;font-weight:700;color:#4ecca3">6 条认知理论</div>
+      <div style="font-size:0.8rem;color:#6a8aaa;margin-top:4px">心流 · Yerkes-Dodson · 自我决定 · 习得性无助 · 峰终 · 近失</div>
+    </div>
+    <div style="font-size:1.5rem;color:rgba(255,255,255,0.15)">⬇ 提炼为工业应对模式</div>
+    <div style="background:rgba(255,183,77,0.08);border:1px solid rgba(255,183,77,0.15);border-radius:12px;padding:14px 40px;text-align:center;width:auto">
+      <div style="font-size:1.3rem;font-weight:700;color:#ffb74d">7 条设计理念</div>
+      <div style="font-size:0.8rem;color:#6a8aaa;margin-top:4px">易学难精 · 碎片会话 · 即时反馈 · 公平随机 · DDA 隐蔽 · 多层进度 · 友好商业化</div>
+    </div>
+    <div style="font-size:1.5rem;color:rgba(255,255,255,0.15)">⬇ 汇聚成两股合力</div>
+    <div style="background:rgba(74,158,255,0.08);border:1px solid rgba(74,158,255,0.15);border-radius:12px;padding:14px 40px;text-align:center;width:auto">
+      <div style="font-size:1.3rem;font-weight:700;color:#7eb8ff">2 条设计线索</div>
+      <div style="font-size:0.8rem;color:#6a8aaa;margin-top:4px">压力·心流通道 ｜ 情绪·记忆弧线</div>
+    </div>
+    <div style="font-size:1.5rem;color:rgba(255,255,255,0.15)">⬇ 组织成正交关注轴</div>
+    <div style="background:rgba(186,104,200,0.08);border:1px solid rgba(186,104,200,0.15);border-radius:12px;padding:14px 40px;text-align:center;width:auto">
+      <div style="font-size:1.3rem;font-weight:700;color:#ba68c8">5 轴体验结构</div>
+      <div style="font-size:0.8rem;color:#6a8aaa;margin-top:4px">挑战·能力 ｜ 节奏·兑现 ｜ 掌控·自主 ｜ 情感·回响 ｜ 成长·沉没</div>
+    </div>
+    <div style="font-size:1.5rem;color:rgba(255,255,255,0.15)">⬇ 产出</div>
+    <div style="background:rgba(229,115,115,0.08);border:1px solid rgba(229,115,115,0.15);border-radius:12px;padding:14px 40px;text-align:center;width:auto">
+      <div style="font-size:1.3rem;font-weight:700;color:#e57373">4 条核心策略</div>
+      <div style="font-size:0.8rem;color:#6a8aaa;margin-top:4px">玩家画像 · S 形压力 · 对局弧 · 隐蔽调难</div>
+    </div>
+  </div>
 </section>
 
-<!-- ═══════ 1.2 PRODUCT DESIGN ═══════ -->
-<section class="slide" id="design-principles">
-  <h3><span class="ch">1.2</span> 策略设计</h3>
-
-  <div class="section-bridge" style="margin:0.8em 0;background:rgba(74,158,255,0.04);border-color:rgba(74,158,255,0.08)">
-    <p>6 条认知理论 → 7 条设计理念 → 2 条设计线索 → 5 轴体验结构</p>
-    <div class="sub">理论不直接变代码——先提炼成工业应对模式（设计理念），再汇成两股设计合力，组织成五条正交关注轴</div>
+<!-- ═══════ 1.2.1 COGNITIVE THEORIES → FEATURES ═══════ -->
+<section class="slide" id="design-theories">
+  <h3><span class="ch">1.2.1</span> 6 条认知理论 → 产品映射</h3>
+  <p style="margin-bottom:0.4em">每条心理学原理在代码中都有对应的系统参数和判定逻辑</p>
+  <div class="card-row" style="grid-template-columns:1fr 1fr 1fr;gap:6px">
+    <div class="card" style="border-color:rgba(78,204,163,0.25);background:rgba(78,204,163,0.05);padding:12px">
+      <div style="font-size:0.7rem;color:#4ecca3;font-weight:700">心流理论</div>
+      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">挑战≈能力 → 心流带</div>
+      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
+        • <strong style="color:#7eb8ff">skillLevel</strong> × <strong style="color:#ffb74d">stress</strong> 联合判定心流区间<br>
+        • 心流带宽度随熟练度自适应（高玩宽、新手窄）<br>
+        • <strong style="color:#81c784">动态出块</strong>：压力脱离心流带即调难度
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(255,183,77,0.25);background:rgba(255,183,77,0.05);padding:12px">
+      <div style="font-size:0.7rem;color:#ffb74d;font-weight:700">Yerkes-Dodson</div>
+      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">倒 U 形表现曲线</div>
+      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
+        • <strong style="color:#ffb74d">flowPayoffCap</strong>：压力适中时收益最大<br>
+        • <strong style="color:#ffb74d">shapeWeights</strong> 分级：不同唤醒水平给予不同块序<br>
+        • 复杂任务（后期）自动降低最优唤醒带
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(129,199,132,0.25);background:rgba(129,199,132,0.05);padding:12px">
+      <div style="font-size:0.7rem;color:#81c784;font-weight:700">SDT 自我决定</div>
+      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">自主·胜任·关联</div>
+      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
+        • <strong style="color:#81c784">难度可选</strong>：玩家主动选择挑战级别<br>
+        • <strong style="color:#81c784">建议非命令</strong>：提示不带强制，复活弹窗保留放弃权<br>
+        • <strong style="color:#81c784">画像可见</strong>：能力雷达图让玩家感知成长
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(229,115,115,0.25);background:rgba(229,115,115,0.05);padding:12px">
+      <div style="font-size:0.7rem;color:#e57373;font-weight:700">习得性无助</div>
+      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">挫败累积 → 主动干预</div>
+      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
+        • <strong style="color:#e57373">bottleneckRelief</strong>：检测挫败阈值，触发块序优化<br>
+        • <strong style="color:#e57373">Warm Run</strong>：连续失利后给予简单热身局<br>
+        • 操作变形度监控 → 提前干预而非事后补救
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(186,104,200,0.25);background:rgba(186,104,200,0.05);padding:12px">
+      <div style="font-size:0.7rem;color:#ba68c8;font-weight:700">峰终定律</div>
+      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">记忆 = 峰值 + 结尾</div>
+      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
+        • <strong style="color:#ba68c8">flowPayoff</strong>：峰值体验给予额外欣喜<br>
+        • <strong style="color:#ba68c8">endGame</strong> 总结：对局回顾强化情感记忆<br>
+        • PC 全消 + 连击高潮 = 峰值锚点
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(255,183,77,0.25);background:rgba(255,183,77,0.05);padding:12px">
+      <div style="font-size:0.7rem;color:#ffb74d;font-weight:700">近失理论</div>
+      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">「差一点」激活「再试一次」</div>
+      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
+        • <strong style="color:#ffb74d">nearMissAdjust</strong>：差一点就破的记录 → 提高多巴胺<br>
+        • <strong style="color:#ffb74d">revive</strong> 窗口：近失局提供免费复活机会<br>
+        • 「差一行就全消」= 最强的再试一次驱动力
+      </div>
+    </div>
   </div>
+</section>
 
-  <div class="card-row" style="grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:0.3em">
-    <div class="card" style="border-color:rgba(78,204,163,0.25);background:rgba(78,204,163,0.05);padding:10px">
-      <div style="font-size:0.7rem;color:#4ecca3;font-weight:700;letter-spacing:0.5px">心流理论</div>
-      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">挑战≈能力 → 心流带</div>
-      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">技能 × 压力联合判定</div>
-    </div>
-    <div class="card" style="border-color:rgba(255,183,77,0.25);background:rgba(255,183,77,0.05);padding:10px">
-      <div style="font-size:0.7rem;color:#ffb74d;font-weight:700;letter-spacing:0.5px">Yerkes-Dodson</div>
-      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">倒 U 形表现曲线</div>
-      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">心流收益上限 + 形态权重分级</div>
-    </div>
-    <div class="card" style="border-color:rgba(129,199,132,0.25);background:rgba(129,199,132,0.05);padding:10px">
-      <div style="font-size:0.7rem;color:#81c784;font-weight:700;letter-spacing:0.5px">SDT 自我决定</div>
-      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">自主·胜任·关联</div>
-      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">难度可选·建议非命令·画像可见</div>
-    </div>
-    <div class="card" style="border-color:rgba(229,115,115,0.25);background:rgba(229,115,115,0.05);padding:10px">
-      <div style="font-size:0.7rem;color:#e57373;font-weight:700;letter-spacing:0.5px">习得性无助</div>
-      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">挫败累积→主动干预</div>
-      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">瓶颈缓解 + 热身局机制</div>
-    </div>
-    <div class="card" style="border-color:rgba(186,104,200,0.25);background:rgba(186,104,200,0.05);padding:10px">
-      <div style="font-size:0.7rem;color:#ba68c8;font-weight:700;letter-spacing:0.5px">峰终定律</div>
-      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">记忆 = 峰值 + 结尾</div>
-      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">心流收益 + 对局总结</div>
-    </div>
-    <div class="card" style="border-color:rgba(255,183,77,0.25);background:rgba(255,183,77,0.05);padding:10px">
-      <div style="font-size:0.7rem;color:#ffb74d;font-weight:700;letter-spacing:0.5px">近失理论</div>
-      <div style="font-size:0.75rem;color:#a0b8d0;margin-top:2px">「差一点」激活「再试一次」</div>
-      <div style="font-size:0.7rem;color:#6a8aaa;margin-top:2px">近失调整 + 复活窗口</div>
-    </div>
-  </div>
-
-  <div class="section-bridge" style="margin:0.4em 0;padding:6px 12px;background:rgba(129,199,132,0.03);border-color:rgba(129,199,132,0.06)">
-    <p style="font-size:0.9rem">7 条工业设计理念 — 心理学理论到产品实践的「应对模式」</p>
-  </div>
-
-  <div class="card-row" style="grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:0.3em">
-    <div class="card" style="padding:6px;border-color:rgba(78,204,163,0.2);background:rgba(78,204,163,0.04);text-align:center">
+<!-- ═══════ 1.2.2 DESIGN PHILOSOPHIES → FEATURES ═══════ -->
+<section class="slide" id="design-philosophies">
+  <h3><span class="ch">1.2.2</span> 7 条设计理念 → 产品映射</h3>
+  <p style="margin-bottom:0.4em">从理论到实践的「工业应对模式」，每条对应具体产品功能</p>
+  <div class="card-row" style="grid-template-columns:repeat(7,1fr);gap:4px">
+    <div class="card" style="padding:8px;border-color:rgba(78,204,163,0.2);background:rgba(78,204,163,0.04);text-align:center">
       <div style="font-size:0.6rem;color:#4ecca3;font-weight:700">易学难精</div>
-      <div style="font-size:0.55rem;color:#6a8aaa;margin-top:2px">90s 规则·几十h深度</div>
-      <div style="font-size:0.5rem;color:#4a6088">心流·自我决定</div>
+      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">90s 学规则<br>几十小时深度</div>
+      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        分层教程<br>
+        渐进块序复杂度<br>
+        竞技天梯
+      </div>
     </div>
-    <div class="card" style="padding:6px;border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.04);text-align:center">
+    <div class="card" style="padding:8px;border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.04);text-align:center">
       <div style="font-size:0.6rem;color:#ffb74d;font-weight:700">碎片会话</div>
-      <div style="font-size:0.55rem;color:#6a8aaa;margin-top:2px">2-5min 单局</div>
-      <div style="font-size:0.5rem;color:#4a6088">峰终·注意力窗口</div>
+      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">2-5min 单局</div>
+      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        快匹配·即开即玩<br>
+        局内完整起承转合<br>
+        退出不惩罚
+      </div>
     </div>
-    <div class="card" style="padding:6px;border-color:rgba(229,115,115,0.2);background:rgba(229,115,115,0.04);text-align:center">
+    <div class="card" style="padding:8px;border-color:rgba(229,115,115,0.2);background:rgba(229,115,115,0.04);text-align:center">
       <div style="font-size:0.6rem;color:#e57373;font-weight:700">即时反馈</div>
-      <div style="font-size:0.55rem;color:#6a8aaa;margin-top:2px">每个操作都有回响</div>
-      <div style="font-size:0.5rem;color:#4a6088">正强化·变比奖励</div>
+      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">每个操作都有回响</div>
+      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        消除粒子特效<br>
+        combo 计数播报<br>
+        分数即时跳动
+      </div>
     </div>
-    <div class="card" style="padding:6px;border-color:rgba(186,104,200,0.2);background:rgba(186,104,200,0.04);text-align:center">
+    <div class="card" style="padding:8px;border-color:rgba(186,104,200,0.2);background:rgba(186,104,200,0.04);text-align:center">
       <div style="font-size:0.6rem;color:#ba68c8;font-weight:700">公平随机</div>
-      <div style="font-size:0.55rem;color:#6a8aaa;margin-top:2px">无连续坏运气</div>
-      <div style="font-size:0.5rem;color:#4a6088">损失厌恶·负强化</div>
+      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">无连续坏运气</div>
+      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        块序列去聚类<br>
+        坏块上限保证<br>
+        连续死局检测
+      </div>
     </div>
-    <div class="card" style="padding:6px;border-color:rgba(74,158,255,0.2);background:rgba(74,158,255,0.04);text-align:center">
+    <div class="card" style="padding:8px;border-color:rgba(74,158,255,0.2);background:rgba(74,158,255,0.04);text-align:center">
       <div style="font-size:0.6rem;color:#7eb8ff;font-weight:700">DDA 隐蔽性</div>
-      <div style="font-size:0.55rem;color:#6a8aaa;margin-top:2px">不被察觉的调难</div>
-      <div style="font-size:0.5rem;color:#4a6088">自我决定·正强化</div>
+      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">不被察觉的调难</div>
+      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        难度渐变而非跳变<br>
+        调难参数分布到<br>
+        多个子系统
+      </div>
     </div>
-    <div class="card" style="padding:6px;border-color:rgba(129,199,132,0.2);background:rgba(129,199,132,0.04);text-align:center">
+    <div class="card" style="padding:8px;border-color:rgba(129,199,132,0.2);background:rgba(129,199,132,0.04);text-align:center">
       <div style="font-size:0.6rem;color:#81c784;font-weight:700">多层进度</div>
-      <div style="font-size:0.55rem;color:#6a8aaa;margin-top:2px">局·日·周·月重叠</div>
-      <div style="font-size:0.5rem;color:#4a6088">变比·成瘾模型</div>
+      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">局·日·周·月重叠</div>
+      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        单局积分·日任务<br>
+        周排行榜·月赛季<br>
+        段位晋升
+      </div>
     </div>
-    <div class="card" style="padding:6px;border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.04);text-align:center">
+    <div class="card" style="padding:8px;border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.04);text-align:center">
       <div style="font-size:0.6rem;color:#ffb74d;font-weight:700">友好商业化</div>
-      <div style="font-size:0.55rem;color:#6a8aaa;margin-top:2px">高意图时刻才推</div>
-      <div style="font-size:0.5rem;color:#4a6088">自我决定·近失</div>
-    </div>
-  </div>
-
-  <div class="card-row c2" style="margin-top:0.4em;gap:8px">
-    <div class="card" style="border-color:rgba(74,158,255,0.2);background:rgba(74,158,255,0.06);padding:10px">
-      <div style="font-size:0.8rem;color:#7eb8ff;font-weight:700;margin-bottom:4px">线索 A：压力·心流通道</div>
-      <div style="font-size:0.7rem;color:#a0b8d0;line-height:1.5">
-        心流 + Yerkes-Dodson + 习得性无助 + 自我决定自主性 → 
-        共同决定压力升降与释放时机，核心系统：自适应生成 / 压力表 / 释放机制
-      </div>
-    </div>
-    <div class="card" style="border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.06);padding:10px">
-      <div style="font-size:0.8rem;color:#ffb74d;font-weight:700;margin-bottom:4px">线索 B：情绪·记忆弧线</div>
-      <div style="font-size:0.7rem;color:#a0b8d0;line-height:1.5">
-        峰终 + 近失 + 心流愉悦 → 
-        共同决定单局情感记忆，核心系统：欣喜 / 近失 / 对局总结 / 分数推送守卫
+      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">高意图时刻才推</div>
+      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        对局中不弹广告<br>
+        复活/加成等增值<br>
+        在挫败后推而非正爽时
       </div>
     </div>
   </div>
+  <div style="margin-top:0.5em;padding:8px 14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:8px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+    <span style="font-size:0.6rem;color:#6a8aaa">心理学根基：</span>
+    <span style="font-size:0.55rem;color:#4ecca3">心流</span><span style="color:#4a6088">·</span>
+    <span style="font-size:0.55rem;color:#ffb74d">Yerkes-Dodson</span><span style="color:#4a6088">·</span>
+    <span style="font-size:0.55rem;color:#81c784">SDT</span><span style="color:#4a6088">·</span>
+    <span style="font-size:0.55rem;color:#e57373">习得性无助</span><span style="color:#4a6088">·</span>
+    <span style="font-size:0.55rem;color:#ba68c8">峰终</span><span style="color:#4a6088">·</span>
+    <span style="font-size:0.55rem;color:#ffb74d">近失</span>
+  </div>
+</section>
 
-  <div class="card-row c4" style="margin-top:0.5em">
-    <div class="card accent-b" style="text-align:center;padding:14px">
-      <div style="font-size:1.4rem;font-weight:700;color:#7eb8ff">C-1</div>
-      <div class="tit" style="font-size:0.9rem;margin-top:3px">挑战·能力</div>
-      <div class="desc" style="font-size:0.75rem">心流带·压力曲线适配每局</div>
-      <div style="font-size:0.6rem;color:#4a6088;margin-top:3px">心流 · Yerkes-Dodson</div>
+<!-- ═══════ 1.2.3 DESIGN CLUES → FEATURES ═══════ -->
+<section class="slide v-center" id="design-clues">
+  <h3><span class="ch">1.2.3</span> 2 条设计线索 → 产品映射</h3>
+  <p style="margin-bottom:0.6em">六条理论与七条理念汇聚成两股设计合力，分别驱动压力的精确管控和情绪的完美弧线</p>
+  <div class="card-row c2" style="gap:12px">
+    <div class="card" style="border-color:rgba(74,158,255,0.2);background:rgba(74,158,255,0.06);padding:14px">
+      <div style="font-size:0.9rem;color:#7eb8ff;font-weight:700;margin-bottom:6px">线索 A：压力·心流通道</div>
+      <div style="font-size:0.7rem;color:#a0b8d0;line-height:1.6">
+        <strong>来源</strong>：心流 + Yerkes-Dodson + 习得性无助 + SDT<br>
+        <strong>作用</strong>：共同决定压力升降与释放时机<br>
+        <strong>产品系统</strong>：
+      </div>
+      <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
+        <div style="background:rgba(74,158,255,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#7eb8ff"><strong>自适应生成</strong> — 根据 skillLevel × stress 动态调整块速度和序列复杂度</div>
+        <div style="background:rgba(74,158,255,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#7eb8ff"><strong>压力表</strong> — 实时计算盘面压力，作为干预和释放的触发信号</div>
+        <div style="background:rgba(74,158,255,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#7eb8ff"><strong>释放机制</strong> — 压力超标时通过块序优化、消除机会生成来提供 relief</div>
+      </div>
     </div>
-    <div class="card accent-o" style="text-align:center;padding:14px">
-      <div style="font-size:1.4rem;font-weight:700;color:#ffb74d">C-2</div>
-      <div class="tit" style="font-size:0.9rem;margin-top:3px">节奏·兑现</div>
-      <div class="desc" style="font-size:0.75rem">消行保证·布局/兑现节奏交替</div>
-      <div style="font-size:0.6rem;color:#4a6088;margin-top:3px">心流 · 变比奖励</div>
+    <div class="card" style="border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.06);padding:14px">
+      <div style="font-size:0.9rem;color:#ffb74d;font-weight:700;margin-bottom:6px">线索 B：情绪·记忆弧线</div>
+      <div style="font-size:0.7rem;color:#a0b8d0;line-height:1.6">
+        <strong>来源</strong>：峰终 + 近失 + 心流愉悦<br>
+        <strong>作用</strong>：共同决定单局情感记忆<br>
+        <strong>产品系统</strong>：
+      </div>
+      <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
+        <div style="background:rgba(255,183,77,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#ffb74d"><strong>欣喜系统</strong> — 峰值体验（PC 全消、连击高潮）触发额外奖励与特效</div>
+        <div style="background:rgba(255,183,77,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#ffb74d"><strong>近失管理</strong> — 差一点成功时放大情绪并给予复活机会</div>
+        <div style="background:rgba(255,183,77,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#ffb74d"><strong>对局总结 + 分数推送守卫</strong> — 结尾回顾形成记忆锚点，防止分数错位</div>
+      </div>
     </div>
-    <div class="card accent-g" style="text-align:center;padding:14px">
-      <div style="font-size:1.4rem;font-weight:700;color:#81c784">C-3</div>
-      <div class="tit" style="font-size:0.9rem;margin-top:3px">掌控·自主</div>
-      <div class="desc" style="font-size:0.75rem">玩家自主感·提示按需隐蔽</div>
-      <div style="font-size:0.6rem;color:#4a6088;margin-top:3px">自我决定 · 隐蔽调难</div>
+  </div>
+</section>
+
+<!-- ═══════ 1.2.4 EXPERIENCE STRUCTURE → FEATURES ═══════ -->
+<section class="slide" id="design-axes">
+  <h3><span class="ch">1.2.4</span> 5 轴体验结构 → 产品映射</h3>
+  <p style="margin-bottom:0.3em">五条正交关注轴，每条在实际对局中被持续监控并驱动对应子系统</p>
+  <div class="card-row c4" style="margin-top:0.3em">
+    <div class="card accent-b" style="text-align:center;padding:12px">
+      <div style="font-size:1.3rem;font-weight:700;color:#7eb8ff">C-1</div>
+      <div class="tit" style="font-size:0.85rem;margin-top:2px">挑战·能力</div>
+      <div class="desc" style="font-size:0.7rem">心流带·压力曲线适配</div>
+      <div style="font-size:0.6rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        心流 · Yerkes-Dodson<br>
+        <strong style="color:#7eb8ff">adaptiveSpawn</strong>
+      </div>
     </div>
-    <div class="card accent-p" style="text-align:center;padding:14px">
-      <div style="font-size:1.4rem;font-weight:700;color:#ba68c8">C-4</div>
-      <div class="tit" style="font-size:0.9rem;margin-top:3px">情感·回响</div>
-      <div class="desc" style="font-size:0.75rem">叙事与盘面一致·体感不错位</div>
-      <div style="font-size:0.6rem;color:#4a6088;margin-top:3px">峰终 · 近失 · 习得性无助</div>
+    <div class="card accent-o" style="text-align:center;padding:12px">
+      <div style="font-size:1.3rem;font-weight:700;color:#ffb74d">C-2</div>
+      <div class="tit" style="font-size:0.85rem;margin-top:2px">节奏·兑现</div>
+      <div class="desc" style="font-size:0.7rem">消行保证·布局/兑现交替</div>
+      <div style="font-size:0.6rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        心流 · 变比奖励<br>
+        <strong style="color:#ffb74d">clearGuarantee</strong>
+      </div>
+    </div>
+    <div class="card accent-g" style="text-align:center;padding:12px">
+      <div style="font-size:1.3rem;font-weight:700;color:#81c784">C-3</div>
+      <div class="tit" style="font-size:0.85rem;margin-top:2px">掌控·自主</div>
+      <div class="desc" style="font-size:0.7rem">玩家自主感·提示按需隐蔽</div>
+      <div style="font-size:0.6rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        自我决定 · 隐蔽调难<br>
+        <strong style="color:#81c784">tip 多样性</strong>
+      </div>
+    </div>
+    <div class="card accent-p" style="text-align:center;padding:12px">
+      <div style="font-size:1.3rem;font-weight:700;color:#ba68c8">C-4</div>
+      <div class="tit" style="font-size:0.85rem;margin-top:2px">情感·回响</div>
+      <div class="desc" style="font-size:0.7rem">叙事与盘面一致·体感不错位</div>
+      <div style="font-size:0.6rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        峰终 · 近失 · 习得无助<br>
+        <strong style="color:#ba68c8">score-push 守卫</strong>
+      </div>
+    </div>
+  </div>
+  <div class="card-row c4" style="margin-top:-0.2em">
+    <div class="card accent-r" style="text-align:center;padding:12px;grid-column:2/3">
+      <div style="font-size:1.3rem;font-weight:700;color:#e57373">C-5</div>
+      <div class="tit" style="font-size:0.85rem;margin-top:2px">成长·沉没</div>
+      <div class="desc" style="font-size:0.7rem">热身→高峰→冷却·自然弧线</div>
+      <div style="font-size:0.6rem;color:#4a6088;margin-top:4px;line-height:1.5">
+        成瘾模型 · 多层进度<br>
+        <strong style="color:#e57373">sessionArc</strong>
+      </div>
     </div>
   </div>
 
-  <div class="card-row c4" style="margin-top:-0.3em">
-    <div class="card accent-r" style="text-align:center;padding:14px;grid-column:2/3">
-      <div style="font-size:1.4rem;font-weight:700;color:#e57373">C-5</div>
-      <div class="tit" style="font-size:0.9rem;margin-top:3px">成长·沉没</div>
-      <div class="desc" style="font-size:0.75rem">热身→高峰→冷却·自然弧线</div>
-      <div style="font-size:0.6rem;color:#4a6088;margin-top:3px">成瘾模型 · 多层次进度</div>
-    </div>
+  <div style="display:flex;gap:4px;margin-top:0.3em;justify-content:center;flex-wrap:wrap">
+    <span style="background:rgba(74,158,255,0.08);color:#5a78aa;padding:2px 8px;border-radius:10px;font-size:0.6rem">C-1 压顶 → 立即释放</span>
+    <span style="background:rgba(255,183,77,0.08);color:#5a78aa;padding:2px 8px;border-radius:10px;font-size:0.6rem">C-2 过频 → 消除保证回钳</span>
+    <span style="background:rgba(129,199,132,0.08);color:#5a78aa;padding:2px 8px;border-radius:10px;font-size:0.6rem">C-3 过强 → 提示类别多样性</span>
+    <span style="background:rgba(186,104,200,0.08);color:#5a78aa;padding:2px 8px;border-radius:10px;font-size:0.6rem">C-4 错位 → 分数推送守卫</span>
+    <span style="background:rgba(229,115,115,0.08);color:#5a78aa;padding:2px 8px;border-radius:10px;font-size:0.6rem">C-5 过快 → 对局弧冷却</span>
   </div>
 
-  <div style="display:flex;gap:6px;margin-top:0.4em;justify-content:center;flex-wrap:wrap">
-    <span style="background:rgba(74,158,255,0.08);color:#5a78aa;padding:2px 10px;border-radius:10px;font-size:0.65rem">C-1 压顶 → 立即释放短路</span>
-    <span style="background:rgba(255,183,77,0.08);color:#5a78aa;padding:2px 10px;border-radius:10px;font-size:0.65rem">C-2 过频 → 消除保证回钳</span>
-    <span style="background:rgba(129,199,132,0.08);color:#5a78aa;padding:2px 10px;border-radius:10px;font-size:0.65rem">C-3 过强 → 提示类别多样性</span>
-    <span style="background:rgba(186,104,200,0.08);color:#5a78aa;padding:2px 10px;border-radius:10px;font-size:0.65rem">C-4 错位 → 分数推送守卫</span>
-    <span style="background:rgba(229,115,115,0.08);color:#5a78aa;padding:2px 10px;border-radius:10px;font-size:0.65rem">C-5 过快 → 对局弧冷却</span>
-  </div>
-
-  <div class="img-frame" style="padding:8px 12px;margin-top:0.3em;background:rgba(0,0,0,0.3)">
+  <div class="img-frame" style="padding:6px 10px;margin-top:0.3em;background:rgba(0,0,0,0.3)">
     <svg viewBox="0 0 860 74" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">
       <text x="10" y="18" fill="rgba(255,255,255,0.65)" font-size="11" font-weight="700">开局 0-30秒</text>
       <text x="10" y="33" fill="#7eb8ff" font-size="8">C-1 入门上限</text>
@@ -1148,13 +1272,13 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 </section>
 
 <div class="section-bridge" style="margin:1em 6vw;background:rgba(255,183,77,0.04);border-color:rgba(255,183,77,0.08)">
-  <p>6 条理论 → 7 条设计理念 → 2 条线索 → 5 轴结构 → 4 条核心策略</p>
+  <p>6 条理论 → 7 条理念 → 2 条线索 → 5 轴结构 → 4 条核心策略</p>
   <div class="sub">五轴框架指明"关注什么"，接下来四条策略回答"具体怎么做"</div>
 </div>
 
-<!-- ═══════ 1.2.1 PLAYER PROFILE ═══════ -->
+<!-- ═══════ 1.2.5 PLAYER PROFILE ═══════ -->
 <section class="slide" id="strategy-pp">
-  <h3><span class="ch">1.2.1</span> 玩家画像——实时感知玩家状态</h3>
+  <h3><span class="ch">1.2.5</span> 核心策略一：玩家画像——实时感知玩家状态</h3>
 
   <div class="card-row c3" style="grid-template-columns:1fr 1fr 1fr;gap:6px">
     <div class="card" style="border-color:rgba(74,158,255,0.2);background:rgba(74,158,255,0.03);padding:12px">
@@ -1223,9 +1347,9 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   </div>
 </section>
 
-<!-- ═══════ 1.2.2 S-CURVE ═══════ -->
-<section class="slide" id="strategy-sc">
-  <h3><span class="ch">1.2.2</span> S 形压力曲线——难度演进的底层哲学</h3>
+<!-- ═══════ 1.2.6 S-CURVE ═══════ -->
+<section class="slide" id="strategy-scurve">
+  <h3><span class="ch">1.2.6</span> 核心策略二：S 形压力曲线——难度演进的底层哲学</h3>
 
   <div style="margin-bottom:0.5em;padding:10px 16px;background:rgba(255,255,255,0.02);border-left:3px solid rgba(255,183,77,0.3);border-radius:0 8px 8px 0">
     <p style="margin:0;color:#b0c8e0;font-size:0.9rem;line-height:1.6">轻松破 PB → 分数只涨不跌 → 成就感快速透支，用户生命被压缩。S 曲线的核心命题是<strong style="color:#ffb74d">让玩家接近 PB 但难以超越，偶有惊喜</strong>：远未达到时平缓低压保成长空间，逼近 PB 时急速上扬制造<strong style="color:#e57373">近失带</strong>——"差一点就破"的张力反复激活<strong style="color:#ffb74d">再来一局</strong>的冲动，超越后对数收敛防止膨胀 — <strong style="color:#7eb8ff">分数可以涨，但难度永远追着分数跑</strong>。</p>
@@ -1325,9 +1449,9 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   </div>
 </section>
 
-<!-- ═══════ 1.2.3 SCORE STRESS ═══════ -->
-<section class="slide" id="strategy-ss">
-  <h3><span class="ch">1.2.3</span> S 曲线在产品中的体现：scoreStress</h3>
+<!-- ═══════ 1.2.7 SCORE STRESS ═══════ -->
+<section class="slide" id="strategy-scorestress">
+  <h3><span class="ch">1.2.7</span> 核心策略三：S 曲线在产品中的体现——scoreStress</h3>
 
   <div class="img-frame" style="padding:0 20px 10px 20px;background:rgba(0,0,0,0.35)">
     <svg viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
@@ -1556,9 +1680,9 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   </div>
 </section>
 
-<!-- ═══════ 1.2.4 ARC-AWARE ═══════ -->
-<section class="slide" id="strategy-aa">
-  <h3><span class="ch">1.2.4</span> Arc-Aware S 曲线——局间弧线的调制</h3>
+<!-- ═══════ 1.2.8 ARC-AWARE ═══════ -->
+<section class="slide" id="strategy-arcaware">
+  <h3><span class="ch">1.2.8</span> 核心策略四：Arc-Aware S 曲线——局间弧线的调制</h3>
 
   <div class="img-frame" style="padding:0 20px 8px 20px;background:rgba(0,0,0,0.35)">
     <svg viewBox="0 0 900 510" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
