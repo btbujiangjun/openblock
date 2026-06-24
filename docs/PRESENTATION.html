@@ -8,9 +8,10 @@
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&family=Kaushan+Script&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-  html{scroll-behavior:smooth;font-size:24px;scrollbar-width:none}
-  html::-webkit-scrollbar{display:none}
-  body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#060810;color:#f0f2f8;line-height:1.8;overflow-x:hidden}
+  html{font-size:24px}
+  body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#060810;color:#f0f2f8;line-height:1.8;overflow:hidden;height:100vh;margin:0}
+  #slide-container{display:flex;height:100vh;transition:transform 0.5s cubic-bezier(0.4,0,0.2,1);will-change:transform}
+  #slide-container>.cover,#slide-container>.slide{flex:0 0 100vw;height:100vh;overflow-y:auto;max-width:none;margin:0}
 
   /* ═══════ GAME TITLE COVER ═══════ */
   .cover{min-height:100vh;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:5vh 6vw;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,#0f1e30 0%,#080c18 55%,#060810 100%)}
@@ -168,6 +169,7 @@
 </style>
 </head>
 <body>
+<div id="slide-container">
 
 <!-- ═══════ GAME TITLE SCREEN ═══════ -->
 <section class="cover">
@@ -631,22 +633,22 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   </p>
 
   <div class="card-row c3">
-    <div class="card accent-g" style="cursor:pointer" onclick="document.getElementById('psyc-flow').scrollIntoView({behavior:'smooth'})">
+    <div class="card accent-g" style="cursor:pointer" onclick="navigateToSlide('psyc-flow')">
       <div class="head"><div class="icon">😀</div><div class="tit">1 心流理论</div></div>
       <div class="desc">挑战与能力匹配时产生的最优体验，游戏体验的第一性原理</div></div>
-    <div class="card accent-o" style="cursor:pointer" onclick="document.getElementById('psyc-yd').scrollIntoView({behavior:'smooth'})">
+    <div class="card accent-o" style="cursor:pointer" onclick="navigateToSlide('psyc-yd')">
       <div class="head"><div class="icon">📈</div><div class="tit">2 唤醒曲线</div></div>
       <div class="desc">Yerkes-Dodson 倒 U 形：表现随唤醒先升后降，最优唤醒带因人因任务而异</div></div>
-    <div class="card accent-p" style="cursor:pointer" onclick="document.getElementById('psyc-sdt').scrollIntoView({behavior:'smooth'})">
+    <div class="card accent-p" style="cursor:pointer" onclick="navigateToSlide('psyc-sdt')">
       <div class="head"><div class="icon">🎯</div><div class="tit">3 自我决定理论</div></div>
       <div class="desc">胜任感·自主性·关联性——三大内在动机驱动持续参与</div></div>
-    <div class="card accent-r" style="cursor:pointer" onclick="document.getElementById('psyc-helpless').scrollIntoView({behavior:'smooth'})">
+    <div class="card accent-r" style="cursor:pointer" onclick="navigateToSlide('psyc-helpless')">
       <div class="head"><div class="icon">🛡️</div><div class="tit">4 习得性无助</div></div>
       <div class="desc">反复挫败导致放弃尝试，救济机制的心理依据</div></div>
-    <div class="card accent-b" style="cursor:pointer" onclick="document.getElementById('psyc-peak').scrollIntoView({behavior:'smooth'})">
+    <div class="card accent-b" style="cursor:pointer" onclick="navigateToSlide('psyc-peak')">
       <div class="head"><div class="icon">⛰️</div><div class="tit">5 峰值-终末定律</div></div>
       <div class="desc">记忆由最强烈时刻和结束时的感受决定——峰值制造与结尾设计</div></div>
-    <div class="card accent-o" style="cursor:pointer" onclick="document.getElementById('psyc-nearmiss').scrollIntoView({behavior:'smooth'})">
+    <div class="card accent-o" style="cursor:pointer" onclick="navigateToSlide('psyc-nearmiss')">
       <div class="head"><div class="icon">🎯</div><div class="tit">6 近失理论</div></div>
       <div class="desc">差一点就成功的体验比胜利本身更激励重试——pbBrake 的设计心理依据</div></div>
   </div>
@@ -3563,7 +3565,7 @@ wrapWithExplorer(_deterministicPolicy, { epsilon: 0.05 })
     </p>
   </div>
 </section>
-
+</div>
 
 <!-- ═══════ SLIDE NAV ═══════ -->
 <div class="slide-nav" id="slideNav">
@@ -3605,9 +3607,13 @@ wrapWithExplorer(_deterministicPolicy, { epsilon: 0.05 })
   function goTo(idx){
     if(idx<0 || idx>=total) return;
     current = idx;
-    slides[current].scrollIntoView({behavior:'smooth', block:'start'});
+    document.getElementById('slide-container').style.transform = 'translateX(-'+(current*100)+'vw)';
     update();
   }
+  window.navigateToSlide = function(id){
+    const idx = slides.findIndex(el => el.id === id);
+    if(idx>=0) goTo(idx);
+  };
 
   prevBtn.addEventListener('click', () => goTo(current-1));
   nextBtn.addEventListener('click', () => goTo(current+1));
@@ -3630,16 +3636,6 @@ wrapWithExplorer(_deterministicPolicy, { epsilon: 0.05 })
     const dx = e.changedTouches[0].screenX - touchStartX;
     if(Math.abs(dx)>60){if(dx<0) goTo(current+1);else goTo(current-1);}
   },{passive:true});
-
-  const observer = new IntersectionObserver(entries => {
-    entries.forEach(entry => {
-      if(entry.isIntersecting){
-        const idx = slides.indexOf(entry.target);
-        if(idx>=0){current=idx;update();}
-      }
-    });
-  },{threshold:0.4});
-  slides.forEach(s => observer.observe(s));
 
   update();
 
