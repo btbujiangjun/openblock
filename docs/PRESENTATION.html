@@ -4309,45 +4309,45 @@ document.addEventListener('DOMContentLoaded', function(){
   renderer.setClearColor(0x000000, 0);
 
   var farGeo = new THREE.BufferGeometry();
-  var farCount = 700;
+  var farCount = 900;
   var farPos = new Float32Array(farCount * 3);
   for(var i = 0; i < farCount; i++){
-    farPos[i*3]   = (Math.random()-0.5)*3200;
-    farPos[i*3+1] = (Math.random()-0.5)*2000;
-    farPos[i*3+2] = -600 - Math.random()*1400;
+    farPos[i*3]   = (Math.random()-0.5)*3400;
+    farPos[i*3+1] = (Math.random()-0.5)*2200;
+    farPos[i*3+2] = -600 - Math.random()*1600;
   }
   farGeo.setAttribute('position', new THREE.BufferAttribute(farPos, 3));
-  var farMat = new THREE.PointsMaterial({color:0xffffff, size:1.1, transparent:true, opacity:0.55, sizeAttenuation:true, depthWrite:false});
+  var farMat = new THREE.PointsMaterial({color:0xffffff, size:1.3, transparent:true, opacity:0.6, sizeAttenuation:true, depthWrite:false});
   scene.add(new THREE.Points(farGeo, farMat));
 
   var midGeo = new THREE.BufferGeometry();
-  var midCount = 300;
+  var midCount = 400;
   var midPos = new Float32Array(midCount * 3);
   for(var i = 0; i < midCount; i++){
-    midPos[i*3]   = (Math.random()-0.5)*2400;
-    midPos[i*3+1] = (Math.random()-0.5)*1400;
-    midPos[i*3+2] = -200 - Math.random()*500;
+    midPos[i*3]   = (Math.random()-0.5)*2600;
+    midPos[i*3+1] = (Math.random()-0.5)*1600;
+    midPos[i*3+2] = -200 - Math.random()*600;
   }
   midGeo.setAttribute('position', new THREE.BufferAttribute(midPos, 3));
-  var midMat = new THREE.PointsMaterial({color:0xffffff, size:1.8, transparent:true, opacity:0.8, sizeAttenuation:true, depthWrite:false});
+  var midMat = new THREE.PointsMaterial({color:0xffffff, size:2.0, transparent:true, opacity:0.85, sizeAttenuation:true, depthWrite:false});
   var midStars = new THREE.Points(midGeo, midMat);
   scene.add(midStars);
 
   var starColors = [0xffffff, 0xffffff, 0xffffff, 0xaaddff, 0xffeedd, 0xccccff, 0xffddaa];
   var nearGeo = new THREE.BufferGeometry();
-  var nearCount = 80;
+  var nearCount = 100;
   var nearPos = new Float32Array(nearCount * 3);
   var nearCol = new Float32Array(nearCount * 3);
   for(var i = 0; i < nearCount; i++){
-    nearPos[i*3]   = (Math.random()-0.5)*2000;
-    nearPos[i*3+1] = (Math.random()-0.5)*1200;
-    nearPos[i*3+2] = -50 - Math.random()*300;
+    nearPos[i*3]   = (Math.random()-0.5)*2200;
+    nearPos[i*3+1] = (Math.random()-0.5)*1400;
+    nearPos[i*3+2] = -50 - Math.random()*350;
     var c = new THREE.Color(starColors[Math.floor(Math.random()*starColors.length)]);
     nearCol[i*3]=c.r; nearCol[i*3+1]=c.g; nearCol[i*3+2]=c.b;
   }
   nearGeo.setAttribute('position', new THREE.BufferAttribute(nearPos, 3));
   nearGeo.setAttribute('color', new THREE.BufferAttribute(nearCol, 3));
-  var nearMat = new THREE.PointsMaterial({size:3.2, vertexColors:true, transparent:true, opacity:0.95, sizeAttenuation:true, depthWrite:false});
+  var nearMat = new THREE.PointsMaterial({size:3.8, vertexColors:true, transparent:true, opacity:1.0, sizeAttenuation:true, depthWrite:false});
   var nearStars = new THREE.Points(nearGeo, nearMat);
   scene.add(nearStars);
 
@@ -4362,7 +4362,7 @@ document.addEventListener('DOMContentLoaded', function(){
     twSpeed.push(1.5 + Math.random()*3);
   }
   twGeo.setAttribute('position', new THREE.BufferAttribute(twPos, 3));
-  var twMat = new THREE.PointsMaterial({color:0xffffff, size:3.5, transparent:true, opacity:0, sizeAttenuation:true, depthWrite:false});
+  var twMat = new THREE.PointsMaterial({color:0xffffff, size:4.5, transparent:true, opacity:0, sizeAttenuation:true, depthWrite:false});
   var twinkle = new THREE.Points(twGeo, twMat);
   scene.add(twinkle);
 
@@ -4403,9 +4403,9 @@ document.addEventListener('DOMContentLoaded', function(){
     {stars:[[320,-40],[348,-8],[376,-35]], lines:[[0,1],[1,2]]}
   ];
   var cPositions = [
-    {x:-500, y:250},
-    {x:100, y:300},
-    {x:550, y:280}
+    {x:-700, y:280},
+    {x:0, y:350},
+    {x:750, y:260}
   ];
   var constellationMats = [];
   constellationDefs.forEach(function(c,ci){
@@ -4417,12 +4417,12 @@ document.addEventListener('DOMContentLoaded', function(){
     });
     var ptGeo = new THREE.BufferGeometry();
     ptGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(starPts), 3));
-    var ptMat = new THREE.PointsMaterial({color:0xccddff, size:5, transparent:true, opacity:0.95, sizeAttenuation:true, depthWrite:false});
+    var ptMat = new THREE.PointsMaterial({color:0xccddff, size:6, transparent:true, opacity:0.95, sizeAttenuation:true, depthWrite:false});
     scene.add(new THREE.Points(ptGeo, ptMat));
 
     var glowGeo = new THREE.BufferGeometry();
     glowGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(starPts), 3));
-    var glowMat = new THREE.PointsMaterial({color:0x88aadd, size:12, transparent:true, opacity:0.2, sizeAttenuation:true, depthWrite:false});
+    var glowMat = new THREE.PointsMaterial({color:0x88aadd, size:16, transparent:true, opacity:0.2, sizeAttenuation:true, depthWrite:false});
     scene.add(new THREE.Points(glowGeo, glowMat));
 
     var lineMats = [];
