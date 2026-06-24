@@ -10,8 +10,9 @@
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   html{font-size:24px}
   body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#060810;color:#f0f2f8;line-height:1.8;overflow:hidden;height:100vh;margin:0}
-  #slide-container{display:flex;height:100vh;transition:transform 0.5s cubic-bezier(0.4,0,0.2,1);will-change:transform}
-  #slide-container>.cover,#slide-container>.slide{flex:0 0 100vw;height:100vh;overflow-y:auto;max-width:none;margin:0}
+  #slide-container{position:relative;width:100vw;height:100vh;perspective:1200px;overflow:hidden}
+  #slide-container>.cover,#slide-container>.slide{position:absolute;top:0;left:0;width:100%;height:100%;overflow-y:auto;max-width:none;margin:0;opacity:0;pointer-events:none;transition:transform 0.5s cubic-bezier(0.4,0,0.2,1),opacity 0.45s ease;backface-visibility:hidden;will-change:transform,opacity}
+  #slide-container>.cover.active,#slide-container>.slide.active{opacity:1;pointer-events:auto;z-index:2}
 
   /* ═══════ GAME TITLE COVER ═══════ */
   .cover{min-height:100vh;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:5vh 6vw;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,#0f1e30 0%,#080c18 55%,#060810 100%)}
@@ -3604,10 +3605,46 @@ wrapWithExplorer(_deterministicPolicy, { epsilon: 0.05 })
     nextBtn.style.opacity = current===total-1 ? '0.2' : '1';
   }
 
+  let _busy = false;
+
   function goTo(idx){
-    if(idx<0 || idx>=total) return;
+    if(idx<0 || idx>=total || _busy) return;
+    if(idx === current) return;
+    _busy = true;
+
+    const dir = idx > current ? 1 : -1;
+    const leaving = slides[current];
+    const entering = slides[idx];
     current = idx;
-    document.getElementById('slide-container').style.transform = 'translateX(-'+(current*100)+'vw)';
+
+    // Prepare entering slide (start offset + fade in travel direction)
+    entering.style.transition = 'none';
+    entering.style.transform = 'translateX('+(dir*40)+'px) perspective(1200px) rotateY('+(-dir*5)+'deg)';
+    entering.style.opacity = '0';
+    entering.style.pointerEvents = 'auto';
+    entering.classList.add('active');
+
+    // Force reflow
+    void entering.offsetHeight;
+
+    // Animate entering slides in
+    entering.style.transition = 'transform 0.5s cubic-bezier(0.4,0,0.2,1),opacity 0.45s ease';
+    entering.style.transform = 'translateX(0) rotateY(0)';
+    entering.style.opacity = '1';
+
+    // Animate leaving out
+    leaving.style.transition = 'transform 0.4s ease,opacity 0.35s ease';
+    leaving.style.transform = 'translateX('+(-dir*30)+'px) perspective(1200px) rotateY('+(dir*3)+'deg)';
+    leaving.style.opacity = '0';
+    leaving.style.pointerEvents = 'none';
+    leaving.classList.remove('active');
+
+    setTimeout(() => {
+      leaving.style.transform = '';
+      leaving.style.transition = '';
+      _busy = false;
+    }, 520);
+
     update();
   }
   window.navigateToSlide = function(id){
@@ -3638,6 +3675,11 @@ wrapWithExplorer(_deterministicPolicy, { epsilon: 0.05 })
   },{passive:true});
 
   update();
+
+  // Set initial active slide
+  slides[0].classList.add('active');
+  slides[0].style.opacity = '1';
+  slides[0].style.pointerEvents = 'auto';
 
   /* ═══════ NAV AUTO-HIDE ═══════ */
   let hideTimer;
