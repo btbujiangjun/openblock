@@ -701,9 +701,9 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
      </div>
    </div>
 
-   <div class="quo">对游戏设计而言，这意味着<span style="color:#7eb8ff;font-weight:700">难度不是一根绝对坐标轴</span>，而是<span style="color:#81c784;font-weight:700">每个玩家每时每刻以自己为原点的相对坐标系</span> — 最好的游戏不是<span style="color:#ffb74d;font-weight:700">让所有人都赢</span>，而是<span style="color:#ba68c8;font-weight:700">让每个人都在自己的心流通道中</span></div>
+   <div class="quo">对游戏设计而言，这意味着<span style="color:#7eb8ff;font-weight:700">难度不是一根绝对坐标轴</span>，而是每个玩家<span style="color:#81c784;font-weight:700">每时每刻以自己为原点的相对坐标系</span> — 最好的游戏不是<span style="color:#ffb74d;font-weight:700">让所有人都赢</span>，而是<span style="color:#ba68c8;font-weight:700">让每个人都在自己的心流通道中</span></div>
 
-   <p style="font-size:0.9rem;color:#98b4d0;margin-top:0.35em">设计启示：难度必须随玩家能力实时适配，而非预设一条固定曲线 — 心流通道的宽度因人而异（高玩通道宽、新手通道窄），系统需要<span style="color:#ffb74d;font-weight:700">持续感知玩家的能力状态并动态调整出块难度</span></p>
+   <p style="font-size:0.9rem;color:#98b4d0;margin-top:0.35em">设计启示：难度必须随玩家能力<span style="color:#ffb74d;font-weight:700">实时适配</span>，而非预设一条固定曲线 — 心流通道的宽度因人而异（高玩通道宽、新手通道窄），系统需要<span style="color:#ffb74d;font-weight:700">持续感知玩家的能力状态并动态调整出块难度</span></p>
 </section>
 
 <!-- ═══════ 1.1.2 YERKES-DODSON ═══════ -->
@@ -761,7 +761,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   <div class="card-row c3" style="margin-top:1em">
     <div class="card accent-p"><div class="head"><div class="icon">💪</div><div class="tit">胜任感</div></div><div class="desc">感觉自己有能力应对挑战——每次消行、每次破 PB 都在强化</div></div>
     <div class="card accent-b"><div class="head"><div class="icon">🎯</div><div class="tit">自主性</div></div><div class="desc">掌控局面而非被操控——算法必须隐蔽，玩家不觉得"系统在替我玩"</div></div>
-    <div class="card accent-o"><div class="head"><div class="icon">🤝</div><div class="tit">关联性</div></div><div class="desc">与他人的连接感——排行榜、分享回放、挑战好友，突破自我后被看到被认可</div></div>
+    <div class="card accent-o"><div class="head"><div class="icon">🤝</div><div class="tit">关联性</div></div><div class="desc">与他人的连接感——<span style="text-decoration:wavy underline;text-underline-offset:3px">排行榜、分享回放、挑战好友</span>，突破自我后被看到被认可</div></div>
   </div>
 
   <p style="font-size:0.9rem;color:#98b4d0;margin-top:1em">设计启示：难度自适应必须在不破坏自主感的前提下进行 — 如果玩家明显感觉到<span style="color:#e57373;font-weight:700">系统在故意放水</span>，胜任感和自主性会同时受损。<span style="color:#ffb74d;font-weight:700">算法的隐蔽性</span>是产品设计的关键约束 — 玩家可以感受到难度变了，但不能觉得系统在替我玩</p>
@@ -4002,6 +4002,7 @@ if <span class="hl2">unifiedRisk</span> ≥ 0.75 → <span class="hl4">suppress<
 </div>
 
 <script>
+(function(){var d=new Date(),m=String(d.getMonth()+1).padStart(2,'0'),dy=String(d.getDate()).padStart(2,'0');document.getElementById('cover-date').textContent=d.getFullYear()+'-'+m+'-'+dy})();
 (function(){
   const slides = [];
   document.querySelectorAll('.cover, .slide').forEach(el => {
