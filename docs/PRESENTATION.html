@@ -15,25 +15,25 @@
   #slide-container>.cover.active,#slide-container>.slide.active{opacity:1;pointer-events:auto;z-index:2}
 
   /* ═══════ PAGE-TURN KEYFRAMES ═══════ */
+  /* Forward: page curls around left spine, bottom-right corner leads via skewY */
+  @keyframes pgLeaveFwd{
+    0%{transform:perspective(1200px) rotateY(0deg) skewY(0deg);opacity:1}
+    35%{transform:perspective(1200px) rotateY(16deg) skewY(-2deg);opacity:0.4}
+    100%{transform:perspective(1200px) rotateY(38deg) skewY(-4deg);opacity:0}
+  }
   @keyframes pgEnterFwd{
-    0%{transform:translateX(55px) translateY(20px) rotateY(-10deg) scale(0.92);opacity:0;box-shadow:-12px 0 32px rgba(0,0,0,0.55)}
-    30%{transform:translateX(24px) translateY(8px) rotateY(-5deg) scale(0.96);opacity:0.3;box-shadow:-7px 0 18px rgba(0,0,0,0.35)}
-    60%{transform:translateX(8px) translateY(-3px) rotateY(-2deg) scale(0.99);opacity:0.7;box-shadow:-2px 0 6px rgba(0,0,0,0.12)}
-    100%{transform:translateX(0) translateY(0) rotateY(0) scale(1);opacity:1;box-shadow:none}
+    0%,30%{opacity:0}
+    100%{opacity:1}
+  }
+  /* Backward: page curls around right spine, bottom-left corner leads */
+  @keyframes pgLeaveBwd{
+    0%{transform:perspective(1200px) rotateY(0deg) skewY(0deg);opacity:1}
+    35%{transform:perspective(1200px) rotateY(-16deg) skewY(2deg);opacity:0.4}
+    100%{transform:perspective(1200px) rotateY(-38deg) skewY(4deg);opacity:0}
   }
   @keyframes pgEnterBwd{
-    0%{transform:translateX(-55px) translateY(20px) rotateY(10deg) scale(0.92);opacity:0;box-shadow:12px 0 32px rgba(0,0,0,0.55)}
-    30%{transform:translateX(-24px) translateY(8px) rotateY(5deg) scale(0.96);opacity:0.3;box-shadow:7px 0 18px rgba(0,0,0,0.35)}
-    60%{transform:translateX(-8px) translateY(-3px) rotateY(2deg) scale(0.99);opacity:0.7;box-shadow:2px 0 6px rgba(0,0,0,0.12)}
-    100%{transform:translateX(0) translateY(0) rotateY(0) scale(1);opacity:1;box-shadow:none}
-  }
-  @keyframes pgLeaveFwd{
-    0%{transform:translateX(0) translateY(0) rotateY(0) scale(1);opacity:1;box-shadow:none}
-    100%{transform:translateX(-30px) translateY(14px) rotateY(8deg) scale(0.91);opacity:0;box-shadow:-8px 0 24px rgba(0,0,0,0.4)}
-  }
-  @keyframes pgLeaveBwd{
-    0%{transform:translateX(0) translateY(0) rotateY(0) scale(1);opacity:1;box-shadow:none}
-    100%{transform:translateX(30px) translateY(14px) rotateY(-8deg) scale(0.91);opacity:0;box-shadow:8px 0 24px rgba(0,0,0,0.4)}
+    0%,30%{opacity:0}
+    100%{opacity:1}
   }
 
   /* ═══════ GAME TITLE COVER ═══════ */
@@ -3645,24 +3645,30 @@ wrapWithExplorer(_deterministicPolicy, { epsilon: 0.05 })
     entering.style.pointerEvents = 'auto';
     entering.classList.add('active');
 
+    // Set transform origin for page-turn pivot
+    if (dir === 1) {
+      leaving.style.transformOrigin = 'left center';
+    } else {
+      leaving.style.transformOrigin = 'right center';
+    }
+
     // Force reflow, then kick off animations
     void entering.offsetHeight;
 
     if (dir === 1) {
-      entering.style.animation = 'pgEnterFwd 0.55s cubic-bezier(0.34,1,0.64,1) forwards';
-      leaving.style.animation = 'pgLeaveFwd 0.4s ease forwards';
+      entering.style.animation = 'pgEnterFwd 0.55s ease forwards';
+      leaving.style.animation = 'pgLeaveFwd 0.5s ease-in forwards';
     } else {
-      entering.style.animation = 'pgEnterBwd 0.55s cubic-bezier(0.34,1,0.64,1) forwards';
-      leaving.style.animation = 'pgLeaveBwd 0.4s ease forwards';
+      entering.style.animation = 'pgEnterBwd 0.55s ease forwards';
+      leaving.style.animation = 'pgLeaveBwd 0.5s ease-in forwards';
     }
     leaving.style.pointerEvents = 'none';
     leaving.classList.remove('active');
 
     setTimeout(() => {
       leaving.style.animation = '';
+      leaving.style.transformOrigin = '';
       leaving.style.opacity = '';
-      leaving.style.boxShadow = '';
-      leaving.style.transform = '';
       _busy = false;
     }, 600);
 
