@@ -35,7 +35,7 @@ opentelemetry-sdk==1.27.0
 opentelemetry-instrumentation-flask==0.48b0
 opentelemetry-instrumentation-requests==0.48b0
 opentelemetry-instrumentation-sqlalchemy==0.48b0
-opentelemetry-exporter-otlp-proto-http==1.27.0
+opentelemetry-exporter-otlp-proto-http==1.41.1
 
 # API documentation
 apispec==6.6.1
