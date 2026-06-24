@@ -22,7 +22,10 @@
   .cover .game-brand .logo-sub .ai{display:inline-block;animation:aiBreathe 2.5s ease-in-out infinite}
   .cover .game-brand .logo-sub .ai .ai-i{display:inline-block;font-size:1.4em;font-weight:800;background:linear-gradient(135deg,#4a9eff 0%,#7eb8ff 60%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
   @keyframes aiBreathe{0%,100%{transform:scale(1);filter:drop-shadow(0 0 6px rgba(255,255,255,0.3))}50%{transform:scale(1.3);filter:drop-shadow(0 0 24px rgba(120,180,255,1))}}
-  .cover .game-title{width:100%}.cover .game-title svg{width:auto;height:auto;max-width:50%;max-height:12vh;display:block;margin:0 auto}
+  .cover .game-title{width:100%;position:relative;perspective:800px}
+  .cover .game-title svg{width:auto;height:auto;max-width:50%;max-height:12vh;display:block;margin:0 auto;transform-style:preserve-3d;will-change:transform}
+  .cover .game-title canvas{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:0}
+  .cover .game-title svg{position:relative;z-index:1}
   .cover .main-title-3d-wrap{width:100%;margin-bottom:0.8vh;position:relative;perspective:600px;display:flex;flex-direction:column;align-items:center}
   .cover .main-title-3d-wrap .title-css3d{font-family:'Ma Shan Zheng',cursive;font-size:clamp(1.3rem,2.4vw,2.4rem);font-weight:400;letter-spacing:0.06em;color:#e8ecf6;white-space:nowrap;position:relative;display:inline-block;transform-style:preserve-3d;will-change:transform;animation:titleGlow 3s ease-in-out infinite alternate;text-shadow:0 0 10px rgba(74,158,255,0.6),0 0 30px rgba(74,158,255,0.3),0 0 60px rgba(74,158,255,0.15),0 2px 0 rgba(255,255,255,0.12),0 4px 0 rgba(255,255,255,0.06),0 6px 12px rgba(0,0,0,0.4)}
   .cover .main-title-3d-wrap .title-css3d::before{content:'';position:absolute;top:50%;left:-20px;right:-20px;height:2px;background:linear-gradient(90deg,transparent,rgba(74,158,255,0.8),rgba(255,183,77,0.6),rgba(74,158,255,0.8),transparent);filter:blur(4px);opacity:0;animation:rayFlash 4s ease-in-out infinite;pointer-events:none}
@@ -4260,7 +4263,8 @@ document.addEventListener('DOMContentLoaded', function(){
 (function(){
   var el = document.querySelector('.cover .main-title-3d-wrap .title-css3d');
   var sub = document.querySelector('.cover .game-brand .logo-sub');
-  if(!el && !sub) return;
+  var svg = document.querySelector('.cover .game-title svg');
+  if(!el && !sub && !svg) return;
   var mx = 0, my = 0, tx = 0, ty = 0;
   document.addEventListener('mousemove', function(e){
     mx = (e.clientX / window.innerWidth - 0.5) * 2;
@@ -4275,9 +4279,135 @@ document.addEventListener('DOMContentLoaded', function(){
     var z = 10 + Math.abs(mx) * 8 + Math.sin(t) * 3;
     if(el) el.style.transform = 'rotateX('+(ty+idleX)+'deg) rotateY('+(tx+idleY)+'deg) translateZ('+z+'px)';
     if(sub) sub.style.transform = 'translateX(-50%) rotateX('+(ty*0.6+idleX*0.5)+'deg) rotateY('+(tx*0.6+idleY*0.5)+'deg) translateZ('+(z*0.5)+'px)';
+    if(svg) svg.style.transform = 'rotateX('+(ty*0.3+idleX*0.3)+'deg) rotateY('+(tx*0.3+idleY*0.3)+'deg) translateZ('+(z*0.4)+'px)';
     requestAnimationFrame(tick);
   }
   tick();
+})();
+</script>
+<script>
+(function(){
+  if(typeof THREE === 'undefined') return;
+  var title = document.querySelector('.cover .game-title');
+  if(!title) return;
+
+  var canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:0';
+  title.appendChild(canvas);
+
+  var scene = new THREE.Scene();
+  var w = 600, h = 300;
+  var camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 2000);
+  camera.position.z = 600;
+
+  var renderer = new THREE.WebGLRenderer({canvas:canvas, alpha:true, antialias:true});
+  renderer.setSize(w, h);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setClearColor(0x000000, 0);
+
+  var geo = new THREE.BoxGeometry(8, 8, 8);
+  var colors = [0xff6b35, 0xffa040, 0xffcc02, 0x4a9eff, 0x7eb8ff, 0xff4d6a, 0xb06cff, 0x4dc9f6, 0xfcd34d];
+  var cubes = [];
+  for(var i = 0; i < 35; i++){
+    var hue = colors[i % colors.length];
+    var mat = new THREE.MeshPhongMaterial({
+      color: hue,
+      transparent: true,
+      opacity: 0.35 + Math.random() * 0.3,
+      emissive: hue,
+      emissiveIntensity: 0.2,
+      shininess: 80
+    });
+    var mesh = new THREE.Mesh(geo, mat);
+    var angle = Math.random() * Math.PI * 2;
+    var radius = 120 + Math.random() * 200;
+    mesh.position.set(
+      Math.cos(angle) * radius,
+      (Math.random() - 0.5) * 250,
+      (Math.random() - 0.5) * 200
+    );
+    mesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+    mesh.userData = {
+      baseX: mesh.position.x,
+      baseY: mesh.position.y,
+      baseZ: mesh.position.z,
+      speed: 0.3 + Math.random() * 0.7,
+      rotSpeed: (Math.random() - 0.5) * 0.02,
+      phase: Math.random() * Math.PI * 2
+    };
+    scene.add(mesh);
+    cubes.push(mesh);
+  }
+
+  var particleGeo = new THREE.BufferGeometry();
+  var pCount = 120;
+  var positions = new Float32Array(pCount * 3);
+  var pColors = new Float32Array(pCount * 3);
+  for(var i = 0; i < pCount; i++){
+    var a = Math.random() * Math.PI * 2;
+    var r = 80 + Math.random() * 280;
+    positions[i*3] = Math.cos(a) * r;
+    positions[i*3+1] = (Math.random()-0.5) * 300;
+    positions[i*3+2] = (Math.random()-0.5) * 250;
+    var c = new THREE.Color(colors[i % colors.length]);
+    pColors[i*3] = c.r; pColors[i*3+1] = c.g; pColors[i*3+2] = c.b;
+  }
+  particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  particleGeo.setAttribute('color', new THREE.BufferAttribute(pColors, 3));
+  var particleMat = new THREE.PointsMaterial({size:3, vertexColors:true, transparent:true, opacity:0.5, blending:THREE.AdditiveBlending, depthWrite:false});
+  var particles = new THREE.Points(particleGeo, particleMat);
+  scene.add(particles);
+
+  var ambLight = new THREE.AmbientLight(0x4a9eff, 0.6);
+  scene.add(ambLight);
+  var dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+  dirLight.position.set(200, 300, 400);
+  scene.add(dirLight);
+  var pointLight = new THREE.PointLight(0xffa040, 1.2, 600);
+  pointLight.position.set(-100, 0, 300);
+  scene.add(pointLight);
+
+  var mxx = 0, myy = 0;
+  document.addEventListener('mousemove', function(e){
+    mxx = (e.clientX / window.innerWidth - 0.5) * 2;
+    myy = (e.clientY / window.innerHeight - 0.5) * 2;
+  });
+
+  function animate(){
+    requestAnimationFrame(animate);
+    var t = Date.now() * 0.001;
+    camera.position.x += (mxx * 80 - camera.position.x) * 0.03;
+    camera.position.y += (-myy * 50 - camera.position.y) * 0.03;
+    camera.lookAt(0, 0, 0);
+
+    for(var i = 0; i < cubes.length; i++){
+      var d = cubes[i].userData;
+      cubes[i].position.x = d.baseX + Math.sin(t * d.speed + d.phase) * 30;
+      cubes[i].position.y = d.baseY + Math.cos(t * d.speed * 0.7 + d.phase) * 20;
+      cubes[i].position.z = d.baseZ + Math.sin(t * d.speed * 0.5 + d.phase * 2) * 15;
+      cubes[i].rotation.x += d.rotSpeed;
+      cubes[i].rotation.y += d.rotSpeed * 0.7;
+      cubes[i].material.emissiveIntensity = 0.15 + Math.sin(t * 2 + d.phase) * 0.15;
+    }
+
+    var pos = particles.geometry.attributes.position.array;
+    for(var i = 0; i < pCount; i++){
+      pos[i*3+1] += Math.sin(t + i) * 0.15;
+    }
+    particles.geometry.attributes.position.needsUpdate = true;
+    particles.rotation.y = t * 0.02;
+
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  window.addEventListener('resize', function(){
+    var nw = Math.min(title.clientWidth || 600, 600);
+    var nh = 300;
+    camera.aspect = nw / nh;
+    camera.updateProjectionMatrix();
+    renderer.setSize(nw, nh);
+  });
 })();
 </script>
 </body>
