@@ -11,7 +11,7 @@ gunicorn==22.0.0
 SQLAlchemy==2.0.31
 alembic==1.13.2
 psycopg2-binary==2.9.9
-redis==5.0.7
+redis==7.4.0
 
 # Security
 argon2-cffi==23.1.0          # password hashing (replaces sha256)
