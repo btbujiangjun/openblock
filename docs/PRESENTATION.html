@@ -4317,7 +4317,7 @@ document.addEventListener('DOMContentLoaded', function(){
     farPos[i*3+2] = -600 - Math.random()*1400;
   }
   farGeo.setAttribute('position', new THREE.BufferAttribute(farPos, 3));
-  var farMat = new THREE.PointsMaterial({color:0xffffff, size:0.9, transparent:true, opacity:0.55, sizeAttenuation:true, depthWrite:false});
+  var farMat = new THREE.PointsMaterial({color:0xffffff, size:1.1, transparent:true, opacity:0.55, sizeAttenuation:true, depthWrite:false});
   scene.add(new THREE.Points(farGeo, farMat));
 
   var midGeo = new THREE.BufferGeometry();
@@ -4329,7 +4329,7 @@ document.addEventListener('DOMContentLoaded', function(){
     midPos[i*3+2] = -200 - Math.random()*500;
   }
   midGeo.setAttribute('position', new THREE.BufferAttribute(midPos, 3));
-  var midMat = new THREE.PointsMaterial({color:0xffffff, size:1.4, transparent:true, opacity:0.75, sizeAttenuation:true, depthWrite:false});
+  var midMat = new THREE.PointsMaterial({color:0xffffff, size:1.8, transparent:true, opacity:0.8, sizeAttenuation:true, depthWrite:false});
   var midStars = new THREE.Points(midGeo, midMat);
   scene.add(midStars);
 
@@ -4347,7 +4347,7 @@ document.addEventListener('DOMContentLoaded', function(){
   }
   nearGeo.setAttribute('position', new THREE.BufferAttribute(nearPos, 3));
   nearGeo.setAttribute('color', new THREE.BufferAttribute(nearCol, 3));
-  var nearMat = new THREE.PointsMaterial({size:2.5, vertexColors:true, transparent:true, opacity:0.9, sizeAttenuation:true, depthWrite:false});
+  var nearMat = new THREE.PointsMaterial({size:3.2, vertexColors:true, transparent:true, opacity:0.95, sizeAttenuation:true, depthWrite:false});
   var nearStars = new THREE.Points(nearGeo, nearMat);
   scene.add(nearStars);
 
@@ -4362,41 +4362,9 @@ document.addEventListener('DOMContentLoaded', function(){
     twSpeed.push(1.5 + Math.random()*3);
   }
   twGeo.setAttribute('position', new THREE.BufferAttribute(twPos, 3));
-  var twMat = new THREE.PointsMaterial({color:0xffffff, size:3, transparent:true, opacity:0, sizeAttenuation:true, depthWrite:false});
+  var twMat = new THREE.PointsMaterial({color:0xffffff, size:3.5, transparent:true, opacity:0, sizeAttenuation:true, depthWrite:false});
   var twinkle = new THREE.Points(twGeo, twMat);
   scene.add(twinkle);
-
-  var crossStars = [];
-  var crossPositions = [
-    {x:-600,y:200,z:-150},{x:580,y:-180,z:-180},{x:-350,y:-250,z:-200},
-    {x:400,y:220,z:-160},{x:-150,y:300,z:-190},{x:200,y:-280,z:-170},
-    {x:-700,y:-100,z:-210},{x:720,y:50,z:-200}
-  ];
-  crossPositions.forEach(function(p){
-    var arm = 6 + Math.random()*4;
-    var hGeo = new THREE.BufferGeometry();
-    hGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-arm,0,0, arm,0,0]), 3));
-    var hMat = new THREE.LineBasicMaterial({color:0xccddff, transparent:true, opacity:0.5, linewidth:1});
-    var hLine = new THREE.Line(hGeo, hMat);
-    hLine.position.set(p.x, p.y, p.z);
-    scene.add(hLine);
-
-    var vGeo = new THREE.BufferGeometry();
-    vGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0,-arm,0, 0,arm,0]), 3));
-    var vMat = new THREE.LineBasicMaterial({color:0xccddff, transparent:true, opacity:0.5, linewidth:1});
-    var vLine = new THREE.Line(vGeo, vMat);
-    vLine.position.set(p.x, p.y, p.z);
-    scene.add(vLine);
-
-    var cGeo = new THREE.BufferGeometry();
-    cGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0,0,0]), 3));
-    var cMat = new THREE.PointsMaterial({color:0xffffff, size:3, transparent:true, opacity:0.85, sizeAttenuation:true, depthWrite:false});
-    var cPt = new THREE.Points(cGeo, cMat);
-    cPt.position.set(p.x, p.y, p.z);
-    scene.add(cPt);
-
-    crossStars.push({h:hLine, v:vLine, pt:cPt, speed:0.8+Math.random()*2, phase:Math.random()*Math.PI*2, hMat:hMat, vMat:vMat, cMat:cMat});
-  });
 
   var meteors = [];
   function spawnMeteor(){
@@ -4439,6 +4407,7 @@ document.addEventListener('DOMContentLoaded', function(){
     {x:850, y:-100},
     {x:920, y:140}
   ];
+  var constellationMats = [];
   constellationDefs.forEach(function(c,ci){
     var off = cPositions[ci];
     var sc = 1.3;
@@ -4456,6 +4425,7 @@ document.addEventListener('DOMContentLoaded', function(){
     var glowMat = new THREE.PointsMaterial({color:0x88aadd, size:12, transparent:true, opacity:0.2, sizeAttenuation:true, depthWrite:false});
     scene.add(new THREE.Points(glowGeo, glowMat));
 
+    var lineMats = [];
     c.lines.forEach(function(l){
       var a=c.stars[l[0]], b=c.stars[l[1]];
       var lp = new Float32Array([a[0]*sc+off.x,a[1]*sc+off.y,-200, b[0]*sc+off.x,b[1]*sc+off.y,-200]);
@@ -4463,7 +4433,9 @@ document.addEventListener('DOMContentLoaded', function(){
       lg.setAttribute('position', new THREE.BufferAttribute(lp, 3));
       var lm = new THREE.LineBasicMaterial({color:0x6699cc, transparent:true, opacity:0.45, linewidth:1});
       scene.add(new THREE.Line(lg, lm));
+      lineMats.push(lm);
     });
+    constellationMats.push({pt:ptMat, glow:glowMat, lines:lineMats, speed:0.4+Math.random()*0.3, phase:ci*2.1});
   });
 
   var nebulaGeo = new THREE.PlaneGeometry(3000, 1800);
@@ -4499,10 +4471,12 @@ document.addEventListener('DOMContentLoaded', function(){
     for(var i=0;i<twCount;i++){
       twMat.opacity=Math.abs(Math.sin(t*twSpeed[i]+i*1.7))*0.95;
     }
-    for(var i=0;i<crossStars.length;i++){
-      var cs=crossStars[i];
-      var op=0.35+Math.abs(Math.sin(t*cs.speed+cs.phase))*0.55;
-      cs.hMat.opacity=op*0.5; cs.vMat.opacity=op*0.5; cs.cMat.opacity=op;
+    for(var i=0;i<constellationMats.length;i++){
+      var cm=constellationMats[i];
+      var b=0.6+Math.sin(t*cm.speed+cm.phase)*0.4;
+      cm.pt.opacity=0.5+b*0.5;
+      cm.glow.opacity=0.08+b*0.18;
+      for(var j=0;j<cm.lines.length;j++) cm.lines[j].opacity=0.2+b*0.35;
     }
 
     meteorTimer+=dt;
