@@ -594,8 +594,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
       <div class="head"><div class="icon" style="font-size:2.2rem;margin-right:10px">🎮</div><div class="tit" style="font-size:1.3rem">产品设计</div></div>
       <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">
         <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#psyc" style="color:inherit;text-decoration:none">认知理论</a></span>
-        <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#design-principles" style="color:inherit;text-decoration:none">产品设计</a></span>
-        <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#product" style="color:inherit;text-decoration:none">功能设计</a></span>
+        <span style="background:rgba(74,158,255,0.1);color:#7eb8ff;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#product-architecture" style="color:inherit;text-decoration:none">产品架构</a></span>
       </div>
     </div>
     <div class="card accent-o" style="padding:22px 24px">
@@ -631,7 +630,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
     </div>
     <div class="card" style="text-align:center;padding:32px 20px;background:rgba(255,183,77,0.04);border-color:rgba(255,183,77,0.12)">
       <div style="font-size:4rem;margin-bottom:14px">🎨</div>
-      <div class="tit" style="font-size:1.5rem;color:#ffb74d">策略设计</div>
+      <div class="tit" style="font-size:1.5rem;color:#ffb74d">产品架构</div>
     </div>
   </div>
 </section>
@@ -646,22 +645,22 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   </p>
 
   <div class="card-row c3">
-    <div class="card accent-g" style="cursor:pointer" onclick="navigateToSlide('psyc-flow')">
+    <div class="card accent-g" style="cursor:pointer" onclick="navigateToSlide('psyc-flow', event)">
       <div class="head"><div class="icon">😀</div><div class="tit">1 心流理论</div></div>
       <div class="desc">挑战与能力匹配时产生的最优体验，游戏体验的第一性原理</div></div>
-    <div class="card accent-o" style="cursor:pointer" onclick="navigateToSlide('psyc-yd')">
+    <div class="card accent-o" style="cursor:pointer" onclick="navigateToSlide('psyc-yd', event)">
       <div class="head"><div class="icon">📈</div><div class="tit">2 唤醒曲线</div></div>
       <div class="desc">Yerkes-Dodson 倒 U 形：表现随唤醒先升后降，最优唤醒带因人因任务而异</div></div>
-    <div class="card accent-p" style="cursor:pointer" onclick="navigateToSlide('psyc-sdt')">
+    <div class="card accent-p" style="cursor:pointer" onclick="navigateToSlide('psyc-sdt', event)">
       <div class="head"><div class="icon">🎯</div><div class="tit">3 自我决定理论</div></div>
       <div class="desc">胜任感·自主性·关联性——三大内在动机驱动持续参与</div></div>
-    <div class="card accent-r" style="cursor:pointer" onclick="navigateToSlide('psyc-helpless')">
+    <div class="card accent-r" style="cursor:pointer" onclick="navigateToSlide('psyc-helpless', event)">
       <div class="head"><div class="icon">🛡️</div><div class="tit">4 习得性无助</div></div>
       <div class="desc">反复挫败导致放弃尝试，救济机制的心理依据</div></div>
-    <div class="card accent-b" style="cursor:pointer" onclick="navigateToSlide('psyc-peak')">
+    <div class="card accent-b" style="cursor:pointer" onclick="navigateToSlide('psyc-peak', event)">
       <div class="head"><div class="icon">⛰️</div><div class="tit">5 峰值-终末定律</div></div>
       <div class="desc">记忆由最强烈时刻和结束时的感受决定——峰值制造与结尾设计</div></div>
-    <div class="card accent-o" style="cursor:pointer" onclick="navigateToSlide('psyc-nearmiss')">
+    <div class="card accent-o" style="cursor:pointer" onclick="navigateToSlide('psyc-nearmiss', event)">
       <div class="head"><div class="icon">🎯</div><div class="tit">6 近失理论</div></div>
       <div class="desc">差一点就成功的体验比胜利本身更激励重试——pbBrake 的设计心理依据</div></div>
   </div>
@@ -802,7 +801,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   <p style="margin-top:0.8em">Kahneman（1993）的研究表明：人们对一段体验的评价记忆并非每一刻的平均，而是主要由两个时刻决定——<span style="color:#ffb74d;font-weight:700">情感最强烈的时刻（峰值）</span>和<span style="color:#7eb8ff;font-weight:700">结束时的感受（终末）</span>，其他时刻几乎被忽略</p>
 
   <div class="card-row c2" style="margin-top:1em">
-    <div class="card accent-o"><div class="head"><div class="icon">⛰️</div><div class="tit">峰值制造</div></div><div class="desc">冲击 PB 是整局情绪自然峰值——给予足够挑战感和仪式感，让冲 PB 足够剧烈难忘</div></div>
+    <div class="card accent-o"><div class="head"><div class="icon">⛰️</div><div class="tit">峰值制造</div></div><div class="desc">冲击 PB 是整局情绪自然峰值——给予足够<span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">挑战感</span>和<span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">仪式感</span>，让冲 PB 足够剧烈难忘</div></div>
     <div class="card accent-b"><div class="head"><div class="icon">🏁</div><div class="tit">终末设计</div></div><div class="desc">局末感受决定是否"再来一局"——<span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">高亢收尾</span>（破 PB、近失）与<span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">舒缓收尾</span>（疲劳释放）交替安排</div></div>
   </div>
 
@@ -889,395 +888,283 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
    <p style="font-size:0.88rem;color:#98b4d0;margin-top:0.25em">设计启示：系统不需要让每局都破 PB — pbBrake 的关键作用不是惩罚高手，而是创造可控的近失体验，让下一局的期待感始终在线</p>
 </section>
 
-<!-- ═══════ 1.1.7 PSYCHOLOGY SUMMARY ═══════ -->
-<section class="slide" id="psyc-summary">
-  <h3><span class="ch">1.1.7</span> 六条心理机制 → 两条设计主线</h3>
 
-  <p style="margin-bottom:0.4em">六条心理学原理共同指向两条交织的设计主线：<strong style="color:#7eb8ff">难度管控</strong>与<strong style="color:#ffb74d">情绪弧线</strong></p>
+<!-- ═══════ 1.2 PRODUCT ARCHITECTURE OVERVIEW ═══════ -->
+<section class="slide" id="product-architecture">
+  <h3><span class="ch">1.2</span> 产品架构</h3>
+  <div class="img-frame" style="padding:8px;background:rgba(0,0,0,0.3);max-width:98%;margin:0 auto;cursor:zoom-in;flex:1;display:flex;align-items:center">
+    <img src="/docs/asset/architecture/assets/product-architecture.png" alt="OpenBlock 产品架构：体验五轴 + 5 层游戏化结构 + 生命周期×成熟度 25 格 + 北极星闭环" style="width:100%;height:auto;display:block;margin:0 auto" class="zoomable-img">
+  </div>
+</section>
 
-  <div class="card-row c2">
-    <div class="card" style="border-color:rgba(74,158,255,0.15);background:rgba(74,158,255,0.03)">
-      <div class="head"><div class="icon" style="font-size:1.3rem;margin-right:8px">📐</div><div class="tit" style="color:#7eb8ff">主线一：难度管控</div></div>
-      <div class="desc" style="margin-top:8px;font-size:0.95rem">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:1.2rem">①</span><span>心流通道 → 难度必须随能力实时适配</span></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:1.2rem">②</span><span>Yerkes-Dodson → 压力推送到倒 U 顶点</span></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:1.2rem">③</span><span>习得性无助 → 挫败累积必须被检测并干预</span></div>
-        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:1.2rem">④</span><span>SDT 自主性 → 算法隐蔽，不能破坏掌控感</span></div>
+<!-- ═══════ 1.2.1 核心设定：挑战个人最佳 ═══════ -->
+<section class="slide" id="core-mainline">
+  <h3><span class="ch">1.2.1</span> 核心设定——挑战个人最佳🏆 </h3>
+
+  <div class="quo" style="font-size:1.0rem;padding:10px 18px;margin-bottom:0.3em">
+    为什么是挑战个人最佳？<strong style="color:#ffd700">近失效应</strong>指出：<span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">差一点就破</span>比<span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">轻松达成</span>更让人想再试一次
+  </div>
+
+  <div style="display:flex;gap:10px;align-items:stretch">
+    <!-- 左列：核心玩法 / 策略辅助 / 情感反馈 -->
+    <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+      <div class="card" style="flex:1;padding:14px 16px;border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.03)">
+        <div style="font-size:0.9rem;color:#ffb74d;font-weight:700;margin-bottom:6px">🎮 核心玩法层(短循环6步)</div>
+        <svg viewBox="0 0 360 28" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto 6px">
+          <rect x="0" y="2" width="52" height="24" rx="5" fill="rgba(74,158,255,0.10)" stroke="#4a9eff" stroke-width="1"/><text x="26" y="17" fill="#7eb8ff" font-size="7" text-anchor="middle" font-weight="600">①观察</text>
+          <polygon points="53,14 59,10 59,18" fill="rgba(255,255,255,0.12)"/>
+          <rect x="62" y="2" width="48" height="24" rx="5" fill="rgba(255,183,77,0.10)" stroke="#ffb74d" stroke-width="1"/><text x="86" y="17" fill="#ffb74d" font-size="7" text-anchor="middle" font-weight="600">②选块</text>
+          <polygon points="111,14 117,10 117,18" fill="rgba(255,255,255,0.12)"/>
+          <rect x="120" y="2" width="56" height="24" rx="5" fill="rgba(129,199,132,0.10)" stroke="#81c784" stroke-width="1"/><text x="148" y="17" fill="#81c784" font-size="7" text-anchor="middle" font-weight="600">③拖拽</text>
+          <polygon points="177,14 183,10 183,18" fill="rgba(255,255,255,0.12)"/>
+          <rect x="186" y="2" width="56" height="24" rx="5" fill="rgba(186,104,200,0.10)" stroke="#ba68c8" stroke-width="1"/><text x="214" y="17" fill="#ba68c8" font-size="7" text-anchor="middle" font-weight="600">④消行</text>
+          <polygon points="243,14 249,10 249,18" fill="rgba(255,255,255,0.12)"/>
+          <rect x="252" y="2" width="56" height="24" rx="5" fill="rgba(229,115,115,0.10)" stroke="#e57373" stroke-width="1"/><text x="280" y="17" fill="#e57373" font-size="7" text-anchor="middle" font-weight="600">⑤得分</text>
+          <polygon points="309,14 315,10 315,18" fill="rgba(255,255,255,0.12)"/>
+          <rect x="318" y="2" width="42" height="24" rx="5" fill="rgba(74,158,255,0.10)" stroke="#4a9eff" stroke-width="1"/><text x="339" y="17" fill="#7eb8ff" font-size="7" text-anchor="middle" font-weight="600">⑥出块</text>
+        </svg>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">
+          <div style="padding:6px;background:rgba(255,183,77,0.04);border-radius:5px;text-align:center"><div style="font-size:0.55rem;color:#ffb74d;font-weight:700">👁️ 观察·选块</div><div style="font-size:0.48rem;color:#a0a898;line-height:1.4">8×8 网格，空洞/近满线<br/>底部展示 3 个候选块</div></div>
+          <div style="padding:6px;background:rgba(255,183,77,0.04);border-radius:5px;text-align:center"><div style="font-size:0.55rem;color:#ffb74d;font-weight:700">↗️ 拖拽·吸附</div><div style="font-size:0.48rem;color:#a0a898;line-height:1.4">智能预测最优落点<br/>消行辅助防边界抖动</div></div>
+          <div style="padding:6px;background:rgba(255,183,77,0.04);border-radius:5px;text-align:center"><div style="font-size:0.55rem;color:#ffb74d;font-weight:700">💥 消行·得分</div><div style="font-size:0.48rem;color:#a0a898;line-height:1.4">满行满列触发消除<br/>平方倍率计分</div></div>
+          <div style="padding:6px;background:rgba(255,183,77,0.04);border-radius:5px;text-align:center"><div style="font-size:0.55rem;color:#ffb74d;font-weight:700">🔄 下一组出块</div><div style="font-size:0.48rem;color:#a0a898;line-height:1.4">自适应引擎介入<br/>难度调制在回合边界</div></div>
+        </div>
       </div>
-      <div style="margin-top:10px;padding:6px 12px;background:rgba(74,158,255,0.06);border-radius:8px;color:#7eb8ff;font-size:0.9rem;font-weight:600">→ S 形压力曲线 · 难度相对论 · 双坐标解耦</div>
+
+      <div class="card" style="flex:1;padding:14px 16px;border-color:rgba(186,104,200,0.2);background:rgba(186,104,200,0.03)">
+        <div style="font-size:0.9rem;color:#ba68c8;font-weight:700;margin-bottom:6px">🧭 策略辅助层(认知支持)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">
+          <div style="padding:7px;background:rgba(186,104,200,0.04);border-radius:5px;text-align:center"><div style="font-size:0.55rem;color:#ba68c8;font-weight:700;margin-bottom:2px">💡 策略卡</div><div style="font-size:0.48rem;color:#a098b0;line-height:1.4">22 条规则取前 3<br/>近纪录时切决战专属</div></div>
+          <div style="padding:7px;background:rgba(186,104,200,0.04);border-radius:5px;text-align:center"><div style="font-size:0.55rem;color:#ba68c8;font-weight:700;margin-bottom:2px">🔍 拓扑洞察</div><div style="font-size:0.48rem;color:#a098b0;line-height:1.4">空洞/近满线/孤岛<br/>聚合为雷达图</div></div>
+          <div style="padding:7px;background:rgba(186,104,200,0.04);border-radius:5px;text-align:center"><div style="font-size:0.55rem;color:#ba68c8;font-weight:700;margin-bottom:2px">🆘 瓶颈识别</div><div style="font-size:0.48rem;color:#a098b0;line-height:1.4">可落点≤2 时主动救济<br/>降压+抬高消行保证</div></div>
+          <div style="padding:7px;background:rgba(186,104,200,0.04);border-radius:5px;text-align:center"><div style="font-size:0.55rem;color:#ba68c8;font-weight:700;margin-bottom:2px">🎯 多消机会</div><div style="font-size:0.48rem;color:#a098b0;line-height:1.4">实时统计候选数<br/>给出窗口提示</div></div>
+        </div>
+      </div>
+
+      <div class="card" style="flex:1;padding:14px 16px;border-color:rgba(74,158,255,0.2);background:rgba(74,158,255,0.03)">
+        <div style="font-size:0.9rem;color:#7eb8ff;font-weight:700;margin-bottom:6px">💖 情感反馈层(情绪闭环)</div>
+        <svg viewBox="0 0 360 60" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto 6px">
+          <line x1="10" y1="50" x2="350" y2="50" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+          <path d="M 15 50 C 60 51, 80 46, 115 38 C 150 28, 175 22, 210 30 C 245 38, 270 44, 310 38 C 330 34, 345 40, 350 42" fill="none" stroke="#ba68c8" stroke-width="2" opacity="0.7"/>
+          <circle cx="175" cy="22" r="5" fill="none" stroke="#ffd700" stroke-width="1.5"/><text x="175" y="14" fill="#ffd700" font-size="6" text-anchor="middle" font-weight="600">峰值</text>
+          <circle cx="310" cy="38" r="5" fill="none" stroke="#e57373" stroke-width="1.5"/><text x="310" y="30" fill="#e57373" font-size="6" text-anchor="middle" font-weight="600">破纪录</text>
+          <circle cx="350" cy="42" r="4" fill="none" stroke="#4a9eff" stroke-width="1.5"/><text x="350" y="56" fill="#7eb8ff" font-size="5" text-anchor="middle">终末</text>
+        </svg>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px">
+          <div style="padding:6px;background:rgba(255,215,0,0.04);border-radius:5px;text-align:center"><div style="font-size:0.55rem;color:#ffd700;font-weight:700">🏔️ 峰值制造</div><div style="font-size:0.48rem;color:#a0b0a0;line-height:1.4">全消/连击×4+ 特效微震<br/>释放窗口减压 3 轮</div></div>
+          <div style="padding:6px;background:rgba(229,115,115,0.04);border-radius:5px;text-align:center"><div style="font-size:0.55rem;color:#e57373;font-weight:700">🎯 近失与终末</div><div style="font-size:0.48rem;color:#a0a0a0;line-height:1.4">几何近失提示+复活<br/>结算高光·差一点叙事</div></div>
+          <div style="padding:6px;background:rgba(129,199,132,0.04);border-radius:5px;text-align:center"><div style="font-size:0.55rem;color:#81c784;font-weight:700">📝 叙事锚点</div><div style="font-size:0.48rem;color:#98a098;line-height:1.4">六级面谱+一句话评语<br/>冲分仪式感替代保活</div></div>
+        </div>
+      </div>
     </div>
-    <div class="card" style="border-color:rgba(255,183,77,0.15);background:rgba(255,183,77,0.03)">
-      <div class="head"><div class="icon" style="font-size:1.3rem;margin-right:8px">📈</div><div class="tit" style="color:#ffb74d">主线二：情绪弧线</div></div>
-      <div class="desc" style="margin-top:8px;font-size:0.95rem">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:1.2rem">①</span><span>峰值-终末定律 → 高潮要够高、收尾要漂亮</span></div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:1.2rem">②</span><span>近失理论 → 「差一点就破」比「轻松破」更上瘾</span></div>
-        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:1.2rem">③</span><span>心流愉悦感 → 专注·忘我·愉悦是情绪弧线的锚点</span></div>
+
+    <!-- 右列：体验调控 / 目标成长 -->
+    <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+      <div class="card" style="flex:1;padding:14px 16px;border-color:rgba(129,199,132,0.2);background:rgba(129,199,132,0.03)">
+        <div style="font-size:0.9rem;color:#81c784;font-weight:700;margin-bottom:8px">🎛️ 体验调控层(实时调制)</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div style="padding:8px;background:rgba(74,158,255,0.04);border-radius:6px;text-align:center">
+            <div style="font-size:0.9rem;margin-bottom:2px">🧮</div>
+            <div style="font-size:0.6rem;color:#7eb8ff;font-weight:700;margin-bottom:2px">压力计算</div>
+            <div style="font-size:0.5rem;color:#8aa0b8;line-height:1.4">19 项信号融合<br/>8 段流水线合成<br/><strong>封顶 0.79 防失控</strong></div>
+          </div>
+          <div style="padding:8px;background:rgba(255,183,77,0.04);border-radius:6px;text-align:center">
+            <div style="font-size:0.9rem;margin-bottom:2px">🎯</div>
+            <div style="font-size:0.6rem;color:#ffb74d;font-weight:700;margin-bottom:2px">出块意图</div>
+            <div style="font-size:0.5rem;color:#8a9878;line-height:1.4">救济·召回·兑现<br/>加压·心流·中性<br/><strong>叙事统一口径</strong></div>
+          </div>
+          <div style="padding:8px;background:rgba(229,115,115,0.04);border-radius:6px;text-align:center">
+            <div style="font-size:0.9rem;margin-bottom:2px">🛡️</div>
+            <div style="font-size:0.6rem;color:#e57373;font-weight:700;margin-bottom:2px">隐蔽与公平</div>
+            <div style="font-size:0.5rem;color:#988888;line-height:1.4">单帧 ≤ 0.05<br/>每 12 块 ≥ 1 次消行<br/><strong>可解性验证</strong></div>
+          </div>
+          <div style="padding:8px;background:rgba(186,104,200,0.04);border-radius:6px;text-align:center">
+            <div style="font-size:0.9rem;margin-bottom:2px">🎮</div>
+            <div style="font-size:0.6rem;color:#ba68c8;font-weight:700;margin-bottom:2px">自主空间</div>
+            <div style="font-size:0.5rem;color:#9888a8;line-height:1.4">建议非命令<br/>类别强制多样<br/><strong>暂停保留 24h</strong></div>
+          </div>
+        </div>
       </div>
-      <div style="margin-top:10px;padding:6px 12px;background:rgba(255,183,77,0.06);border-radius:8px;color:#ffb74d;font-size:0.9rem;font-weight:600">→ PB 七段弧 · pbTension/pbBrake · Warm Run</div>
+
+      <div class="card" style="flex:1;padding:14px 16px;border-color:rgba(229,115,115,0.2);background:rgba(229,115,115,0.03)">
+        <div style="font-size:0.9rem;color:#e57373;font-weight:700;margin-bottom:8px">🪜 目标成长层(长期动机)</div>
+        <svg viewBox="0 0 260 110" xmlns="http://www.w3.org/2000/svg" style="width:72%;height:auto;display:block;margin:0 auto 8px">
+          <polygon points="130,2 20,108 240,108" fill="none" stroke="rgba(229,115,115,0.12)" stroke-width="1"/>
+          <rect x="108" y="92" width="44" height="14" rx="3" fill="rgba(129,199,132,0.08)"/><text x="130" y="102" fill="#81c784" font-size="7" text-anchor="middle">赛季</text>
+          <rect x="95" y="76" width="70" height="14" rx="3" fill="rgba(74,158,255,0.08)"/><text x="130" y="86" fill="#7eb8ff" font-size="7" text-anchor="middle">关卡·段位</text>
+          <rect x="80" y="60" width="100" height="14" rx="3" fill="rgba(186,104,200,0.08)"/><text x="130" y="70" fill="#ba68c8" font-size="7" text-anchor="middle">经验·等级</text>
+          <rect x="60" y="44" width="140" height="14" rx="3" fill="rgba(255,183,77,0.08)"/><text x="130" y="54" fill="#ffb74d" font-size="7" text-anchor="middle">分数里程碑 · 成熟度里程碑</text>
+          <rect x="30" y="28" width="200" height="14" rx="3" fill="rgba(255,215,0,0.10)" stroke="#ffd700" stroke-width="1"/><text x="130" y="38" fill="#ffd700" font-size="8" text-anchor="middle" font-weight="700">🏆 PB 追逐（唯一主线）</text>
+        </svg>
+        <div style="font-size:0.62rem;color:#c8d0d8;line-height:1.85">
+          <strong style="color:#e57373">最佳分追赶：</strong>双坐标解耦，五段体验弧，破纪录后释压<br/>
+          <strong style="color:#e57373">里程碑：</strong>按 25%/50%/75%/100%/125% 历史最佳切分节奏<br/>
+          <strong style="color:#e57373">段位：</strong>技能评分×生命周期分段，晋升全屏称号
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════ 1.2.2 体验五轴 ═══════ -->
+<section class="slide" id="five-axes" style="font-size:1.05rem">
+  <h3><span class="ch">1.2.2</span> 体验五轴：生效与互抑</h3>
+  <div class="quo" style="font-size:1.1rem;padding:12px 20px;margin-bottom:0.5em">
+    每次出块决策<strong style="color:#ba68c8">同时触发多条轴</strong>，轴与轴之间存在<strong style="color:#e57373">互抑制衡</strong>——挑战加压过头反噬情感记忆，兑现过频削弱成长认同。
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+    <div class="card" style="padding:14px 16px;border-color:rgba(74,158,255,0.25);background:linear-gradient(180deg,rgba(74,158,255,0.06),rgba(74,158,255,0.02))">
+      <div style="font-size:0.95rem;color:#7eb8ff;font-weight:700;margin-bottom:6px">🌊 挑战·能力轴（C） <span style="font-size:0.65rem;color:#5a8ecf;font-weight:400">(压力可控)</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <div style="padding:8px;background:rgba(74,158,255,0.04);border-radius:4px"><div style="font-size:0.65rem;color:#7eb8ff;font-weight:700;margin-bottom:2px">生效</div><div style="font-size:0.6rem;color:#a0b8c8;line-height:1.55"><strong>心流追踪：</strong>能力与挑战差值压入最优带<br/><strong>难度延伸：</strong>高承受时从操作精度到前瞻规划</div></div>
+        <div style="padding:8px;background:rgba(74,158,255,0.04);border-radius:4px"><div style="font-size:0.65rem;color:#7eb8ff;font-weight:700;margin-bottom:2px">互抑</div><div style="font-size:0.6rem;color:#a0b8c8;line-height:1.55"><strong>受节奏约束：</strong>只在近纪录时激活加压<br/><strong>被情感封顶：</strong>压力上限 0.79 防止失控</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:14px 16px;border-color:rgba(255,183,77,0.25);background:linear-gradient(180deg,rgba(255,183,77,0.06),rgba(255,183,77,0.02))">
+      <div style="font-size:0.95rem;color:#ffb74d;font-weight:700;margin-bottom:6px">🎵 节奏·报偿轴（R） <span style="font-size:0.65rem;color:#cf9a3a;font-weight:400">(紧张释放)</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <div style="padding:8px;background:rgba(255,183,77,0.04);border-radius:4px"><div style="font-size:0.65rem;color:#ffb74d;font-weight:700;margin-bottom:2px">生效</div><div style="font-size:0.6rem;color:#b0b4a0;line-height:1.55"><strong>三态节律：</strong>布局→兑现→中性循环交替<br/><strong>物理回钳：</strong>每 12 块保证至少 1 次可消行</div></div>
+        <div style="padding:8px;background:rgba(255,183,77,0.04);border-radius:4px"><div style="font-size:0.65rem;color:#ffb74d;font-weight:700;margin-bottom:2px">互抑</div><div style="font-size:0.6rem;color:#b0b4a0;line-height:1.55"><strong>被挑战触发：</strong>心流稳定时进入兑现期<br/><strong>被情感约束：</strong>密度三档 + 频率封顶防过频</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:14px 16px;border-color:rgba(129,199,132,0.25);background:linear-gradient(180deg,rgba(129,199,132,0.06),rgba(129,199,132,0.02))">
+      <div style="font-size:0.95rem;color:#81c784;font-weight:700;margin-bottom:6px">🎮 掌控·公平轴（F） <span style="font-size:0.65rem;color:#5a9f5a;font-weight:400">(输赢可归因)</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <div style="padding:8px;background:rgba(129,199,132,0.04);border-radius:4px"><div style="font-size:0.65rem;color:#81c784;font-weight:700;margin-bottom:2px">生效</div><div style="font-size:0.6rem;color:#a0b8a0;line-height:1.55"><strong>自主选择：</strong>建议非命令 · 类别强制多样<br/><strong>温暖保护：</strong>新手/回流/连挫三档递进介入</div></div>
+        <div style="padding:8px;background:rgba(129,199,132,0.04);border-radius:4px"><div style="font-size:0.65rem;color:#81c784;font-weight:700;margin-bottom:2px">互抑</div><div style="font-size:0.6rem;color:#a0b8a0;line-height:1.55"><strong>被挑战放行：</strong>被困高压时自动解除限制<br/><strong>向成长沉淀：</strong>长期自主积累为身份认同</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:14px 16px;border-color:rgba(186,104,200,0.25);background:linear-gradient(180deg,rgba(186,104,200,0.06),rgba(186,104,200,0.02))">
+      <div style="font-size:0.95rem;color:#ba68c8;font-weight:700;margin-bottom:6px">💫 情感·共鸣轴（E） <span style="font-size:0.65rem;color:#8f44a0;font-weight:400">(爽点与近失)</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <div style="padding:8px;background:rgba(186,104,200,0.04);border-radius:4px"><div style="font-size:0.65rem;color:#ba68c8;font-weight:700;margin-bottom:2px">生效</div><div style="font-size:0.6rem;color:#b0a4c0;line-height:1.55"><strong>峰终塑造：</strong>全消/连击/破纪录为峰，结算+复活为终<br/><strong>叙事守卫：</strong>监测盘面与文案一致性防错位</div></div>
+        <div style="padding:8px;background:rgba(186,104,200,0.04);border-radius:4px"><div style="font-size:0.65rem;color:#ba68c8;font-weight:700;margin-bottom:2px">互抑</div><div style="font-size:0.6rem;color:#b0a4c0;line-height:1.55"><strong>被挑战与节奏驱动：</strong>两者共构情绪弧线<br/><strong>反噬挑战：</strong>过激时强制降级叙事不跟随加压</div></div>
+      </div>
+    </div>
+
+    <div class="card" style="padding:14px 16px;border-color:rgba(229,115,115,0.25);background:linear-gradient(180deg,rgba(229,115,115,0.06),rgba(229,115,115,0.02));grid-column:1 / -1;justify-self:center;max-width:520px">
+      <div style="font-size:0.95rem;color:#e57373;font-weight:700;margin-bottom:6px">🌱 成长·身份轴（G） <span style="font-size:0.65rem;color:#b55050;font-weight:400">(我在变强)</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        <div style="padding:8px;background:rgba(229,115,115,0.04);border-radius:4px"><div style="font-size:0.65rem;color:#e57373;font-weight:700;margin-bottom:2px">生效</div><div style="font-size:0.6rem;color:#b0a4a0;line-height:1.55"><strong>双弧线节奏：</strong>局内三段 + 跨局五档起伏管理<br/><strong>差异化成长：</strong>25 格矩阵 · 段位称号强化身份</div></div>
+        <div style="padding:8px;background:rgba(229,115,115,0.04);border-radius:4px"><div style="font-size:0.65rem;color:#e57373;font-weight:700;margin-bottom:2px">互抑</div><div style="font-size:0.6rem;color:#b0a4a0;line-height:1.55"><strong>被掌控沉淀：</strong>长期自主感积累为身份叙事<br/><strong>制约全局：</strong>过快时强制刹车 · 新手整体钳制</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+
+<!-- ═══════ 1.2.3 25格差异化 + L1-L4 ═══════ -->
+<section class="slide" id="differentiation">
+  <h3><span class="ch">1.2.3</span> 个性化双引擎：生命周期 × 成熟度</h3>
+  <div class="quo" style="font-size:1.1rem;padding:12px 20px;margin-bottom:0.5em">
+        <strong style="color:#ffb74d">S×M 矩阵</strong>决定"同一棋盘不同难度曲线"，<strong style="color:#81c784">L1→L4 管线</strong>        确保从<span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">状态感知</span>到<span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">呈现</span>的统一口径
+  </div>
+
+  <div style="padding:10px 14px;background:rgba(255,183,77,0.03);border:1px solid rgba(255,183,77,0.10);border-radius:8px;margin-bottom:0.3em">
+    <div style="font-size:0.75rem;color:#ffb74d;font-weight:700;margin-bottom:6px">🗺️ 25 格差异化引擎 — 生命周期 S0–S4 × 成熟度 M0–M4</div>
+    <div class="table-wrap" style="font-size:0.58rem">
+    <table>
+      <tr><th></th><th>M0 新手</th><th>M1 成长</th><th>M2 熟练</th><th>M3 资深</th><th>M4 核心</th></tr>
+      <tr><td><strong>S0 新入场</strong></td><td style="background:rgba(129,199,132,0.08)">🛡️ 0.50</td><td>0.55</td><td>0.58</td><td>0.62</td><td>0.65</td></tr>
+      <tr><td><strong>S1 激活</strong></td><td>0.60</td><td>0.65</td><td>0.70</td><td>0.75</td><td>0.78</td></tr>
+      <tr><td><strong>S2 习惯</strong></td><td>0.65</td><td>0.70</td><td style="background:rgba(255,183,77,0.06)">0.75</td><td>0.82</td><td>0.85</td></tr>
+      <tr><td><strong>S3 稳定</strong></td><td>0.65</td><td>0.72</td><td>0.78</td><td style="background:rgba(255,183,77,0.08)">0.85</td><td style="background:rgba(229,115,115,0.10)">🔥 0.88</td></tr>
+      <tr><td><strong>S4 回流</strong></td><td style="background:rgba(129,199,132,0.08)">🛡️ 0.55</td><td>0.60</td><td>0.70</td><td>0.75</td><td>0.80</td></tr>
+    </table>
+    </div>
+    <div style="display:flex;gap:16px;margin-top:5px;font-size:0.5rem;color:#98a8b0">
+      <div>🛡️ 新手/回流弱保护</div><div>📈 行内单调递增</div><div>🔥 核心 cap 达 0.88</div>
     </div>
   </div>
 
-  <!-- Word Cloud: 6 cognitive theories keywords -->
-  <div style="text-align:center;margin-top:0.5em;padding:10px 14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:12px">
-    <svg viewBox="0 0 900 170" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">
-      <defs>
-        <filter id="glow-wc"><feGaussianBlur stdDeviation="0.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      </defs>
-
-      <!-- 难度管控 zone -->
-      <rect x="8" y="4" width="436" height="162" rx="10" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.07)" stroke-width="1"/>
-      <text x="226" y="20" font-size="10" fill="rgba(74,158,255,0.5)" text-anchor="middle" font-weight="700" letter-spacing="2">难度管控</text>
-
-      <!-- Tier 1: core theories -->
-      <text x="130" y="60" font-size="23" font-weight="700" fill="#4ecca3" text-anchor="middle" opacity="0.95" filter="url(#glow-wc)">心流</text>
-      <text x="340" y="56" font-size="21" font-weight="700" fill="#ffb74d" text-anchor="middle" opacity="0.93" filter="url(#glow-wc)">倒U</text>
-
-      <!-- Tier 2: key mechanisms -->
-      <text x="80" y="98" font-size="17" font-weight="700" fill="#7eb8ff" text-anchor="middle" opacity="0.85">自主性</text>
-      <text x="230" y="96" font-size="19" font-weight="700" fill="#e57373" text-anchor="middle" opacity="0.88">挫败累积</text>
-      <text x="360" y="98" font-size="17" font-weight="700" fill="#ba68c8" text-anchor="middle" opacity="0.85">胜任感</text>
-
-      <!-- Tier 3: application concepts -->
-      <text x="150" y="84" font-size="15" font-weight="600" fill="#7eb8ff" text-anchor="middle" opacity="0.78">挑战≈能力</text>
-      <text x="290" y="82" font-size="14" font-weight="600" fill="#ff8a65" text-anchor="middle" opacity="0.75">压力推送</text>
-      <text x="370" y="136" font-size="15" font-weight="600" fill="#81c784" text-anchor="middle" opacity="0.78">救济机制</text>
-      <text x="60" y="58" font-size="14" font-weight="600" fill="#81c784" text-anchor="middle" opacity="0.72">适配</text>
-      <text x="280" y="138" font-size="15" font-weight="600" fill="#7eb8ff" text-anchor="middle" opacity="0.75">焦虑·无聊</text>
-
-      <!-- Tier 4: nuanced -->
-      <text x="150" y="132" font-size="13" font-weight="600" fill="#98b4d0" text-anchor="middle" opacity="0.68">干预</text>
-      <text x="100" y="145" font-size="13" font-weight="600" fill="#98b4d0" text-anchor="middle" opacity="0.65">行为变形</text>
-
-      <!-- 情绪弧线 zone -->
-      <rect x="456" y="4" width="436" height="162" rx="10" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.07)" stroke-width="1"/>
-      <text x="674" y="20" font-size="10" fill="rgba(255,183,77,0.5)" text-anchor="middle" font-weight="700" letter-spacing="2">情绪弧线</text>
-
-      <!-- Tier 1: core theories -->
-      <text x="590" y="58" font-size="23" font-weight="700" fill="#ffb74d" text-anchor="middle" opacity="0.95" filter="url(#glow-wc)">峰值</text>
-      <text x="760" y="54" font-size="21" font-weight="700" fill="#7eb8ff" text-anchor="middle" opacity="0.93" filter="url(#glow-wc)">终末</text>
-
-      <!-- Tier 2: key mechanisms -->
-      <text x="680" y="90" font-size="19" font-weight="700" fill="#ff8a65" text-anchor="middle" opacity="0.88">近失</text>
-      <text x="830" y="88" font-size="19" font-weight="700" fill="#e57373" text-anchor="middle" opacity="0.88">多巴胺</text>
-      <text x="580" y="92" font-size="16" font-weight="700" fill="#ba68c8" text-anchor="middle" opacity="0.82">高潮</text>
-
-      <!-- Tier 3: application concepts -->
-      <text x="730" y="122" font-size="16" font-weight="600" fill="#81c784" text-anchor="middle" opacity="0.78">体验记忆</text>
-      <text x="630" y="118" font-size="15" font-weight="600" fill="#4ecca3" text-anchor="middle" opacity="0.75">专注·忘我</text>
-      <text x="670" y="142" font-size="14" font-weight="600" fill="#98b4d0" text-anchor="middle" opacity="0.72">再试一次</text>
-
-      <!-- Tier 4: nuanced -->
-      <text x="830" y="122" font-size="13" font-weight="600" fill="#ffb74d" text-anchor="middle" opacity="0.65">差一点</text>
-      <text x="590" y="142" font-size="13" font-weight="600" fill="#ffb74d" text-anchor="middle" opacity="0.65">驱动</text>
-      <text x="750" y="150" font-size="13" font-weight="600" fill="#98b4d0" text-anchor="middle" opacity="0.65">仪式感</text>
+  <div style="padding:10px 14px;background:rgba(129,199,132,0.03);border:1px solid rgba(129,199,132,0.10);border-radius:8px;margin-bottom:0.3em">
+    <div style="font-size:0.75rem;color:#81c784;font-weight:700;margin-bottom:6px">🔗 L1–L4 策略体验栈</div>
+    <svg viewBox="0 0 900 82" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <rect x="8" y="5" width="200" height="74" rx="8" fill="rgba(74,158,255,0.08)" stroke="#4a9eff" stroke-width="1"/><text x="108" y="25" fill="#7eb8ff" font-size="13" text-anchor="middle" font-weight="700">L1 状态估计</text><text x="108" y="44" fill="rgba(74,158,255,0.40)" font-size="11" text-anchor="middle">操作间隔·消行历史·填充率</text><text x="108" y="63" fill="rgba(74,158,255,0.55)" font-size="11" text-anchor="middle">技能·动量·心流·挫败</text>
+      <polygon points="213,42 226,30 226,54" fill="#4a9eff" opacity="0.5"/>
+      <rect x="232" y="5" width="210" height="74" rx="8" fill="rgba(255,183,77,0.08)" stroke="#ffb74d" stroke-width="1"/><text x="337" y="25" fill="#ffb74d" font-size="13" text-anchor="middle" font-weight="700">L2 策略解析</text><text x="337" y="44" fill="rgba(255,183,77,0.40)" font-size="11" text-anchor="middle">状态+分数+会话阶段+难度档</text><text x="337" y="63" fill="rgba(255,183,77,0.55)" font-size="11" text-anchor="middle">压力·出块意图·提示</text>
+      <polygon points="447,42 460,30 460,54" fill="#ffb74d" opacity="0.5"/>
+      <rect x="466" y="5" width="200" height="74" rx="8" fill="rgba(229,115,115,0.08)" stroke="#e57373" stroke-width="1"/><text x="566" y="25" fill="#e57373" font-size="13" text-anchor="middle" font-weight="700">L3 内容生成</text><text x="566" y="44" fill="rgba(229,115,115,0.40)" font-size="11" text-anchor="middle">压力+盘面+形状池</text><text x="566" y="63" fill="rgba(229,115,115,0.55)" font-size="11" text-anchor="middle">候选三连块·可解性验证</text>
+      <polygon points="671,42 684,30 684,54" fill="#e57373" opacity="0.5"/>
+      <rect x="690" y="5" width="202" height="74" rx="8" fill="rgba(186,104,200,0.08)" stroke="#ba68c8" stroke-width="1"/><text x="791" y="25" fill="#ba68c8" font-size="13" text-anchor="middle" font-weight="700">L4 体验呈现</text><text x="791" y="44" fill="rgba(186,104,200,0.40)" font-size="11" text-anchor="middle">快照+诊断+盘面</text><text x="791" y="63" fill="rgba(186,104,200,0.55)" font-size="11" text-anchor="middle">压力表·叙事·策略卡</text>
     </svg>
   </div>
+
+  <div class="theory-line" style="padding:6px 12px;font-size:0.55rem">
 </section>
 
-<!-- ═══════ 1.2 OVERVIEW ═══════ -->
-<section class="slide v-center" id="design-overview">
-  <h3><span class="ch">1.2</span> 策略设计总览</h3>
-  <div style="display:flex;align-items:stretch;justify-content:center;gap:8px;flex-wrap:nowrap;margin-top:0.2em">
-    <div style="background:rgba(78,204,163,0.1);border:1.5px solid rgba(78,204,163,0.25);border-radius:14px;padding:16px 14px;text-align:center;width:210px;flex:none;display:flex;flex-direction:column;justify-content:center">
-      <div style="font-size:1.6rem;font-weight:800;color:#4ecca3;white-space:nowrap">6 条认知理论</div>
-      <div style="font-size:0.85rem;color:#a8c8e8;margin-top:8px;line-height:1.6"><span style="color:#4ecca3">●</span> 心流 · Yerkes-Dodson<br><span style="color:#4ecca3">●</span> 自我决定 · 习得性无助<br><span style="color:#4ecca3">●</span> 峰终 · 近失</div>
-    </div>
-    <div style="font-size:1.6rem;color:rgba(255,255,255,0.15);flex-shrink:0;align-self:center">→</div>
-    <div style="background:rgba(255,183,77,0.1);border:1.5px solid rgba(255,183,77,0.25);border-radius:14px;padding:16px 14px;text-align:center;width:210px;flex:none;display:flex;flex-direction:column;justify-content:center">
-      <div style="font-size:1.6rem;font-weight:800;color:#ffb74d;white-space:nowrap">7 条设计理念</div>
-      <div style="font-size:0.85rem;color:#a8c8e8;margin-top:8px;line-height:1.6"><span style="color:#ffb74d">●</span> 易学难精 · 碎片会话<br><span style="color:#ffb74d">●</span> 即时反馈 · 公平随机<br><span style="color:#ffb74d">●</span> DDA 隐蔽 · 多层进度<br><span style="color:#ffb74d">●</span> 友好商业化</div>
-    </div>
-    <div style="font-size:1.6rem;color:rgba(255,255,255,0.15);flex-shrink:0;align-self:center">→</div>
-    <div style="background:rgba(74,158,255,0.1);border:1.5px solid rgba(74,158,255,0.25);border-radius:14px;padding:16px 14px;text-align:center;width:210px;flex:none;display:flex;flex-direction:column;justify-content:center">
-      <div style="font-size:1.6rem;font-weight:800;color:#7eb8ff;white-space:nowrap">2 条设计线索</div>
-      <div style="font-size:0.85rem;color:#a8c8e8;margin-top:8px;line-height:1.6"><span style="color:#7eb8ff">●</span> 压力·心流通道<br><span style="color:#7eb8ff">●</span> 情绪·记忆弧线</div>
-    </div>
-    <div style="font-size:1.6rem;color:rgba(255,255,255,0.15);flex-shrink:0;align-self:center">→</div>
-    <div style="background:rgba(186,104,200,0.1);border:1.5px solid rgba(186,104,200,0.25);border-radius:14px;padding:16px 14px;text-align:center;width:210px;flex:none;display:flex;flex-direction:column;justify-content:center">
-      <div style="font-size:1.6rem;font-weight:800;color:#ba68c8;white-space:nowrap">5 轴体验结构</div>
-      <div style="font-size:0.85rem;color:#a8c8e8;margin-top:8px;line-height:1.6"><span style="color:#ba68c8">●</span> 挑战·能力 · 节奏·兑现<br><span style="color:#ba68c8">●</span> 掌控·自主 · 情感·回响<br><span style="color:#ba68c8">●</span> 成长·沉没</div>
-    </div>
-    <div style="font-size:1.6rem;color:rgba(255,255,255,0.15);flex-shrink:0;align-self:center">→</div>
-    <div style="background:rgba(229,115,115,0.1);border:1.5px solid rgba(229,115,115,0.25);border-radius:14px;padding:16px 14px;text-align:center;width:210px;flex:none;display:flex;flex-direction:column;justify-content:center">
-      <div style="font-size:1.6rem;font-weight:800;color:#e57373;white-space:nowrap">4 条核心策略</div>
-      <div style="font-size:0.85rem;color:#a8c8e8;margin-top:8px;line-height:1.6"><span style="color:#e57373">●</span> 玩家画像 · S 形压力<br><span style="color:#e57373">●</span> 对局弧 · 隐蔽调难</div>
-    </div>
+<!-- ═══════ 1.2.4 外围系统 + 北极星 ═══════ -->
+<section class="slide" id="periphery-northstar" style="font-size:1.05rem">
+  <h3><span class="ch">1.2.4</span> 外围系统与北极星指标</h3>
+  <div class="quo" style="font-size:1.1rem;padding:12px 20px;margin-bottom:0.5em">
+    <div>外围系统：<strong style="color:#81c784">可关闭、不抢戏、体验优先</strong></div>
+    <div style="margin-top:4px">北极星：量化<strong style="color:#ffd700">"追逐 PB 而不轻易超越"</strong>，<strong style="color:#e57373">6 项指标相互制衡</strong>而非各自最大化</div>
   </div>
-</section>
 
-<!-- ═══════ 1.2.1 COGNITIVE THEORIES → FEATURES ═══════ -->
-<section class="slide" id="design-theories">
-  <h3><span class="ch">1.2.1</span> 6 条认知理论 → 产品映射</h3>
-  <p style="margin-bottom:0.4em">每条心理学原理在代码中都有对应的系统参数和判定逻辑</p>
-  <div class="card-row" style="grid-template-columns:1fr 1fr 1fr;gap:6px">
-    <div class="card" style="border-color:rgba(78,204,163,0.25);background:rgba(78,204,163,0.05);padding:12px">
-      <div style="font-size:0.7rem;color:#4ecca3;font-weight:700">心流理论</div>
-      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">挑战≈能力 → 心流带</div>
-      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
-        • <strong style="color:#7eb8ff">skillLevel</strong> × <strong style="color:#ffb74d">stress</strong> 联合判定心流区间<br>
-        • 心流带宽度随熟练度自适应（高玩宽、新手窄）<br>
-        • <strong style="color:#81c784">动态出块</strong>：压力脱离心流带即调难度
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
+    <div class="card" style="padding:14px 16px;border-color:rgba(186,104,200,0.25);background:linear-gradient(180deg,rgba(186,104,200,0.06),rgba(186,104,200,0.02))">
+      <div style="font-size:0.95rem;color:#ba68c8;font-weight:700;margin-bottom:6px">🎪 外围系统</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:0.7rem;color:#a098c0;line-height:1.7">
+        <div>📋 每日任务</div><div>🏆 成就系统</div>
+        <div>📅 签到连击</div><div>🎫 赛季通行证</div>
+        <div>💣 技能道具</div><div>🎁 宝箱转盘</div>
+        <div>🎨 皮肤主题</div><div>👥 社交排行</div>
+        <div>⚔️ 异步 PK</div><div>📊 排行榜</div>
+      </div>
+      <div style="font-size:0.65rem;color:#7a6a8a;margin-top:6px;padding:4px 8px;background:rgba(186,104,200,0.06);border-radius:4px"><strong>契约：</strong>所有系统最终指向 PB 主线</div>
+    </div>
+
+    <div class="card" style="padding:14px 16px;border-color:rgba(229,115,115,0.25);background:linear-gradient(180deg,rgba(229,115,115,0.06),rgba(229,115,115,0.02))">
+      <div style="font-size:0.95rem;color:#e57373;font-weight:700;margin-bottom:6px">💰 友好商业化</div>
+      <div style="display:flex;flex-direction:column;gap:5px;font-size:0.7rem;color:#b09898;line-height:1.5">
+        <div style="padding:6px 8px;background:rgba(229,115,115,0.04);border-radius:4px"><strong>🛡️ 三大护栏：</strong>心流期降频 · 认知疲劳跳帧 · 压力抑制期降强度</div>
+        <div style="padding:6px 8px;background:rgba(229,115,115,0.04);border-radius:4px"><strong>🎯 高意图触发：</strong>复活·晋升·补签 — 商业接受度最高</div>
+        <div style="padding:6px 8px;background:rgba(229,115,115,0.04);border-radius:4px"><strong>👥 三层分群：</strong>鲸鱼(订阅) · 海豚(低价+广告) · 小鱼(免费)</div>
+      </div>
+      <div style="font-size:0.65rem;color:#8a6a6a;margin-top:6px;padding:4px 8px;background:rgba(229,115,115,0.06);border-radius:4px">自主性 · 近失效应 · 进度驱动 — 选择权在手，高关注时刻接受度最高</div>
+    </div>
+
+    <div class="card" style="padding:14px 16px;border-color:rgba(255,215,0,0.25);background:linear-gradient(180deg,rgba(255,215,0,0.06),rgba(255,215,0,0.02))">
+      <div style="font-size:0.95rem;color:#ffd700;font-weight:700;margin-bottom:6px">🌟 北极星指标 <span style="font-size:0.65rem;color:#b09500;font-weight:400">(6 项相互制衡)</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:0.65rem;color:#b0a888;line-height:1.5">
+        <div style="padding:5px;background:rgba(74,158,255,0.04);border-radius:4px;text-align:center"><strong style="color:#7eb8ff">接近最佳率</strong> ≥80%</div>
+        <div style="padding:5px;background:rgba(129,199,132,0.04);border-radius:4px;text-align:center"><strong style="color:#81c784">高质量会话率</strong> ≥95%</div>
+        <div style="padding:5px;background:rgba(255,215,0,0.04);border-radius:4px;text-align:center"><strong style="color:#ffd700">新纪录突破率</strong> 不爆表</div>
+        <div style="padding:5px;background:rgba(186,104,200,0.04);border-radius:4px;text-align:center"><strong style="color:#ba68c8">近失质量</strong> 持续提升</div>
+        <div style="padding:5px;background:rgba(255,183,77,0.04);border-radius:4px;text-align:center"><strong style="color:#ffb74d">突破来源结构</strong> 健康分布</div>
+        <div style="padding:5px;background:rgba(229,115,115,0.04);border-radius:4px;text-align:center"><strong style="color:#e57373">冲分抑制率</strong> 与流失负相关</div>
       </div>
     </div>
-    <div class="card" style="border-color:rgba(255,183,77,0.25);background:rgba(255,183,77,0.05);padding:12px">
-      <div style="font-size:0.7rem;color:#ffb74d;font-weight:700">Yerkes-Dodson</div>
-      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">倒 U 形表现曲线</div>
-      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
-        • <strong style="color:#ffb74d">flowPayoffCap</strong>：压力适中时收益最大<br>
-        • <strong style="color:#ffb74d">shapeWeights</strong> 分级：不同唤醒水平给予不同块序<br>
-        • 复杂任务（后期）自动降低最优唤醒带
-      </div>
-    </div>
-    <div class="card" style="border-color:rgba(129,199,132,0.25);background:rgba(129,199,132,0.05);padding:12px">
-      <div style="font-size:0.7rem;color:#81c784;font-weight:700">SDT 自我决定</div>
-      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">自主·胜任·关联</div>
-      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
-        • <strong style="color:#81c784">难度可选</strong>：玩家主动选择挑战级别<br>
-        • <strong style="color:#81c784">建议非命令</strong>：提示不带强制，复活弹窗保留放弃权<br>
-        • <strong style="color:#81c784">画像可见</strong>：能力雷达图让玩家感知成长
-      </div>
-    </div>
-    <div class="card" style="border-color:rgba(229,115,115,0.25);background:rgba(229,115,115,0.05);padding:12px">
-      <div style="font-size:0.7rem;color:#e57373;font-weight:700">习得性无助</div>
-      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">挫败累积 → 主动干预</div>
-      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
-        • <strong style="color:#e57373">bottleneckRelief</strong>：检测挫败阈值，触发块序优化<br>
-        • <strong style="color:#e57373">Warm Run</strong>：连续失利后给予简单热身局<br>
-        • 操作变形度监控 → 提前干预而非事后补救
-      </div>
-    </div>
-    <div class="card" style="border-color:rgba(186,104,200,0.25);background:rgba(186,104,200,0.05);padding:12px">
-      <div style="font-size:0.7rem;color:#ba68c8;font-weight:700">峰终定律</div>
-      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">记忆 = 峰值 + 结尾</div>
-      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
-        • <strong style="color:#ba68c8">flowPayoff</strong>：峰值体验给予额外欣喜<br>
-        • <strong style="color:#ba68c8">endGame</strong> 总结：对局回顾强化情感记忆<br>
-        • PC 全消 + 连击高潮 = 峰值锚点
-      </div>
-    </div>
-    <div class="card" style="border-color:rgba(255,183,77,0.25);background:rgba(255,183,77,0.05);padding:12px">
-      <div style="font-size:0.7rem;color:#ffb74d;font-weight:700">近失理论</div>
-      <div class="desc" style="font-size:0.72rem;margin-top:4px;color:#a0b8d0">「差一点」激活「再试一次」</div>
-      <div style="font-size:0.65rem;color:#6a8aaa;margin-top:6px;line-height:1.6">
-        • <strong style="color:#ffb74d">nearMissAdjust</strong>：差一点就破的记录 → 提高多巴胺<br>
-        • <strong style="color:#ffb74d">revive</strong> 窗口：近失局提供免费复活机会<br>
-        • 「差一行就全消」= 最强的再试一次驱动力
+
+    <div class="card" style="padding:14px 16px;border-color:rgba(129,199,132,0.25);background:linear-gradient(180deg,rgba(129,199,132,0.06),rgba(129,199,132,0.02))">
+      <div style="font-size:0.95rem;color:#81c784;font-weight:700;margin-bottom:6px">🔁 数据闭环与设计选择</div>
+      <div style="padding:6px;background:rgba(129,199,132,0.04);border-radius:4px;font-size:0.7rem;color:#98b8a8;line-height:1.6;margin-bottom:6px;text-align:center">玩家行为 → 数据采集 → PB/生命周期信号 → 自适应出块 → 行为结果 → 复盘分析</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:0.62rem;color:#98a8b0;line-height:1.6">
+        <div style="padding:3px 6px;background:rgba(255,255,255,0.02);border-radius:4px"><strong style="color:#ffd700">① 主线唯一</strong> — 所有系统指向 PB</div>
+        <div style="padding:3px 6px;background:rgba(255,255,255,0.02);border-radius:4px"><strong style="color:#ffb74d">② 25 格映射</strong> — 取代单一曲线</div>
+        <div style="padding:3px 6px;background:rgba(255,255,255,0.02);border-radius:4px"><strong style="color:#81c784">③ 可关闭</strong> — 纯体验/完整版同源</div>
+        <div style="padding:3px 6px;background:rgba(255,255,255,0.02);border-radius:4px"><strong style="color:#e57373">④ 甜区制衡</strong> — 6 项互制非最大化</div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ═══════ 1.2.2 DESIGN PHILOSOPHIES → FEATURES ═══════ -->
-<section class="slide" id="design-philosophies">
-  <h3><span class="ch">1.2.2</span> 7 条设计理念 → 产品映射</h3>
-  <p style="margin-bottom:0.4em">从理论到实践的「工业应对模式」，每条对应具体产品功能</p>
-  <div class="card-row" style="grid-template-columns:repeat(7,1fr);gap:4px">
-    <div class="card" style="padding:8px;border-color:rgba(78,204,163,0.2);background:rgba(78,204,163,0.04);text-align:center">
-      <div style="font-size:0.6rem;color:#4ecca3;font-weight:700">易学难精</div>
-      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">90s 学规则<br>几十小时深度</div>
-      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        分层教程<br>
-        渐进块序复杂度<br>
-        竞技天梯
-      </div>
-    </div>
-    <div class="card" style="padding:8px;border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.04);text-align:center">
-      <div style="font-size:0.6rem;color:#ffb74d;font-weight:700">碎片会话</div>
-      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">2-5min 单局</div>
-      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        快匹配·即开即玩<br>
-        局内完整起承转合<br>
-        退出不惩罚
-      </div>
-    </div>
-    <div class="card" style="padding:8px;border-color:rgba(229,115,115,0.2);background:rgba(229,115,115,0.04);text-align:center">
-      <div style="font-size:0.6rem;color:#e57373;font-weight:700">即时反馈</div>
-      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">每个操作都有回响</div>
-      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        消除粒子特效<br>
-        combo 计数播报<br>
-        分数即时跳动
-      </div>
-    </div>
-    <div class="card" style="padding:8px;border-color:rgba(186,104,200,0.2);background:rgba(186,104,200,0.04);text-align:center">
-      <div style="font-size:0.6rem;color:#ba68c8;font-weight:700">公平随机</div>
-      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">无连续坏运气</div>
-      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        块序列去聚类<br>
-        坏块上限保证<br>
-        连续死局检测
-      </div>
-    </div>
-    <div class="card" style="padding:8px;border-color:rgba(74,158,255,0.2);background:rgba(74,158,255,0.04);text-align:center">
-      <div style="font-size:0.6rem;color:#7eb8ff;font-weight:700">DDA 隐蔽性</div>
-      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">不被察觉的调难</div>
-      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        难度渐变而非跳变<br>
-        调难参数分布到<br>
-        多个子系统
-      </div>
-    </div>
-    <div class="card" style="padding:8px;border-color:rgba(129,199,132,0.2);background:rgba(129,199,132,0.04);text-align:center">
-      <div style="font-size:0.6rem;color:#81c784;font-weight:700">多层进度</div>
-      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">局·日·周·月重叠</div>
-      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        单局积分·日任务<br>
-        周排行榜·月赛季<br>
-        段位晋升
-      </div>
-    </div>
-    <div class="card" style="padding:8px;border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.04);text-align:center">
-      <div style="font-size:0.6rem;color:#ffb74d;font-weight:700">友好商业化</div>
-      <div style="font-size:0.55rem;color:#a0b8d0;margin-top:3px">高意图时刻才推</div>
-      <div style="font-size:0.5rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        对局中不弹广告<br>
-        复活/加成等增值<br>
-        在挫败后推而非正爽时
-      </div>
-    </div>
-  </div>
-  <div style="margin-top:0.5em;padding:8px 14px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:8px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
-    <span style="font-size:0.6rem;color:#6a8aaa">心理学根基：</span>
-    <span style="font-size:0.55rem;color:#4ecca3">心流</span><span style="color:#4a6088">·</span>
-    <span style="font-size:0.55rem;color:#ffb74d">Yerkes-Dodson</span><span style="color:#4a6088">·</span>
-    <span style="font-size:0.55rem;color:#81c784">SDT</span><span style="color:#4a6088">·</span>
-    <span style="font-size:0.55rem;color:#e57373">习得性无助</span><span style="color:#4a6088">·</span>
-    <span style="font-size:0.55rem;color:#ba68c8">峰终</span><span style="color:#4a6088">·</span>
-    <span style="font-size:0.55rem;color:#ffb74d">近失</span>
+<!-- ═══════ 02 算法实现 ═══════ -->
+<section class="slide" id="algorithm-architecture">
+  <h3><span class="ch">02</span> 算法实现</h3>
+  <div class="img-frame" style="padding:8px;background:rgba(0,0,0,0.3);max-width:98%;margin:0 auto;cursor:zoom-in;flex:1;display:flex;align-items:center">
+    <img src="/docs/asset/algorithms/assets/algorithm-architecture.png" alt="OpenBlock 算法架构：三条核心策略管线 + 自适应出块引擎" style="width:100%;height:auto;display:block;margin:0 auto" class="zoomable-img">
   </div>
 </section>
 
-<!-- ═══════ 1.2.3 DESIGN CLUES → FEATURES ═══════ -->
-<section class="slide v-center" id="design-clues">
-  <h3><span class="ch">1.2.3</span> 2 条设计线索 → 产品映射</h3>
-  <p style="margin-bottom:0.6em">六条理论与七条理念汇聚成两股设计合力，分别驱动压力的精确管控和情绪的完美弧线</p>
-  <div class="card-row c2" style="gap:12px">
-    <div class="card" style="border-color:rgba(74,158,255,0.2);background:rgba(74,158,255,0.06);padding:14px">
-      <div style="font-size:0.9rem;color:#7eb8ff;font-weight:700;margin-bottom:6px">线索 A：压力·心流通道</div>
-      <div style="font-size:0.7rem;color:#a0b8d0;line-height:1.6">
-        <strong>来源</strong>：心流 + Yerkes-Dodson + 习得性无助 + SDT<br>
-        <strong>作用</strong>：共同决定压力升降与释放时机<br>
-        <strong>产品系统</strong>：
-      </div>
-      <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
-        <div style="background:rgba(74,158,255,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#7eb8ff"><strong>自适应生成</strong> — 根据 skillLevel × stress 动态调整块速度和序列复杂度</div>
-        <div style="background:rgba(74,158,255,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#7eb8ff"><strong>压力表</strong> — 实时计算盘面压力，作为干预和释放的触发信号</div>
-        <div style="background:rgba(74,158,255,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#7eb8ff"><strong>释放机制</strong> — 压力超标时通过块序优化、消除机会生成来提供 relief</div>
-      </div>
-    </div>
-    <div class="card" style="border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.06);padding:14px">
-      <div style="font-size:0.9rem;color:#ffb74d;font-weight:700;margin-bottom:6px">线索 B：情绪·记忆弧线</div>
-      <div style="font-size:0.7rem;color:#a0b8d0;line-height:1.6">
-        <strong>来源</strong>：峰终 + 近失 + 心流愉悦<br>
-        <strong>作用</strong>：共同决定单局情感记忆<br>
-        <strong>产品系统</strong>：
-      </div>
-      <div style="margin-top:6px;display:flex;flex-direction:column;gap:4px">
-        <div style="background:rgba(255,183,77,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#ffb74d"><strong>欣喜系统</strong> — 峰值体验（PC 全消、连击高潮）触发额外奖励与特效</div>
-        <div style="background:rgba(255,183,77,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#ffb74d"><strong>近失管理</strong> — 差一点成功时放大情绪并给予复活机会</div>
-        <div style="background:rgba(255,183,77,0.08);border-radius:6px;padding:4px 8px;font-size:0.65rem;color:#ffb74d"><strong>对局总结 + 分数推送守卫</strong> — 结尾回顾形成记忆锚点，防止分数错位</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ═══════ 1.2.4 EXPERIENCE STRUCTURE → FEATURES ═══════ -->
-<section class="slide" id="design-axes">
-  <h3><span class="ch">1.2.4</span> 5 轴体验结构 → 产品映射</h3>
-  <p style="margin-bottom:0.3em">五条正交关注轴，每条在实际对局中被持续监控并驱动对应子系统</p>
-  <div class="card-row c4" style="margin-top:0.3em">
-    <div class="card accent-b" style="text-align:center;padding:12px">
-      <div style="font-size:1.3rem;font-weight:700;color:#7eb8ff">C-1</div>
-      <div class="tit" style="font-size:0.85rem;margin-top:2px">挑战·能力</div>
-      <div class="desc" style="font-size:0.7rem">心流带·压力曲线适配</div>
-      <div style="font-size:0.6rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        心流 · Yerkes-Dodson<br>
-        <strong style="color:#7eb8ff">adaptiveSpawn</strong>
-      </div>
-    </div>
-    <div class="card accent-o" style="text-align:center;padding:12px">
-      <div style="font-size:1.3rem;font-weight:700;color:#ffb74d">C-2</div>
-      <div class="tit" style="font-size:0.85rem;margin-top:2px">节奏·兑现</div>
-      <div class="desc" style="font-size:0.7rem">消行保证·布局/兑现交替</div>
-      <div style="font-size:0.6rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        心流 · 变比奖励<br>
-        <strong style="color:#ffb74d">clearGuarantee</strong>
-      </div>
-    </div>
-    <div class="card accent-g" style="text-align:center;padding:12px">
-      <div style="font-size:1.3rem;font-weight:700;color:#81c784">C-3</div>
-      <div class="tit" style="font-size:0.85rem;margin-top:2px">掌控·自主</div>
-      <div class="desc" style="font-size:0.7rem">玩家自主感·提示按需隐蔽</div>
-      <div style="font-size:0.6rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        自我决定 · 隐蔽调难<br>
-        <strong style="color:#81c784">tip 多样性</strong>
-      </div>
-    </div>
-    <div class="card accent-p" style="text-align:center;padding:12px">
-      <div style="font-size:1.3rem;font-weight:700;color:#ba68c8">C-4</div>
-      <div class="tit" style="font-size:0.85rem;margin-top:2px">情感·回响</div>
-      <div class="desc" style="font-size:0.7rem">叙事与盘面一致·体感不错位</div>
-      <div style="font-size:0.6rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        峰终 · 近失 · 习得无助<br>
-        <strong style="color:#ba68c8">score-push 守卫</strong>
-      </div>
-    </div>
-  </div>
-  <div class="card-row c4" style="margin-top:-0.2em">
-    <div class="card accent-r" style="text-align:center;padding:12px;grid-column:2/3">
-      <div style="font-size:1.3rem;font-weight:700;color:#e57373">C-5</div>
-      <div class="tit" style="font-size:0.85rem;margin-top:2px">成长·沉没</div>
-      <div class="desc" style="font-size:0.7rem">热身→高峰→冷却·自然弧线</div>
-      <div style="font-size:0.6rem;color:#4a6088;margin-top:4px;line-height:1.5">
-        成瘾模型 · 多层进度<br>
-        <strong style="color:#e57373">sessionArc</strong>
-      </div>
-    </div>
-  </div>
-
-  <div style="display:flex;gap:4px;margin-top:0.3em;justify-content:center;flex-wrap:wrap">
-    <span style="background:rgba(74,158,255,0.08);color:#5a78aa;padding:2px 8px;border-radius:10px;font-size:0.6rem">C-1 压顶 → 立即释放</span>
-    <span style="background:rgba(255,183,77,0.08);color:#5a78aa;padding:2px 8px;border-radius:10px;font-size:0.6rem">C-2 过频 → 消除保证回钳</span>
-    <span style="background:rgba(129,199,132,0.08);color:#5a78aa;padding:2px 8px;border-radius:10px;font-size:0.6rem">C-3 过强 → 提示类别多样性</span>
-    <span style="background:rgba(186,104,200,0.08);color:#5a78aa;padding:2px 8px;border-radius:10px;font-size:0.6rem">C-4 错位 → 分数推送守卫</span>
-    <span style="background:rgba(229,115,115,0.08);color:#5a78aa;padding:2px 8px;border-radius:10px;font-size:0.6rem">C-5 过快 → 对局弧冷却</span>
-  </div>
-
-  <div class="img-frame" style="padding:6px 10px;margin-top:0.3em;background:rgba(0,0,0,0.3)">
-    <svg viewBox="0 0 860 74" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block">
-      <text x="10" y="18" fill="rgba(255,255,255,0.65)" font-size="11" font-weight="700">开局 0-30秒</text>
-      <text x="10" y="33" fill="#7eb8ff" font-size="8">C-1 入门上限</text>
-      <text x="10" y="44" fill="#ffb74d" font-size="8">C-2 必有消行</text>
-      <text x="10" y="55" fill="#81c784" font-size="8">C-3 引导隐蔽</text>
-      <text x="10" y="66" fill="#ba68c8" font-size="8">C-4 友好叙事</text>
-      <line x1="120" y1="10" x2="120" y2="74" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
-      <text x="160" y="18" fill="rgba(255,255,255,0.65)" font-size="11" font-weight="700">中段 30-180秒</text>
-      <text x="160" y="33" fill="#7eb8ff" font-size="8">C-1 心流带 [0.20-0.45)</text>
-      <text x="160" y="44" fill="#ffb74d" font-size="8">C-2 布局/兑现交替</text>
-      <text x="160" y="55" fill="#81c784" font-size="8">C-3 提示按需</text>
-      <text x="160" y="66" fill="#ba68c8" font-size="8">C-4 紧张/兑现守卫</text>
-      <line x1="370" y1="10" x2="370" y2="74" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
-      <text x="410" y="18" fill="rgba(255,255,255,0.65)" font-size="11" font-weight="700">结尾 180秒-收尾</text>
-      <text x="410" y="33" fill="#7eb8ff" font-size="8">C-1 紧张度峰值</text>
-      <text x="410" y="44" fill="#ffb74d" font-size="8">C-2 最终连击/全消</text>
-      <text x="410" y="55" fill="#81c784" font-size="8">C-3 复活弹窗保留放弃</text>
-      <text x="410" y="66" fill="#ba68c8" font-size="8">C-4 对局总结+近失叙事</text>
-      <line x1="590" y1="10" x2="590" y2="74" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
-      <text x="630" y="30" fill="rgba(255,255,255,0.50)" font-size="10" font-weight="700">C-5 全程</text>
-      <text x="630" y="46" fill="#e57373" font-size="8">热身 → 高峰 → 冷却</text>
-      <text x="630" y="60" fill="#e57373" font-size="8">热身·张弛·冷却自然弧线</text>
-    </svg>
-  </div>
-</section>
-
-<div class="section-bridge" style="margin:1em 6vw;background:rgba(255,183,77,0.04);border-color:rgba(255,183,77,0.08)">
-  <p>6 条理论 → 7 条理念 → 2 条线索 → 5 轴结构 → 4 条核心策略</p>
-  <div class="sub">五轴框架指明"关注什么"，接下来四条策略回答"具体怎么做"</div>
-</div>
-
-<!-- ═══════ 1.2.5 PLAYER PROFILE ═══════ -->
-<section class="slide" id="strategy-pp">
-  <h3><span class="ch">1.2.5</span> 核心策略一：玩家画像——实时感知玩家状态</h3>
+<!-- ═══════ 2.1 PLAYER PROFILE ═══════ -->
+<section class="slide" id="algo-playerprofile">
+  <h3><span class="ch">2.1</span> 出块算法</h3>
 
   <div class="card-row c3" style="grid-template-columns:1fr 1fr 1fr;gap:6px">
     <div class="card" style="border-color:rgba(74,158,255,0.2);background:rgba(74,158,255,0.03);padding:12px">
@@ -1307,30 +1194,24 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
   <div class="img-frame" style="padding:20px 24px;margin-top:0.5em;background:rgba(0,0,0,0.35)">
     <svg viewBox="0 0 900 145" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs><marker id="arrW" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.25)"/></marker></defs>
       <text x="450" y="22" fill="rgba(255,255,255,0.50)" font-size="13" text-anchor="middle" font-weight="700" letter-spacing="0.12em">感知 → 策略 数据流</text>
 
-      <!-- Perception layer -->
       <rect x="30" y="38" width="200" height="56" rx="10" fill="rgba(74,158,255,0.12)" stroke="#4a9eff" stroke-width="1.5"/>
       <text x="130" y="60" fill="#7eb8ff" font-size="14" text-anchor="middle" font-weight="700">感知层</text>
       <text x="130" y="80" fill="#4a9eff" font-size="11" text-anchor="middle">盘面 · 能力 · 状态</text>
-
       <line x1="230" y1="66" x2="265" y2="66" stroke="#4a9eff" stroke-width="2" marker-end="url(#arrW)"/>
 
-      <!-- Understanding layer -->
       <rect x="270" y="38" width="200" height="56" rx="10" fill="rgba(255,183,77,0.12)" stroke="#ffb74d" stroke-width="1.5"/>
       <text x="370" y="60" fill="#ffb74d" font-size="14" text-anchor="middle" font-weight="700">理解层</text>
       <text x="370" y="80" fill="#ffb74d" font-size="11" text-anchor="middle">能力状态 · 压力 · 挫败</text>
-
       <line x1="470" y1="66" x2="505" y2="66" stroke="#ffb74d" stroke-width="2" marker-end="url(#arrW)"/>
 
-      <!-- Strategy layer -->
       <rect x="510" y="38" width="200" height="56" rx="10" fill="rgba(129,199,132,0.12)" stroke="#81c784" stroke-width="1.5"/>
       <text x="610" y="60" fill="#81c784" font-size="14" text-anchor="middle" font-weight="700">策略层</text>
       <text x="610" y="80" fill="#81c784" font-size="11" text-anchor="middle">S 曲线 · 相对论 · PB 曲线</text>
-
       <line x1="710" y1="66" x2="745" y2="66" stroke="#81c784" stroke-width="2" marker-end="url(#arrW)"/>
 
-      <!-- Action layer -->
       <rect x="750" y="38" width="130" height="56" rx="10" fill="rgba(186,104,200,0.12)" stroke="#ba68c8" stroke-width="1.5"/>
       <text x="815" y="60" fill="#ba68c8" font-size="14" text-anchor="middle" font-weight="700">执行层</text>
       <text x="815" y="80" fill="#ba68c8" font-size="11" text-anchor="middle">出块 · 特效 · 提示</text>
@@ -1338,6 +1219,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
       <text x="450" y="125" fill="rgba(255,255,255,0.55)" font-size="10" text-anchor="middle">策略不直接从原始数据出发——它们消费的是"理解后的玩家状态"，而不是裸盘面</text>
     </svg>
   </div>
+
   <div class="theory-line">
     <span class="label">理论溯源</span>
     <div class="row"><span class="s">心流理论</span>：挑战≈能力 → 必须先感知能力状态，才知道难度该向上还是向下调</div>
@@ -1346,1085 +1228,75 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   </div>
 </section>
 
-<!-- ═══════ 1.2.6 S-CURVE ═══════ -->
-<section class="slide" id="strategy-scurve">
-  <h3><span class="ch">1.2.6</span> 核心策略二：S 形压力曲线——难度演进的底层哲学</h3>
+<!-- ═══════ 2.1 PLAYER PROFILE (COPY) ═══════ -->
+<section class="slide" id="algo-playerprofile-copy">
+  <h3><span class="ch">2.1</span> 出块算法</h3>
 
-  <div style="margin-bottom:0.5em;padding:10px 16px;background:rgba(255,255,255,0.02);border-left:3px solid rgba(255,183,77,0.3);border-radius:0 8px 8px 0">
-    <p style="margin:0;color:#b0c8e0;font-size:0.9rem;line-height:1.6">轻松破 PB → 分数只涨不跌 → 成就感快速透支，用户生命被压缩。S 曲线的核心命题是<strong style="color:#ffb74d">让玩家接近 PB 但难以超越，偶有惊喜</strong>：远未达到时平缓低压保成长空间，逼近 PB 时急速上扬制造<strong style="color:#e57373">近失带</strong>——"差一点就破"的张力反复激活<strong style="color:#ffb74d">再来一局</strong>的冲动，超越后对数收敛防止膨胀 — <strong style="color:#7eb8ff">分数可以涨，但难度永远追着分数跑</strong>。</p>
+  <div class="card-row c3" style="grid-template-columns:1fr 1fr 1fr;gap:6px">
+    <div class="card" style="border-color:rgba(74,158,255,0.2);background:rgba(74,158,255,0.03);padding:12px">
+      <div class="head"><div class="icon" style="font-size:1.2rem;margin-right:6px">🧩</div><div class="tit" style="font-size:0.95rem">盘面拓扑</div></div>
+      <div class="desc" style="margin-top:6px;font-size:0.85rem">
+        盘面高度 · 空洞数量 · 可消除行<br>
+        块分布密度 · 死局接近度<br>
+        <span style="color:#4a6088;font-size:0.75rem">→ 客观难度测量，也是所有感知的基础</span>
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(255,183,77,0.2);background:rgba(255,183,77,0.03);padding:12px">
+      <div class="head"><div class="icon" style="font-size:1.2rem;margin-right:6px">⚙️</div><div class="tit" style="font-size:0.95rem">玩家能力</div></div>
+      <div class="desc" style="margin-top:6px;font-size:0.85rem">
+        θ⃗ 六维向量（空间规划/连击维持/<br>顺序规划/恢复/节奏/消行效率）<br>
+        <span style="color:#4a6088;font-size:0.75rem">→ 每局卡尔曼滤波+贝叶斯更新，<br>区分"盘面难"和"玩家弱"</span>
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(129,199,132,0.2);background:rgba(129,199,132,0.03);padding:12px">
+      <div class="head"><div class="icon" style="font-size:1.2rem;margin-right:6px">📊</div><div class="tit" style="font-size:0.95rem">实时状态</div></div>
+      <div class="desc" style="margin-top:6px;font-size:0.85rem">
+        压力累积 · 操作变形度 · 挫败指数<br>
+        疲劳度 · RoR 弧线相位<br>
+        <span style="color:#4a6088;font-size:0.75rem">→ 14 个 adjust 信号实时合成，<br>驱动救济/制动/冷却</span>
+      </div>
+    </div>
   </div>
 
-  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
-    <svg viewBox="0 0 840 480" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
-      <defs>
-        <linearGradient id="grad1" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#4a9eff"/><stop offset="100%" stop-color="#4a9eff" stop-opacity="0.6"/></linearGradient>
-        <linearGradient id="grad2" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#81c784"/><stop offset="100%" stop-color="#81c784" stop-opacity="0.6"/></linearGradient>
-        <linearGradient id="grad3" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ffb74d"/><stop offset="100%" stop-color="#e57373" stop-opacity="0.6"/></linearGradient>
-        <linearGradient id="grad4" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ba68c8"/><stop offset="100%" stop-color="#ba68c8" stop-opacity="0.6"/></linearGradient>
-        <filter id="glow1"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      </defs>
+  <div class="img-frame" style="padding:20px 24px;margin-top:0.5em;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 900 145" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs><marker id="arrW" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.25)"/></marker></defs>
+      <text x="450" y="22" fill="rgba(255,255,255,0.50)" font-size="13" text-anchor="middle" font-weight="700" letter-spacing="0.12em">感知 → 策略 数据流</text>
 
-      <text x="420" y="35" fill="rgba(255,255,255,0.50)" font-size="15" text-anchor="middle" font-weight="600" letter-spacing="0.02em">S 形压力曲线：连续曲线，从低压巡航到超越饱和</text>
+      <rect x="30" y="38" width="200" height="56" rx="10" fill="rgba(74,158,255,0.12)" stroke="#4a9eff" stroke-width="1.5"/>
+      <text x="130" y="60" fill="#7eb8ff" font-size="14" text-anchor="middle" font-weight="700">感知层</text>
+      <text x="130" y="80" fill="#4a9eff" font-size="11" text-anchor="middle">盘面 · 能力 · 状态</text>
+      <line x1="230" y1="66" x2="265" y2="66" stroke="#4a9eff" stroke-width="2" marker-end="url(#arrW)"/>
 
-      <!-- Grid -->
-      <line x1="90" y1="50" x2="90" y2="400" stroke="rgba(255,255,255,0.52)" stroke-width="1.5"/>
-      <line x1="90" y1="400" x2="780" y2="400" stroke="rgba(255,255,255,0.52)" stroke-width="1.5"/>
-      <line x1="90" y1="350" x2="780" y2="350" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
-      <line x1="90" y1="300" x2="780" y2="300" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
-      <line x1="90" y1="250" x2="780" y2="250" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
-      <line x1="90" y1="200" x2="780" y2="200" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
-      <line x1="90" y1="150" x2="780" y2="150" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
-      <line x1="90" y1="100" x2="780" y2="100" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
-      <line x1="90" y1="60" x2="780" y2="60" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="4,4"/>
+      <rect x="270" y="38" width="200" height="56" rx="10" fill="rgba(255,183,77,0.12)" stroke="#ffb74d" stroke-width="1.5"/>
+      <text x="370" y="60" fill="#ffb74d" font-size="14" text-anchor="middle" font-weight="700">理解层</text>
+      <text x="370" y="80" fill="#ffb74d" font-size="11" text-anchor="middle">能力状态 · 压力 · 挫败</text>
+      <line x1="470" y1="66" x2="505" y2="66" stroke="#ffb74d" stroke-width="2" marker-end="url(#arrW)"/>
 
-      <!-- Vertical grid at key r values -->
-      <line x1="315" y1="50" x2="315" y2="400" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="3,4"/>
-      <line x1="407" y1="50" x2="407" y2="400" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="3,4"/>
-      <line x1="592" y1="50" x2="592" y2="400" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="3,4"/>
+      <rect x="510" y="38" width="200" height="56" rx="10" fill="rgba(129,199,132,0.12)" stroke="#81c784" stroke-width="1.5"/>
+      <text x="610" y="60" fill="#81c784" font-size="14" text-anchor="middle" font-weight="700">策略层</text>
+      <text x="610" y="80" fill="#81c784" font-size="11" text-anchor="middle">S 曲线 · 相对论 · PB 曲线</text>
+      <line x1="710" y1="66" x2="745" y2="66" stroke="#81c784" stroke-width="2" marker-end="url(#arrW)"/>
 
-      <!-- Axis labels -->
-      <text x="420" y="445" fill="rgba(255,255,255,0.42)" font-size="14" text-anchor="middle" font-family="'Inter','Segoe UI','Helvetica Neue',sans-serif">进度比 r (score / PB) →</text>
-      <text x="40" y="220" fill="rgba(255,255,255,0.42)" font-size="14" text-anchor="middle" transform="rotate(-90,40,220)" font-family="'Inter','Segoe UI','Helvetica Neue',sans-serif">目标难度 D →</text>
+      <rect x="750" y="38" width="130" height="56" rx="10" fill="rgba(186,104,200,0.12)" stroke="#ba68c8" stroke-width="1.5"/>
+      <text x="815" y="60" fill="#ba68c8" font-size="14" text-anchor="middle" font-weight="700">执行层</text>
+      <text x="815" y="80" fill="#ba68c8" font-size="11" text-anchor="middle">出块 · 特效 · 提示</text>
 
-      <!-- X-axis tick labels -->
-      <text x="90" y="420" fill="rgba(255,255,255,0.52)" font-size="12" text-anchor="middle">0</text>
-      <text x="315" y="420" fill="rgba(255,255,255,0.52)" font-size="12" text-anchor="middle">0.45</text>
-      <text x="407" y="420" fill="rgba(255,255,255,0.52)" font-size="12" text-anchor="middle">0.65</text>
-      <text x="540" y="420" fill="#ffb74d" font-size="13" text-anchor="middle" font-weight="700">1.0 (PB)</text>
-      <text x="592" y="420" fill="rgba(255,255,255,0.52)" font-size="12" text-anchor="middle">1.15</text>
-      <text x="740" y="420" fill="rgba(255,255,255,0.42)" font-size="12" text-anchor="middle">1.5</text>
-
-      <!-- Y-axis tick labels -->
-      <text x="80" y="404" fill="rgba(255,255,255,0.52)" font-size="12" text-anchor="end">0.0</text>
-      <text x="80" y="354" fill="rgba(255,255,255,0.42)" font-size="11" text-anchor="end">0.1</text>
-      <text x="80" y="254" fill="rgba(255,255,255,0.42)" font-size="11" text-anchor="end">0.5</text>
-      <text x="80" y="104" fill="rgba(255,255,255,0.42)" font-size="11" text-anchor="end">1.0</text>
-
-      <!-- ===== CURVE: Segments with different colors ===== -->
-      <!-- Segment 1: 远征段 r 0→0.45, D 0.10→0.11 (nearly flat) -->
-      <polyline points="90,364 315,361" fill="none" stroke="#4a9eff" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
-
-      <!-- Segment 2: 上升段 r 0.45→0.65, D 0.11→0.18 -->
-      <polyline points="315,361 407,338" fill="none" stroke="#81c784" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
-
-      <!-- Segment 3: 决战段 r 0.65→1.15, sigmoid -->
-      <polyline points="407,338 425,332 444,324 462,312 480,295 498,265 516,228 534,185 552,145 570,112 588,90 610,78" fill="none" stroke="#ffb74d" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
-
-      <!-- Segment 4: 超越段 r 1.15→, log convergence -->
-      <polyline points="610,78 635,74 660,71 690,69 720,68 750,68" fill="none" stroke="#ba68c8" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
-
-      <!-- Segment boundary markers (vertical dashed lines at r=0.45, 0.65, 1.15) -->
-      <line x1="315" y1="361" x2="315" y2="400" stroke="#4a9eff" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.5"/>
-      <line x1="407" y1="338" x2="407" y2="400" stroke="#81c784" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.5"/>
-      <line x1="610" y1="78" x2="610" y2="400" stroke="#ba68c8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.5"/>
-
-      <!-- D value labels at key points -->
-      <text x="75" y="368" fill="#4a9eff" font-size="12" text-anchor="end" font-weight="600">D=0.10</text>
-      <text x="310" y="356" fill="#4a9eff" font-size="12" text-anchor="end" font-weight="600">D=0.11</text>
-      <text x="402" y="333" fill="#81c784" font-size="12" text-anchor="end" font-weight="600">D=0.18</text>
-      <text x="550" y="132" fill="#ffb74d" font-size="13" text-anchor="start" font-weight="700">D≈0.90</text>
-      <text x="615" y="64" fill="#ba68c8" font-size="12" text-anchor="start" font-weight="600">D≈0.98</text>
-
-      <!-- Segment labels on/beside the curve -->
-      <rect x="180" y="375" width="50" height="20" rx="4" fill="rgba(74,158,255,0.15)"/>
-      <text x="205" y="389" fill="#4a9eff" font-size="12" text-anchor="middle" font-weight="700">远征段</text>
-
-      <rect x="340" y="332" width="50" height="20" rx="4" fill="rgba(129,199,132,0.15)"/>
-      <text x="365" y="346" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">上升段</text>
-
-      <rect x="500" y="243" width="50" height="20" rx="4" fill="rgba(255,183,77,0.15)"/>
-      <text x="525" y="257" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">决战段</text>
-
-      <rect x="635" y="82" width="50" height="20" rx="4" fill="rgba(186,104,200,0.15)"/>
-      <text x="660" y="96" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="700">超越段</text>
-
-      <!-- Decorative: r=1.0 vertical highlight -->
-      <line x1="540" y1="92" x2="540" y2="400" stroke="rgba(255,183,77,0.40)" stroke-width="1.5" stroke-dasharray="6,4"/>
-      <circle cx="540" cy="92" r="5" fill="#ffb74d" opacity="0.8"/>
-
-      <!-- PB milestone marker -->
-      <text x="540" y="410" fill="rgba(255,183,77,0.55)" font-size="10" text-anchor="middle">▲ PB 里程碑</text>
-    </svg>
-  </div>
-</section>
-
-<!-- ═══════ 1.2.7 SCORE STRESS ═══════ -->
-<section class="slide" id="strategy-scorestress">
-  <h3><span class="ch">1.2.7</span> 核心策略三：S 曲线在产品中的体现——scoreStress</h3>
-
-  <div class="img-frame" style="padding:0 20px 10px 20px;background:rgba(0,0,0,0.35)">
-    <svg viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
-      <defs>
-        <marker id="arrWD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.18)"/></marker>
-        <filter id="glowS2"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      </defs>
-      <!-- ══════ ROW 1: 分数→压力 ══════ -->
-      <rect x="14" y="24" width="872" height="156" rx="10" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.10)" stroke-width="1"/>
-      <rect x="14" y="24" width="872" height="30" rx="10" fill="rgba(74,158,255,0.04)"/>
-      <text x="450" y="43" fill="#7eb8ff" font-size="14" text-anchor="middle" font-weight="700">① 分数 → 压力映射</text>
-
-      <!-- S-curve: r → stress -->
-      <text x="18" y="101" fill="rgba(255,255,255,0.45)" font-size="11" text-anchor="middle" transform="rotate(-90,18,101)">stress →</text>
-      <text x="260" y="172" fill="rgba(255,255,255,0.35)" font-size="11" text-anchor="end">r →</text>
-
-      <!-- Axes -->
-      <line x1="35" y1="154" x2="260" y2="154" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      <line x1="35" y1="46" x2="35" y2="154" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-
-      <!-- Y-axis ticks (evenly spaced) -->
-      <line x1="30" y1="154" x2="35" y2="154" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      <line x1="30" y1="127" x2="35" y2="127" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      <line x1="30" y1="100" x2="35" y2="100" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      <line x1="30" y1="73" x2="35" y2="73" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      <line x1="30" y1="46" x2="35" y2="46" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      <text x="24" y="158" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="end">0.00</text>
-      <text x="24" y="131" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="end">0.20</text>
-      <text x="24" y="104" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="end">0.40</text>
-      <text x="24" y="77" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="end">0.60</text>
-      <text x="24" y="50" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="end">0.78</text>
-
-      <!-- Grid -->
-      <line x1="35" y1="127" x2="260" y2="127" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="3,3"/>
-      <line x1="35" y1="100" x2="260" y2="100" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="3,3"/>
-      <line x1="35" y1="73" x2="260" y2="73" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="3,3"/>
-      <line x1="35" y1="46" x2="260" y2="46" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="3,3"/>
-
-      <line x1="85" y1="46" x2="85" y2="154" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="2,3"/>
-      <line x1="130" y1="46" x2="130" y2="154" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="2,3"/>
-      <line x1="180" y1="46" x2="180" y2="154" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="2,3"/>
-      <line x1="230" y1="46" x2="230" y2="154" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="2,3"/>
-
-      <!-- Sigmoid curve (single color) -->
-      <polyline points="35,153 45,152 60,151 75,149 89,146 104,139 119,129 134,114 148,95 163,76 178,64 193,56 208,51 223,48 230,46 245,44 260,43" fill="none" stroke="#ffb74d" stroke-width="3" stroke-linecap="round" filter="url(#glowS2)"/>
-
-      <!-- X-axis ticks -->
-      <line x1="45" y1="154" x2="45" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      <line x1="85" y1="154" x2="85" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      <line x1="130" y1="154" x2="130" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      <line x1="180" y1="154" x2="180" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      <line x1="230" y1="154" x2="230" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-      <line x1="260" y1="154" x2="260" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
-
-      <text x="45" y="170" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">0</text>
-      <text x="85" y="170" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">0.25</text>
-      <text x="130" y="170" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">0.50</text>
-      <text x="180" y="170" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">0.75</text>
-      <text x="230" y="170" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">1.0</text>
-      <text x="260" y="170" fill="rgba(255,255,255,0.30)" font-size="9" text-anchor="middle">1.5</text>
-
-      <!-- Right side: PB calibrate + Decay -->
-      <rect x="310" y="56" width="270" height="50" rx="7" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="320" y="74" fill="#ffb74d" font-size="12" font-weight="600">PB 校准</text>
-      <text x="320" y="94" fill="rgba(255,255,255,0.50)" font-size="11">新手保底 floor=240 · 高手对数压缩 softCap=1200</text>
-
-      <rect x="310" y="116" width="270" height="50" rx="7" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
-      <text x="320" y="134" fill="#81c784" font-size="12" font-weight="600">前半程衰减</text>
-      <text x="320" y="154" fill="rgba(255,255,255,0.50)" font-size="11">远未达 PB 时压力 × 0.4，保新手成长空间</text>
-
-      <!-- Code ref box (rightmost) -->
-      <rect x="610" y="61" width="260" height="105" rx="7" fill="rgba(186,104,200,0.02)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
-      <text x="620" y="81" fill="#ba68c8" font-size="12" font-weight="600">milestones 插值表</text>
-      <text x="620" y="102" fill="rgba(255,255,255,0.40)" font-size="11">r (projected): 0 → 0.25 → 0.50 → 0.75 → 1.0</text>
-      <text x="620" y="119" fill="rgba(255,255,255,0.40)" font-size="11">stress: 0 → 0.18 → 0.38 → 0.58 → 0.78</text>
-      <text x="620" y="140" fill="rgba(255,255,255,0.40)" font-size="10">无 PB: score 直查 · 有 PB: score→effectivePB→r</text>
-      <text x="620" y="158" fill="rgba(255,255,255,0.40)" font-size="10">r &lt; 0.5 时 stress × 0.4 (衰减生效)</text>
-
-      <!-- Arrow R1 → R2 -->
-      <polyline points="450,180 450,194" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2" marker-end="url(#arrWD)"/>
-
-      <!-- ══════ ROW 2: 实时调制 ══════ -->
-      <rect x="14" y="192" width="872" height="156" rx="10" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.10)" stroke-width="1"/>
-      <rect x="14" y="192" width="872" height="30" rx="10" fill="rgba(255,183,77,0.04)"/>
-      <text x="450" y="211" fill="#ffb74d" font-size="14" text-anchor="middle" font-weight="700">② 实时感知调制</text>
-
-      <!-- Stress meter bar -->
-      <rect x="30" y="232" width="280" height="20" rx="10" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <rect x="30" y="232" width="140" height="20" rx="10" fill="#ffb74d" opacity="0.25"/>
-      <text x="170" y="247" fill="rgba(255,255,255,0.30)" font-size="11" text-anchor="middle">基准压力 (scoreStress)</text>
-
-      <!-- Upward modifiers -->
-      <rect x="30" y="260" width="130" height="28" rx="5" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.10)" stroke-width="1"/>
-      <text x="95" y="279" fill="#e57373" font-size="11" text-anchor="middle">↑ 逼近 PB +0.18</text>
-
-      <rect x="170" y="260" width="130" height="28" rx="5" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.10)" stroke-width="1"/>
-      <text x="235" y="279" fill="#e57373" font-size="11" text-anchor="middle">↑ 超越 PB +0.12</text>
-
-      <!-- Downward modifiers -->
-      <rect x="30" y="296" width="130" height="28" rx="5" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
-      <text x="95" y="315" fill="#81c784" font-size="11" text-anchor="middle">↓ 挫败救济 −0.18</text>
-
-      <rect x="170" y="296" width="130" height="28" rx="5" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
-      <text x="235" y="315" fill="#81c784" font-size="11" text-anchor="middle">↓ 恢复 −0.20</text>
-
-      <!-- Right side: cascade pipeline + more modifiers -->
-      <rect x="320" y="230" width="260" height="50" rx="7" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
-      <text x="330" y="248" fill="rgba(255,255,255,0.40)" font-size="12" font-weight="600">更多调制信号</text>
-      <text x="330" y="268" fill="rgba(255,255,255,0.35)" font-size="11">近失 −0.10 · 技能 ±0.15 · 心流</text>
-      <text x="330" y="282" fill="rgba(255,255,255,0.25)" font-size="10">局间弧线 · 节奏 · 盘面风险 · 连击 · 疲劳…</text>
-
-      <rect x="320" y="288" width="260" height="46" rx="7" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
-      <text x="330" y="306" fill="rgba(255,255,255,0.40)" font-size="12" font-weight="600">串级调制管线</text>
-      <rect x="330" y="316" width="54" height="18" rx="4" fill="rgba(74,158,255,0.05)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
-      <text x="357" y="329" fill="rgba(74,158,255,0.50)" font-size="10" text-anchor="middle">上限</text>
-      <text x="390" y="329" fill="rgba(255,255,255,0.10)" font-size="10">→</text>
-      <rect x="400" y="316" width="54" height="18" rx="4" fill="rgba(255,183,77,0.05)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="427" y="329" fill="rgba(255,183,77,0.50)" font-size="10" text-anchor="middle">增压</text>
-      <text x="460" y="329" fill="rgba(255,255,255,0.10)" font-size="10">→</text>
-      <rect x="470" y="316" width="54" height="18" rx="4" fill="rgba(129,199,132,0.05)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
-      <text x="497" y="329" fill="rgba(129,199,132,0.50)" font-size="10" text-anchor="middle">限幅</text>
-      <text x="530" y="329" fill="rgba(255,255,255,0.10)" font-size="10">→</text>
-      <rect x="540" y="316" width="36" height="18" rx="4" fill="rgba(186,104,200,0.05)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
-      <text x="558" y="329" fill="rgba(186,104,200,0.50)" font-size="10" text-anchor="middle">平滑</text>
-
-      <!-- Rightmost: input source + final -->
-      <rect x="610" y="230" width="260" height="50" rx="7" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.05)" stroke-width="1"/>
-      <text x="620" y="248" fill="rgba(74,158,255,0.40)" font-size="11">输入源</text>
-      <text x="620" y="268" fill="rgba(255,255,255,0.40)" font-size="11">能力画像 · 盘面拓扑 · 实时状态</text>
-
-      <rect x="610" y="288" width="260" height="46" rx="7" fill="rgba(186,104,200,0.04)" stroke="#ba68c8" stroke-width="1"/>
-      <text x="740" y="307" fill="#ba68c8" font-size="13" text-anchor="middle" font-weight="700">调制后 finalStress</text>
-      <text x="740" y="324" fill="rgba(186,104,200,0.35)" font-size="10" text-anchor="middle">clamp(−0.2, 1) → EMA 平滑 → normalize</text>
-
-      <!-- Arrow R2 → R3 -->
-      <polyline points="450,348 450,360" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2" marker-end="url(#arrWD)"/>
-
-      <!-- ══════ ROW 3: 驱动出块 ══════ -->
-      <rect x="14" y="360" width="872" height="140" rx="10" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
-      <rect x="14" y="360" width="872" height="30" rx="10" fill="rgba(129,199,132,0.04)"/>
-      <text x="450" y="379" fill="#81c784" font-size="14" text-anchor="middle" font-weight="700">③ 驱动出块</text>
-
-      <!-- Low stress column -->
-      <rect x="22" y="400" width="270" height="94" rx="7" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
-      <text x="157" y="418" fill="#4a9eff" font-size="12" text-anchor="middle" font-weight="600">stress 低 → 简单块为主</text>
-      <g transform="translate(37.5,439)">
-        <rect width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-        <rect x="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-        <rect x="18" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-        <rect x="27" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-      </g>
-      <g transform="translate(81.5,437.5)">
-        <rect width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-        <rect x="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-        <rect y="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-        <rect x="9" y="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-      </g>
-      <g transform="translate(107,436.5)">
-        <rect width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-        <rect x="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-        <rect x="18" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-        <rect y="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
-      </g>
-      <text x="200" y="447" fill="rgba(74,158,255,0.35)" font-size="11" text-anchor="middle">易放形状 · 避免压力陡增</text>
-      <text x="200" y="464" fill="rgba(74,158,255,0.20)" font-size="10" text-anchor="middle">保障玩家操作空间</text>
-
-      <!-- Medium stress column -->
-      <rect x="306" y="400" width="270" height="94" rx="7" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="441" y="418" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="600">stress 中 → 混合配平</text>
-      <g transform="translate(320,436.5)">
-        <rect width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-        <rect x="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-        <rect x="18" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-        <rect x="9" y="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-      </g>
-      <g transform="translate(352,438.5)">
-        <rect x="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-        <rect x="18" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-        <rect y="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-        <rect x="9" y="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-      </g>
-      <g transform="translate(382,438.5)">
-        <rect width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-        <rect x="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-        <rect x="18" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-        <rect x="18" y="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
-      </g>
-      <text x="490" y="447" fill="rgba(255,183,77,0.35)" font-size="11" text-anchor="middle">按难度权重动态组合</text>
-      <text x="490" y="464" fill="rgba(255,183,77,0.20)" font-size="10" text-anchor="middle">多维度平衡出块策略</text>
-
-      <!-- High stress column -->
-      <rect x="590" y="400" width="282" height="94" rx="7" fill="rgba(229,115,115,0.03)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
-      <text x="731" y="418" fill="#e57373" font-size="12" text-anchor="middle" font-weight="600">stress 高 → 复杂块 + 顺序约束</text>
-      <g transform="translate(610,440.5)">
-        <rect width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-        <rect x="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-        <rect x="18" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-        <rect x="9" y="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-      </g>
-      <g transform="translate(645,441.5)">
-        <rect x="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-        <rect x="18" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-        <rect y="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-        <rect x="9" y="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-      </g>
-      <g transform="translate(677,441.5)">
-        <rect width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-        <rect x="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-        <rect x="9" y="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-        <rect x="18" y="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
-      </g>
-      <text x="800" y="448" fill="rgba(229,115,115,0.35)" font-size="11" text-anchor="middle">高阶块 + 出块顺序约束</text>
-      <text x="800" y="465" fill="rgba(229,115,115,0.20)" font-size="10" text-anchor="middle">提升压力 · 降低容错</text>
-
-      <!-- Bottom summary -->
-      <rect x="22" y="478" width="850" height="18" rx="5" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
-      <text x="447" y="492" fill="rgba(255,255,255,0.30)" font-size="11" text-anchor="middle">stress 越高 → 块越难放 · 顺序越死 · 容错越低 &nbsp;&nbsp;|&nbsp;&nbsp; stress 低 → 送简单块保成长空间</text>
+      <text x="450" y="125" fill="rgba(255,255,255,0.55)" font-size="10" text-anchor="middle">策略不直接从原始数据出发——它们消费的是"理解后的玩家状态"，而不是裸盘面</text>
     </svg>
   </div>
 
   <div class="theory-line">
     <span class="label">理论溯源</span>
-    <div class="row"><span class="s">心流理论</span>：挑战≈能力 → 难度永远追着分数跑，不让技能溢出心流区</div>
-    <div class="row"><span class="s">唤醒曲线</span>：倒U最优唤醒 → 决战段推高压力到顶点</div>
-    <div class="row"><span class="s">习得性无助</span>：挫败累积→放弃 → 远征段低压送爽，保护新手期</div>
+    <div class="row"><span class="s">心流理论</span>：挑战≈能力 → 必须先感知能力状态，才知道难度该向上还是向下调</div>
+    <div class="row"><span class="s">唤醒曲线</span>：倒U最优唤醒 → 必须实时感知压力水平，才能把压力推在倒U顶点</div>
+    <div class="row"><span class="s">习得性无助</span>：挫败累积→放弃 → 必须检测挫败信号，才能在放弃前主动干预</div>
   </div>
-</section>
-
-<!-- ═══════ 1.2.8 ARC-AWARE ═══════ -->
-<section class="slide" id="strategy-arcaware">
-  <h3><span class="ch">1.2.8</span> 核心策略四：Arc-Aware S 曲线——局间弧线的调制</h3>
-
-  <div class="img-frame" style="padding:0 20px 8px 20px;background:rgba(0,0,0,0.35)">
-    <svg viewBox="0 0 900 510" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
-      <defs>
-        <marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.25)"/></marker>
-      </defs>
-
-      <!-- ══════ ROW 1: 5-Phase Timeline ══════ -->
-      <rect x="14" y="20" width="872" height="100" rx="10" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
-      <text x="450" y="38" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="700">① 五档 RunOverRunArc（优先级决策）</text>
-
-      <!-- Opener -->
-      <rect x="24" y="52" width="145" height="56" rx="7" fill="rgba(74,158,255,0.06)" stroke="#4a9eff" stroke-width="1.2" stroke-opacity="0.4"/>
-      <text x="97" y="70" fill="#7eb8ff" font-size="13" text-anchor="middle" font-weight="700">开局</text>
-      <text x="97" y="86" fill="rgba(126,184,255,0.50)" font-size="10" text-anchor="middle">dScale=0.90</text>
-      <text x="97" y="99" fill="rgba(126,184,255,0.30)" font-size="8" text-anchor="middle">首局或空闲</text>
-
-      <text x="179" y="82" fill="rgba(255,255,255,0.15)" font-size="14" text-anchor="middle">…</text>
-
-      <!-- Momentum -->
-      <rect x="198" y="52" width="145" height="56" rx="7" fill="rgba(129,199,132,0.06)" stroke="#81c784" stroke-width="1.2" stroke-opacity="0.4"/>
-      <text x="271" y="70" fill="#81c784" font-size="13" text-anchor="middle" font-weight="700">推进</text>
-      <text x="271" y="86" fill="rgba(129,199,132,0.50)" font-size="10" text-anchor="middle">无调制</text>
-      <text x="271" y="99" fill="rgba(129,199,132,0.30)" font-size="8" text-anchor="middle">第2-3局</text>
-
-      <text x="353" y="82" fill="rgba(255,255,255,0.15)" font-size="14" text-anchor="middle">…</text>
-
-      <!-- Peak -->
-      <rect x="372" y="52" width="145" height="56" rx="7" fill="rgba(255,183,77,0.06)" stroke="#ffb74d" stroke-width="1.2" stroke-opacity="0.4"/>
-      <text x="445" y="70" fill="#ffb74d" font-size="13" text-anchor="middle" font-weight="700">巅峰</text>
-      <text x="445" y="86" fill="rgba(255,183,77,0.50)" font-size="10" text-anchor="middle">无调制</text>
-      <text x="445" y="99" fill="rgba(255,183,77,0.30)" font-size="8" text-anchor="middle">第4-5局</text>
-
-      <text x="527" y="82" fill="rgba(255,255,255,0.15)" font-size="14" text-anchor="middle">…</text>
-
-      <!-- Fatigue -->
-      <rect x="546" y="52" width="145" height="56" rx="7" fill="rgba(229,115,115,0.06)" stroke="#e57373" stroke-width="1.2" stroke-opacity="0.4"/>
-      <text x="619" y="70" fill="#e57373" font-size="13" text-anchor="middle" font-weight="700">疲劳</text>
-      <text x="619" y="86" fill="rgba(229,115,115,0.50)" font-size="10" text-anchor="middle">85% 力度 · 延后压力</text>
-      <text x="619" y="99" fill="rgba(229,115,115,0.30)" font-size="8" text-anchor="middle">≥6局或连败</text>
-
-      <text x="701" y="82" fill="rgba(255,255,255,0.15)" font-size="14" text-anchor="middle">…</text>
-
-      <!-- Cooldown -->
-      <rect x="720" y="52" width="152" height="56" rx="7" fill="rgba(186,104,200,0.06)" stroke="#ba68c8" stroke-width="1.2" stroke-opacity="0.4"/>
-      <text x="796" y="70" fill="#ba68c8" font-size="13" text-anchor="middle" font-weight="700">保护</text>
-      <text x="796" y="86" fill="rgba(186,104,200,0.50)" font-size="10" text-anchor="middle">75% 力度 · 最大延迟</text>
-      <text x="796" y="99" fill="rgba(186,104,200,0.30)" font-size="8" text-anchor="middle">赌气链≥2次</text>
-
-      <!-- ══════ ROW 2: S-Curve Deformation ══════ -->
-      <rect x="14" y="132" width="872" height="210" rx="10" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="450" y="150" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">② S 曲线变形效果</text>
-
-      <!-- Chart area -->
-      <rect x="40" y="162" width="360" height="168" rx="6" fill="rgba(0,0,0,0.25)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-
-      <!-- Chart grid: D=0/0.25/0.50/0.75/1.0 mapped to y=325/285/245/205/165 -->
-      <line x1="52" y1="325" x2="388" y2="325" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
-      <line x1="52" y1="285" x2="388" y2="285" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="3,3"/>
-      <line x1="52" y1="245" x2="388" y2="245" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="3,3"/>
-      <line x1="52" y1="205" x2="388" y2="205" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="3,3"/>
-      <line x1="52" y1="165" x2="388" y2="165" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
-
-      <!-- Axes labels -->
-      <text x="18" y="250" fill="rgba(255,255,255,0.40)" font-size="10" text-anchor="middle" transform="rotate(-90,18,250)">目标难度 D →</text>
-      <text x="390" y="334" fill="rgba(255,255,255,0.40)" font-size="10" text-anchor="end">r (分数/PB) →</text>
-
-      <!-- Y axis labels -->
-      <text x="45" y="329" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="end">0</text>
-      <text x="45" y="289" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="end">0.25</text>
-      <text x="45" y="249" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="end">0.5</text>
-      <text x="45" y="209" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="end">0.75</text>
-      <text x="45" y="169" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="end">1.0</text>
-
-      <!-- X axis labels (x = 52 + r * 224) -->
-      <text x="164" y="332" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">0.5</text>
-      <text x="276" y="332" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">1.0</text>
-      <text x="388" y="332" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">1.5</text>
-
-      <!-- Curves computed from targetSCurve.js (动态计算生成) -->
-
-      <!-- Baseline (momentum/peak) - white -->
-      <polyline id="curve-baseline" fill="none" stroke="rgba(255,255,255,0.70)" stroke-width="2.5" stroke-linecap="round"/>
-
-      <!-- Opener (dScale=0.90) - blue -->
-      <polyline id="curve-opener" fill="none" stroke="#4a9eff" stroke-width="2" stroke-linecap="round" stroke-dasharray="6,4"/>
-
-      <!-- Fatigue (dScale=0.85, dShift=-0.03, brakeShift=0.15) - amber -->
-      <polyline id="curve-fatigue" fill="none" stroke="#ffb74d" stroke-width="2" stroke-linecap="round" stroke-dasharray="3,4"/>
-
-      <!-- Cooldown (dScale=0.75, dShift=-0.05, brakeShift=0.20) - pink -->
-      <polyline id="curve-cooldown" fill="none" stroke="#e57373" stroke-width="2" stroke-linecap="round" stroke-dasharray="2,4"/>
-
-      <!-- Vertical reference line at r=1.0 -->
-      <line x1="276" y1="165" x2="276" y2="330" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="3,4"/>
-      <text x="276" y="162" fill="rgba(255,255,255,0.40)" font-size="8" text-anchor="middle">r=1.0</text>
-
-      <!-- Legend -->
-      <rect x="420" y="168" width="210" height="126" rx="7" fill="rgba(0,0,0,0.15)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
-      <text x="525" y="186" fill="rgba(255,255,255,0.30)" font-size="10" text-anchor="middle" font-weight="600">曲线图例</text>
-
-      <line x1="428" y1="201" x2="468" y2="201" stroke="rgba(255,255,255,0.70)" stroke-width="2.5"/>
-      <text x="476" y="205" fill="rgba(255,255,255,0.45)" font-size="10">推进 / 巅峰 (基线)</text>
-
-      <line x1="428" y1="219" x2="468" y2="219" stroke="#4a9eff" stroke-width="2" stroke-dasharray="6,4"/>
-      <text x="476" y="223" fill="#7eb8ff" font-size="10">开局 → 90% 缩放</text>
-
-      <line x1="428" y1="237" x2="468" y2="237" stroke="#ffb74d" stroke-width="2" stroke-dasharray="3,4"/>
-      <text x="476" y="241" fill="#ffb74d" font-size="10">疲劳 → 85% + 制动右移 (全向减压)</text>
-
-      <line x1="428" y1="255" x2="468" y2="255" stroke="#e57373" stroke-width="2" stroke-dasharray="2,4"/>
-      <text x="476" y="259" fill="#e57373" font-size="10">冷却 → 75% + 制动极右 (全向减压)</text>
-
-      <!-- Callout at r=1.0 -->
-      <text x="420" y="280" fill="rgba(255,255,255,0.35)" font-size="9">r=1.0 (分数=PB) 时四种曲线 D 值：</text>
-      <text x="420" y="294" fill="rgba(255,255,255,0.40)" font-size="9">基线 ~0.90 · 开局 ~0.81 · 疲劳 ~0.30 · 冷却 ~0.15</text>
-
-      <!-- Modulation triple explanation -->
-      <rect x="650" y="168" width="230" height="162" rx="7" fill="rgba(186,104,200,0.02)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
-      <text x="765" y="186" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="600">三元组调制机制</text>
-
-      <!-- dScale -->
-      <rect x="660" y="194" width="210" height="35" rx="5" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
-      <text x="668" y="210" fill="#7eb8ff" font-size="11" font-weight="600">dScale</text>
-      <text x="740" y="210" fill="rgba(255,255,255,0.45)" font-size="10">整条曲线按比例缩放</text>
-      <text x="668" y="223" fill="rgba(255,255,255,0.25)" font-size="9">D' = D × dScale (0.75~1.00)</text>
-
-      <!-- dShift -->
-      <rect x="660" y="236" width="210" height="35" rx="5" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
-      <text x="668" y="252" fill="#81c784" font-size="11" font-weight="600">dShift</text>
-      <text x="740" y="252" fill="rgba(255,255,255,0.45)" font-size="10">整体向下偏移</text>
-      <text x="668" y="265" fill="rgba(255,255,255,0.25)" font-size="9">D'' = D' + dShift (−0.03~−0.05)</text>
-
-      <!-- brakeShift -->
-      <rect x="660" y="278" width="210" height="42" rx="5" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
-      <text x="668" y="294" fill="#ffb74d" font-size="11" font-weight="600">brakeShift</text>
-      <text x="740" y="294" fill="rgba(255,255,255,0.45)" font-size="10">延后压力施加点</text>
-      <text x="668" y="308" fill="rgba(255,255,255,0.25)" font-size="9">fatigue +0.15 / cooldown +0.20 · 让玩家接近 PB 才感到压力</text>
-
-      <!-- ══════ ROW 3: Data Flow Summary ══════ -->
-      <rect x="14" y="360" width="872" height="46" rx="8" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
-      <text x="24" y="378" fill="#81c784" font-size="11" font-weight="600">数据流</text>
-      <text x="24" y="395" fill="rgba(255,255,255,0.30)" font-size="10">今日局次 + 胜负历史 → 优先级决策 deriveRunOverRunArc → RoR arc ∈ {opener/momentum/peak/fatigue/cooldown} → targetSCurveByArc(r, arc) 施用三元组 → D 曲线形变 → 出块策略</text>
-
-      <!-- Three-layer modulation -->
-      <rect x="14" y="416" width="872" height="72" rx="8" fill="rgba(74,158,255,0.01)" stroke="rgba(74,158,255,0.04)" stroke-width="1"/>
-      <text x="24" y="434" fill="#7eb8ff" font-size="11" font-weight="600">三层调制矩阵</text>
-
-      <rect x="24" y="444" width="270" height="34" rx="5" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
-      <text x="159" y="458" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">① RoR Arc 三元组 (dScale·D+dShift+brakeShift右移)</text>
-      <text x="159" y="471" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">targetSCurveByArc — 难度曲线形变核心</text>
-
-      <rect x="306" y="444" width="270" height="34" rx="5" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
-      <text x="441" y="458" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">② 生命周期上限修正 (capScale)</text>
-      <text x="441" y="471" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">cap×0.70~1.00 · adjust−0.15~0</text>
-
-      <rect x="588" y="444" width="284" height="34" rx="5" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
-      <text x="730" y="458" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">③ 局内会话弧 (sessionArc, 独立决策)</text>
-      <text x="730" y="471" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">warmup(≤3轮) / peak / cooldown(late) · 选择出块策略</text>
-
-    </svg>
-  </div>
-
-  <div class="theory-line">
-    <span class="label">关键澄清</span>
-    <div class="row"><span class="s">五阶段非线性</span>：不是「必然的线性流程」，而是基于<strong>优先级决策树</strong>（cooldown > fatigue-loss > opener > fatigue-index > peak > momentum）。例：今日首局若连败≥3 局会被判 fatigue 而非 opener；赌气链≥2 次会被判 cooldown 保护</div>
-    <div class="row"><span class="s">RoR Arc vs sessionArc</span>：runOverRunArc 是<strong>跨局情绪管理</strong>（日维度，影响难度曲线），sessionArc 是<strong>局内节奏驾驭</strong>（单局维度，影响出块策略选择），两者独立派生、无因果链</div>
-    <div class="row"><span class="s">brakeShift 的设计原则</span>：「尊重疲劳，不是放大疲劳」— dScale 降压(×0.85/0.75)，dShift 微调(-0.03/-0.05)，但<strong>brakeShift 延后压力施加时机</strong>（+0.15/+0.20），让玩家接近 PB 时才感到最大压力而非刚开局就被压垮</div>
-  </div>
-
-  <div class="theory-line">
-    <span class="label">理论溯源</span>
-    <div class="row"><span class="s">唤醒曲线</span>：连续多局唤醒基线右移 → 后半程推后压力爆发，疲劳期依赖 PB 本身创造兴奋</div>
-    <div class="row"><span class="s">SDT 自主性</span>：感知局间节奏变化 → 玩家感觉「系统在配合我」，产生自主感与掌控感</div>
-    <div class="row"><span class="s">习惯化</span>：重复刺激唤醒递减 → 多局后需要更强信号触发同样唤醒，cooldown 主动降低刺激强度</div>
-  </div>
-</section>
-
-<section class="slide" id="strategy-dr">
-  <h3><span class="ch">1.2.5</span> 难度相对论——「难」是相对能力的主观量</h3>
-
-  <div class="dialog dialog-p">
-    <div class="avatar">P</div><div class="body">
-      <div class="name">玩法设计师</div>
-      <div class="text">S 曲线说「r=0.9 时应该很有压力」——但这个压力对谁来说的？一个 9000 分的高手和一个 PB=200 的新手，同样在 r=0.9 时体验天差地别 — 心流理论说挑战要≈能力，可同一套难度不可能同时≈两个人的能力</div></div>
-   </div>
-   <div class="dialog dialog-a">
-     <div class="avatar">A</div><div class="body">
-       <div class="name">算法工程师</div>
-       <div class="text">这正是<strong>难度相对论</strong>解决的核心问题 — 它的洞察很简单：<strong>「难」是相对玩家能力的主观感受</strong> — 记为目标感知难度 d*，客观盘面难度 b，玩家能力 θ，那么 d* ≈ b ⊖ θ——同样的盘面，能力越强感知越简单 — 难度相对论把这条公式<strong>反过来用</strong>：给定目标感知难度 d*（来自 S 曲线），求解客观盘面难度 b* = θ ⊕ d*，高手拿到客观更难但感知相同的块，新手拿到客观更简单的块</div></div>
-   </div>
-
-   <h4>设计初衷</h4>
-   <p>在难度相对论之前，S 曲线输出的 stress 直接映射到出块策略——对所有玩家一视同仁，这忽略了玩家能力差异导致的<strong>感知偏差</strong> — 同一个 stress 值，高玩觉得「刚到热身」，新手觉得「要死了」 — 难度相对论插入了一层<strong>能力校准层</strong>：stress 仍然是统一的「目标感知难度」，但经过 θ⃗ 校准后转化为针对该玩家的客观出块目标</p>
-
-  <h4>核心算法：solveObjectiveTarget</h4>
-
-  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
-    <svg viewBox="0 0 800 320" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
-
-      <!-- Title -->
-      <text x="400" y="20" fill="rgba(255,255,255,0.52)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.15em">solveObjectiveTarget: 感知难度 d* → 客观难度 b*</text>
-
-      <!-- ═══ INPUT: d* from S-curve ═══ -->
-      <rect x="30" y="38" width="160" height="46" rx="8" fill="rgba(74,158,255,0.08)" stroke="rgba(74,158,255,0.40)" stroke-width="1.5"/>
-      <text x="110" y="58" fill="#7eb8ff" font-size="13" text-anchor="middle" font-weight="700">d* (target stress)</text>
-      <text x="110" y="73" fill="rgba(74,158,255,0.50)" font-size="10" text-anchor="middle">来自 S 曲线</text>
-      <line x1="190" y1="61" x2="235" y2="61" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" marker-end="url(#arrW)"/>
-
-      <!-- ═══ CORE: For each dim ═══ -->
-      <rect x="240" y="28" width="310" height="66" rx="8" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="395" y="46" fill="rgba(255,183,77,0.65)" font-size="11" text-anchor="middle" font-weight="600">for each dimension dim ∈ θ⃗[6]:</text>
-
-      <!-- Step 1: θᵢ = clamp(cal[dim], 0.5) -->
-      <rect x="255" y="54" width="72" height="28" rx="6" fill="rgba(74,158,255,0.06)" stroke="rgba(74,158,255,0.12)" stroke-width="1"/>
-      <text x="291" y="72" fill="#7eb8ff" font-size="10" text-anchor="middle">θᵢ = clamp</text>
-
-      <!-- Step 2: relative -->
-      <rect x="340" y="54" width="76" height="28" rx="6" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.12)" stroke-width="1"/>
-      <text x="378" y="72" fill="#81c784" font-size="10" text-anchor="middle">relative = θᵢ + (d*−0.5)</text>
-
-      <!-- Step 3: mix -->
-      <rect x="428" y="54" width="110" height="28" rx="6" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.12)" stroke-width="1"/>
-      <text x="483" y="72" fill="#ba68c8" font-size="10" text-anchor="middle">b*ᵢ = (1−λ)×d* + λ×relative</text>
-
-      <line x1="240" y1="61" x2="253" y2="61" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" marker-end="url(#arrW)"/>
-      <line x1="327" y1="68" x2="338" y2="68" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" marker-end="url(#arrW)"/>
-      <line x1="416" y1="68" x2="426" y2="68" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" marker-end="url(#arrW)"/>
-
-      <!-- Arrow down to adjusters -->
-      <line x1="395" y1="94" x2="395" y2="120" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" marker-end="url(#arrW)"/>
-
-      <!-- ═══ ADJUSTERS ═══ -->
-      <rect x="255" y="124" width="280" height="42" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-
-      <!-- ZPD -->
-      <rect x="265" y="132" width="120" height="26" rx="6" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.1)" stroke-width="1"/>
-      <text x="325" y="149" fill="#ffb74d" font-size="10" text-anchor="middle">ZPD: b*ᵢ += δ(0.5−θᵢ)</text>
-
-      <!-- Early guard -->
-      <rect x="398" y="132" width="125" height="26" rx="6" fill="rgba(229,115,115,0.06)" stroke="rgba(229,115,115,0.1)" stroke-width="1"/>
-      <text x="460" y="149" fill="#e57373" font-size="10" text-anchor="middle">早期守卫: cap offset</text>
-
-      <!-- Arrow down to output -->
-      <line x1="395" y1="166" x2="395" y2="192" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" marker-end="url(#arrW)"/>
-
-      <!-- ═══ OUTPUT ═══ -->
-      <rect x="290" y="196" width="210" height="46" rx="8" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.40)" stroke-width="1.5"/>
-      <text x="395" y="216" fill="#81c784" font-size="13" text-anchor="middle" font-weight="700">b*[6] 客观出块目标</text>
-      <text x="395" y="231" fill="rgba(129,199,132,0.50)" font-size="10" text-anchor="middle">b*[dim] = clamp(b*ᵢ, 0, 1)</text>
-
-      <!-- ═══ λ parameter ═══ -->
-      <rect x="550" y="38" width="200" height="36" rx="8" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
-      <text x="650" y="55" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="600">λ = personalizationStrength</text>
-      <text x="650" y="68" fill="rgba(186,104,200,0.50)" font-size="10" text-anchor="middle">0 = 无个性化 · 1 = 全相对</text>
-
-      <!-- ═══ θ⃗ legend ═══ -->
-      <rect x="550" y="92" width="220" height="150" rx="8" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
-      <text x="660" y="110" fill="rgba(255,255,255,0.42)" font-size="11" text-anchor="middle" font-weight="600">θ⃗ 六维能力向量</text>
-      <text x="570" y="132" fill="rgba(255,255,255,0.32)" font-size="10">spatial    空间规划</text>
-      <text x="570" y="150" fill="rgba(255,255,255,0.32)" font-size="10">combo      连击维持</text>
-      <text x="570" y="168" fill="rgba(255,255,255,0.32)" font-size="10">order      顺序规划</text>
-      <text x="570" y="186" fill="rgba(255,255,255,0.32)" font-size="10">recovery   恢复能力</text>
-      <text x="570" y="204" fill="rgba(255,255,255,0.32)" font-size="10">tempo      节奏控制</text>
-      <text x="570" y="222" fill="rgba(255,255,255,0.32)" font-size="10">clearEff   消行效率</text>
-      <text x="660" y="238" fill="rgba(255,255,255,0.52)" font-size="9" text-anchor="middle">卡尔曼滤波 · EMA · 贝叶斯推理</text>
-
-      <!-- Alignment multiplier note at bottom -->
-      <rect x="30" y="260" width="740" height="48" rx="8" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
-      <text x="400" y="280" fill="rgba(255,255,255,0.3)" font-size="12" text-anchor="middle" font-weight="600">对齐乘数: 出块引擎中形状选中概率 = exp(−λ·sharpness·dist(b⃗_candidate, b*))</text>
-      <text x="400" y="297" fill="rgba(255,255,255,0.32)" font-size="10" text-anchor="middle">弱项维度 (θᵢ&lt;0.5) 的 wᵢ 被 weaknessBoost 放大 · 距离越小 → 选中概率越高</text>
-    </svg>
-  </div>
-
-  <h4>特征：6 维 θ⃗</h4>
-  <div class="table-wrap">
-  <table>
-    <tr><th>维度</th><th>含义</th><th>更新方式</th></tr>
-    <tr><td>spatial</td><td>空间规划能力：能否在放置前预见未来布局</td><td>卡尔曼滤波，每局更新</td></tr>
-    <tr><td>combo</td><td>连击维持能力：combo 链的长度与频率</td><td>EMA 追踪</td></tr>
-    <tr><td>order</td><td>顺序规划能力：是否按最优顺序摆放三块</td><td>贝叶斯推理</td></tr>
-    <tr><td>recovery</td><td>恢复能力：高填充下能否自救援</td><td>窗口统计</td></tr>
-    <tr><td>tempo</td><td>节奏控制能力：操作节奏与清行间奏的把控</td><td>EMA 追踪</td></tr>
-    <tr><td>clearEff</td><td>消行效率：每块产生的清行数</td><td>窗口均值</td></tr>
-  </table>
-  </div>
-
-  <h4>对齐乘数（Alignment Multiplier）</h4>
-  <p>在出块引擎中，每个候选形状的难度向量 b⃗_candidate 与目标 b* 的接近程度通过下列公式影响选中概率：</p>
-  <div class="formula"><span class="hl2">dist</span> = sqrt(Σ <span class="hl">wᵢ</span> × (b⃗_candidate[i] − <span class="hl3">b*</span>[i])²)
-<span class="hl2">multiplier</span> = exp(−<span class="hl">λ</span> × <span class="hl">sharpness</span> × dist)
-<span class="cm">// 弱项维度 (θᵢ &lt; 0.5) 的 wᵢ 被 weaknessBoost 放大</span>
-<span class="cm">// 距离越小 → multiplier 越大 → 选中概率越高</span></div>
-
-  <h4>技术选型：为什么不是 ELO、不是 Glicko？</h4>
-  <div class="card-row c3">
-     <div class="card accent-b"><div class="tit">❌ ELO</div><div class="desc">设计给对抗性游戏（胜负二元结果）— 消消乐是单人游戏，只有分数没有胜负</div></div>
-     <div class="card accent-o"><div class="tit">❌ Glicko</div><div class="desc">同样依赖对手胜负，且假设能力在一段时间内稳定 — 消消乐玩家能力在单局内波动</div></div>
-     <div class="card accent-g"><div class="tit">✅ 贝叶斯 θ⃗</div><div class="desc">多维向量同时追踪不同技能面，卡尔曼滤波适应快速变化 — 与出块引擎的 6 维难度向量天生的对齐结构</div></div>
-  </div>
-
-  <h4>12 条 Bypass 规则</h4>
-  <p>难度相对论不是在所有情况下都激活 — 当任何一条 bypass 条件触发时，系统回退到 identity 映射（b* = d*）</p>
-  <div class="card-row c4" style="font-size:1.05rem;">
-    <div class="card"><div class="tit">disabled</div><div class="desc">配置关闭</div></div>
-    <div class="card"><div class="tit">rollout_out</div><div class="desc">A/B 未命中</div></div>
-    <div class="card"><div class="tit">recovery</div><div class="desc">玩家需恢复</div></div>
-    <div class="card"><div class="tit">near_miss</div><div class="desc">近失事件</div></div>
-    <div class="card"><div class="tit">bottleneck</div><div class="desc">死局预警</div></div>
-    <div class="card"><div class="tit">post_pb_release</div><div class="desc">破 PB 释放期</div></div>
-    <div class="card"><div class="tit">warmup</div><div class="desc">热身阶段</div></div>
-    <div class="card"><div class="tit">low_conf</div><div class="desc">样本不足</div></div>
-  </div>
-  <div class="theory-line">
-    <span class="label">理论溯源</span>
-    <div class="row"><span class="s">心流理论</span>：挑战≈能力的"能力"因人而异 → 同一套难度对高手=热身，对新手=死局</div>
-    <div class="row"><span class="s">唤醒曲线</span>：最优唤醒点随个体能力偏移 → 难度必须相对玩家画像校准</div>
-    <div class="row"><span class="s">SDT 自主性</span>：失控感来自"超出能力范围" → 校准后难度才是真正的自主选择</div>
-  </div>
-</section>
-
-<section class="slide" id="strategy-dc">
-  <h3><span class="ch">1.2.6</span> 双坐标解耦——难度坐标 vs 纪录坐标</h3>
-
-  <div class="dialog dialog-p">
-    <div class="avatar">P</div><div class="body">
-      <div class="name">玩法设计师</div>
-      <div class="text">PB=60 的新手，score=50 时已经在冲击纪录了——但这意味着他应该进入 high stress 状态吗？他才刚开始玩啊</div></div>
-   </div>
-   <div class="dialog dialog-a">
-     <div class="avatar">A</div><div class="body">
-       <div class="name">算法工程师</div>
-       <div class="text">这就是双坐标解耦的由来 — <strong>难度坐标 r_difficulty ≠ 纪录坐标 r_record</strong> — scoreStress 使用的分母是 effectivePB（经过 noviceFloor 抬升或 expertSoftCap 对数压缩后的 PB），而不是原始 PB，这样即使新手 score/PB=0.83，effectivePB 计算后 r_difficulty 可能只有 0.35——出块不会提前进入高压区，而高手的原始 PB 被对数压缩，减少「高分者前期无聊过长」的问题</div></div>
-   </div>
-
-  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
-    <svg viewBox="0 0 800 300" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
-
-      <!-- Title -->
-      <text x="400" y="24" fill="rgba(255,255,255,0.52)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.15em">双坐标解耦 · 难度坐标 ≠ 纪录坐标</text>
-
-      <!-- ===== r_record COORDINATE ===== -->
-      <text x="40" y="58" fill="#4a9eff" font-size="14" font-weight="700">r_record</text>
-      <text x="40" y="72" fill="rgba(74,158,255,0.50)" font-size="10">score / bestScore</text>
-
-      <!-- r_record axis -->
-      <line x1="180" y1="65" x2="740" y2="65" stroke="#4a9eff" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
-      <polygon points="740,61 750,65 740,69" fill="#4a9eff" opacity="0.5"/>
-
-      <!-- r_record tick marks -->
-      <text x="180" y="82" fill="rgba(74,158,255,0.50)" font-size="10" text-anchor="middle">0</text>
-      <text x="460" y="82" fill="rgba(74,158,255,0.50)" font-size="10" text-anchor="middle">0.50</text>
-      <text x="600" y="82" fill="rgba(74,158,255,0.50)" font-size="10" text-anchor="middle">1.0 (PB)</text>
-      <text x="720" y="82" fill="rgba(74,158,255,0.50)" font-size="10" text-anchor="middle">... >1.0</text>
-
-      <!-- r_record usage -->
-      <text x="460" y="96" fill="rgba(74,158,255,0.40)" font-size="9" text-anchor="middle">→ pbCurve · celebrations · overshoot</text>
-
-      <!-- ===== r_difficulty COORDINATE ===== -->
-      <text x="40" y="128" fill="#ffb74d" font-size="14" font-weight="700">r_difficulty</text>
-      <text x="40" y="142" fill="rgba(255,183,77,0.50)" font-size="10">score / effectivePB(bestScore)</text>
-
-      <!-- r_difficulty axis -->
-      <line x1="180" y1="135" x2="740" y2="135" stroke="#ffb74d" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
-      <polygon points="740,131 750,135 740,139" fill="#ffb74d" opacity="0.5"/>
-      <text x="180" y="152" fill="rgba(255,183,77,0.50)" font-size="10" text-anchor="middle">0</text>
-      <text x="720" y="152" fill="rgba(255,183,77,0.50)" font-size="10" text-anchor="middle">... >1.0</text>
-
-      <!-- r_difficulty usage -->
-      <text x="460" y="166" fill="rgba(255,183,77,0.40)" font-size="9" text-anchor="middle">→ scoreStress · spawnHints · spawnStepDifficulty</text>
-
-      <!-- ===== NOVICE vs EXPERT boxes ===== -->
-      <!-- Novice floor block -->
-      <rect x="170" y="178" width="370" height="50" rx="8" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.12)" stroke-width="1"/>
-      <text x="190" y="197" fill="#81c784" font-size="12" font-weight="600">🛡 新手保护 (noviceFloor)</text>
-      <text x="190" y="215" fill="rgba(255,255,255,0.4)" font-size="11">if bestScore &lt; noviceFloor (240) → effectivePB = 240</text>
-
-      <!-- Expert block -->
-      <rect x="550" y="178" width="210" height="50" rx="8" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.12)" stroke-width="1"/>
-      <text x="570" y="197" fill="#ba68c8" font-size="12" font-weight="600">📈 高玩对数压缩</text>
-      <text x="570" y="215" fill="rgba(255,255,255,0.4)" font-size="10">PB=5000 → effPB≈2400</text>
-
-      <!-- EffectivePB formula -->
-      <rect x="170" y="238" width="590" height="48" rx="8" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
-      <text x="190" y="258" fill="rgba(255,183,77,0.65)" font-size="12" font-family="'JetBrains Mono','SF Mono','Fira Code',monospace">effectivePB = if bestScore &lt; noviceFloor → noviceFloor</text>
-      <text x="190" y="276" fill="rgba(255,183,77,0.65)" font-size="12" font-family="'JetBrains Mono','SF Mono','Fira Code',monospace">            elif bestScore > expertSoftCap → softCap + scale·ln(1+(bestScore−softCap)/scale)</text>
-
-      <!-- Scale indicator between axes -->
-      <line x1="140" y1="65" x2="140" y2="135" stroke="rgba(255,255,255,0.52)" stroke-width="1" stroke-dasharray="3,3"/>
-      <polygon points="136,100 140,95 144,100" fill="rgba(255,255,255,0.52)"/>
-      <polygon points="136,100 140,105 144,100" fill="rgba(255,255,255,0.52)"/>
-      <text x="135" y="106" fill="rgba(255,255,255,0.52)" font-size="9" text-anchor="end">解耦</text>
-    </svg>
-  </div>
-
-  <div class="card-row c2">
-     <div class="card accent-b"><div class="tit">r_record</div><div class="desc">用于 pbCurve 的 7 阶段判断、Challenge Boost 触发、pbOvershootBoost 计算、庆祝系统 — 纪录坐标就该「诚实」——你的 PB 就是你的 PB</div></div>
-      <div class="card accent-o"><div class="tit">r_difficulty</div><div class="desc">用于 scoreStress、spawnHints、spawnStepDifficulty — 难度坐标可以「欺骗」——故意把坐标原点向舒适区偏移来调节压力时机</div></div>
-  </div>
-  <div class="theory-line">
-    <span class="label">理论溯源</span>
-    <div class="row"><span class="s">近失理论</span>：「差一点」驱动重开 → 需要可操控的难度坐标来制造近失带</div>
-    <div class="row"><span class="s">峰终定律</span>：记忆锚点在峰值+结尾 → 纪录坐标必须诚实，峰值才有意义</div>
-    <div class="row"><span class="s">SDT 自主性</span>：玩家不觉得被欺骗 → 两个坐标各司其职，难度坐标"骗"但纪录坐标不"骗"</div>
-  </div>
-</section>
-
-<section class="slide" id="strategy-pb">
-  <h3><span class="ch">1.2.7</span> PB 曲线——7 段弧线的张力与制动</h3>
-
-   <p>如果说 S 曲线定义了「难度-分数」的宏观关系，PB 曲线定义了<strong>玩家冲击 PB 旅程中的微观情绪弧线</strong>——从 warmup 到 overshoot 的 7 个阶段，每个阶段有不同的出块调整策略</p>
-
-  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
-    <svg viewBox="0 0 800 380" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
-      <defs>
-        <linearGradient id="pbBar" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stop-color="#4a9eff"/>
-          <stop offset="36%" stop-color="#81c784"/>
-          <stop offset="60%" stop-color="#ffb74d"/>
-          <stop offset="73%" stop-color="#e57373"/>
-          <stop offset="80%" stop-color="#ba68c8"/>
-          <stop offset="88%" stop-color="#ff8a65"/>
-          <stop offset="100%" stop-color="#78909c"/>
-        </linearGradient>
-      </defs>
-
-      <!-- ═══ 7-PHASE TIMELINE ═══ -->
-      <text x="400" y="24" fill="rgba(255,255,255,0.52)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.15em">PB 曲线 · 7 段相位演进</text>
-
-      <!-- Background track -->
-      <rect x="40" y="38" width="720" height="34" rx="6" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-
-      <!-- Phase segments with distinct colors -->
-      <!-- warmup: r∈[0,0.50) → x 40→308, w=268 -->
-      <rect x="40" y="38" width="268" height="34" rx="6" fill="#4a9eff" opacity="0.35"/>
-      <text x="174" y="59" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="700">warmup</text>
-      <text x="174" y="76" fill="rgba(74,158,255,0.50)" font-size="9" text-anchor="middle">远未达标</text>
-      <!-- arrow divider -->
-      <line x1="308" y1="38" x2="308" y2="72" stroke="rgba(255,255,255,0.52)" stroke-width="1"/>
-
-      <!-- chase: r∈[0.50,0.80) → x 308→462, w=154 -->
-      <rect x="308" y="38" width="154" height="34" fill="#81c784" opacity="0.35"/>
-      <text x="385" y="59" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">chase</text>
-      <text x="385" y="76" fill="rgba(129,199,132,0.50)" font-size="9" text-anchor="middle">追逐 PB</text>
-      <line x1="462" y1="38" x2="462" y2="72" stroke="rgba(255,255,255,0.52)" stroke-width="1"/>
-
-      <!-- tension: r∈[0.80,0.95) → x 462→558, w=96 -->
-      <rect x="462" y="38" width="96" height="34" fill="#ffb74d" opacity="0.35"/>
-      <text x="510" y="59" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">tension</text>
-      <text x="510" y="76" fill="rgba(255,183,77,0.50)" font-size="9" text-anchor="middle">加压逼近</text>
-      <line x1="558" y1="38" x2="558" y2="72" stroke="rgba(255,255,255,0.52)" stroke-width="1"/>
-
-      <!-- gate: r∈[0.95,1.00) → x 558→586, w=28 -->
-      <rect x="558" y="38" width="28" height="34" fill="#e57373" opacity="0.4"/>
-      <text x="572" y="59" fill="#e57373" font-size="10" text-anchor="middle" font-weight="700">⚡</text>
-      <text x="572" y="76" fill="rgba(229,115,115,0.3)" font-size="8" text-anchor="middle">gate</text>
-      <line x1="586" y1="38" x2="586" y2="72" stroke="rgba(255,255,255,0.52)" stroke-width="1"/>
-
-      <!-- release: r∈[1.00,1.05) → x 586→615, w=29 -->
-      <rect x="586" y="38" width="29" height="34" fill="#ba68c8" opacity="0.35"/>
-      <text x="600" y="59" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="700">🎉</text>
-      <text x="600" y="76" fill="rgba(186,104,200,0.50)" font-size="8" text-anchor="middle">release</text>
-      <line x1="615" y1="38" x2="615" y2="72" stroke="rgba(255,255,255,0.52)" stroke-width="1"/>
-
-      <!-- brake: r∈[1.05,1.15) → x 615→669, w=54 -->
-      <rect x="615" y="38" width="54" height="34" fill="#ff8a65" opacity="0.35"/>
-      <text x="642" y="59" fill="#ff8a65" font-size="11" text-anchor="middle" font-weight="700">brake</text>
-      <text x="642" y="76" fill="rgba(255,138,101,0.3)" font-size="8" text-anchor="middle">制动</text>
-      <line x1="669" y1="38" x2="669" y2="72" stroke="rgba(255,255,255,0.52)" stroke-width="1"/>
-
-      <!-- overshoot: r≥1.15 → x 669→760, w=91 -->
-      <rect x="669" y="38" width="91" height="34" rx="6" fill="#78909c" opacity="0.35"/>
-      <text x="714" y="59" fill="#90a4ae" font-size="11" text-anchor="middle" font-weight="700">overshoot</text>
-      <text x="714" y="76" fill="rgba(144,164,174,0.3)" font-size="8" text-anchor="middle">超越</text>
-
-      <!-- r boundary markers -->
-      <text x="40" y="94" fill="rgba(255,255,255,0.32)" font-size="10" text-anchor="middle">r=0</text>
-      <text x="308" y="94" fill="rgba(255,255,255,0.52)" font-size="10" text-anchor="middle">0.50</text>
-      <text x="462" y="94" fill="rgba(255,255,255,0.52)" font-size="10" text-anchor="middle">0.80</text>
-      <text x="558" y="94" fill="rgba(255,255,255,0.52)" font-size="10" text-anchor="middle">0.95</text>
-      <text x="586" y="94" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">1.0 PB!!</text>
-      <text x="615" y="94" fill="rgba(255,255,255,0.52)" font-size="10" text-anchor="middle">1.05</text>
-      <text x="669" y="94" fill="rgba(255,255,255,0.52)" font-size="10" text-anchor="middle">1.15</text>
-      <text x="760" y="94" fill="rgba(255,255,255,0.45)" font-size="10" text-anchor="middle">r→</text>
-
-      <!-- Dashed vertical at PB -->
-      <line x1="586" y1="38" x2="586" y2="100" stroke="rgba(255,183,77,0.25)" stroke-width="1.5" stroke-dasharray="3,3"/>
-
-      <!-- ═══ SIGNAL CURVES ═══ -->
-      <text x="400" y="122" fill="rgba(255,255,255,0.42)" font-size="12" text-anchor="middle" font-weight="600" letter-spacing="0.1em">调制信号曲线</text>
-
-      <!-- pbTension panel -->
-      <rect x="40" y="134" width="345" height="100" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <text x="60" y="150" fill="#ffb74d" font-size="12" font-weight="700">pbTension</text>
-      <text x="60" y="162" fill="rgba(255,255,255,0.2)" font-size="9">sigmoid((r−0.82)/0.08)</text>
-
-      <!-- pbTension curve: approx from x=60 to x=370, y range 170-226 -->
-      <!-- sigmoid rises when approaching r=0.82. In this panel, r ranges roughly 0.4 to 1.0 -->
-      <!-- y=0→226, y=1→170, so y = 226 − val×56 -->
-      <polyline points="
-        60,222
-        100,220
-        140,215
-        180,205
-        200,195
-        210,185
-        220,172
-        230,160
-        250,150
-        270,144
-        300,142
-        340,141
-        370,140
-      " fill="none" stroke="#ffb74d" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="210" y1="134" x2="210" y2="234" stroke="rgba(255,183,77,0.15)" stroke-width="1" stroke-dasharray="2,3"/>
-      <text x="210" y="240" fill="rgba(255,183,77,0.50)" font-size="8" text-anchor="middle">r=0.82</text>
-      <text x="370" y="138" fill="rgba(255,255,255,0.42)" font-size="9" text-anchor="end">r→</text>
-      <text x="44" y="174" fill="rgba(255,255,255,0.52)" font-size="8">1</text>
-      <text x="44" y="222" fill="rgba(255,255,255,0.52)" font-size="8">0</text>
-
-      <!-- pbBrake panel -->
-      <rect x="415" y="134" width="345" height="100" rx="8" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <text x="435" y="150" fill="#ff8a65" font-size="12" font-weight="700">pbBrake</text>
-      <text x="435" y="162" fill="rgba(255,255,255,0.2)" font-size="9">sigmoid((r−1.05)/0.06)</text>
-
-      <!-- pbBrake curve: rises steeply after r=1.05. r ranges ~0.6 to 1.3 -->
-      <polyline points="
-        435,222
-        470,222
-        505,220
-        530,218
-        545,210
-        555,195
-        560,180
-        565,160
-        570,148
-        578,142
-        590,140
-        620,139
-        650,139
-        740,139
-      " fill="none" stroke="#ff8a65" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="558" y1="134" x2="558" y2="234" stroke="rgba(255,138,101,0.15)" stroke-width="1" stroke-dasharray="2,3"/>
-      <text x="558" y="240" fill="rgba(255,138,101,0.3)" font-size="8" text-anchor="middle">r=1.05</text>
-      <text x="745" y="138" fill="rgba(255,255,255,0.42)" font-size="9" text-anchor="end">r→</text>
-      <text x="419" y="174" fill="rgba(255,255,255,0.52)" font-size="8">1</text>
-      <text x="419" y="222" fill="rgba(255,255,255,0.52)" font-size="8">0</text>
-
-      <!-- pbRelease badge -->
-      <rect x="630" y="204" width="120" height="24" rx="12" fill="rgba(186,104,200,0.12)" stroke="rgba(186,104,200,0.2)" stroke-width="1"/>
-      <text x="690" y="220" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="600">pbRelease: 0 / 1 切换</text>
-
-      <!-- ═══ OVERSHOOT BOOST ═══ -->
-      <rect x="40" y="264" width="720" height="56" rx="8" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
-      <text x="60" y="284" fill="#ffb74d" font-size="13" font-weight="700">pbOvershootBoost</text>
-      <text x="60" y="302" fill="rgba(255,255,255,0.5)" font-size="12" font-family="'JetBrains Mono','SF Mono','Fira Code',monospace">boost = 0.16 × log₁₀(1 + 5(r−1)) / log₁₀(6)</text>
-      <text x="60" y="316" fill="rgba(255,255,255,0.2)" font-size="10">r=1.0→0  ·  r=1.25→0.08  ·  r=1.5→0.12  ·  r=2.0→0.16</text>
-
-      <!-- Small overshoot log curve -->
-      <polyline points="
-        540,314
-        560,314
-        580,312
-        600,308
-        620,304
-        640,300
-        660,296
-        680,294
-        700,292
-        740,291
-      " fill="none" stroke="rgba(255,183,77,0.50)" stroke-width="1.5" stroke-linecap="round"/>
-      <text x="700" y="286" fill="rgba(255,183,77,0.40)" font-size="9">对数收敛→0.16</text>
-
-      <!-- extraOrderBoost note -->
-      <text x="60" y="334" fill="rgba(255,255,255,0.2)" font-size="10">extraOrderBoost: orderRigor +0.25 · 收紧可解排列上限</text>
-
-      <!-- pbRelease legend -->
-      <rect x="40" y="346" width="720" height="24" rx="4" fill="rgba(255,255,255,0.02)"/>
-      <text x="400" y="362" fill="rgba(255,255,255,0.32)" font-size="10" text-anchor="middle">4 维调制信号：pbTension · pbBrake · pbRelease · (+ overshootBoost + extraOrderBoost)</text>
-    </svg>
-  </div>
-
-  <h4>pbTension 与 pbBrake 对出块的影响</h4>
-  <div class="table-wrap">
-  <table>
-    <tr><th>spawnTarget 维度</th><th>pbTension 影响</th><th>pbBrake 影响</th><th>pbRelease 影响</th></tr>
-    <tr><td>解空间压力</td><td>+0.06·T</td><td>+0.08·B</td><td>−0.08</td></tr>
-    <tr><td>清行机会</td><td>—</td><td>−0.10·B</td><td>+0.12</td></tr>
-    <tr><td>空间压力</td><td>+0.07·T</td><td>+0.11·B</td><td>−0.10</td></tr>
-    <tr><td>爽感强度</td><td>—</td><td>−0.11·B</td><td>+0.12</td></tr>
-    <tr><td>新鲜度</td><td>—</td><td>+0.05·B</td><td>—</td></tr>
-  </table>
-  </div>
-   <p style="font-size:1.0rem;color:#a0bcd4;">注：T = pbTension, B = pbBrake，值均为 sigmoid 输出 [0,1]</p>
-
-   <h4>pbOvershootBoost：超越 PB 后的对数增压</h4>
-   <p>当 score > PB (r > 1.0) 且 pbTension 已饱和、pbBrake 尚未激活时，pbOvershootBoost 提供额外的对数压力</p>
-  <div class="img-frame" style="padding:12px 20px;background:rgba(0,0,0,0.3)">
-    <svg viewBox="0 0 760 120" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
-      <text x="380" y="18" fill="rgba(255,255,255,0.42)" font-size="12" text-anchor="middle" font-weight="600" letter-spacing="0.1em">pbOvershootBoost: 超越 PB 后的对数增压</text>
-
-      <!-- log curve -->
-      <polyline points="
-        60,100
-        80,100
-        110,98
-        140,95
-        170,90
-        200,84
-        230,78
-        260,72
-        290,66
-        320,60
-        350,56
-        380,52
-        410,49
-        440,46
-        470,44
-        500,42
-        530,41
-        560,40
-        590,39
-        620,38
-        650,37
-        680,37
-        710,36
-      " fill="none" stroke="#ffb74d" stroke-width="2.5" stroke-linecap="round"/>
-
-      <!-- r markers -->
-      <line x1="100" y1="100" x2="100" y2="106" stroke="rgba(255,255,255,0.52)" stroke-width="1"/>
-      <text x="100" y="114" fill="rgba(255,255,255,0.52)" font-size="9" text-anchor="middle">r=1.0</text>
-
-      <line x1="320" y1="60" x2="320" y2="106" stroke="rgba(255,183,77,0.1)" stroke-width="1" stroke-dasharray="2,2"/>
-      <text x="320" y="114" fill="rgba(255,183,77,0.15)" font-size="9" text-anchor="middle">r=1.25</text>
-
-      <line x1="510" y1="42" x2="510" y2="106" stroke="rgba(255,183,77,0.1)" stroke-width="1" stroke-dasharray="2,2"/>
-      <text x="510" y="114" fill="rgba(255,183,77,0.15)" font-size="9" text-anchor="middle">r=1.5</text>
-
-      <text x="710" y="114" fill="rgba(255,255,255,0.06)" font-size="9" text-anchor="end">r→</text>
-
-      <!-- value annotations -->
-      <text x="100" y="96" fill="rgba(255,255,255,0.06)" font-size="8" text-anchor="middle">0</text>
-      <text x="320" y="56" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">0.08</text>
-      <text x="510" y="38" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="700">0.12</text>
-      <text x="700" y="32" fill="#ffb74d" font-size="9" text-anchor="end">→0.16</text>
-    </svg>
-  </div>
-   <p>同时，该状态下 extraOrderBoost 给 orderRigor 增加 +0.25 惩罚，进一步收紧可解排列数上限</p>
-
-   <h4>三条策略交织的工作流</h4>
-  <div class="arch-box">S 曲线  → 目标感知难度 d*(stress)
-                     ↓
-          难度相对论  → 客观出块目标 b*[6]（按玩家 θ⃗ 校准）
-                     ↓
-          PB 曲线    → pbTension/pbBrake/pbRelease 调制 spawnTargets
-                     ↓
-          ScoreStress → baseline stress（S 曲线的实时实现）
-                     ↓
-            10 档 Profile 插值 × 加权抽样 × DFS 验证 → 最终三块</div>
-  <div class="theory-line">
-    <span class="label">理论溯源</span>
-    <div class="row"><span class="s">峰终定律</span>：记忆≈峰值×终末 → PB 曲线的 7 段弧从 warmup 到 overshoot 完整塑造情绪高潮与收尾</div>
-    <div class="row"><span class="s">近失理论</span>：「差一点」驱动重开 → pbBrake 在逼近 PB 时制造可控近失带</div>
-    <div class="row"><span class="s">心流理论</span>：专注·忘我·愉悦 → momentum/fatigue/cooldown 三段管理心流通道不中断</div>
-  </div>
-</section>
-
-<!-- ═══════ 1.4 PRODUCT DESIGN ═══════ -->
-<section class="slide" id="product">
-  <h3><span class="ch">1.4</span> 产品功能设计</h3>
-   <p>S 曲线、难度相对论、双坐标解耦、PB 曲线——这四条策略是「设计蓝图」— 本章展示它们在产品中的<strong>具体落地形态</strong></p>
-
-  <div class="card-row c2">
-    <div class="card accent-b"><div class="tit">压力表</div><div class="desc">S 曲线 + stress → 6 情绪等级 → emoji 面谱 + 叙事</div></div>
-    <div class="card accent-o"><div class="tit">温暖局</div><div class="desc">WarmRun modulator 在 S 曲线基础上钳制 cap</div></div>
-    <div class="card accent-g"><div class="tit">连战弧线</div><div class="desc">RoR Arc 调制 S 曲线的 dScale/dShift/brakeShift</div></div>
-    <div class="card accent-p"><div class="tit">PB 冲刺</div><div class="desc">r_difficulty D0-D4 分段 × Challenge Boost × PEOG</div></div>
-    <div class="card accent-r"><div class="tit">出块意图叙事</div><div class="desc">SpawnIntent 单一口径，stress 到叙事的翻译</div></div>
-    <div class="card accent-b"><div class="tit">策略卡</div><div class="desc">spawnTargets + stressBreakdown 的可视化</div></div>
-  </div>
-
-  <div class="stress-bar">
-    <div class="seg" style="background:#4a90d9;">😌 放松</div>
-    <div class="seg" style="background:#6aadd8;">🙂 舒缓</div>
-    <div class="seg" style="background:#81c784;">😀 心流</div>
-    <div class="seg active" style="background:#ffb74d;color:#fff;">🤔 投入</div>
-    <div class="seg" style="background:#ff8a65;">😰 紧张</div>
-    <div class="seg" style="background:#e57373;">🥵 高压</div>
-  </div>
-   <p style="font-size:1.0rem;color:#a0bcd4;">压力表 6 级映射：从 S 曲线输出的 stress 值，经情绪等级划分 + 基线趋势检测 + 叙事生成，最终呈现为玩家可感知的情绪状态</p>
-
-  <h3><span class="ch">1.4.1</span> 压力表叙事中的策略体现</h3>
-  <p>压力表叙事直接暴露产品的四条策略：</p>
-  <div class="card-row c2">
-    <div class="card"><div class="tit">「盘面整洁，心情舒缓」</div><div class="desc">S 曲线低压段（r &lt; 0.45）+ 难度相对论 low_conf 不激活</div></div>
-    <div class="card"><div class="tit">「动量持续下行，系统已强制 relief 出块」</div><div class="desc">Warm Run 触发 + 难度相对论 bypass（recovery）</div></div>
-    <div class="card"><div class="tit">「挑战与能力匹配，正爽快」</div><div class="desc">S 曲线上升段 + 心流态 + pbPhase=tension 之前</div></div>
-    <div class="card"><div class="tit">「盘面吃紧，留意可消行机会」</div><div class="desc">S 曲线决战段 + pbTension 激活 + boardRisk 高</div></div>
-  </div>
-
-  <h3><span class="ch">1.4.2</span> D0-D4 分段策略</h3>
-  <p>scoreStress 将 S 曲线分段为产品层面更直观的五段体验：</p>
-  <div class="table-wrap">
-  <table>
-    <tr><th>段</th><th>r 范围</th><th>scoreStress 行为</th><th>产品体验</th><th>调控器</th></tr>
-    <tr><td>D0 远征</td><td>&lt;0.50</td><td>×0.4 衰减</td><td>远未达标，轻松探索</td><td>farFromPBBoost、expertEarlyBoost</td></tr>
-    <tr><td>D1 跟随</td><td>0.50-0.80</td><td>线性插值</td><td>稳定上升，进入心流</td><td>sessionArc、WarmRun 渐退</td></tr>
-    <tr><td>D2 临近</td><td>0.80-0.95</td><td>+challengeBoost (≤0.18)</td><td>接近 PB，开始有紧张感</td><td>Challenge Boost、PEOG 渐退</td></tr>
-    <tr><td>D3 决战</td><td>0.95-1.00</td><td>+extremeOrderBoost</td><td>冲击纪录，最紧张的时刻</td><td>pbExtremeOrderBoost、PEOG 解除</td></tr>
-    <tr><td>D4 突破</td><td>&gt;1.00</td><td>extrapolate + pbOvershootBoost</td><td>超越自我，持续挑战</td><td>pbOvershootBoost、dual lock</td></tr>
-  </table>
-  </div>
-
-  <div class="dialog dialog-a">
-    <div class="avatar">A</div><div class="body">
-      <div class="name">算法工程师</div>
-      <div class="text">以上就是产品的策略设计——从 S 曲线的宏观哲学，到难度相对论的中观校准，到 D0-D4 的微观分段 — <strong>每条策略都与多个算法模块直接对应</strong> — 下面进入算法核心部分，详细拆解每个模块的设计与实现</div></div>
-  </div>
-</section>
-
-<!-- ═══════ 4. ALGORITHM CORE ═══════ -->
-<section class="slide" id="algo">
-  <h2><span class="ch">02</span><span class="tt">算法实现</span></h2>
-  <div class="arch-box">┌──────────────────────────────────────────────────────────────┐
-│              OpenBlock 算法实现：4 大模块                        │
-├──────────────────────────────────────────────────────────────┤
-│ 📡 感知层  │  画像系统 — 三阶 EMA · 心流 F(t) · θ⃗ 能力       │
-├─────────────┼────────────────────────────────────────────────┤
-│ 🧠 决策层  │  决策 AI — Stress 引擎 · 10 档 Profile · 调控器   │
-│             │  生成式 AI — SpawnPolicyNet · Transformer · LoRA │
-├─────────────┼────────────────────────────────────────────────┤
-│ 🤖 能力层  │  RL 自博弈 — PPO+GAE · DockBoardAttention · 搜索  │
-└─────────────┴────────────────────────────────────────────────┘</div>
-  <div class="img-frame">
-    <img src="/docs/asset/architecture/assets/architecture-overview.png" alt="Architecture Overview">
-    <div class="cap">全栈架构——数据源 → 规则系统 → 离线模型 → 在线推理 → 监控面板</div>
-  </div>
-  <p style="color:#98b4d0;font-size:1.0rem;margin-top:12px;">每个模块按「设计初衷 → 技术选型 → 特征设计 → 网络结构（如有）→ 核心公式」五个维度详细展开</p>
 </section>
 
 <!-- 4.1 PROFILE -->
 <section class="slide" id="algo-profile">
-  <h3><span class="ch">2.1</span> 画像系统</h3>
+  <h3><span class="ch">2.2</span> 画像系统</h3>
 
   <h4><span class="sec-label sec-rationale">设计初衷</span><span class="sec-label sec-selection">技术选型</span><span class="sec-label sec-feature">特征</span></h4>
 
@@ -2492,7 +1364,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
 <!-- 4.2 DECISION AI -->
 <section class="slide" id="algo-decision">
-  <h3><span class="ch">2.2</span> 决策 AI（SpawnPolicyRules）</h3>
+  <h3><span class="ch">2.3</span> 决策 AI（SpawnPolicyRules）</h3>
 
   <h4>设计初衷</h4>
   <p>决策 AI 承担<strong>默认出块路径</strong>的全部职责 — 设计目标：
@@ -2517,7 +1389,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 </section>
 
 <section class="slide" id="algo-decision-2">
-  <h3><span class="ch">2.2</span> 决策 AI · 特征与权重</h3>
+  <h3><span class="ch">2.3</span> 决策 AI · 特征与权重</h3>
 
   <h4>特征设计：15 维 Stress 信号的选取逻辑</h4>
 
@@ -2694,7 +1566,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 </section>
 
 <section class="slide" id="algo-decision-3">
-  <h3><span class="ch">2.2</span> 决策 AI · 调控与约束</h3>
+  <h3><span class="ch">2.3</span> 决策 AI · 调控与约束</h3>
 
   <h4>调控器设计：四个精密组件的设计意图</h4>
   <div class="card-row c2">
@@ -2777,7 +1649,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
 <!-- 4.3 GENERATIVE AI -->
 <section class="slide" id="algo-genai">
-  <h3><span class="ch">2.3</span> 生成式 AI（SpawnPolicyNet）</h3>
+  <h3><span class="ch">2.4</span> 生成式 AI（SpawnPolicyNet）</h3>
 
   <h4>设计初衷</h4>
   <p>规则引擎虽然稳健，但受限于设计师预设的 10 档 profile — 生成式 AI —— SpawnPolicyNet 的核心目标是<strong>学习规则引擎无法表达的联合分布</strong>：某些盘面 × 画像 × 历史组合下，规则引擎永远给不出最优 dock——不是因为规则不好，而是因为<strong>人类设计师无法预见到所有模式</strong></p>
@@ -3009,7 +1881,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 </section>
 
 <section class="slide" id="algo-genai-2">
-  <h3><span class="ch">2.3</span> 生成式 AI · 预测与训练</h3>
+  <h3><span class="ch">2.4</span> 生成式 AI · 预测与训练</h3>
 
   <h4>Autoregressive 三槽联合预测：为什么不是独立预测？</h4>
   <p>规则引擎中三个槽是独立采样的（抽样后去重），但这忽略了<strong>三块之间的组合约束</strong>——全大块、全小块、全同色都是糟糕组合 — SpawnPolicyNet 采用自回归分解</p>
@@ -3184,7 +2056,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
 <!-- 4.4 RL -->
 <section class="slide" id="algo-rl">
-  <h3><span class="ch">2.4</span> RL 自博弈平台</h3>
+  <h3><span class="ch">2.5</span> RL 自博弈平台</h3>
 
   <h4>设计初衷</h4>
   <p>RL 自博弈平台是整个算法体系的<strong>持续进化引擎</strong>。它不直接影响玩家出块，而是通过自我对弈训练最强 Bot——用于评估算法效果、生成训练数据、为 MCTS 搜索提供价值基准。</p>
@@ -3214,7 +2086,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 </section>
 
 <section class="slide" id="algo-rl-2">
-  <h3><span class="ch">2.4</span> RL 自博弈 · 网络与特征</h3>
+  <h3><span class="ch">2.5</span> RL 自博弈 · 网络与特征</h3>
 
   <h4>网络结构：ConvSharedPolicyValueNet + DockBoardAttention</h4>
 
@@ -3455,7 +2327,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 </section>
 
 <section class="slide" id="algo-rl-3">
-  <h3><span class="ch">2.4</span> RL 自博弈 · 奖励与训练</h3>
+  <h3><span class="ch">2.5</span> RL 自博弈 · 奖励与训练</h3>
 
   <h4>奖励设计：三层塑形 + Ranked Reward</h4>
   <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
@@ -3626,6 +2498,428 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
 <span class="cm">// λ 系数均可在 game_rules 中按需调整</span>
 <span class="cm">// L_distill 为搜索蒸馏可选项，off 时不影响梯度</span></div>
+</section>
+
+<!-- ═══════ 2.5 S-CURVE ═══════ -->
+<section class="slide" id="algo-scurve">
+  <h3><span class="ch">2.6</span> 核心策略二：S 形压力曲线——难度演进的底层哲学</h3>
+
+  <div style="margin-bottom:0.5em;padding:10px 16px;background:rgba(255,255,255,0.02);border-left:3px solid rgba(255,183,77,0.3);border-radius:0 8px 8px 0">
+    <p style="margin:0;color:#b0c8e0;font-size:0.9rem;line-height:1.6">轻松破 PB → 分数只涨不跌 → 成就感快速透支，用户生命被压缩。S 曲线的核心命题是<strong style="color:#ffb74d">让玩家接近 PB 但难以超越，偶有惊喜</strong>：远未达到时平缓低压保成长空间，逼近 PB 时急速上扬制造<strong style="color:#e57373">近失带</strong>——"差一点就破"的张力反复激活<strong style="color:#ffb74d">再来一局</strong>的冲动，超越后对数收敛防止膨胀 — <strong style="color:#7eb8ff">分数可以涨，但难度永远追着分数跑</strong>。</p>
+  </div>
+
+  <div class="img-frame" style="padding:20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 840 480" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs>
+        <linearGradient id="grad1" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#4a9eff"/><stop offset="100%" stop-color="#4a9eff" stop-opacity="0.6"/></linearGradient>
+        <linearGradient id="grad2" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#81c784"/><stop offset="100%" stop-color="#81c784" stop-opacity="0.6"/></linearGradient>
+        <linearGradient id="grad3" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ffb74d"/><stop offset="100%" stop-color="#e57373" stop-opacity="0.6"/></linearGradient>
+        <linearGradient id="grad4" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#ba68c8"/><stop offset="100%" stop-color="#ba68c8" stop-opacity="0.6"/></linearGradient>
+        <filter id="glow1"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+
+      <text x="420" y="35" fill="rgba(255,255,255,0.50)" font-size="15" text-anchor="middle" font-weight="600" letter-spacing="0.02em">S 形压力曲线：连续曲线，从低压巡航到超越饱和</text>
+
+      <line x1="90" y1="50" x2="90" y2="400" stroke="rgba(255,255,255,0.52)" stroke-width="1.5"/>
+      <line x1="90" y1="400" x2="780" y2="400" stroke="rgba(255,255,255,0.52)" stroke-width="1.5"/>
+      <line x1="90" y1="350" x2="780" y2="350" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="300" x2="780" y2="300" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="250" x2="780" y2="250" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="200" x2="780" y2="200" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="150" x2="780" y2="150" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="100" x2="780" y2="100" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="4,4"/>
+      <line x1="90" y1="60" x2="780" y2="60" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="4,4"/>
+
+      <line x1="315" y1="50" x2="315" y2="400" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="3,4"/>
+      <line x1="407" y1="50" x2="407" y2="400" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="3,4"/>
+      <line x1="592" y1="50" x2="592" y2="400" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="3,4"/>
+
+      <text x="420" y="445" fill="rgba(255,255,255,0.42)" font-size="14" text-anchor="middle" font-family="'Inter','Segoe UI','Helvetica Neue',sans-serif">进度比 r (score / PB) →</text>
+      <text x="40" y="220" fill="rgba(255,255,255,0.42)" font-size="14" text-anchor="middle" transform="rotate(-90,40,220)" font-family="'Inter','Segoe UI','Helvetica Neue',sans-serif">目标难度 D →</text>
+
+      <text x="90" y="420" fill="rgba(255,255,255,0.52)" font-size="12" text-anchor="middle">0</text>
+      <text x="315" y="420" fill="rgba(255,255,255,0.52)" font-size="12" text-anchor="middle">0.45</text>
+      <text x="407" y="420" fill="rgba(255,255,255,0.52)" font-size="12" text-anchor="middle">0.65</text>
+      <text x="540" y="420" fill="#ffb74d" font-size="13" text-anchor="middle" font-weight="700">1.0 (PB)</text>
+      <text x="592" y="420" fill="rgba(255,255,255,0.52)" font-size="12" text-anchor="middle">1.15</text>
+      <text x="740" y="420" fill="rgba(255,255,255,0.42)" font-size="12" text-anchor="middle">1.5</text>
+
+      <text x="80" y="404" fill="rgba(255,255,255,0.52)" font-size="12" text-anchor="end">0.0</text>
+      <text x="80" y="354" fill="rgba(255,255,255,0.42)" font-size="11" text-anchor="end">0.1</text>
+      <text x="80" y="254" fill="rgba(255,255,255,0.42)" font-size="11" text-anchor="end">0.5</text>
+      <text x="80" y="104" fill="rgba(255,255,255,0.42)" font-size="11" text-anchor="end">1.0</text>
+
+      <polyline points="90,364 315,361" fill="none" stroke="#4a9eff" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
+      <polyline points="315,361 407,338" fill="none" stroke="#81c784" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
+      <polyline points="407,338 425,332 444,324 462,312 480,295 498,265 516,228 534,185 552,145 570,112 588,90 610,78" fill="none" stroke="#ffb74d" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
+      <polyline points="610,78 635,74 660,71 690,69 720,68 750,68" fill="none" stroke="#ba68c8" stroke-width="3.5" stroke-linecap="round" filter="url(#glow1)"/>
+
+      <line x1="315" y1="361" x2="315" y2="400" stroke="#4a9eff" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.5"/>
+      <line x1="407" y1="338" x2="407" y2="400" stroke="#81c784" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.5"/>
+      <line x1="610" y1="78" x2="610" y2="400" stroke="#ba68c8" stroke-width="1.5" stroke-dasharray="3,3" opacity="0.5"/>
+
+      <text x="75" y="368" fill="#4a9eff" font-size="12" text-anchor="end" font-weight="600">D=0.10</text>
+      <text x="310" y="356" fill="#4a9eff" font-size="12" text-anchor="end" font-weight="600">D=0.11</text>
+      <text x="402" y="333" fill="#81c784" font-size="12" text-anchor="end" font-weight="600">D=0.18</text>
+      <text x="550" y="132" fill="#ffb74d" font-size="13" text-anchor="start" font-weight="700">D≈0.90</text>
+      <text x="615" y="64" fill="#ba68c8" font-size="12" text-anchor="start" font-weight="600">D≈0.98</text>
+
+      <rect x="180" y="375" width="50" height="20" rx="4" fill="rgba(74,158,255,0.15)"/>
+      <text x="205" y="389" fill="#4a9eff" font-size="12" text-anchor="middle" font-weight="700">远征段</text>
+      <rect x="340" y="332" width="50" height="20" rx="4" fill="rgba(129,199,132,0.15)"/>
+      <text x="365" y="346" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">上升段</text>
+      <rect x="500" y="243" width="50" height="20" rx="4" fill="rgba(255,183,77,0.15)"/>
+      <text x="525" y="257" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">决战段</text>
+      <rect x="635" y="82" width="50" height="20" rx="4" fill="rgba(186,104,200,0.15)"/>
+      <text x="660" y="96" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="700">超越段</text>
+
+      <line x1="540" y1="92" x2="540" y2="400" stroke="rgba(255,183,77,0.40)" stroke-width="1.5" stroke-dasharray="6,4"/>
+      <circle cx="540" cy="92" r="5" fill="#ffb74d" opacity="0.8"/>
+      <text x="540" y="410" fill="rgba(255,183,77,0.55)" font-size="10" text-anchor="middle">▲ PB 里程碑</text>
+    </svg>
+  </div>
+</section>
+
+<!-- ═══════ 2.7 SCORE STRESS ═══════ -->
+<section class="slide" id="algo-scorestress">
+  <h3><span class="ch">2.7</span> 核心策略三：S 曲线在产品中的体现——scoreStress</h3>
+
+  <div class="img-frame" style="padding:0 20px 10px 20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs>
+        <marker id="arrWD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.18)"/></marker>
+        <filter id="glowS2"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+
+      <rect x="14" y="24" width="872" height="156" rx="10" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.10)" stroke-width="1"/>
+      <rect x="14" y="24" width="872" height="30" rx="10" fill="rgba(74,158,255,0.04)"/>
+      <text x="450" y="43" fill="#7eb8ff" font-size="14" text-anchor="middle" font-weight="700">① 分数 → 压力映射</text>
+
+      <text x="18" y="101" fill="rgba(255,255,255,0.45)" font-size="11" text-anchor="middle" transform="rotate(-90,18,101)">stress →</text>
+      <text x="260" y="172" fill="rgba(255,255,255,0.35)" font-size="11" text-anchor="end">r →</text>
+
+      <line x1="35" y1="154" x2="260" y2="154" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="35" y1="46" x2="35" y2="154" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+
+      <line x1="30" y1="154" x2="35" y2="154" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="30" y1="127" x2="35" y2="127" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="30" y1="100" x2="35" y2="100" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="30" y1="73" x2="35" y2="73" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="30" y1="46" x2="35" y2="46" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <text x="24" y="158" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="end">0.00</text>
+      <text x="24" y="131" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="end">0.20</text>
+      <text x="24" y="104" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="end">0.40</text>
+      <text x="24" y="77" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="end">0.60</text>
+      <text x="24" y="50" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="end">0.78</text>
+
+      <line x1="35" y1="127" x2="260" y2="127" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="35" y1="100" x2="260" y2="100" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="35" y1="73" x2="260" y2="73" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="35" y1="46" x2="260" y2="46" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="3,3"/>
+
+      <line x1="85" y1="46" x2="85" y2="154" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="2,3"/>
+      <line x1="130" y1="46" x2="130" y2="154" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="2,3"/>
+      <line x1="180" y1="46" x2="180" y2="154" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="2,3"/>
+      <line x1="230" y1="46" x2="230" y2="154" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="2,3"/>
+
+      <polyline points="35,153 45,152 60,151 75,149 89,146 104,139 119,129 134,114 148,95 163,76 178,64 193,56 208,51 223,48 230,46 245,44 260,43" fill="none" stroke="#ffb74d" stroke-width="3" stroke-linecap="round" filter="url(#glowS2)"/>
+
+      <line x1="45" y1="154" x2="45" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="85" y1="154" x2="85" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="130" y1="154" x2="130" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="180" y1="154" x2="180" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="230" y1="154" x2="230" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+      <line x1="260" y1="154" x2="260" y2="159" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+
+      <text x="45" y="170" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">0</text>
+      <text x="85" y="170" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">0.25</text>
+      <text x="130" y="170" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">0.50</text>
+      <text x="180" y="170" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">0.75</text>
+      <text x="230" y="170" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">1.0</text>
+      <text x="260" y="170" fill="rgba(255,255,255,0.30)" font-size="9" text-anchor="middle">1.5</text>
+
+      <rect x="310" y="56" width="270" height="50" rx="7" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="320" y="74" fill="#ffb74d" font-size="12" font-weight="600">PB 校准</text>
+      <text x="320" y="94" fill="rgba(255,255,255,0.50)" font-size="11">新手保底 floor=240 · 高手对数压缩 softCap=1200</text>
+
+      <rect x="310" y="116" width="270" height="50" rx="7" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="320" y="134" fill="#81c784" font-size="12" font-weight="600">前半程衰减</text>
+      <text x="320" y="154" fill="rgba(255,255,255,0.50)" font-size="11">远未达 PB 时压力 × 0.4，保新手成长空间</text>
+
+      <rect x="610" y="61" width="260" height="105" rx="7" fill="rgba(186,104,200,0.02)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
+      <text x="620" y="81" fill="#ba68c8" font-size="12" font-weight="600">milestones 插值表</text>
+      <text x="620" y="102" fill="rgba(255,255,255,0.40)" font-size="11">r (projected): 0 → 0.25 → 0.50 → 0.75 → 1.0</text>
+      <text x="620" y="119" fill="rgba(255,255,255,0.40)" font-size="11">stress: 0 → 0.18 → 0.38 → 0.58 → 0.78</text>
+      <text x="620" y="140" fill="rgba(255,255,255,0.40)" font-size="10">无 PB: score 直查 · 有 PB: score→effectivePB→r</text>
+      <text x="620" y="158" fill="rgba(255,255,255,0.40)" font-size="10">r &lt; 0.5 时 stress × 0.4 (衰减生效)</text>
+
+      <polyline points="450,180 450,194" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2" marker-end="url(#arrWD)"/>
+
+      <rect x="14" y="192" width="872" height="156" rx="10" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.10)" stroke-width="1"/>
+      <rect x="14" y="192" width="872" height="30" rx="10" fill="rgba(255,183,77,0.04)"/>
+      <text x="450" y="211" fill="#ffb74d" font-size="14" text-anchor="middle" font-weight="700">② 实时感知调制</text>
+
+      <rect x="30" y="232" width="280" height="20" rx="10" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <rect x="30" y="232" width="140" height="20" rx="10" fill="#ffb74d" opacity="0.25"/>
+      <text x="170" y="247" fill="rgba(255,255,255,0.30)" font-size="11" text-anchor="middle">基准压力 (scoreStress)</text>
+
+      <rect x="30" y="260" width="130" height="28" rx="5" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.10)" stroke-width="1"/>
+      <text x="95" y="279" fill="#e57373" font-size="11" text-anchor="middle">↑ 逼近 PB +0.18</text>
+      <rect x="170" y="260" width="130" height="28" rx="5" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.10)" stroke-width="1"/>
+      <text x="235" y="279" fill="#e57373" font-size="11" text-anchor="middle">↑ 超越 PB +0.12</text>
+
+      <rect x="30" y="296" width="130" height="28" rx="5" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
+      <text x="95" y="315" fill="#81c784" font-size="11" text-anchor="middle">↓ 挫败救济 −0.18</text>
+      <rect x="170" y="296" width="130" height="28" rx="5" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
+      <text x="235" y="315" fill="#81c784" font-size="11" text-anchor="middle">↓ 恢复 −0.20</text>
+
+      <rect x="320" y="230" width="260" height="50" rx="7" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+      <text x="330" y="248" fill="rgba(255,255,255,0.40)" font-size="12" font-weight="600">更多调制信号</text>
+      <text x="330" y="268" fill="rgba(255,255,255,0.35)" font-size="11">近失 −0.10 · 技能 ±0.15 · 心流</text>
+      <text x="330" y="282" fill="rgba(255,255,255,0.25)" font-size="10">局间弧线 · 节奏 · 盘面风险 · 连击 · 疲劳…</text>
+
+      <rect x="320" y="288" width="260" height="46" rx="7" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+      <text x="330" y="306" fill="rgba(255,255,255,0.40)" font-size="12" font-weight="600">串级调制管线</text>
+      <rect x="330" y="316" width="54" height="18" rx="4" fill="rgba(74,158,255,0.05)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="357" y="329" fill="rgba(74,158,255,0.50)" font-size="10" text-anchor="middle">上限</text>
+      <text x="390" y="329" fill="rgba(255,255,255,0.10)" font-size="10">→</text>
+      <rect x="400" y="316" width="54" height="18" rx="4" fill="rgba(255,183,77,0.05)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="427" y="329" fill="rgba(255,183,77,0.50)" font-size="10" text-anchor="middle">增压</text>
+      <text x="460" y="329" fill="rgba(255,255,255,0.10)" font-size="10">→</text>
+      <rect x="470" y="316" width="54" height="18" rx="4" fill="rgba(129,199,132,0.05)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="497" y="329" fill="rgba(129,199,132,0.50)" font-size="10" text-anchor="middle">限幅</text>
+      <text x="530" y="329" fill="rgba(255,255,255,0.10)" font-size="10">→</text>
+      <rect x="540" y="316" width="36" height="18" rx="4" fill="rgba(186,104,200,0.05)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="558" y="329" fill="rgba(186,104,200,0.50)" font-size="10" text-anchor="middle">平滑</text>
+
+      <rect x="610" y="230" width="260" height="50" rx="7" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.05)" stroke-width="1"/>
+      <text x="620" y="248" fill="rgba(74,158,255,0.40)" font-size="11">输入源</text>
+      <text x="620" y="268" fill="rgba(255,255,255,0.40)" font-size="11">能力画像 · 盘面拓扑 · 实时状态</text>
+
+      <rect x="610" y="288" width="260" height="46" rx="7" fill="rgba(186,104,200,0.04)" stroke="#ba68c8" stroke-width="1"/>
+      <text x="740" y="307" fill="#ba68c8" font-size="13" text-anchor="middle" font-weight="700">调制后 finalStress</text>
+      <text x="740" y="324" fill="rgba(186,104,200,0.35)" font-size="10" text-anchor="middle">clamp(−0.2, 1) → EMA 平滑 → normalize</text>
+
+      <polyline points="450,348 450,360" fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2" marker-end="url(#arrWD)"/>
+
+      <rect x="14" y="360" width="872" height="140" rx="10" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
+      <rect x="14" y="360" width="872" height="30" rx="10" fill="rgba(129,199,132,0.04)"/>
+      <text x="450" y="379" fill="#81c784" font-size="14" text-anchor="middle" font-weight="700">③ 驱动出块</text>
+
+      <rect x="22" y="400" width="270" height="94" rx="7" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="157" y="418" fill="#4a9eff" font-size="12" text-anchor="middle" font-weight="600">stress 低 → 简单块为主</text>
+      <g transform="translate(37.5,439)">
+        <rect width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+        <rect x="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+        <rect x="18" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+        <rect x="27" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+      </g>
+      <g transform="translate(81.5,437.5)">
+        <rect width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+        <rect x="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+        <rect y="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+        <rect x="9" y="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+      </g>
+      <g transform="translate(107,436.5)">
+        <rect width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+        <rect x="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+        <rect x="18" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+        <rect y="9" width="8" height="8" rx="1" fill="#4a9eff" opacity="0.7"/>
+      </g>
+      <text x="200" y="447" fill="rgba(74,158,255,0.35)" font-size="11" text-anchor="middle">易放形状 · 避免压力陡增</text>
+      <text x="200" y="464" fill="rgba(74,158,255,0.20)" font-size="10" text-anchor="middle">保障玩家操作空间</text>
+
+      <rect x="306" y="400" width="270" height="94" rx="7" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="441" y="418" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="600">stress 中 → 混合配平</text>
+      <g transform="translate(320,436.5)">
+        <rect width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+        <rect x="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+        <rect x="18" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+        <rect x="9" y="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+      </g>
+      <g transform="translate(352,438.5)">
+        <rect x="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+        <rect x="18" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+        <rect y="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+        <rect x="9" y="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+      </g>
+      <g transform="translate(382,438.5)">
+        <rect width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+        <rect x="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+        <rect x="18" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+        <rect x="18" y="9" width="8" height="8" rx="1" fill="#ffb74d" opacity="0.7"/>
+      </g>
+      <text x="490" y="447" fill="rgba(255,183,77,0.35)" font-size="11" text-anchor="middle">按难度权重动态组合</text>
+      <text x="490" y="464" fill="rgba(255,183,77,0.20)" font-size="10" text-anchor="middle">多维度平衡出块策略</text>
+
+      <rect x="590" y="400" width="282" height="94" rx="7" fill="rgba(229,115,115,0.03)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
+      <text x="731" y="418" fill="#e57373" font-size="12" text-anchor="middle" font-weight="600">stress 高 → 复杂块 + 顺序约束</text>
+      <g transform="translate(610,440.5)">
+        <rect width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+        <rect x="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+        <rect x="18" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+        <rect x="9" y="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+      </g>
+      <g transform="translate(645,441.5)">
+        <rect x="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+        <rect x="18" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+        <rect y="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+        <rect x="9" y="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+      </g>
+      <g transform="translate(677,441.5)">
+        <rect width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+        <rect x="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+        <rect x="9" y="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+        <rect x="18" y="9" width="8" height="8" rx="1" fill="#e57373" opacity="0.7"/>
+      </g>
+      <text x="800" y="448" fill="rgba(229,115,115,0.35)" font-size="11" text-anchor="middle">高阶块 + 出块顺序约束</text>
+      <text x="800" y="465" fill="rgba(229,115,115,0.20)" font-size="10" text-anchor="middle">提升压力 · 降低容错</text>
+
+      <rect x="22" y="478" width="850" height="18" rx="5" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.02)" stroke-width="1"/>
+      <text x="447" y="492" fill="rgba(255,255,255,0.30)" font-size="11" text-anchor="middle">stress 越高 → 块越难放 · 顺序越死 · 容错越低 &nbsp;&nbsp;|&nbsp;&nbsp; stress 低 → 送简单块保成长空间</text>
+    </svg>
+  </div>
+
+  <div class="theory-line">
+    <span class="label">理论溯源</span>
+    <div class="row"><span class="s">心流理论</span>：挑战≈能力 → 难度永远追着分数跑，不让技能溢出心流区</div>
+    <div class="row"><span class="s">唤醒曲线</span>：倒U最优唤醒 → 决战段推高压力到顶点</div>
+    <div class="row"><span class="s">习得性无助</span>：挫败累积→放弃 → 远征段低压送爽，保护新手期</div>
+  </div>
+</section>
+
+<!-- ═══════ 2.8 ARC-AWARE ═══════ -->
+<section class="slide" id="algo-arcaware">
+  <h3><span class="ch">2.8</span> 核心策略四：Arc-Aware S 曲线——局间弧线的调制</h3>
+
+  <div class="img-frame" style="padding:0 20px 8px 20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 900 510" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs>
+        <marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.25)"/></marker>
+      </defs>
+
+      <rect x="14" y="20" width="872" height="100" rx="10" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="450" y="38" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="700">① 五档 RunOverRunArc（优先级决策）</text>
+
+      <rect x="24" y="52" width="145" height="56" rx="7" fill="rgba(74,158,255,0.06)" stroke="#4a9eff" stroke-width="1.2" stroke-opacity="0.4"/>
+      <text x="97" y="70" fill="#7eb8ff" font-size="13" text-anchor="middle" font-weight="700">开局</text>
+      <text x="97" y="86" fill="rgba(126,184,255,0.50)" font-size="10" text-anchor="middle">dScale=0.90</text>
+      <text x="97" y="99" fill="rgba(126,184,255,0.30)" font-size="8" text-anchor="middle">首局或空闲</text>
+      <text x="179" y="82" fill="rgba(255,255,255,0.15)" font-size="14" text-anchor="middle">…</text>
+
+      <rect x="198" y="52" width="145" height="56" rx="7" fill="rgba(129,199,132,0.06)" stroke="#81c784" stroke-width="1.2" stroke-opacity="0.4"/>
+      <text x="271" y="70" fill="#81c784" font-size="13" text-anchor="middle" font-weight="700">推进</text>
+      <text x="271" y="86" fill="rgba(129,199,132,0.50)" font-size="10" text-anchor="middle">无调制</text>
+      <text x="271" y="99" fill="rgba(129,199,132,0.30)" font-size="8" text-anchor="middle">第2-3局</text>
+      <text x="353" y="82" fill="rgba(255,255,255,0.15)" font-size="14" text-anchor="middle">…</text>
+
+      <rect x="372" y="52" width="145" height="56" rx="7" fill="rgba(255,183,77,0.06)" stroke="#ffb74d" stroke-width="1.2" stroke-opacity="0.4"/>
+      <text x="445" y="70" fill="#ffb74d" font-size="13" text-anchor="middle" font-weight="700">巅峰</text>
+      <text x="445" y="86" fill="rgba(255,183,77,0.50)" font-size="10" text-anchor="middle">无调制</text>
+      <text x="445" y="99" fill="rgba(255,183,77,0.30)" font-size="8" text-anchor="middle">第4-5局</text>
+      <text x="527" y="82" fill="rgba(255,255,255,0.15)" font-size="14" text-anchor="middle">…</text>
+
+      <rect x="546" y="52" width="145" height="56" rx="7" fill="rgba(229,115,115,0.06)" stroke="#e57373" stroke-width="1.2" stroke-opacity="0.4"/>
+      <text x="619" y="70" fill="#e57373" font-size="13" text-anchor="middle" font-weight="700">疲劳</text>
+      <text x="619" y="86" fill="rgba(229,115,115,0.50)" font-size="10" text-anchor="middle">85% 力度 · 延后压力</text>
+      <text x="619" y="99" fill="rgba(229,115,115,0.30)" font-size="8" text-anchor="middle">≥6局或连败</text>
+      <text x="701" y="82" fill="rgba(255,255,255,0.15)" font-size="14" text-anchor="middle">…</text>
+
+      <rect x="720" y="52" width="152" height="56" rx="7" fill="rgba(186,104,200,0.06)" stroke="#ba68c8" stroke-width="1.2" stroke-opacity="0.4"/>
+      <text x="796" y="70" fill="#ba68c8" font-size="13" text-anchor="middle" font-weight="700">保护</text>
+      <text x="796" y="86" fill="rgba(186,104,200,0.50)" font-size="10" text-anchor="middle">75% 力度 · 最大延迟</text>
+      <text x="796" y="99" fill="rgba(186,104,200,0.30)" font-size="8" text-anchor="middle">赌气链≥2次</text>
+
+      <rect x="14" y="132" width="872" height="210" rx="10" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="450" y="150" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">② S 曲线变形效果</text>
+
+      <rect x="40" y="162" width="360" height="168" rx="6" fill="rgba(0,0,0,0.25)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+
+      <line x1="52" y1="325" x2="388" y2="325" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+      <line x1="52" y1="285" x2="388" y2="285" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="52" y1="245" x2="388" y2="245" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="52" y1="205" x2="388" y2="205" stroke="rgba(255,255,255,0.04)" stroke-width="1" stroke-dasharray="3,3"/>
+      <line x1="52" y1="165" x2="388" y2="165" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+
+      <text x="18" y="250" fill="rgba(255,255,255,0.40)" font-size="10" text-anchor="middle" transform="rotate(-90,18,250)">目标难度 D →</text>
+      <text x="390" y="334" fill="rgba(255,255,255,0.40)" font-size="10" text-anchor="end">r (分数/PB) →</text>
+
+      <text x="45" y="329" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="end">0</text>
+      <text x="45" y="289" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="end">0.25</text>
+      <text x="45" y="249" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="end">0.5</text>
+      <text x="45" y="209" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="end">0.75</text>
+      <text x="45" y="169" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="end">1.0</text>
+      <text x="164" y="332" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">0.5</text>
+      <text x="276" y="332" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">1.0</text>
+      <text x="388" y="332" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">1.5</text>
+
+      <polyline id="curve-baseline" fill="none" stroke="rgba(255,255,255,0.70)" stroke-width="2.5" stroke-linecap="round"/>
+      <polyline id="curve-opener" fill="none" stroke="#4a9eff" stroke-width="2" stroke-linecap="round" stroke-dasharray="6,4"/>
+      <polyline id="curve-fatigue" fill="none" stroke="#ffb74d" stroke-width="2" stroke-linecap="round" stroke-dasharray="3,4"/>
+      <polyline id="curve-cooldown" fill="none" stroke="#e57373" stroke-width="2" stroke-linecap="round" stroke-dasharray="2,4"/>
+
+      <line x1="276" y1="165" x2="276" y2="330" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="3,4"/>
+      <text x="276" y="162" fill="rgba(255,255,255,0.40)" font-size="8" text-anchor="middle">r=1.0</text>
+
+      <rect x="420" y="168" width="210" height="126" rx="7" fill="rgba(0,0,0,0.15)" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+      <text x="525" y="186" fill="rgba(255,255,255,0.30)" font-size="10" text-anchor="middle" font-weight="600">曲线图例</text>
+      <line x1="428" y1="201" x2="468" y2="201" stroke="rgba(255,255,255,0.70)" stroke-width="2.5"/>
+      <text x="476" y="205" fill="rgba(255,255,255,0.45)" font-size="10">推进 / 巅峰 (基线)</text>
+      <line x1="428" y1="219" x2="468" y2="219" stroke="#4a9eff" stroke-width="2" stroke-dasharray="6,4"/>
+      <text x="476" y="223" fill="#7eb8ff" font-size="10">开局 → 90% 缩放</text>
+      <line x1="428" y1="237" x2="468" y2="237" stroke="#ffb74d" stroke-width="2" stroke-dasharray="3,4"/>
+      <text x="476" y="241" fill="#ffb74d" font-size="10">疲劳 → 85% + 制动右移 (全向减压)</text>
+      <line x1="428" y1="255" x2="468" y2="255" stroke="#e57373" stroke-width="2" stroke-dasharray="2,4"/>
+      <text x="476" y="259" fill="#e57373" font-size="10">冷却 → 75% + 制动极右 (全向减压)</text>
+      <text x="420" y="280" fill="rgba(255,255,255,0.35)" font-size="9">r=1.0 (分数=PB) 时四种曲线 D 值：</text>
+      <text x="420" y="294" fill="rgba(255,255,255,0.40)" font-size="9">基线 ~0.90 · 开局 ~0.81 · 疲劳 ~0.30 · 冷却 ~0.15</text>
+
+      <rect x="650" y="168" width="230" height="162" rx="7" fill="rgba(186,104,200,0.02)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="765" y="186" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="600">三元组调制机制</text>
+      <rect x="660" y="194" width="210" height="35" rx="5" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="668" y="210" fill="#7eb8ff" font-size="11" font-weight="600">dScale</text>
+      <text x="740" y="210" fill="rgba(255,255,255,0.45)" font-size="10">整条曲线按比例缩放</text>
+      <text x="668" y="223" fill="rgba(255,255,255,0.25)" font-size="9">D' = D × dScale (0.75~1.00)</text>
+      <rect x="660" y="236" width="210" height="35" rx="5" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
+      <text x="668" y="252" fill="#81c784" font-size="11" font-weight="600">dShift</text>
+      <text x="740" y="252" fill="rgba(255,255,255,0.45)" font-size="10">整体向下偏移</text>
+      <text x="668" y="265" fill="rgba(255,255,255,0.25)" font-size="9">D'' = D' + dShift (−0.03~−0.05)</text>
+      <rect x="660" y="278" width="210" height="42" rx="5" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
+      <text x="668" y="294" fill="#ffb74d" font-size="11" font-weight="600">brakeShift</text>
+      <text x="740" y="294" fill="rgba(255,255,255,0.45)" font-size="10">延后压力施加点</text>
+      <text x="668" y="308" fill="rgba(255,255,255,0.25)" font-size="9">fatigue +0.15 / cooldown +0.20 · 让玩家接近 PB 才感到压力</text>
+
+      <rect x="14" y="360" width="872" height="46" rx="8" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
+      <text x="24" y="378" fill="#81c784" font-size="11" font-weight="600">数据流</text>
+      <text x="24" y="395" fill="rgba(255,255,255,0.30)" font-size="10">今日局次 + 胜负历史 → 优先级决策 deriveRunOverRunArc → RoR arc ∈ {opener/momentum/peak/fatigue/cooldown} → targetSCurveByArc(r, arc) 施用三元组 → D 曲线形变 → 出块策略</text>
+
+      <rect x="14" y="416" width="872" height="72" rx="8" fill="rgba(74,158,255,0.01)" stroke="rgba(74,158,255,0.04)" stroke-width="1"/>
+      <text x="24" y="434" fill="#7eb8ff" font-size="11" font-weight="600">三层调制矩阵</text>
+      <rect x="24" y="444" width="270" height="34" rx="5" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="159" y="458" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">① RoR Arc 三元组 (dScale·D+dShift+brakeShift右移)</text>
+      <text x="159" y="471" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">targetSCurveByArc — 难度曲线形变核心</text>
+      <rect x="306" y="444" width="270" height="34" rx="5" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
+      <text x="441" y="458" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">② 生命周期上限修正 (capScale)</text>
+      <text x="441" y="471" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">cap×0.70~1.00 · adjust−0.15~0</text>
+      <rect x="588" y="444" width="284" height="34" rx="5" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
+      <text x="730" y="458" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">③ 局内会话弧 (sessionArc, 独立决策)</text>
+      <text x="730" y="471" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">warmup(≤3轮) / peak / cooldown(late) · 选择出块策略</text>
+    </svg>
+  </div>
+
+  <div class="theory-line">
+    <span class="label">关键澄清</span>
+    <div class="row"><span class="s">五阶段非线性</span>：不是「必然的线性流程」，而是基于<strong>优先级决策树</strong>（cooldown > fatigue-loss > opener > fatigue-index > peak > momentum）。例：今日首局若连败≥3 局会被判 fatigue 而非 opener；赌气链≥2 次会被判 cooldown 保护</div>
+    <div class="row"><span class="s">RoR Arc vs sessionArc</span>：runOverRunArc 是<strong>跨局情绪管理</strong>（日维度，影响难度曲线），sessionArc 是<strong>局内节奏驾驭</strong>（单局维度，影响出块策略选择），两者独立派生、无因果链</div>
+    <div class="row"><span class="s">brakeShift 的设计原则</span>：「尊重疲劳，不是放大疲劳」— dScale 降压(×0.85/0.75)，dShift 微调(-0.03/-0.05)，但<strong>brakeShift 延后压力施加时机</strong>（+0.15/+0.20），让玩家接近 PB 时才感到最大压力而非刚开局就被压垮</div>
+  </div>
+
+  <div class="theory-line">
+    <span class="label">理论溯源</span>
+    <div class="row"><span class="s">唤醒曲线</span>：连续多局唤醒基线右移 → 后半程推后压力爆发，疲劳期依赖 PB 本身创造兴奋</div>
+    <div class="row"><span class="s">SDT 自主性</span>：感知局间节奏变化 → 玩家感觉「系统在配合我」，产生自主感与掌控感</div>
+    <div class="row"><span class="s">习惯化</span>：重复刺激唤醒递减 → 多局后需要更强信号触发同样唤醒，cooldown 主动降低刺激强度</div>
+  </div>
 </section>
 
 <!-- ═══════ III. COMMERCIAL ═══════ -->
@@ -4248,13 +3542,18 @@ if <span class="hl2">unifiedRisk</span> ≥ 0.75 → <span class="hl4">suppress<
     nextBtn.style.opacity = current===total-1 ? '0.2' : '1';
   }
 
+  let lastNav = 0;
   function goTo(idx){
+    const now = Date.now();
+    if(now - lastNav < 500) return;
+    lastNav = now;
     if(idx<0 || idx>=total) return;
     current = idx;
     slides[current].scrollIntoView({behavior:'smooth', block:'start'});
     update();
   }
-  window.navigateToSlide = function(id){
+  window.navigateToSlide = function(id, e){
+    if(e) e.stopPropagation();
     const idx = slides.findIndex(el => el.id === id);
     if(idx>=0) goTo(idx);
   };
