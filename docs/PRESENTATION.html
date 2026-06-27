@@ -1973,7 +1973,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   </div>
 
   <div class="img-frame" style="padding:16px 20px;background:rgba(0,0,0,0.35);text-align:center">
-    <svg viewBox="0 0 880 460" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+    <svg viewBox="0 0 880 490" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
       <defs>
         <linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(74,158,255,0.12)"/><stop offset="100%" stop-color="rgba(74,158,255,0.04)"/></linearGradient>
         <linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(255,183,77,0.10)"/><stop offset="100%" stop-color="rgba(255,183,77,0.03)"/></linearGradient>
@@ -1988,101 +1988,111 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
       <text x="440" y="20" fill="rgba(255,255,255,0.30)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.12em">SpawnParamTunerTransformer  ·  ~200K params</text>
 
       <!-- ═══════ L1: INPUT ═══════ -->
-      <rect x="30" y="32" width="820" height="68" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <text x="50" y="50" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">INPUT  (68 维)</text>
+      <rect x="30" y="32" width="820" height="92" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="50" y="50" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">INPUT  (32 + 27 + 9 = 68 维)</text>
 
-      <rect x="50" y="58" width="340" height="32" rx="6" fill="url(#bg1)" stroke="rgba(74,158,255,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
-      <text x="220" y="70" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="700">context(32)</text>
-      <text x="220" y="83" fill="rgba(255,255,255,0.30)" font-size="7.5" text-anchor="middle">diff₃→₄  gen₂→₄  bot₄→₄  pb₅→₈  life₄→₈  logPB→₄</text>
+      <rect x="50" y="58" width="210" height="56" rx="6" fill="url(#bg1)" stroke="rgba(74,158,255,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
+      <text x="155" y="72" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="700">context(32)</text>
+      <text x="155" y="84" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">diff₃→₄  gen₂→₄  bot₄→₄</text>
+      <text x="155" y="96" fill="rgba(255,255,255,0.25)" font-size="7" text-anchor="middle">pb₅→₈  life₄→₈  logPB→₄</text>
 
-      <rect x="420" y="58" width="410" height="32" rx="6" fill="url(#bg2)" stroke="rgba(255,183,77,0.20)" stroke-width="1.2" filter="url(#sf2)"/>
-      <text x="625" y="70" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">theta(36) — 9 组 spawn 参数</text>
-      <text x="625" y="83" fill="rgba(255,255,255,0.30)" font-size="7.5" text-anchor="middle">A(5)个性化·B(4)PB张力·C(8)评分加权·D(5)压力翻译·E(5)挑战弯折·F(2)顺序·G(2)构造·H(2)解空间·I(3)节奏</text>
+      <rect x="290" y="58" width="330" height="56" rx="6" fill="url(#bg2)" stroke="rgba(255,183,77,0.20)" stroke-width="1.2" filter="url(#sf2)"/>
+      <text x="455" y="72" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">theta(27)</text>
+      <text x="455" y="83" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">personalization₅  pbTension₄  scoring₈  translation₅  challenge₅</text>
+      <text x="455" y="93" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pers·temp·surp·cool·mEval₅  pbTC·pbTW·pbBC·pbBW₄</text>
+      <text x="455" y="101" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pcW·mcF·nearF·eFit·mFlush·pW·sPref·divP₈</text>
+      <text x="455" y="108" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">cpx·cRlf·sol·pbTWt·pbBWt₅  chSlp·chCap·pOv·rls·farPB₅</text>
 
-      <text x="440" y="115" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
+      <rect x="640" y="58" width="190" height="56" rx="6" fill="url(#bg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2" filter="url(#sf2)"/>
+      <text x="735" y="72" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">spawn(9)</text>
+      <text x="735" y="84" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">order₂  constructive₂  solution₂  special₃</text>
+      <text x="735" y="96" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">ordR·ordBud₂  cCmp·crwM₂</text>
+      <text x="735" y="107" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">shCpx·solSp₂  rlfQt·prsQt·mfCap₃</text>
+
+      <text x="440" y="138" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
 
       <!-- ═══════ L2: PROJECTION & POS ENC ═══════ -->
-      <rect x="30" y="122" width="820" height="54" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <text x="50" y="140" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">PROJECTION + POSITIONAL ENCODING</text>
+      <rect x="30" y="146" width="820" height="54" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="50" y="164" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">PROJECTION + POSITIONAL ENCODING</text>
 
-      <rect x="50" y="148" width="780" height="22" rx="4" fill="url(#bg2)" stroke="rgba(255,183,77,0.10)" stroke-width="1"/>
-      <text x="440" y="163" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="600">condition_proj: Linear(68→128) + unsqueeze(B,20,128) + learnable pos_emb(20,128)</text>
+      <rect x="50" y="172" width="780" height="22" rx="4" fill="url(#bg2)" stroke="rgba(255,183,77,0.10)" stroke-width="1"/>
+      <text x="440" y="187" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="600">condition_proj: Linear(68→128) + unsqueeze(B,20,128) + learnable pos_emb(20,128)</text>
 
-      <text x="440" y="191" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
+      <text x="440" y="215" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
 
       <!-- ═══════ L3: TRANSFORMER ENCODER ═══════ -->
-      <rect x="30" y="198" width="820" height="112" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <text x="50" y="216" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">TRANSFORMER ENCODER</text>
+      <rect x="30" y="222" width="820" height="112" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="50" y="240" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">TRANSFORMER ENCODER</text>
 
-      <rect x="100" y="224" width="680" height="76" rx="10" fill="url(#bg2)" stroke="rgba(255,183,77,0.12)" stroke-width="1.5" filter="url(#sf2)"/>
-      <text x="440" y="244" fill="#ffb74d" font-size="13" text-anchor="middle" font-weight="700">TransformerEncoder  × 4  layers</text>
+      <rect x="100" y="248" width="680" height="76" rx="10" fill="url(#bg2)" stroke="rgba(255,183,77,0.12)" stroke-width="1.5" filter="url(#sf2)"/>
+      <text x="440" y="268" fill="#ffb74d" font-size="13" text-anchor="middle" font-weight="700">TransformerEncoder  × 4  layers</text>
 
-      <rect x="565" y="232" width="40" height="18" rx="9" fill="rgba(255,183,77,0.15)" stroke="rgba(255,183,77,0.40)" stroke-width="1"/>
-      <text x="585" y="245" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">×4</text>
+      <rect x="565" y="244" width="40" height="18" rx="9" fill="rgba(255,183,77,0.15)" stroke="rgba(255,183,77,0.40)" stroke-width="1"/>
+      <text x="585" y="257" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">×4</text>
 
       <!-- MHA box -->
-      <rect x="130" y="256" width="270" height="22" rx="4" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="265" y="271" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="600">Multi-Head Self-Attention</text>
+      <rect x="130" y="280" width="270" height="22" rx="4" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="265" y="295" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="600">Multi-Head Self-Attention</text>
 
       <!-- details -->
-      <text x="410" y="271" fill="rgba(255,255,255,0.12)" font-size="9">4 heads  ·  d_model=128</text>
+      <text x="410" y="295" fill="rgba(255,255,255,0.12)" font-size="9">4 heads  ·  d_model=128</text>
 
-      <text x="265" y="294" fill="rgba(255,255,255,0.06)" font-size="7.5" text-anchor="middle">norm_first=True</text>
+      <text x="265" y="318" fill="rgba(255,255,255,0.06)" font-size="7.5" text-anchor="middle">norm_first=True</text>
 
       <!-- FFN box -->
-      <rect x="420" y="256" width="170" height="22" rx="4" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="505" y="271" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="600">FFN</text>
+      <rect x="420" y="280" width="170" height="22" rx="4" fill="rgba(255,183,77,0.06)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="505" y="295" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="600">FFN</text>
 
-      <text x="510" y="287" fill="rgba(255,255,255,0.12)" font-size="8">128  ·  GELU</text>
+      <text x="510" y="311" fill="rgba(255,255,255,0.12)" font-size="8">128  ·  GELU</text>
 
-      <text x="600" y="285" fill="rgba(255,255,255,0.35)" font-size="9">dropout=0.1</text>
+      <text x="600" y="309" fill="rgba(255,255,255,0.35)" font-size="9">dropout=0.1</text>
 
-      <text x="440" y="325" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
+      <text x="440" y="349" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
 
       <!-- ═══════ L4: OUTPUT HEADS ═══════ -->
-      <rect x="30" y="332" width="820" height="118" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <text x="50" y="350" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">OUTPUT HEADS  (8 heads: 3 curve + 5 auxiliary)</text>
+      <rect x="30" y="356" width="820" height="118" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="50" y="374" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">OUTPUT HEADS  (8 heads: 3 curve + 5 auxiliary)</text>
 
       <!-- Per-position curves -->
-      <text x="200" y="366" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle" letter-spacing="0.08em">CURVE HEADS  —  Linear(128→1) per head  ·  20 bins</text>
+      <text x="200" y="390" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle" letter-spacing="0.08em">CURVE HEADS  —  Linear(128→1) per head  ·  20 bins</text>
 
-      <rect x="70" y="376" width="120" height="28" rx="5" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
-      <text x="130" y="390" fill="#81c784" font-size="10" text-anchor="middle" font-weight="700">D(r) curve</text>
-      <text x="130" y="400" fill="rgba(129,199,132,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
+      <rect x="70" y="400" width="120" height="28" rx="5" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
+      <text x="130" y="414" fill="#81c784" font-size="10" text-anchor="middle" font-weight="700">D(r) curve</text>
+      <text x="130" y="424" fill="rgba(129,199,132,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
 
-      <rect x="210" y="376" width="120" height="28" rx="5" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
-      <text x="270" y="390" fill="#81c784" font-size="10" text-anchor="middle" font-weight="700">E(r) curve_e</text>
-      <text x="270" y="400" fill="rgba(129,199,132,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
+      <rect x="210" y="400" width="120" height="28" rx="5" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
+      <text x="270" y="414" fill="#81c784" font-size="10" text-anchor="middle" font-weight="700">E(r) curve_e</text>
+      <text x="270" y="424" fill="rgba(129,199,132,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
 
-      <rect x="350" y="376" width="120" height="28" rx="5" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
-      <text x="410" y="390" fill="#81c784" font-size="10" text-anchor="middle" font-weight="700">F(r) curve_f</text>
-      <text x="410" y="400" fill="rgba(129,199,132,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
+      <rect x="350" y="400" width="120" height="28" rx="5" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
+      <text x="410" y="414" fill="#81c784" font-size="10" text-anchor="middle" font-weight="700">F(r) curve_f</text>
+      <text x="410" y="424" fill="rgba(129,199,132,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
 
       <!-- Auxiliary heads -->
-      <text x="660" y="366" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle" letter-spacing="0.08em">AUXILIARY  (pooled B,128)  —  Linear(128→1)</text>
+      <text x="660" y="390" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle" letter-spacing="0.08em">AUXILIARY  (pooled B,128)  —  Linear(128→1)</text>
 
-      <rect x="530" y="376" width="100" height="28" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
-      <text x="580" y="390" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">pb_broke</text>
-      <text x="580" y="400" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
+      <rect x="530" y="400" width="100" height="28" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
+      <text x="580" y="414" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">pb_broke</text>
+      <text x="580" y="424" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
 
-      <rect x="640" y="376" width="100" height="28" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
-      <text x="690" y="390" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">noMove</text>
-      <text x="690" y="400" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
+      <rect x="640" y="400" width="100" height="28" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
+      <text x="690" y="414" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">noMove</text>
+      <text x="690" y="424" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
 
-      <rect x="530" y="412" width="100" height="28" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
-      <text x="580" y="426" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">score</text>
-      <text x="580" y="436" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">linear</text>
+      <rect x="530" y="436" width="100" height="28" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
+      <text x="580" y="450" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">score</text>
+      <text x="580" y="460" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">linear</text>
 
-      <rect x="640" y="412" width="100" height="28" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
-      <text x="690" y="426" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">survival</text>
-      <text x="690" y="436" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
+      <rect x="640" y="436" width="100" height="28" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
+      <text x="690" y="450" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">survival</text>
+      <text x="690" y="460" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
 
-      <rect x="750" y="376" width="80" height="28" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
-      <text x="790" y="390" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">r_value</text>
-      <text x="790" y="400" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">2.0×sig</text>
+      <rect x="750" y="400" width="80" height="28" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
+      <text x="790" y="414" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">r_value</text>
+      <text x="790" y="424" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">2.0×sig</text>
 
       <!-- Loss label -->
-      <text x="660" y="448" fill="rgba(255,255,255,0.18)" font-size="8" text-anchor="middle">训练: 17 项加权损失 · 多起点寻优 · 输出 → policies.json (480 contexts)</text>
+      <text x="660" y="472" fill="rgba(255,255,255,0.18)" font-size="8" text-anchor="middle">训练: 17 项加权损失 · 多起点寻优 · 输出 → policies.json (480 contexts)</text>
     </svg>
   </div>
 </section>
@@ -2096,7 +2106,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   </div>
 
   <div class="img-frame" style="padding:16px 20px;background:rgba(0,0,0,0.35);text-align:center">
-    <svg viewBox="0 0 880 460" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+    <svg viewBox="0 0 880 490" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
       <defs>
         <linearGradient id="cg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(74,158,255,0.12)"/><stop offset="100%" stop-color="rgba(74,158,255,0.04)"/></linearGradient>
         <linearGradient id="cg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(255,183,77,0.10)"/><stop offset="100%" stop-color="rgba(255,183,77,0.03)"/></linearGradient>
@@ -2111,100 +2121,111 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
       <text x="440" y="20" fill="rgba(255,255,255,0.30)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.12em">SpawnParamTunerResNet  ·  ~325K params (default)</text>
 
       <!-- ═══════ L1: INPUT ═══════ -->
-      <rect x="30" y="32" width="820" height="68" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <text x="50" y="50" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">INPUT  (68 维)</text>
+      <rect x="30" y="32" width="820" height="92" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="50" y="50" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">INPUT  (32 + 27 + 9 = 68 维)</text>
 
-      <rect x="50" y="58" width="340" height="32" rx="6" fill="url(#cg1)" stroke="rgba(74,158,255,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
-      <text x="220" y="70" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="700">context(32)</text>
-      <text x="220" y="83" fill="rgba(255,255,255,0.30)" font-size="7.5" text-anchor="middle">diff₃→₄  gen₂→₄  bot₄→₄  pb₅→₈  life₄→₈  logPB→₄</text>
+      <rect x="50" y="58" width="210" height="56" rx="6" fill="url(#cg1)" stroke="rgba(74,158,255,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
+      <text x="155" y="72" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="700">context(32)</text>
+      <text x="155" y="84" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">diff₃→₄  gen₂→₄  bot₄→₄</text>
+      <text x="155" y="96" fill="rgba(255,255,255,0.25)" font-size="7" text-anchor="middle">pb₅→₈  life₄→₈  logPB→₄</text>
 
-      <rect x="420" y="58" width="410" height="32" rx="6" fill="url(#cg2)" stroke="rgba(255,183,77,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
-      <text x="625" y="70" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">theta(36) — 9 组 spawn 参数</text>
-      <text x="625" y="83" fill="rgba(255,255,255,0.30)" font-size="7.5" text-anchor="middle">A(5)个性化·B(4)PB张力·C(8)评分加权·D(5)压力翻译·E(5)挑战弯折·F(2)顺序·G(2)构造·H(2)解空间·I(3)节奏</text>
+      <rect x="290" y="58" width="330" height="56" rx="6" fill="url(#cg2)" stroke="rgba(255,183,77,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
+      <text x="455" y="72" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">theta(27)</text>
+      <text x="455" y="83" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">personalization₅  pbTension₄  scoring₈  translation₅  challenge₅</text>
+      <text x="455" y="93" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pers·temp·surp·cool·mEval₅  pbTC·pbTW·pbBC·pbBW₄</text>
+      <text x="455" y="101" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pcW·mcF·nearF·eFit·mFlush·pW·sPref·divP₈</text>
+      <text x="455" y="108" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">cpx·cRlf·sol·pbTWt·pbBWt₅  chSlp·chCap·pOv·rls·farPB₅</text>
 
-      <text x="440" y="115" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
+      <rect x="640" y="58" width="190" height="56" rx="6" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
+      <text x="735" y="72" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">spawn(9)</text>
+      <text x="735" y="84" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">order₂  constructive₂  solution₂  special₃</text>
+      <text x="735" y="96" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">ordR·ordBud₂  cCmp·crwM₂</text>
+      <text x="735" y="107" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">shCpx·solSp₂  rlfQt·prsQt·mfCap₃</text>
+
+      <text x="440" y="138" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
 
       <!-- ═══════ L2: TRUNK ═══════ -->
-      <rect x="30" y="122" width="820" height="150" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <text x="50" y="140" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">RESIDUAL TRUNK</text>
+      <rect x="30" y="146" width="820" height="150" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="50" y="164" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">RESIDUAL TRUNK</text>
 
-      <rect x="100" y="148" width="680" height="114" rx="10" fill="url(#cg3)" stroke="rgba(129,199,132,0.12)" stroke-width="1.5" filter="url(#sf2)"/>
+      <rect x="100" y="172" width="680" height="114" rx="10" fill="url(#cg3)" stroke="rgba(129,199,132,0.12)" stroke-width="1.5" filter="url(#sf2)"/>
 
       <!-- trunk_in -->
-      <rect x="120" y="158" width="200" height="24" rx="4" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
-      <text x="220" y="174" fill="#81c784" font-size="10" text-anchor="middle" font-weight="600">trunk_in: Linear(68→128)</text>
-      <text x="220" y="196" fill="rgba(129,199,132,0.15)" font-size="7.5" text-anchor="middle">LayerNorm + GELU</text>
+      <rect x="120" y="182" width="200" height="24" rx="4" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="220" y="198" fill="#81c784" font-size="10" text-anchor="middle" font-weight="600">trunk_in: Linear(68→128)</text>
+      <text x="220" y="220" fill="rgba(129,199,132,0.15)" font-size="7.5" text-anchor="middle">LayerNorm + GELU</text>
 
-      <text x="340" y="175" fill="rgba(129,199,132,0.50)" font-size="18" text-anchor="middle" font-weight="400">→</text>
+      <text x="340" y="199" fill="rgba(129,199,132,0.50)" font-size="18" text-anchor="middle" font-weight="400">→</text>
 
       <!-- ResBlock × 8 -->
-      <rect x="355" y="152" width="180" height="100" rx="6" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
-      <text x="445" y="170" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">ResBlock × 8</text>
+      <rect x="355" y="176" width="180" height="100" rx="6" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
+      <text x="445" y="194" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">ResBlock × 8</text>
 
       <!-- Internal detail of ResBlock -->
-      <rect x="370" y="180" width="150" height="18" rx="3" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.06)" stroke-width="0.8"/>
-      <text x="445" y="193" fill="rgba(129,199,132,0.60)" font-size="7.5" text-anchor="middle">Linear(128→128)</text>
+      <rect x="370" y="204" width="150" height="18" rx="3" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.06)" stroke-width="0.8"/>
+      <text x="445" y="217" fill="rgba(129,199,132,0.60)" font-size="7.5" text-anchor="middle">Linear(128→128)</text>
 
-      <rect x="370" y="200" width="150" height="18" rx="3" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.06)" stroke-width="0.8"/>
-      <text x="445" y="213" fill="rgba(129,199,132,0.60)" font-size="7.5" text-anchor="middle">LayerNorm + GELU + Dropout</text>
+      <rect x="370" y="224" width="150" height="18" rx="3" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.06)" stroke-width="0.8"/>
+      <text x="445" y="237" fill="rgba(129,199,132,0.60)" font-size="7.5" text-anchor="middle">LayerNorm + GELU + Dropout</text>
 
-      <rect x="370" y="220" width="150" height="18" rx="3" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.06)" stroke-width="0.8"/>
-      <text x="445" y="233" fill="rgba(129,199,132,0.60)" font-size="7.5" text-anchor="middle">Linear(128→128) + LN</text>
+      <rect x="370" y="244" width="150" height="18" rx="3" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.06)" stroke-width="0.8"/>
+      <text x="445" y="257" fill="rgba(129,199,132,0.60)" font-size="7.5" text-anchor="middle">Linear(128→128) + LN</text>
 
       <!-- Skip + residual label -->
-      <path d="M 370 164 L 355 164 L 355 238 L 370 238" fill="none" stroke="rgba(255,183,77,0.30)" stroke-width="1" stroke-dasharray="3,2"/>
-      <text x="340" y="232" fill="rgba(255,183,77,0.30)" font-size="6.5" text-anchor="end">residual + GELU</text>
+      <path d="M 370 188 L 355 188 L 355 262 L 370 262" fill="none" stroke="rgba(255,183,77,0.30)" stroke-width="1" stroke-dasharray="3,2"/>
+      <text x="340" y="256" fill="rgba(255,183,77,0.30)" font-size="6.5" text-anchor="end">residual + GELU</text>
 
-      <text x="560" y="175" fill="rgba(129,199,132,0.50)" font-size="18" text-anchor="middle" font-weight="400">→</text>
+      <text x="560" y="199" fill="rgba(129,199,132,0.50)" font-size="18" text-anchor="middle" font-weight="400">→</text>
 
       <!-- trunk_out_ln -->
-      <rect x="570" y="158" width="185" height="24" rx="4" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
-      <text x="662" y="174" fill="#81c784" font-size="10" text-anchor="middle" font-weight="600">trunk_out_ln</text>
-      <text x="662" y="196" fill="rgba(129,199,132,0.15)" font-size="7.5" text-anchor="middle">LayerNorm(128)</text>
+      <rect x="570" y="182" width="185" height="24" rx="4" fill="rgba(129,199,132,0.06)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="662" y="198" fill="#81c784" font-size="10" text-anchor="middle" font-weight="600">trunk_out_ln</text>
+      <text x="662" y="220" fill="rgba(129,199,132,0.15)" font-size="7.5" text-anchor="middle">LayerNorm(128)</text>
 
-      <text x="440" y="287" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
+      <text x="440" y="311" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
 
       <!-- ═══════ L3: HEADS ═══════ -->
-      <rect x="30" y="294" width="820" height="156" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <text x="50" y="312" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">OUTPUT HEADS  (8 heads: 3 curve + 5 auxiliary)</text>
+      <rect x="30" y="318" width="820" height="140" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="50" y="336" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">OUTPUT HEADS  (8 heads: 3 curve + 5 auxiliary)</text>
 
-      <!-- Curve heads (top row) -->
-      <text x="240" y="328" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle" letter-spacing="0.08em">CURVE HEADS  —  Linear(128→64→20)  ·  sigmoid</text>
+      <!-- Curve heads -->
+      <text x="200" y="354" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle" letter-spacing="0.08em">CURVE HEADS  —  Linear(128→64→20)  ·  sigmoid</text>
 
-      <rect x="90" y="338" width="130" height="34" rx="5" fill="url(#cg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
-      <text x="155" y="354" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="700">D(r) curve</text>
-      <text x="155" y="367" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
+      <rect x="70" y="364" width="120" height="28" rx="5" fill="url(#cg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
+      <text x="130" y="378" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="700">D(r) curve</text>
+      <text x="130" y="388" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
 
-      <rect x="235" y="338" width="130" height="34" rx="5" fill="url(#cg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
-      <text x="300" y="354" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="700">E(r) curve_e</text>
-      <text x="300" y="367" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
+      <rect x="210" y="364" width="120" height="28" rx="5" fill="url(#cg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
+      <text x="270" y="378" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="700">E(r) curve_e</text>
+      <text x="270" y="388" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
 
-      <rect x="380" y="338" width="130" height="34" rx="5" fill="url(#cg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
-      <text x="445" y="354" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="700">F(r) curve_f</text>
-      <text x="445" y="367" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
+      <rect x="350" y="364" width="120" height="28" rx="5" fill="url(#cg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
+      <text x="410" y="378" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="700">F(r) curve_f</text>
+      <text x="410" y="388" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
 
       <!-- Auxiliary heads -->
-      <text x="240" y="392" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle" letter-spacing="0.08em">AUXILIARY  —  Linear(128→64→1)</text>
+      <text x="660" y="354" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle" letter-spacing="0.08em">AUXILIARY  —  Linear(128→64→1)</text>
 
-      <rect x="90" y="402" width="100" height="34" rx="5" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2"/>
-      <text x="140" y="418" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">pb_broke</text>
-      <text x="140" y="431" fill="rgba(232,160,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
+      <rect x="530" y="364" width="100" height="28" rx="5" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2"/>
+      <text x="580" y="378" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">pb_broke</text>
+      <text x="580" y="388" fill="rgba(232,160,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
 
-      <rect x="200" y="402" width="100" height="34" rx="5" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2"/>
-      <text x="250" y="418" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">noMove</text>
-      <text x="250" y="431" fill="rgba(232,160,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
+      <rect x="640" y="364" width="100" height="28" rx="5" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2"/>
+      <text x="690" y="378" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">noMove</text>
+      <text x="690" y="388" fill="rgba(232,160,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
 
-      <rect x="310" y="402" width="100" height="34" rx="5" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2"/>
-      <text x="360" y="418" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">score</text>
-      <text x="360" y="431" fill="rgba(232,160,200,0.35)" font-size="7" text-anchor="middle">linear</text>
+      <rect x="750" y="364" width="80" height="28" rx="5" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2"/>
+      <text x="790" y="378" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">r_value</text>
+      <text x="790" y="388" fill="rgba(232,160,200,0.35)" font-size="7" text-anchor="middle">2.0×sig</text>
 
-      <rect x="420" y="402" width="100" height="34" rx="5" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2"/>
-      <text x="470" y="418" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">survival</text>
-      <text x="470" y="431" fill="rgba(232,160,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
+      <!-- Auxiliary bottom row -->
+      <rect x="530" y="400" width="100" height="28" rx="5" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2"/>
+      <text x="580" y="414" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">score</text>
+      <text x="580" y="424" fill="rgba(232,160,200,0.35)" font-size="7" text-anchor="middle">linear</text>
 
-      <rect x="530" y="402" width="100" height="34" rx="5" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2"/>
-      <text x="580" y="418" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">r_value</text>
-      <text x="580" y="431" fill="rgba(232,160,200,0.35)" font-size="7" text-anchor="middle">2.0×sig</text>
+      <rect x="640" y="400" width="100" height="28" rx="5" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2"/>
+      <text x="690" y="414" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">survival</text>
+      <text x="690" y="424" fill="rgba(232,160,200,0.35)" font-size="7" text-anchor="middle">sigmoid</text>
 
       <!-- Training note -->
       <text x="580" y="448" fill="rgba(255,255,255,0.18)" font-size="8" text-anchor="middle">θ 表(360×36) 端到端联合训练 · 8 随机起点寻优 · policies.json</text>
