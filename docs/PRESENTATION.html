@@ -2002,12 +2002,29 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
           其中 ℒ_total = 17 项加权损失：ℒ_shape（加权 MSE 拟合样本曲线）+ ℒ_anchor（关键 r 点 hinge）+ ℒ_monotonic（单调性）+ ℒ_breaking（超 PB 不降难度）+ ℒ_smooth（对 θ 平滑正则）+ ℒ_aux（辅助标签）+ ℒ_curve-e/f（爽感/挫败）+ ℒ_frust-cap（挫败上限）+ ℒ_diversity（防 θ 被忽略）+ ℒ_deploy（G6 联合训练）+ ……<br/>
           训练 50 epoch，Adam(lr=1e-3)，batch 256，warmup + cosine 退火。输出训好的 NN 参数 φ*。<br/>
 
-          <span style="color:#ffb74d;font-size:0.68rem">② Phase C：逐 context 寻找最优 θ*</span><br/>
-          固定 φ*，对所有 480 个 context 分别求解。对每个 c，找使预测曲线最贴近业务理想曲线 (D*, E*, F*) 的 θ：<br/>
+          <span style="color:#ffb74d;font-size:0.68rem">② Phase C：逐 context 寻找最优 θ*（optimize_theta.py）</span><br/>
+          固定训好的 NN 权重 φ*，将 NN 视为可微分代理模型（surrogate）。对每个 context c 独立求解以下优化：<br/>
           <span style="color:#81c784">∀c ∈ 𝒞: θ*</span><sub>c</sub> <span style="color:#81c784">= argmin</span><sub>θ∈[0,1]<sup>36</sup></sub> <span style="color:#81c784">𝒥( f</span><sub>φ*</sub><span style="color:#81c784">(c, θ) )</span><br/>
-          优化目标 𝒥 拉预测曲线向 D*/E*/F*：<br/>
-          <span style="color:rgba(255,255,255,0.40)">𝒥 = α·ℒ_shape(𝐃_c(θ), D*) + δ·ℒ_breaking(𝐃_c(θ)) + γ·ℒ_surprise(𝐃_c(θ)) + η·ℒ_curve-e(𝐄_c(θ), E*) + ι·ℒ_curve-f(𝐅_c(θ), F*) + λ·ℒ_frust-cap(𝐅_c(θ))</span><br/>
-          求解方法：8 个随机 LHS 起点 × 300 步 Adam(lr=0.05)，每步梯度通过 f_φ* 反向传播到 θ，投影 θ ∈ [0,1]<sup>36</sup>。选 shape_loss 最低的起点作为 θ*_c。<br/>
+          优化目标 𝒥 由 6 项损失构成，拉预测曲线贴近 D*/E*/F*：<br/>
+          <span style="color:rgba(255,255,255,0.40)">𝒥 = α·ℒ_shape(𝐃_c(θ), D*) —— pred_D 与 ideal_S 的加权 MSE</span><br/>
+          <span style="color:rgba(255,255,255,0.40)"> + δ·ℒ_breaking(𝐃_c(θ)) —— 超 PB 后不降难度 hinge</span><br/>
+          <span style="color:rgba(255,255,255,0.40)"> + γ·ℒ_surprise(𝐃_c(θ)) —— 惊喜率拟合到 7%</span><br/>
+          <span style="color:rgba(255,255,255,0.40)"> + η·ℒ_curve-e(𝐄_c(θ), E*) —— 爽感预测朝 ideal_E 拉</span><br/>
+          <span style="color:rgba(255,255,255,0.40)"> + ι·ℒ_curve-f(𝐅_c(θ), F*) —— 挫败预测朝 ideal_F 拉</span><br/>
+          <span style="color:rgba(255,255,255,0.40)"> + λ·ℒ_frust-cap(𝐅_c(θ)) —— 挫败不超 0.30 硬上限</span><br/><br/>
+          求解算法（LHS 多起点梯度下降）：<br/>
+          <span style="color:rgba(255,255,255,0.30)">for each context c:</span><br/>
+          <span style="color:rgba(255,255,255,0.30)"> best_loss = ∞</span><br/>
+          <span style="color:rgba(255,255,255,0.30)"> for start = 1…8:  # 8 个随机起点 (LHS 风格, 不同 seed)</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">  θ = rand(1, 36)  # 均匀采样 ∈ [0,1]</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">  for step = 1…300:</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">   𝐃,𝐄,𝐅 = f_φ*(c, θ)  # NN forward</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">   loss = 𝒥(𝐃, 𝐄, 𝐅)  # 计算与 ideal 偏差</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">   ∇_θ loss → backward # 梯度通过 NN 传回 θ</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">   θ ← clip(θ − 0.05·Adam(∇), 0, 1) # 更新 + 投影</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">  if final_shape_loss &lt; best_loss: save(θ)</span><br/>
+          <span style="color:rgba(255,255,255,0.30)"> θ*_c = best_θ  # 选 shape_loss 最低的起点</span><br/>
+          输出：每个 context 的 θ*_c（36 维）+ predicted_curve + shape_MAE → policies.json<br/>
 
           <span style="color:#ffb74d;font-size:0.68rem">③ G6（v3.0.11）：联合训练替代 Phase C</span><br/>
           将 480 个 context 的最优 θ 作为可训练参数表 Θ_raw∈ℝ⁴⁸⁰ˣ³⁶ 嵌入模型，sigmoid 映射到 [0,1]：<span style="color:#81c784">Θ</span><sub>c</sub> <span style="color:#81c784">= σ(Θ_raw</span><sub>c</sub><span style="color:#81c784">)</span>。<br/>
