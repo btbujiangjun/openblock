@@ -1991,18 +1991,24 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
     </div>
 
     <!-- 列2：双层优化 -->
-    <div style="flex:1;min-width:200px">
+    <div style="flex:1.4;min-width:260px">
       <div style="background:rgba(255,183,77,0.04);border:1px solid rgba(255,183,77,0.10);border-radius:8px;padding:10px 14px">
         <div style="color:#ffb74d;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">双层优化</div>
-        <div style="font-size:0.65rem;line-height:1.6;color:#b0c8e0">
-          <span style="color:#ffb74d">① Phase A — 学习映射</span><br/>
-          <span style="color:rgba(255,255,255,0.75)">min</span><sub>φ</sub> <span style="color:rgba(255,255,255,0.75)">𝔼</span>[ℒ_total(f_φ(c,θ), targets)]<br/>
-          <span style="color:rgba(255,255,255,0.25)">从 120K+ 真实游戏样本学习 (c,θ)→D/E/F 的映射</span><br/><br/>
-          <span style="color:#ffb74d">② Phase C — 逐 context 寻参</span><br/>
-          <span style="color:rgba(255,255,255,0.75)">θ*</span><sub>c</sub> <span style="color:rgba(255,255,255,0.75)">= argmin 𝒥(f</span><sub>φ*</sub><span style="color:rgba(255,255,255,0.75)">(c,θ))</span><br/>
-          <span style="color:rgba(255,255,255,0.25)">固定模型，每 ctx 独立跑 8 起点×300 步梯度上升</span><br/><br/>
-          <span style="color:#ffb74d">③ G6 — 联合寻参（v3.0.11）</span><br/>
-          <span style="color:rgba(255,255,255,0.25)">480×36 trainable θ 表嵌入模型，loss_deploy 端到端联合训练</span>
+        <div style="font-size:0.64rem;line-height:1.55;color:#b0c8e0">
+
+          <span style="color:#ffb74d;font-size:0.68rem">① Phase A — 学习映射函数 f_φ: (c, θ) → (D, E, F)</span><br/>
+          <span style="color:#81c784;font-size:0.62rem">min</span><sub>φ</sub> <span style="color:#81c784;font-size:0.62rem">𝔼</span><sub>(c,θ)∼𝒟</sub><span style="color:#81c784;font-size:0.62rem"> [ ℒ</span><sub>total</sub><span style="color:#81c784;font-size:0.62rem">( f_φ(c,θ), targets ) ]</span><br/>
+          <span style="color:rgba(255,255,255,0.20)">其中 ℒ_total = 17 项加权损失联合 backprop；训练数据 120K+ 对 (c,θ) 的真实游戏采样。NN 参数 φ 通过 Adam(lr=1e-3) 更新，50 epoch。</span><br/>
+
+          <span style="color:#ffb74d;font-size:0.68rem">② Phase C — 逐 context 搜索最优 θ*</span><br/>
+          <span style="color:#81c784;font-size:0.62rem">∀c ∈ 𝒞: θ*</span><sub>c</sub> <span style="color:#81c784;font-size:0.62rem">= argmin</span><sub>θ∈[0,1]<sup>36</sup></sub> <span style="color:#81c784;font-size:0.62rem">𝒥( f</span><sub>φ*</sub><span style="color:#81c784;font-size:0.62rem">(c, θ) )</span><br/>
+          <span style="color:rgba(255,255,255,0.20)">固定训好的 f_φ*，冻结 NN 权重。每 context 独立求解：8 个随机 LHS 起点 × 300 步 Adam(lr=0.05)，每步投影 θ ∈ [0,1]<sup>36</sup>。选 shape_loss 最优的起点。</span><br/>
+          <span style="color:rgba(255,255,255,0.35)">𝒥 = α·ℒ_shape + δ·ℒ_breaking + γ·ℒ_surprise + η·ℒ_curve-e + ι·ℒ_curve-f + λ·ℒ_frust-cap</span><br/>
+
+          <span style="color:#ffb74d;font-size:0.68rem">③ G6 — 联合寻参（v3.0.11）端到端替代 Phase C</span><br/>
+          <span style="color:#81c784;font-size:0.62rem">min</span><sub>φ, Θ_raw</sub> <span style="color:#81c784;font-size:0.62rem">ℒ</span><sub>total</sub><span style="color:#81c784;font-size:0.62rem"> + ν·‖ f_φ(c, σ(Θ_raw</span><sub>c</sub><span style="color:#81c784;font-size:0.62rem">)) − D* ‖²</span><br/>
+          <span style="color:rgba(255,255,255,0.20)">将 480×36 的 θ 表 (Θ_raw) 作为可训练参数嵌入模型，sigmoid 映射到 [0,1]。训练时 loss_deploy 同步拉向 ideal_S，训练完直接读最优 θ*，无需事后寻参。</span>
+
         </div>
       </div>
     </div>
