@@ -1977,15 +1977,15 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
     <!-- 列1：符号 -->
     <div style="flex:1;min-width:220px">
       <div style="background:rgba(74,158,255,0.04);border:1px solid rgba(74,158,255,0.10);border-radius:8px;padding:10px 14px">
-        <div style="color:#7eb8ff;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">符号</div>
-        <div style="font-size:0.65rem;line-height:1.6;color:#b0c8e0">
-          <strong style="color:#e8a0c8;font-size:0.80rem">c</strong> ∈ 𝒞：480 context = (difficulty·generator·bot·pb_bin·lifecycle)<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">θ</strong> ∈ [0,1]<sup>36</sup>：spawn 参数，分 9 组 (A-I)：个性/PB曲线/评分/压力翻译/挑战弯折/顺序/构造/解空间/节奏<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">r</strong> = score/PB ∈ [0, 2.0]：归一化进度<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">b</strong> ∈ {1,…,20}：bin 索引，b 对应 r∈[(b-1)·0.1, b·0.1)<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">D,E,F</strong> ∈ [0,1]<sup>20</sup>：预测的难度/爽感/挫败曲线<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">D*,E*,F*</strong> ∈ [0,1]<sup>20</sup>：业务目标曲线<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">f<sub>φ</sub></strong>：(c, θ) → (D, E, F)，参数 φ 的神经网络
+        <div style="color:#7eb8ff;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">符号系统</div>
+        <div style="font-size:0.65rem;line-height:1.65;color:#b0c8e0">
+          <strong style="color:#e8a0c8;font-size:0.80rem">c</strong> ∈ 𝒞 = D × G × B × P × L，|𝒞| = 480<br/>
+          <strong style="color:#e8a0c8;font-size:0.80rem">θ</strong> ∈ [0, 1]<sup>36</sup> ⊂ ℝ<sup>36</sup>：spawn 参数向量，分 9 组（A–I）<br/>
+          <strong style="color:#e8a0c8;font-size:0.80rem">r</strong> = score / PB ∈ [0, 2] ⊂ ℝ：归一化游戏进度<br/>
+          <strong style="color:#e8a0c8;font-size:0.80rem">b</strong> ∈ {1, 2, …, 20} ⊂ ℕ：离散 bin，对应 r ∈ [(b−1)·0.1, b·0.1)<br/>
+          <strong style="color:#e8a0c8;font-size:0.80rem">D, E, F</strong> ∈ [0, 1]<sup>20</sup>：预测的难度 / 爽感 / 挫败曲线<br/>
+          <strong style="color:#e8a0c8;font-size:0.80rem">D<sup>*</sup>, E<sup>*</sup>, F<sup>*</sup></strong> ∈ [0, 1]<sup>20</sup>：业务定义的目标曲线<br/>
+          <strong style="color:#e8a0c8;font-size:0.80rem">f<sub>φ</sub></strong>：𝒞 × [0, 1]<sup>36</sup> → [0, 1]<sup>20×3</sup>，参数 φ ∈ Φ 的神经网络
         </div>
       </div>
     </div>
@@ -1996,42 +1996,33 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
         <div style="color:#ffb74d;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">双层优化</div>
         <div style="font-size:0.64rem;line-height:1.55;color:#b0c8e0">
 
-          <span style="color:#ffb74d;font-size:0.68rem">① Phase A：学习映射 f_φ: (c, θ) → (D, E, F)</span><br/>
-          给定训练集 𝒟 = { ((c, θ), (D̂, Ê, F̂, aux)) }，每样本是固定 (c,θ) 后实际游戏中观测到的一条真实曲线 + 辅助标签（破 PB 概率、死局率、log-分数、生存率、r 值）。<br/>
-          <span style="color:#81c784">min</span><sub>φ</sub> <span style="color:#81c784">𝔼</span><sub>(c,θ)∼𝒟</sub><span style="color:#81c784"> [ ℒ</span><sub>total</sub><span style="color:#81c784">( f_φ(c,θ), targets ) ]</span><br/>
-          其中 ℒ_total = 17 项加权损失：ℒ_shape（加权 MSE 拟合样本曲线）+ ℒ_anchor（关键 r 点 hinge）+ ℒ_monotonic（单调性）+ ℒ_breaking（超 PB 不降难度）+ ℒ_smooth（对 θ 平滑正则）+ ℒ_aux（辅助标签）+ ℒ_curve-e/f（爽感/挫败）+ ℒ_frust-cap（挫败上限）+ ℒ_diversity（防 θ 被忽略）+ ℒ_deploy（G6 联合训练）+ ……<br/>
-          训练 50 epoch，Adam(lr=1e-3)，batch 256，warmup + cosine 退火。输出训好的 NN 参数 φ*。<br/>
+          <span style="color:#ffb74d;font-size:0.68rem">① Phase A：学习映射 f<sub>φ</sub> : (c, θ) ↦ (D, E, F)</span><br/>
+          训练集 𝒟 = { ((c<sub>i</sub>, θ<sub>i</sub>), (D̂<sub>i</sub>, Ê<sub>i</sub>, F̂<sub>i</sub>, aux<sub>i</sub>)) }<sup>N<sub>train</sub></sup><sub>i=1</sub>，N<sub>train</sub> &gt; 120K。每样本是固定 (c,θ) 后从真实游戏中观测到的一条体验曲线 + 辅助信号。<br/>
+          <span style="color:#81c784">min</span><sub>φ</sub> <span style="color:#81c784">𝔼</span><sub>(c,θ)∼𝒟</sub><span style="color:#81c784"> [ ℒ</span><sub>total</sub><span style="color:#81c784">( f<sub>φ</sub>(c, θ), targets ) ]</span><br/>
+          其中 ℒ<sub>total</sub> = αℒ<sub>shape</sub> + κℒ<sub>anchor</sub> + μℒ<sub>monotonic</sub> + δℒ<sub>breaking</sub> + εℒ<sub>smooth</sub> + ζℒ<sub>aux</sub> + ηℒ<sub>curve-e</sub> + ιℒ<sub>curve-f</sub> + λℒ<sub>frust-cap</sub> + τℒ<sub>diversity</sub> + νℒ<sub>deploy</sub> + …（共 17 项加权损失）。训练超参：50 epoch，Adam(lr=1e−3)，batch=256，warmup + cosine 退火。输出 NN 参数 φ<sup>*</sup>。<br/>
 
-          <span style="color:#ffb74d;font-size:0.68rem">② Phase C：逐 context 寻找最优 θ*（optimize_theta.py）</span><br/>
-          固定训好的 NN 权重 φ*，将 NN 视为可微分代理模型（surrogate）。对每个 context c 独立求解以下优化：<br/>
-          <span style="color:#81c784">∀c ∈ 𝒞: θ*</span><sub>c</sub> <span style="color:#81c784">= argmin</span><sub>θ∈[0,1]<sup>36</sup></sub> <span style="color:#81c784">𝒥( f</span><sub>φ*</sub><span style="color:#81c784">(c, θ) )</span><br/>
-          优化目标 𝒥 由 6 项损失构成，拉预测曲线贴近 D*/E*/F*：<br/>
-          <span style="color:rgba(255,255,255,0.40)">𝒥 = α·ℒ_shape(𝐃_c(θ), D*) —— pred_D 与 ideal_S 的加权 MSE</span><br/>
-          <span style="color:rgba(255,255,255,0.40)"> + δ·ℒ_breaking(𝐃_c(θ)) —— 超 PB 后不降难度 hinge</span><br/>
-          <span style="color:rgba(255,255,255,0.40)"> + γ·ℒ_surprise(𝐃_c(θ)) —— 惊喜率拟合到 7%</span><br/>
-          <span style="color:rgba(255,255,255,0.40)"> + η·ℒ_curve-e(𝐄_c(θ), E*) —— 爽感预测朝 ideal_E 拉</span><br/>
-          <span style="color:rgba(255,255,255,0.40)"> + ι·ℒ_curve-f(𝐅_c(θ), F*) —— 挫败预测朝 ideal_F 拉</span><br/>
-          <span style="color:rgba(255,255,255,0.40)"> + λ·ℒ_frust-cap(𝐅_c(θ)) —— 挫败不超 0.30 硬上限</span><br/><br/>
-          求解算法（LHS 多起点梯度下降）：<br/>
-          <span style="color:rgba(255,255,255,0.30)">for each context c:</span><br/>
-          <span style="color:rgba(255,255,255,0.30)"> best_loss = ∞</span><br/>
-          <span style="color:rgba(255,255,255,0.30)"> for start = 1…8:  # 8 个随机起点 (LHS 风格, 不同 seed)</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">  θ = rand(1, 36)  # 均匀采样 ∈ [0,1]</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">  for step = 1…300:</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">   𝐃,𝐄,𝐅 = f_φ*(c, θ)  # NN forward</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">   loss = 𝒥(𝐃, 𝐄, 𝐅)  # 计算与 ideal 偏差</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">   ∇_θ loss → backward # 梯度通过 NN 传回 θ</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">   θ ← clip(θ − 0.05·Adam(∇), 0, 1) # 更新 + 投影</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">  if final_shape_loss &lt; best_loss: save(θ)</span><br/>
-          <span style="color:rgba(255,255,255,0.30)"> θ*_c = best_θ  # 选 shape_loss 最低的起点</span><br/>
-          输出：每个 context 的 θ*_c（36 维）+ predicted_curve + shape_MAE → policies.json<br/><br/>
+          <span style="color:#ffb74d;font-size:0.68rem">② Phase C：逐 context 搜索最优 θ<sup>*</sup>（optimize_theta.py）</span><br/>
+          冻结 f<sub>φ<sup>*</sup></sub>，将 NN 视为可微分代理模型（surrogate）。对每个 c ∈ 𝒞 独立求解：<br/>
+          <span style="color:#81c784">θ<sup>*</sup></span><sub>c</sub> <span style="color:#81c784">= argmin</span><sub>θ ∈ [0,1]<sup>36</sup></sub> <span style="color:#81c784">𝒥( f</span><sub>φ<sup>*</sup></sub><span style="color:#81c784">(c, θ) )</span><br/>
+          优化目标 𝒥 = αℒ<sub>shape</sub>(D<sub>c</sub>(θ), D<sup>*</sup>) + δℒ<sub>breaking</sub>(D<sub>c</sub>(θ)) + γℒ<sub>surprise</sub>(D<sub>c</sub>(θ)) + ηℒ<sub>curve-e</sub>(E<sub>c</sub>(θ), E<sup>*</sup>) + ιℒ<sub>curve-f</sub>(F<sub>c</sub>(θ), F<sup>*</sup>) + λℒ<sub>frust-cap</sub>(F<sub>c</sub>(θ))，拉预测曲线贴近理想目标。<br/>
+          算法（LHS 多起点梯度下降）：<br/>
+          <span style="color:rgba(255,255,255,0.30)">∀c ∈ 𝒞:</span><br/>
+          <span style="color:rgba(255,255,255,0.30)"> for s = 1 … 8:</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">  θ ← Uniform(0, 1)<sup>36</sup>  # LHS 风格随机起点</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">  for t = 1 … T, T = 300:</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">   (D, E, F) = f<sub>φ<sup>*</sup></sub>(c, θ)  # NN 前向</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">   ℓ = 𝒥(D, E, F)  # 计算与理想的偏差</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">   θ ← Proj<sub>[0,1]<sup>36</sup></sub>( θ − η · Adam(∇<sub>θ</sub>ℓ) ) # η=0.05</span><br/>
+          <span style="color:rgba(255,255,255,0.30)">  若 ℒ<sub>shape</sub> 最低，保存 θ</span><br/>
+          <span style="color:rgba(255,255,255,0.30)"> θ<sup>*</sup></span><sub>c</sub> <span style="color:rgba(255,255,255,0.30)">= argmin ℒ</span><sub>shape</sub><br/>
+          输出 θ<sup>*</sup><sub>c</sub> ∈ [0, 1]<sup>36</sup> + predicted_curve + MAE → policies.json<br/><br/>
 
           <span style="color:#ffb74d;font-size:0.68rem">⏤⏤⏤⏤⏤⏤⏤ 替代方案 ⏤⏤⏤⏤⏤⏤⏤</span><br/>
-          <span style="color:#ffb74d;font-size:0.68rem">③ G6（v3.0.11）：联合训练，端到端生成 θ*</span><br/>
-          将 θ 表 Θ_raw∈ℝ⁴⁸⁰ˣ³⁶ 作为 nn.Parameter 嵌入模型，sigmoid 映射到 [0,1]：<span style="color:#81c784">Θ</span><sub>c</sub> <span style="color:#81c784">= σ(Θ_raw</span><sub>c</sub><span style="color:#81c784">)</span>。<br/>
-          <span style="color:#81c784">min</span><sub>φ, Θ_raw</sub> <span style="color:#81c784">ℒ</span><sub>total</sub><span style="color:#81c784">(φ) + ν·</span><span style="color:#ffb74d">‖ f_φ(c, Θ_c) − D* ‖²</span><br/>
-          训练每个 batch 的 ℒ_total 算完后，额外对全部 480 个 ctx 用当前 Θ_c forward 算 MSE vs ideal_S（loss_deploy）。梯度同时更新 φ 和 Θ_raw。训练结束 Θ* = σ(Θ_raw) 即为最优 θ 表。无需事后独立跑 Phase C，直接读 theta_optim() 部署。<br/>
-          <span style="color:rgba(255,255,255,0.20)">关系：G6 是 Phase C 的内联替代——二者目标相同（找 θ*），实现不同。Phase C 是训练后独立步骤，G6 是训练中自动完成。可混用：G6 训练完若对某 ctx 的 MAE 不满意，仍可对该 ctx 单独跑 Phase C 精调。</span>
+          <span style="color:#ffb74d;font-size:0.68rem">③ G6（v3.0.11）：联合训练，端到端生成 θ<sup>*</sup></span><br/>
+          Θ<sub>raw</sub> ∈ ℝ<sup>480×36</sup> 作为 nn.Parameter 嵌入模型，经 sigmoid 约束：Θ<sub>c</sub> = σ(Θ<sub>raw, c</sub>) ∈ [0, 1]<sup>36</sup>。<br/>
+          <span style="color:#81c784">min</span><sub>φ, Θ<sub>raw</sub></sub> <span style="color:#81c784">ℒ</span><sub>total</sub><span style="color:#81c784">(φ) + ν‖ f<sub>φ</sub>(c, Θ<sub>c</sub>) − D<sup>*</sup> ‖²</span><br/>
+          每 batch 的 ℒ<sub>total</sub> 算完后，loss<sub>deploy</sub> 对全部 480 ctx 用当前 Θ<sub>c</sub> forward 算 MSE vs D<sup>*</sup>。梯度同时更新 φ 和 Θ<sub>raw</sub>。训练结束 Θ<sup>*</sup> = σ(Θ<sub>raw</sub>) 即为最优 θ 表，直接读 model.theta_optim() 部署。<br/>
+          <span style="color:rgba(255,255,255,0.20)">注：G6 是 Phase C 的内联替代——二者目标等价（求 θ<sup>*</sup>）。G6 训练中自动完成寻参；若某 ctx 的 MAE 不达标，仍可对此 ctx 单独跑 Phase C 精调。</span>
 
         </div>
       </div>
