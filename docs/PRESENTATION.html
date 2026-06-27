@@ -1972,8 +1972,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
     <strong style="color:#ffb74d">双层嵌套优化</strong>：1）内层学习给定 (c, θ) 到曲线的映射函数；2）外层对每 context 搜索最优 θ* 使预测曲线趋近业务目标
   </div>
 
-  <!-- 三列紧凑布局 -->
-  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:0.4em">
+  <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:0.4em">
 
     <!-- 列1：符号 + 双层优化 -->
     <div style="flex:1;min-width:200px">
@@ -2010,31 +2009,6 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
           <tr><td style="color:#81c784">ν1</td><td>ℒ_deploy 480 ctx 联合寻参</td></tr>
           <tr style="color:rgba(255,255,255,0.12)"><td>β</td><td>+ℒ_balance + ℒ_surprise + ℒ_smooth + ℒ_aux + ℒ_endpoint + ℒ_curve-e/f + ℒ_frust-cap</td></tr>
         </table>
-      </div>
-    </div>
-
-    <!-- 列3：产线流程（新增实质性内容） -->
-    <div style="flex:1.5;min-width:240px">
-      <div style="background:rgba(186,104,200,0.03);border:1px solid rgba(186,104,200,0.08);border-radius:6px;padding:8px 12px">
-        <div style="color:#ba68c8;font-size:0.68rem;font-weight:700;letter-spacing:0.06em;margin-bottom:3px">产线流程</div>
-        <div style="font-size:0.62rem;line-height:1.5;color:#b0c8e0">
-          <span style="color:#ba68c8">离线训练</span>：采样器收集 log → SamplesDataset →<br/>
-          <span style="color:rgba(255,255,255,0.25)"> train.py 跑 50 epoch · Adam(lr=1e-3) · </span><span style="color:#81c784">17 项损失联合 backprop</span><br/>
-          <span style="color:#ba68c8">Phase C</span>：8 随机起点 × 300 步 Adam 逐 ctx 寻参<br/>
-          <span style="color:rgba(255,255,255,0.25)"> → θ* 使 pred_curve 贴合 D*/E*/F*</span><br/>
-          <span style="color:#ba68c8">G6（v3.0.11）</span>：480×36 trainable θ 表嵌入模型<br/>
-          <span style="color:rgba(255,255,255,0.25)"> → loss_deploy 联合训练 → 一步到位</span><br/>
-          <span style="color:#ba68c8">部署</span>：policies.json → miniprogram/cocos/web<br/>
-          <span style="color:rgba(255,255,255,0.25)"> → resolveThetaV2(ctx) O(1) 查表</span>
-        </div>
-      </div>
-      <div style="background:rgba(229,115,115,0.03);border:1px solid rgba(229,115,115,0.06);border-radius:6px;padding:8px 12px;margin-top:6px">
-        <div style="color:#e57373;font-size:0.68rem;font-weight:700;letter-spacing:0.06em;margin-bottom:2px">目标曲线 D*(r) 业务语义</div>
-        <div style="font-size:0.60rem;line-height:1.4;color:#b0c8e0">
-          <span style="color:rgba(255,255,255,0.3)">r&lt;0.45</span> 低压平台 (D=0.10-0.11) · <span style="color:rgba(255,255,255,0.3)">0.45-0.65</span> 轻缓抬升<br/>
-          <span style="color:rgba(255,255,255,0.3)">0.65-1.15</span> sigmoid 陡升 (r=1→D≈0.90) · <span style="color:rgba(255,255,255,0.3)">&gt;1.15</span> 指数收敛到 1.0<br/>
-          <span style="color:rgba(255,255,255,0.15)">E*: 基线0.20 + PB处高斯凸起0.40 F*: 基线0.08 + cap 0.30</span>
-        </div>
       </div>
     </div>
 
