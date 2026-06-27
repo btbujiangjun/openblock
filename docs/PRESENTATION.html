@@ -2024,12 +2024,14 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
           <span style="color:rgba(255,255,255,0.30)">   θ ← clip(θ − 0.05·Adam(∇), 0, 1) # 更新 + 投影</span><br/>
           <span style="color:rgba(255,255,255,0.30)">  if final_shape_loss &lt; best_loss: save(θ)</span><br/>
           <span style="color:rgba(255,255,255,0.30)"> θ*_c = best_θ  # 选 shape_loss 最低的起点</span><br/>
-          输出：每个 context 的 θ*_c（36 维）+ predicted_curve + shape_MAE → policies.json<br/>
+          输出：每个 context 的 θ*_c（36 维）+ predicted_curve + shape_MAE → policies.json<br/><br/>
 
-          <span style="color:#ffb74d;font-size:0.68rem">③ G6（v3.0.11）：联合训练替代 Phase C</span><br/>
-          将 480 个 context 的最优 θ 作为可训练参数表 Θ_raw∈ℝ⁴⁸⁰ˣ³⁶ 嵌入模型，sigmoid 映射到 [0,1]：<span style="color:#81c784">Θ</span><sub>c</sub> <span style="color:#81c784">= σ(Θ_raw</span><sub>c</sub><span style="color:#81c784">)</span>。<br/>
+          <span style="color:#ffb74d;font-size:0.68rem">⏤⏤⏤⏤⏤⏤⏤ 替代方案 ⏤⏤⏤⏤⏤⏤⏤</span><br/>
+          <span style="color:#ffb74d;font-size:0.68rem">③ G6（v3.0.11）：联合训练，端到端生成 θ*</span><br/>
+          将 θ 表 Θ_raw∈ℝ⁴⁸⁰ˣ³⁶ 作为 nn.Parameter 嵌入模型，sigmoid 映射到 [0,1]：<span style="color:#81c784">Θ</span><sub>c</sub> <span style="color:#81c784">= σ(Θ_raw</span><sub>c</sub><span style="color:#81c784">)</span>。<br/>
           <span style="color:#81c784">min</span><sub>φ, Θ_raw</sub> <span style="color:#81c784">ℒ</span><sub>total</sub><span style="color:#81c784">(φ) + ν·</span><span style="color:#ffb74d">‖ f_φ(c, Θ_c) − D* ‖²</span><br/>
-          训练时 loss_deploy 对全部 480 个 ctx 同步评估预测曲线与 ideal_S 的 MSE，梯度同时更新 φ 和 Θ_raw。训练结束 Θ* = σ(Θ_raw) 即为最优 θ 表，一次性部署。
+          训练每个 batch 的 ℒ_total 算完后，额外对全部 480 个 ctx 用当前 Θ_c forward 算 MSE vs ideal_S（loss_deploy）。梯度同时更新 φ 和 Θ_raw。训练结束 Θ* = σ(Θ_raw) 即为最优 θ 表。无需事后独立跑 Phase C，直接读 theta_optim() 部署。<br/>
+          <span style="color:rgba(255,255,255,0.20)">关系：G6 是 Phase C 的内联替代——二者目标相同（找 θ*），实现不同。Phase C 是训练后独立步骤，G6 是训练中自动完成。可混用：G6 训练完若对某 ctx 的 MAE 不满意，仍可对该 ctx 单独跑 Phase C 精调。</span>
 
         </div>
       </div>
