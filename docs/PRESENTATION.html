@@ -1978,15 +1978,15 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
     <div style="flex:1;min-width:220px">
       <div style="background:rgba(74,158,255,0.04);border:1px solid rgba(74,158,255,0.10);border-radius:8px;padding:10px 14px">
         <div style="color:#7eb8ff;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">符号系统</div>
-        <div style="font-size:0.65rem;line-height:1.65;color:#b0c8e0">
-          <strong style="color:#e8a0c8;font-size:0.80rem">c</strong> ∈ 𝒞 = D × G × B × P × L，|𝒞| = 480<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">θ</strong> ∈ [0, 1]<sup>36</sup> ⊂ ℝ<sup>36</sup>：spawn 参数向量，分 9 组（A–I）<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">r</strong> = score / PB ∈ [0, 2] ⊂ ℝ：归一化游戏进度<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">b</strong> ∈ {1, 2, …, 20} ⊂ ℕ：离散 bin，对应 r ∈ [(b−1)·0.1, b·0.1)<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">D, E, F</strong> ∈ [0, 1]<sup>20</sup>：预测的难度 / 爽感 / 挫败曲线<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">D<sup>*</sup>, E<sup>*</sup>, F<sup>*</sup></strong> ∈ [0, 1]<sup>20</sup>：业务定义的目标曲线<br/>
-          <strong style="color:#e8a0c8;font-size:0.80rem">f<sub>φ</sub></strong>：𝒞 × [0, 1]<sup>36</sup> → [0, 1]<sup>20×3</sup>，参数 φ ∈ Φ 的神经网络
-        </div>
+        <table style="font-size:0.62rem;line-height:1.5;color:#b0c8e0;width:100%;border-collapse:collapse">
+          <tr><td style="color:#e8a0c8;font-weight:700;width:80px;vertical-align:top;padding:1px 4px 1px 0">c ∈ 𝒞</td><td style="vertical-align:top;padding:1px 0">= D × G × B × P × L，|𝒞| = 480</td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">θ ∈ [0, 1]<sup>36</sup></td><td style="padding:1px 0">spawn 参数向量（9 组 A–I），⊂ ℝ<sup>36</sup></td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">r ∈ [0, 2]</td><td style="padding:1px 0">归一化进度 = score / PB，⊂ ℝ</td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">b ∈ {1 … 20}</td><td style="padding:1px 0">离散 bin（⊂ ℕ），r ∈ [(b−1)·0.1, b·0.1)</td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">D, E, F</td><td style="padding:1px 0">预测的难度 / 爽感 / 挫败曲线，∈ [0, 1]<sup>20</sup></td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">D<sup>*</sup>, E<sup>*</sup>, F<sup>*</sup></td><td style="padding:1px 0">业务定义的 ideal 目标曲线，∈ [0, 1]<sup>20</sup></td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">f<sub>φ</sub></td><td style="padding:1px 0">𝒞 × [0, 1]<sup>36</sup> → [0, 1]<sup>20×3</sup>，神经网络</td></tr>
+        </table>
       </div>
     </div>
 
