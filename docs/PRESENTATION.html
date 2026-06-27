@@ -1991,23 +1991,28 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
     </div>
 
     <!-- 列2：双层优化 -->
-    <div style="flex:1.4;min-width:260px">
+    <div style="flex:1.6;min-width:280px">
       <div style="background:rgba(255,183,77,0.04);border:1px solid rgba(255,183,77,0.10);border-radius:8px;padding:10px 14px">
         <div style="color:#ffb74d;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">双层优化</div>
         <div style="font-size:0.64rem;line-height:1.55;color:#b0c8e0">
 
-          <span style="color:#ffb74d;font-size:0.68rem">① Phase A — 学习映射函数 f_φ: (c, θ) → (D, E, F)</span><br/>
-          <span style="color:#81c784;font-size:0.62rem">min</span><sub>φ</sub> <span style="color:#81c784;font-size:0.62rem">𝔼</span><sub>(c,θ)∼𝒟</sub><span style="color:#81c784;font-size:0.62rem"> [ ℒ</span><sub>total</sub><span style="color:#81c784;font-size:0.62rem">( f_φ(c,θ), targets ) ]</span><br/>
-          <span style="color:rgba(255,255,255,0.20)">其中 ℒ_total = 17 项加权损失联合 backprop；训练数据 120K+ 对 (c,θ) 的真实游戏采样。NN 参数 φ 通过 Adam(lr=1e-3) 更新，50 epoch。</span><br/>
+          <span style="color:#ffb74d;font-size:0.68rem">① Phase A：学习映射 f_φ: (c, θ) → (D, E, F)</span><br/>
+          给定训练集 𝒟 = { ((c, θ), (D̂, Ê, F̂, aux)) }，每样本是固定 (c,θ) 后实际游戏中观测到的一条真实曲线 + 辅助标签（破 PB 概率、死局率、log-分数、生存率、r 值）。<br/>
+          <span style="color:#81c784">min</span><sub>φ</sub> <span style="color:#81c784">𝔼</span><sub>(c,θ)∼𝒟</sub><span style="color:#81c784"> [ ℒ</span><sub>total</sub><span style="color:#81c784">( f_φ(c,θ), targets ) ]</span><br/>
+          其中 ℒ_total = 17 项加权损失：ℒ_shape（加权 MSE 拟合样本曲线）+ ℒ_anchor（关键 r 点 hinge）+ ℒ_monotonic（单调性）+ ℒ_breaking（超 PB 不降难度）+ ℒ_smooth（对 θ 平滑正则）+ ℒ_aux（辅助标签）+ ℒ_curve-e/f（爽感/挫败）+ ℒ_frust-cap（挫败上限）+ ℒ_diversity（防 θ 被忽略）+ ℒ_deploy（G6 联合训练）+ ……<br/>
+          训练 50 epoch，Adam(lr=1e-3)，batch 256，warmup + cosine 退火。输出训好的 NN 参数 φ*。<br/>
 
-          <span style="color:#ffb74d;font-size:0.68rem">② Phase C — 逐 context 搜索最优 θ*</span><br/>
-          <span style="color:#81c784;font-size:0.62rem">∀c ∈ 𝒞: θ*</span><sub>c</sub> <span style="color:#81c784;font-size:0.62rem">= argmin</span><sub>θ∈[0,1]<sup>36</sup></sub> <span style="color:#81c784;font-size:0.62rem">𝒥( f</span><sub>φ*</sub><span style="color:#81c784;font-size:0.62rem">(c, θ) )</span><br/>
-          <span style="color:rgba(255,255,255,0.20)">固定训好的 f_φ*，冻结 NN 权重。每 context 独立求解：8 个随机 LHS 起点 × 300 步 Adam(lr=0.05)，每步投影 θ ∈ [0,1]<sup>36</sup>。选 shape_loss 最优的起点。</span><br/>
-          <span style="color:rgba(255,255,255,0.35)">𝒥 = α·ℒ_shape + δ·ℒ_breaking + γ·ℒ_surprise + η·ℒ_curve-e + ι·ℒ_curve-f + λ·ℒ_frust-cap</span><br/>
+          <span style="color:#ffb74d;font-size:0.68rem">② Phase C：逐 context 寻找最优 θ*</span><br/>
+          固定 φ*，对所有 480 个 context 分别求解。对每个 c，找使预测曲线最贴近业务理想曲线 (D*, E*, F*) 的 θ：<br/>
+          <span style="color:#81c784">∀c ∈ 𝒞: θ*</span><sub>c</sub> <span style="color:#81c784">= argmin</span><sub>θ∈[0,1]<sup>36</sup></sub> <span style="color:#81c784">𝒥( f</span><sub>φ*</sub><span style="color:#81c784">(c, θ) )</span><br/>
+          优化目标 𝒥 拉预测曲线向 D*/E*/F*：<br/>
+          <span style="color:rgba(255,255,255,0.40)">𝒥 = α·ℒ_shape(𝐃_c(θ), D*) + δ·ℒ_breaking(𝐃_c(θ)) + γ·ℒ_surprise(𝐃_c(θ)) + η·ℒ_curve-e(𝐄_c(θ), E*) + ι·ℒ_curve-f(𝐅_c(θ), F*) + λ·ℒ_frust-cap(𝐅_c(θ))</span><br/>
+          求解方法：8 个随机 LHS 起点 × 300 步 Adam(lr=0.05)，每步梯度通过 f_φ* 反向传播到 θ，投影 θ ∈ [0,1]<sup>36</sup>。选 shape_loss 最低的起点作为 θ*_c。<br/>
 
-          <span style="color:#ffb74d;font-size:0.68rem">③ G6 — 联合寻参（v3.0.11）端到端替代 Phase C</span><br/>
-          <span style="color:#81c784;font-size:0.62rem">min</span><sub>φ, Θ_raw</sub> <span style="color:#81c784;font-size:0.62rem">ℒ</span><sub>total</sub><span style="color:#81c784;font-size:0.62rem"> + ν·‖ f_φ(c, σ(Θ_raw</span><sub>c</sub><span style="color:#81c784;font-size:0.62rem">)) − D* ‖²</span><br/>
-          <span style="color:rgba(255,255,255,0.20)">将 480×36 的 θ 表 (Θ_raw) 作为可训练参数嵌入模型，sigmoid 映射到 [0,1]。训练时 loss_deploy 同步拉向 ideal_S，训练完直接读最优 θ*，无需事后寻参。</span>
+          <span style="color:#ffb74d;font-size:0.68rem">③ G6（v3.0.11）：联合训练替代 Phase C</span><br/>
+          将 480 个 context 的最优 θ 作为可训练参数表 Θ_raw∈ℝ⁴⁸⁰ˣ³⁶ 嵌入模型，sigmoid 映射到 [0,1]：<span style="color:#81c784">Θ</span><sub>c</sub> <span style="color:#81c784">= σ(Θ_raw</span><sub>c</sub><span style="color:#81c784">)</span>。<br/>
+          <span style="color:#81c784">min</span><sub>φ, Θ_raw</sub> <span style="color:#81c784">ℒ</span><sub>total</sub><span style="color:#81c784">(φ) + ν·</span><span style="color:#ffb74d">‖ f_φ(c, Θ_c) − D* ‖²</span><br/>
+          训练时 loss_deploy 对全部 480 个 ctx 同步评估预测曲线与 ideal_S 的 MSE，梯度同时更新 φ 和 Θ_raw。训练结束 Θ* = σ(Θ_raw) 即为最优 θ 表，一次性部署。
 
         </div>
       </div>
