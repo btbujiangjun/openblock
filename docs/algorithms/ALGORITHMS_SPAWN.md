@@ -2618,48 +2618,407 @@ scoreMean/P50/P90, stepsMean, noMoveRate, terminalFillMean, clearInterval, multi
 ### 一、算法原理
 
 > 定位：L2 · SpawnParamTuner（出块参数·寻优器）
-> 职责：给 L1 · SpawnPolicyRules 拟合 9 维 θ；不替换出块决策本身，不直接产 3 块
+> 职责：给 L1 · SpawnPolicyRules 拟合 36 维 θ 参数表（9 组 A–I）；不替换出块决策本身，不直接产 3 块
 > 不是：SpawnPolicyNet 的前身或替代品；二者层级正交、独立演进
 
-#### 1.1 核心命题
+---
 
-| 命题 | 量化 |
-|------|------|
-| 接近 PB 时加压 | D(r≈0.95) - D(r≈0.5) ≥ 0.20 |
-| 破 PB 后持续加压 | D̄(r≥1.0) ≥ D̄(r∈[0.9, 1.0)) 单调非降 |
-| 甜区破 PB 率 | P(reach r=1.0) ≈ 18% (10-25%) |
-| 偶尔惊喜 | ~7% 步触发 d_step < 0.30 |
+#### 1.1 建模背景
 
-#### 1.2 S 形难度曲线
+OpenBlock 的方块产生算法有大量旋钮参数（Knobs）：shapes 尺寸偏好权重、完美清屏倍率、PB 追赶张力强度等。这些参数的不同组合决定了玩家的三条核心体验曲线：
 
-`target_S_curve(r)` 分段：gentle (0-0.5) → mid (0.5-0.7) → brake sigmoid (0.7-1.1) → overshoot exp (1.1-2.0)。跨度 0.90 (D=0.10 → 1.00) 是唯一 target。
+| 曲线 | 符号 | 含义 | 理想形态 |
+|------|------|------|---------|
+| 难度 | D(r) | 归一化进度 r = score/PB 对应的难度 | S 形：远 PB 平缓 → 近 PB 急升 → 超 PB 持续高难 |
+| 爽感 | E(r) | 各进度区间"爽"的程度 | Gaussian 峰在 PB 附近破 PB 时达峰 |
+| 挫败 | F(r) | 各进度区间"难到想放弃"的程度 | 低基线 + 慢上升，硬上限 0.30 |
 
-#### 1.3 系统架构
+**问题**：这些参数以前是硬编码常数，对所有玩家、所有游戏模式一样。但最优参数因 context 而异：
 
-四层闭环：**采样 → 训练 → 推断 → 部署 → 真实玩家反馈 → 调整**
+```
+例: context = {难度: easy, 生成器: rule, 机器人: clear-greedy, PB: 500, 生命周期: onboarding}
+→ 需要 θ* 使 D(r) 新手友好缓慢爬坡，E(r) 爽感足够，F(r) 不超上限
+```
 
-#### 1.4 特征与模型
+因此需要为每个 context（5 维笛卡尔积 = 480 种组合）找到最优的 36 维 θ 参数。
 
-**5 维 ctx**：difficulty, generator, bot_policy, pb_bin, lifecycle_stage（共 360 场景）
-**9 维 θ**：A 组 5（个性化/选拔）+ B 组 4（PB 曲线）
-**模型**：ResNet-MLP (326K 参数) 或 Transformer (407K)，预测 `d_curve_20` + 4 辅助 head
+---
 
-#### 1.5 损失函数
+#### 1.2 目标
 
-`L = w_target·L_target_fit + w_endpoint·L_endpoint + w_var·L_var + w_anchor·L_anchor`
+构建可微分代理模型（surrogate）：
 
-#### 1.6 部署
+```
+f_φ(c, θ) → (D, E, F, pb_broke, noMove, score, survival, r_value)
+```
 
-`build-and-export` — 对 360 ctx 跑 surrogate Adam 优化找 best θ* → PAVA 单调投影 → 输出 policies.json + policies.meta.json + 小程序 CJS。灰度比例可控。
+其中 `c ∈ 𝒞` 是 5 维 context，`θ ∈ [0,1]³⁶` 是 spawn 参数向量，输出 20-bin 的三条体验曲线 + 5 个辅助信号。
 
-#### 1.7 闭环迭代
+然后做**双层嵌套优化**：
 
-1. 采集（围绕 deployed θ* 抖动加密）
-2. 训练新模型
-3. 导出 bundle（勾选优化 θ 寻参）
-4. 对比 baseline vs best θ* MAE
+1. **Phase A（内层）**：学习映射 `f_φ: (c, θ) ↦ 曲线`，用大量真实采样数据训练神经网络
+2. **Phase C（外层）**：对每个 context `c`，在冻结的代理模型上搜索 `θ* = argmin J(f_φ(c, θ))`，使预测曲线逼近理想的 `(D*, E*, F*)`
 
-收敛目标：val_ideal_mae < 0.05。
+最终输出 `policies.json`，包含 480 个 context 各自的最优 θ 参数表。
+
+---
+
+#### 1.3 数学形式化
+
+**符号系统**：
+
+| 符号 | 含义 | 定义 |
+|------|------|------|
+| `c ∈ 𝒞` | context | `𝒞 = {难度, 生成器, 机器人, 历史分档, 生命周期}`，\|𝒞\| = 480 |
+| `θ ∈ [0,1]³⁶` | spawn 参数向量 | 9 组 A–I，每组 2–8 维，`⊂ ℝ³⁶` |
+| `r ∈ [0, 2]` | 归一化进度 | `r = score / PB`，`⊂ ℝ` |
+| `b ∈ {1,…,20}` | 离散 bin | `r ∈ [(b−1)·0.1, b·0.1)`，`⊂ ℕ` |
+| `D, E, F` | 预测的难度/爽感/挫败曲线 | `∈ [0,1]²⁰` |
+| `D*, E*, F*` | 业务定义的理想目标曲线 | `∈ [0,1]²⁰` |
+| `f_φ` | 神经网络映射 | `𝒞 × [0,1]³⁶ → [0,1]²⁰×³` |
+
+**双层优化**：
+
+① **Phase A**：学习映射 `f_φ: (c, θ) ↦ (D, E, F)`
+
+训练集 `𝒟 = { ((c_i, θ_i), (D̂_i, Ê_i, F̂_i, aux_i)) }`, N_train > 1.2×10⁵
+
+```
+min_φ  𝔼_{(c,θ)∼𝒟}[ ℒ_total( f_φ(c, θ), targets ) ]
+```
+
+`ℒ_total = αℒ_shape + κℒ_anchor + μℒ_monotonic + δℒ_breaking + εℒ_smooth + ζℒ_aux + ηℒ_curve-e + ιℒ_curve-f + λℒ_frust-cap + τℒ_diversity + νℒ_deploy + ⋯`（16 项加权求和）
+
+② **Phase C**：逐 context 搜索最优 θ*
+
+冻结 `f_φ*` 视为可微分代理模型，∀c ∈ 𝒞 独立求解：
+
+```
+θ*_c = argmin_{θ ∈ [0,1]³⁶}  𝒥( f_φ*(c, θ) )
+```
+
+目标 `𝒥 = αℒ_shape(D_c(θ), D*) + δℒ_breaking(D_c(θ)) + γℒ_surprise(D_c(θ)) + ηℒ_curve-e(E_c(θ), E*) + ιℒ_curve-f(F_c(θ), F*) + λℒ_frust-cap(F_c(θ))`，驱使预测曲线逼近理想目标 `(D*, E*, F*)`。
+
+**算法（LHS 多起点梯度下降）**：
+```
+∀c ∈ 𝒞:
+  for s = 1,…,8:
+    θ ← Uniform(0,1)³⁶                     # LHS 多起点初始化
+    for t = 1,…,T, T=300:
+      (D,E,F) = f_φ*(c, θ)                 # NN 前向传播
+      ℓ = 𝒥(D,E,F)                         # 计算偏离理想目标的损失
+      θ ← Proj_[0,1]³⁶( θ − η·Adam(∇_θℓ) )  # η=0.05
+    若 ℒ_shape 当前最低，记录 θ
+  θ*_c = argmin ℒ_shape
+输出：θ*_c ∈ [0,1]³⁶ + D_c(θ*_c) + MAE → policies.json
+```
+
+**G6 替代方案（v3.0.11）——联合训练端到端生成 θ***：
+
+```
+Θ_raw ∈ ℝ⁴⁸⁰×³⁶ 作为 nn.Parameter 嵌入模型，sigmoid 约束：Θ_c = σ(Θ_raw,c) ∈ [0,1]³⁶
+
+min_{φ, Θ_raw}  ℒ_total(φ) + ν ‖ f_φ(c, Θ_c) − D* ‖²
+```
+
+每步训练完成 ℒ_total 反向传播后，loss_deploy 对所有 c ∈ 𝒞 计算 ‖ f_φ(c, Θ_c) − D* ‖²，梯度同时更新 φ 与 Θ_raw。训练终止时 Θ* = σ(Θ_raw) 即为最优参数表，直接通过 model.theta_optim() 读取部署。
+
+---
+
+#### 1.4 系统架构
+
+```
+L2 (离线优化层)                          L1 (运行时决策层)
+┌──────────────────────┐               ┌─────────────────────────┐
+│  Sampler → SQLite     │               │  game.js               │
+│         ↓             │               │   ↓ tuningV2Context     │
+│  SpawnParamTuner      │               │  clientPolicyV2.js      │
+│  模型训练 (Phase A)   │               │   ↓ resolveThetaV2()    │
+│         ↓             │               │  modelConfig = θ        │
+│  Phase C / G6         │  policies.json│   ↓                     │
+│  → θ* 寻参            │ ────────────→ │  adaptiveSpawn.js       │
+│         ↓             │               │   → derivePbCurve()     │
+│  build-and-export     │               │   → deriveSpawnTargets()│
+│         ↓             │               │  blockSpawn.js          │
+│  bundle 部署           │               │   → generateDockShapes()│
+└──────────────────────┘               └─────────────────────────┘
+```
+
+---
+
+#### 1.5 模型架构
+
+**输入编码**（`ContextEmbedding`，32 维）：
+
+| 维度 | 取值数 | Embedding 维 | 含义 |
+|------|--------|:------------:|------|
+| 难度 | 3 (easy/normal/hard) | 4 | 难度等级 |
+| 生成器 | 2 (rule/generative) | 4 | 方块生成方式 |
+| 机器人 | 4 (random/clear-greedy/survival/rl-bot) | 4 | AI 对手策略 |
+| PB 档位 | 5 (500/1500/4000/10000/25000) | 8 | 玩家历史最佳分档 |
+| 生命周期 | 4 (onboarding/growth/mature/plateau) | 8 | 玩家生命周期阶段 |
+| log(PB) | — | 4 | 实际 PB 对数值（z-score 投影） |
+
+**θ 参数**（36 维，9 组 A–I）：
+
+| 组 | 维数 | 功能模块 | 示例参数 | 运行时消费模块 |
+|:---|:----:|----------|----------|--------------|
+| A | 5 | 候选选拔/个性化 | personalizationStrength, temperature | spawnExperiments.js / difficultyRelativity.js |
+| B | 4 | PB 双 S 曲线 | pbTensionCenter, pbBrakeCenter | pbCurve.js → derivePbCurve() |
+| C | 8 | augmentPool 加权 | perfectClearWeight, diversityPenalty | blockSpawn.js → generateDockShapes() |
+| D | 5 | SpawnTargets 翻译 | complexityFromStress, pbTensionTargetWeight | adaptiveSpawn.js → deriveSpawnTargets() |
+| E | 5 | PB 段细节弯折 | challengeBoostSlope, releaseFactor | adaptiveSpawn.js stress 调制 |
+| F | 2 | 顺序难度（v3.2） | orderRigorGain | adaptiveSpawn.js orderRigor 块 |
+| G | 2 | 构造式出块（v3.2） | constructiveCompleterGain | blockSpawn.js 构造式分支 |
+| H | 2 | 解空间区间（v3.2） | solutionSpacePressureGain | adaptiveSpawn.js deriveSpawnTargets() |
+| I | 3 | 节奏/special（v3.2） | specialReliefQuotaGain, monoFlushCapGain | specialInjection.js / blockSpawn.js |
+
+每个参数有定义的 `(min, max)` 范围（`THETA_RANGES`），归一化映射：`θ_norm = (v − min) / (max − min) ∈ [0,1]`。
+
+**ResNet-MLP（默认，~325K 参数）**：
+
+```
+输入 (68) — 32 维 ctx + 36 维 θ_norm
+  → Linear(68→256) + LayerNorm + GELU
+  → ResBlock × 8 (每块 Linear×2 + LN + Dropout + Residual)
+  → LayerNorm(256)
+  → 多头输出:
+      head_curve:    256→128→20  (sigmoid) → D(r)
+      head_curve_e:  256→128→20  (sigmoid) → E(r)  [v3.2]
+      head_curve_f:  256→128→20  (sigmoid) → F(r)  [v3.2]
+      head_pb:       256→64→1    (sigmoid) → pb_broke prob
+      head_noMove:   256→64→1    (sigmoid) → 归一化 noMove
+      head_score:    256→64→1    (linear)  → log_score
+      head_survival: 256→64→1    (sigmoid) → survival rate
+      head_r:        256→64→1    (2×sigmoid, [0,2]) → r_pred
+```
+
+**Transformer 替代（~200K 参数）**：
+
+```
+ctx(32)+θ(36) → Linear(64)
+  → broadcast 到 20 bin + position_embedding
+  → TransformerEncoder × 4 (head=4, FFN=128)
+  → per-position head → D/E/F 各 20 维
+  → mean pooling → 全局 head (pb/noMove/score/survival/r)
+```
+
+设计动机：20 个 bin 是 r 的有序序列，self-attention 使得 bin i 可关注 bin < i 的输出，天然适合序列约束建模。
+
+**G6 联合寻参表**（v3.0.11）：
+
+```python
+self.theta_optim_raw = nn.Parameter(torch.zeros(360, 36))
+```
+
+训练时 `loss_deploy` 用此表 forward → 拉向 ideal S-curve，梯度同时更新 φ 和 Θ_raw。训练完直接读表出 bundle，无需再跑 Phase C surrogate 梯度下降（耗时从 90–180s 缩短到 <1s）。
+
+---
+
+#### 1.6 损失函数
+
+16 项加权求和，演进核心是解决"模型忽略 θ 输入、输出常数曲线"（v3.0.19 "绿点线段化"诊断）。
+
+| 损失 | 权重(v3.0.19) | 公式 | 作用 |
+|------|:---:|------|------|
+| ℒ_shape | α=5.0 | `𝔼[w_b(D_b − D̂_b)²]` | MSE 拟合样本曲线，拐点 bin 加权 2–4×，置信度加权 |
+| ℒ_anchor | κ=1.0 | `Σ_a Hinge(D(r_a), l_a, u_a)` | 22 个关键 r 点 hinge 约束（如 r=0.05 必须 0.08–0.13） |
+| ℒ_monotonic | μ=1.0 | `𝔼[ReLU(D_b − D_{b+1} + ε)]` | 软单调性约束，D[i+1] ≥ D[i] − 0.02 |
+| ℒ_breaking | δ=0.5 | `𝔼[ReLU(D_{[0.9,1.0)} − D_{[1.0,2.0]})]` | PB 后难度 ≥ PB 前难度 |
+| ℒ_endpoint | ξ=1.0 | 锚定首末 bin | 首 2 bin ~0.102，末 2 bin ~1.0 |
+| ℒ_theta_diversity | τ=1.0 | `𝔼[ReLU(η − Var_g[D])²]` (η=0.005) | **v3.0.19 关键创新**：同 ctx batch 内方差 < 0.005 时惩罚 |
+| ℒ_deploy | ν=1.0 | `‖ f_φ(c, Θ_c) − D* ‖²` | G6 θ 表 vs ideal S 的 MSE |
+| ℒ_aux | ζ=0.2 | BCE(pb_broke/survival) + MSE(noMove/log_score) | 多任务辅助标签拟合 |
+| ℒ_smooth | ε=0.04 | `‖∂D/∂θ‖²` | 防止模型对 θ 过于敏感 |
+| ℒ_balance | β=0.15 | `Var_g[mean(D)]` | PB 档位间均值方差，避免某段偏差大 |
+| ℒ_surprise | γ=0.3 | 惊喜频率 ~7% | 拟合惊喜事件触发概率 |
+| ℒ_curve_e | η=1.0 | MSE(E, Ê + E*) | 爽感 E(r) 拟合 + 弱拉向理想 E |
+| ℒ_curve_f | ι=1.0 | MSE(F, F̂ + F*) | 挫败 F(r) 拟合 + 弱拉向理想 F |
+| ℒ_frust_cap | λ=1.0 | `ReLU(F(r) − 0.30)` | F(r) ≤ 0.30 硬上限（业务红线） |
+| ℒ_r_value | 0.5 | Smooth L1(r_pred, r_true) | r = score/PB 预测头 |
+
+**关键演进**：
+
+| 版本 | 问题 | 调整 |
+|------|------|------|
+| v2.6 | 模型输出水平线 ~0.6（全集均值陷阱） | 新增 ℒ_anchor，ReLU hinge 梯度常数不衰减 |
+| v3.0.13 | 朝 ideal 总合力 34:1 sample → 学到"≈ ideal_S 常数函数" | 降低 target_fit/anchor/endpoint，提高 shape 到 5.0 |
+| v3.0.19 | 同一 ctx 不同 θ 输出几乎相同 → θ 被忽略 | 移除 target_fit，降 anchor/endpoint，新增 ℒ_theta_diversity |
+
+---
+
+#### 1.7 训练流程
+
+```
+① 数据采集
+   Sampler (bot self-play)
+   → 枚举 480 contexts × 随机 θ
+   → 运行模拟器（theta 注入 modelConfig）
+   → extractor.py: 提取 20-bin d_curve + e_curve + f_curve + 5 辅助标签
+   → 存入 SQLite samples 表（N_train > 1.2×10⁵ 样本）
+
+② 训练
+   SamplesDataset.from_sqlite()
+   → 字符串映射整数索引（DIFFICULTY_INDEX 等）
+   → normalize_theta() → [0,1]³⁶
+   → train/val = 90/10 拆分
+   → 构造模型（ResNet 或 Transformer）
+   → For each epoch:
+       iter_batches()        # group-aware shuffling
+       model.forward() → predictions
+       compute_total_loss() → LossBreakdown
+       backward + AdamW step (lr=1×10⁻³, warmup + cosine annealing)
+       _eval_one_epoch()     # 监控 curve_mae, ideal_mae, p_reach
+   → 早停 (ideal_mae + 0.3×curve_mae + 0.2×endpoint + 0.1×anchor)
+   → 保存 .pt checkpoint
+
+③ Phase C 寻参
+   optimize_all_contexts()
+   → 对每个 c ∈ 𝒞（480 个）:
+       LHS 多起点 × 8, Adam η=0.05, T=300
+       ℓ = α·ℒ_shape + δ·ℒ_breaking + γ·ℒ_surprise + η·ℒ_curve-e + ι·ℒ_curve-f + λ·ℒ_frust-cap
+       θ ← Proj_[0,1]³⁶(θ − η·Adam(∇_θℓ))
+       选 ℒ_shape 最低的 start
+   → PAVA isotonic regression 保证单调性
+   → policies.json
+```
+
+---
+
+#### 1.8 部署到客户端后的 theta 应用
+
+##### 1.8.1 Bundle 加载
+
+`clientPolicyV2.js` 在游戏启动时加载 `policies.json`，构建三层索引：
+
+| 层级 | 匹配模式 | 示例 key |
+|:----:|----------|----------|
+| 精确 | d:g:b:pb:lifecycle | `normal:rule:clear-greedy:1500:growth` |
+| 模糊 | d:g:b:pb:* | `normal:rule:clear-greedy:1500:*`（任意生命周期） |
+| 粗 | d:g:*:*:* | `normal:rule:*:*:*`（任意 bot/PB/生命周期） |
+
+同时启动 30s 间隔的 meta 轮询，检测 sha256 变更后自动重载。
+
+##### 1.8.2 每局查表
+
+每局开始时 `game.js` 构造 context + 灰度门禁 → 4 层 fallback：
+
+```
+灰度门禁: userId → DJB2 hash mod 100, bucket >= rollout_pct 时跳至默认θ
+         ↓ 放行
+精确匹配: "normal:rule:clear-greedy:1500:growth" → θ
+         ↓ 未命中
+模糊匹配: "normal:rule:clear-greedy:1500:*"       → θ
+         ↓ 未命中
+粗匹配:  "normal:rule:*:*:*"                     → θ
+         ↓ 全部未命中
+回退:    DEFAULT_THETA_V2 (36 基线值)
+```
+
+命中后将 theta dict 写入 `_spawnContext.modelConfig`。合并策略：`{...DEFAULT_THETA_V2, ...p.theta}`，未指定参数用基线。
+
+##### 1.8.3 分模块消费链路
+
+theta 参数通过 `modelConfig` 被 8 个运行时模块读取，每步推导都有 `Number.isFinite()` 回退保护：
+
+```
+resolveThetaV2() → _spawnContext.modelConfig
+  ↓
+① pbCurve.js (B 组)
+   derivePbCurve(score, bestScore, _tuningTheta)
+   → pbTension = sigmoid((r − pbTensionCenter) / pbTensionWidth)
+   → pbBrake   = sigmoid((r − pbBrakeCenter)   / pbBrakeWidth)
+   → pbRelease = 1 − pbBrake
+   ↓
+② adaptiveSpawn.js (D 组 + E 组)
+   deriveSpawnTargets(): 将 stress 翻译为 6 个 spawn target
+   shapeComplexity       = clamp01(stress01 × complexityFromStress + ...)
+   solutionSpacePressure = clamp01(stress01 × solutionFromStress + pbTension × pbTensionTargetWeight + ...)
+   clearOpportunity      = clamp01(... − pbBrake × pbBrakeTargetWeight + ...)
+   spatialPressure       = clamp01(... + pbTension × (pbTensionTargetWeight+0.02) + pbBrake × (pbBrakeTargetWeight+0.06) − pbRelease × 0.10)
+   payoffIntensity       = clamp01(... − pbBrake × (pbBrakeTargetWeight+0.06) + pbRelease × 0.12)
+   novelty               = clamp01(... + pbBrake × 0.05)
+
+   同时 E 组调制 stress:
+   challengeBoost = min(challengeBoostCap, (r − 0.8) × challengeBoostSlope)
+   stress += challengeBoost
+   pbOvershootBoost = min(pbOvershootMax, pbOvershootMax × log₁₀(1 + slope × overshoot) / log₁₀(1 + slope))
+
+   F 组调制顺序难度:
+   orderRigor = rawOrderRigorScore × orderRigorGain
+   orderRigor → orderMaxValidPerms (排列刚性 → 允许排列数)
+
+   H 组缩放解空间:
+   shapeComplexity       = rawShapeComplexity × shapeComplexityGain
+   solutionSpacePressure = rawSolutionPressure × solutionSpacePressureGain
+   ↓
+③ blockSpawn.js (C 组 + G 组 + I 组)
+   对 28 个候选形状做 augment 加权:
+   w_pc    = perfectClearWeight  (完美清屏加权)
+   w_mc    = 1 + lines × (multiClearBaseFactor + bonus)
+   w_nf    = 1 + nearFullFactor × nearFullLines
+   w_ef    = 1 + (exactFit − 0.5) × exactFitBonus
+   w_mf    = 1 + monoFlush × (monoFlushBoost + iconBonus)
+   w_pay   = payoffWeight  (payoff 节奏阶段 flat 乘数)
+   w_spg   = 1 + |sizePreference| × sizePreferenceGain
+   w_dp    = max(0.2, 1 − diversity × catPenalty × diversityPenalty)
+   → w_total = base_weight × Π(w_adj)
+
+   构造式补全概率:
+   p_completer = p_raw × constructiveCompleterGain
+   crowding_threshold = 0.55 × crowdedMultiClearThresholdGain
+
+   monoFlush cap:
+   monoFlushCap = MONO_FLUSH_PROB_CAP × monoFlushCapGain
+   ↓
+④ specialInjection.js (I 组 special 配额)
+   reliefSubLimit   = floor(totalClears × reliefLimitFactor × specialReliefQuotaGain)
+   pressureSubLimit = floor(totalClears × pressureLimitFactor × specialPressureQuotaGain)
+   ↓
+⑤ spawnExperiments.js + difficultyRelativity.js (A 组 个性化)
+   lambda = personalizationStrength  → solveObjectiveTarget() 个性化插值
+   temperature                         → 选拔噪声 + softmax 重采样
+   surpriseBudget = surpriseBudgetGain × roundsSinceClear / max(1, surpriseCooldown)
+   maxEvaluatedTriplets                 → 三块组合评估数上限
+```
+
+##### 1.8.4 完整信号示例
+
+```
+t=0:   新局, 查表 → "hard:rule:clear-greedy:4000:mature" 命中
+       modelConfig = { pbTensionCenter:0.85, perfectClearWeight:30, ... }
+
+t=10:  score=800, PB=4000, r=0.20
+       → pbTension≈0 (r << 0.85, 没人到张力点)
+       → farFromPBBoost=0.55 → 多消保底 0.55, 远 PB 送爽
+
+t=100: score=3600, r=0.90
+       → pbTension = sigmoid((0.90−0.85)/0.08) = 0.73
+       → pbTensionTargetWeight=0.10 → solutionSpacePressure += 0.73×0.10 = 0.073
+       → challengeBoost = min(0.18, (0.90−0.80)×0.75) = 0.075
+       → 形状选择受限, 棋盘拥挤 — "追 PB"目标达成
+
+t=200: score=4200 (超PB), r=1.05
+       → pbBrake = sigmoid((1.05−1.05)/0.06) = 0.50
+       → pbRelease = 0.50 → clearOpportunity 和 payoffIntensity 释压
+       → 玩家破 PB 后有释放但不大幅放水
+```
+
+---
+
+#### 1.9 闭环迭代
+
+```
+1. 采集：围绕 deployed θ* 抖动加密采集
+2. 训练：新样本 + 增量训练（可选加载 base model）
+3. G6 寻参：训练完直接读 theta_optim()，或跑 Phase C surrogate
+4. 构建 bundle：apply PAVA monotonic projection → policies.json
+5. 部署：灰度 rollout_pct 逐步放量
+6. 评估：对比 baseline vs best θ* 的 MAE 和玩家留存指标
+7. 回到 1
+
+收敛目标: val_ideal_mae < 0.05
+```
 
 ---
 
@@ -2702,8 +3061,9 @@ python -m rl_pytorch.spawn_tuning_v2.optimize_theta --checkpoint ... --output ..
 #### 2.5 FAQ
 
 - **模型预测曲线水平** → 90% 数据问题，质量分析 < 0.4 需重采
-- **val_curve_mae 卡在 0.07-0.10** → 理论下界（label 含 state_offset 噪声），看 val_ideal_mae
+- **val_curve_mae 卡在 0.07–0.10** → 理论下界（label 含 state_offset 噪声），看 val_ideal_mae
 - **Transformer 退化解** → 降 lr，check val_curve_var > 0.1
+- **同一 ctx 不同 θ 输出几乎相同** → 检查 ℒ_theta_diversity 是否生效；v3.0.19 修复
 - **v3 方向**：RL bot 替代规则 bot、真实玩家数据 fine-tune、多步 lookahead
 
 ## 十六、局间难度（RoR）

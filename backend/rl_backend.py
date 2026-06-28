@@ -1741,10 +1741,12 @@ def create_rl_blueprint() -> Blueprint:
         # n_workers：POST 显式优先，否则读 RL_N_WORKERS env（restart-openblock.sh 默认 4），
         # 都没设时走 0=auto（train.py 内 _auto_n_workers，CPU-2 与 10 取小）。
         # 用户报内存 79G 后建议固定 4，避免 spawn 模式下 8 worker × 1.5GB 副本拉爆。
+        # P0: spawn 模式下每 worker ≈ 1.5GB RSS，默认 4 而非 0（auto 在高配机上选 8），
+        # 避免 8 worker × 1.5GB 副本拉爆单进程 40G+。
         try:
-            _default_nw = int(os.environ.get("RL_N_WORKERS", "0") or "0")
+            _default_nw = int(os.environ.get("RL_N_WORKERS", "4") or "4")
         except (TypeError, ValueError):
-            _default_nw = 0
+            _default_nw = 4
         n_workers = int(data.get("n_workers", _default_nw))
         batch_episodes = int(data.get("batch_episodes", 16))
         ppo_epochs = int(data.get("ppo_epochs", 4))
@@ -1802,6 +1804,13 @@ def create_rl_blueprint() -> Blueprint:
         # 由上方 monitor 的 _maybe_auto_resume_training 不受限速地 resume，从近期 checkpoint
         # 续训以释放碎片，最多丢 <save_every 局。默认 25000 局（约数小时）触发一次。
         env.setdefault("RL_AUTO_PERIODIC_RESTART_EVERY", "25000")
+        # P2-H: 同时按墙上时间触发，默认 4 小时无条件重启
+        env.setdefault("RL_AUTO_PERIODIC_RESTART_HOURS", "4")
+        # P2-M: collect_ms 持续上涨检测，中位数 > 基线 2.5 倍则主动重启
+        env.setdefault("RL_COLLECT_MS_RATIO", "2.5")
+        env.setdefault("RL_COLLECT_MS_WINDOW", "50")
+        # P1: training.jsonl 自动截断，超过 50MB 保留末尾 5000 行
+        env.setdefault("RL_TRAINING_LOG_MAX_MB", "50")
         # P1：决定性设置每步搜索相关 env，绝不沿用继承自常驻 Flask 进程 os.environ 的脏值。
         # 历史 bug：performance 预设留下的 RL_LOOKAHEAD=0 会泄漏给后续 balanced+MCTS 启动，
         # 而 MCTS/beam 整段都包在 `if use_lookahead:` 内 → use_lookahead=False 时被静默跳过，
@@ -1875,7 +1884,10 @@ def create_rl_blueprint() -> Blueprint:
                 "RL_BATCH_SIZE", "RL_GRAD_CLIP", "RL_RETURN_SCALE", "RL_RETURNS_CLIP",
                 "RL_KL_REF_COEF", "RL_HIGH_SCORE_REPLAY", "RL_OUTCOME_REF_SCORE",
                 "RL_EMPTY_CACHE_EVERY", "RL_REPLAY_MAX_STEPS",
-                "RL_AUTO_PERIODIC_RESTART_EVERY", "RL_N_WORKERS", "RL_MP_CONTEXT",
+                "RL_AUTO_PERIODIC_RESTART_EVERY", "RL_AUTO_PERIODIC_RESTART_HOURS",
+                "RL_COLLECT_MS_RATIO", "RL_COLLECT_MS_WINDOW",
+                "RL_TRAINING_LOG_MAX_MB",
+                "RL_N_WORKERS", "RL_MP_CONTEXT",
                 "PYTORCH_MPS_HIGH_WATERMARK_RATIO", "PYTORCH_MPS_LOW_WATERMARK_RATIO",
             ) if k in env
         }

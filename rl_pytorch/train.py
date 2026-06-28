@@ -81,7 +81,12 @@ from .strategy_features import sample_rl_training_strategy_id
 
 
 def _append_training_jsonl_entry(entry: dict) -> None:
-    """与 rl_backend._append_training_log 字段对齐，看板 rlTrainingCharts.js 可读。"""
+    """与 rl_backend._append_training_log 字段对齐，看板 rlTrainingCharts.js 可读。
+
+    P1: 当 JSONL 文件超过 RL_TRAINING_LOG_MAX_MB（默认 50MB）时，
+    自动保留末尾 RL_TRAINING_LOG_KEEP_LINES（默认 5000）行，
+    防止无限增长至数 GB 拖慢读取和占用磁盘。
+    """
     path_str = os.environ.get("RL_TRAINING_LOG", "").strip()
     if not path_str:
         return
@@ -90,6 +95,30 @@ def _append_training_jsonl_entry(entry: dict) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         row = {"ts": int(time.time()), **entry}
         line = json.dumps(row, ensure_ascii=False) + "\n"
+
+        # P1: 写入前检查文件大小，超过阈值时截断为末尾 N 行
+        try:
+            _max_mb = float(os.environ.get("RL_TRAINING_LOG_MAX_MB", "50"))
+            _keep_lines = int(os.environ.get("RL_TRAINING_LOG_KEEP_LINES", "5000"))
+        except (TypeError, ValueError):
+            _max_mb, _keep_lines = 50.0, 5000
+        if _max_mb > 0 and path.is_file():
+            try:
+                _sz = path.stat().st_size
+                if _sz > _max_mb * 1024 * 1024:
+                    _tmp = path.with_suffix(".jsonl.tmp")
+                    with open(path, "r", encoding="utf-8") as _fr:
+                        # 只读最后 _keep_lines 行（从末尾倒读）
+                        from collections import deque as _deque
+                        _tail = _deque(maxlen=_keep_lines)
+                        for _line in _fr:
+                            _tail.append(_line)
+                    with open(_tmp, "w", encoding="utf-8") as _fw:
+                        _fw.writelines(_tail)
+                    _tmp.rename(path)
+            except OSError:
+                pass
+
         with open(path, "a", encoding="utf-8") as f:
             try:
                 import fcntl
@@ -2808,6 +2837,10 @@ def train_loop(
     _loss_warn_last_ep: int = -(10 ** 9)
     _loss_warn_count: int = 0
 
+    # P2-M · collect_ms 持续上涨检测状态
+    _collect_times: list[float] = []
+    _collect_ms_rise_hysteresis: int = 3  # 连续 3 次采样均超标才触发
+
     # --- KL-to-reference 锚定：以「历史最优快照」为冻结参考策略，软约束当前策略不远离 ---
     # 与硬回滚守护互补：守护是"事后兜底"，KL-ref 是"过程中持续拉回"，抑制策略缓慢漂移。
     # 参考网随 best 快照更新（只会换成更好的策略）。每批仅多一次参考前向，开销可忽略。
@@ -3262,14 +3295,22 @@ def train_loop(
                 # F1-1 · 主进程也注册 atexit unlink（覆盖 KeyboardInterrupt/SIGTERM 兜底）。
                 # 上次 commit 只给 worker 注册了 atexit，主进程异常退出时 shm 段会变孤儿；
                 # 这里双保险——主进程 atexit 也调 close_and_unlink。
+                # F1-2 · 额外注册 SIGTERM/SIGINT 处理器：atexit 在 SIGTERM 下可能不执行
+                # （取决于中断时机），信号处理器确保在受控关闭前释放 shm。
                 import atexit as _atexit_main
-                def _shm_main_atexit():
+                def _shm_main_cleanup():
                     try:
                         if _shared_ztable is not None:
                             _shared_ztable.close_and_unlink()
                     except Exception:
                         pass
-                _atexit_main.register(_shm_main_atexit)
+                _atexit_main.register(_shm_main_cleanup)
+                import signal as _sig_main
+                def _shm_sigterm_handler(_signo, _frame):
+                    _shm_main_cleanup()
+                    sys.exit(128 + _signo)
+                _sig_main.signal(_sig_main.SIGTERM, _shm_sigterm_handler)
+                _sig_main.signal(_sig_main.SIGINT, _shm_sigterm_handler)
             except Exception as e:
                 print(f"警告: 共享 Zobrist 表创建失败，退化为本地缓存: {e}", file=sys.stderr)
 
@@ -3725,15 +3766,30 @@ def train_loop(
             # 11.5h 长跑后 train_ms 从 5.4s 涨到 7.7s（+44%），存在不通过 empty_cache
             # 也清不掉的 Python 端泄漏（multiprocessing 留 leaked semaphore）。
             # 显式正常退出（exit code = 99 哨兵）让后端识别为"周期重启请求"，按限速 resume。
+            # P2-H: 同时支持按墙上时间（RL_AUTO_PERIODIC_RESTART_HOURS）触发，
+            # 避免低局数长 episode 场景下局数计数器进展缓慢而长时间不重启。
             try:
                 _periodic_restart_every = int(os.environ.get("RL_AUTO_PERIODIC_RESTART_EVERY", "0"))
             except (TypeError, ValueError):
                 _periodic_restart_every = 0
+            try:
+                _periodic_restart_hours = float(os.environ.get("RL_AUTO_PERIODIC_RESTART_HOURS", "0"))
+            except (TypeError, ValueError):
+                _periodic_restart_hours = 0.0
+            _trigger_restart = False
+            _restart_reason = ""
             if _periodic_restart_every > 0 and (ep_cursor - start_ep) > 0 and \
                (ep_cursor - start_ep) >= _periodic_restart_every:
+                _trigger_restart = True
+                _restart_reason = f"{ep_cursor - start_ep} ep ≥ RL_AUTO_PERIODIC_RESTART_EVERY={_periodic_restart_every}"
+            if not _trigger_restart and _periodic_restart_hours > 0 and ep_cursor > start_ep:
+                _elapsed_hours = (time.perf_counter() - t0) / 3600.0
+                if _elapsed_hours >= _periodic_restart_hours:
+                    _trigger_restart = True
+                    _restart_reason = f"{_elapsed_hours:.1f}h ≥ RL_AUTO_PERIODIC_RESTART_HOURS={_periodic_restart_hours}"
+            if _trigger_restart:
                 print(
-                    f"  [P2] 已训练 {ep_cursor - start_ep} 局（≥ RL_AUTO_PERIODIC_RESTART_EVERY="
-                    f"{_periodic_restart_every}），主动退出让后端 resume 释放内存碎片",
+                    f"  [P2] {_restart_reason}，主动退出让后端 resume 释放内存碎片",
                     file=sys.stderr,
                 )
                 # 99 = 周期重启请求哨兵（区别于 -9 OOM 与 -2/-15 用户停止）
@@ -3741,35 +3797,93 @@ def train_loop(
                 # 失去的最多是末段 <50 局；后端 P0-C 限速 resume 后从该 checkpoint 续训
                 sys.exit(99)
 
+            # ── P2-M · collect_ms 持续上涨检测：当采集延迟近 3 倍基线时，Python
+            # 端泄漏（fragmentation / leaked semaphore）已到临界，提前重启释放碎片。
+            # 使用滑动窗口记录最近 N 次 collect_ms，若中位数 > 基线 × 阈值即触发。
+            try:
+                _mem_leak_window = int(os.environ.get("RL_COLLECT_MS_WINDOW", "50"))
+                _mem_leak_threshold = float(os.environ.get("RL_COLLECT_MS_RATIO", "2.5"))
+            except (TypeError, ValueError):
+                _mem_leak_window, _mem_leak_threshold = 50, 2.5
+            if _mem_leak_window > 0:
+                _collect_times.append(t_collect_ms)
+                if len(_collect_times) > _mem_leak_window * 2:
+                    _collect_times = _collect_times[-_mem_leak_window * 2:]
+                if ep_cursor > start_ep + _mem_leak_window and len(_collect_times) >= _mem_leak_window:
+                    _recent = sorted(_collect_times[-_mem_leak_window:])
+                    _recent_med = _recent[len(_recent) // 2]
+                    _early = sorted(_collect_times[:_mem_leak_window])
+                    _early_med = _early[len(_early) // 2] if _early else _recent_med
+                    if _early_med > 0 and _recent_med > _early_med * _mem_leak_threshold and \
+                       _collect_ms_rise_hysteresis > 0:
+                        _collect_ms_rise_hysteresis -= 1
+                    elif _early_med > 0 and _recent_med > _early_med * _mem_leak_threshold and \
+                         _collect_ms_rise_hysteresis == 0:
+                        print(
+                            f"  [P2-M] collect_ms 中位数从 {_early_med:.0f}ms 涨到 "
+                            f"{_recent_med:.0f}ms（×{_recent_med/_early_med:.1f}，"
+                            f"≥ {_mem_leak_threshold}×），判定为内存泄漏征兆，主动重启",
+                            file=sys.stderr,
+                        )
+                        _append_training_jsonl({
+                            "event": "run_warning",
+                            "run_id": _run_id,
+                            "code": "collect_ms_growth",
+                            "episodes": ep_cursor,
+                            "collect_ms_early_med": round(_early_med, 1),
+                            "collect_ms_recent_med": round(_recent_med, 1),
+                            "collect_ms_ratio": round(_recent_med / _early_med, 2),
+                            "message": "collect_ms 持续上涨至基线 2.5 倍，主动重启释放碎片",
+                        })
+                        sys.exit(99)
+
             # ── P0-A · 周期性清理设备缓存防 OOM ─────────────────────────────
             # 真凶（vmmap 6/21 12:03 排查）：MPS allocator 持有的 owned unmapped (graphics)
             # 区域 = MTLBuffer 物理页面，启动 4 分钟即达 15.3GB（Total footprint 20GB）。
             # torch.mps.empty_cache() 只回到 PyTorch 内部池，并不还给 OS——必须配合
             # PYTORCH_MPS_HIGH/LOW_WATERMARK_RATIO（已在 torch_env.py 在 import torch 前设默认）。
-            # 当前周期：empty_cache + synchronize + 显存监控日志。
+            # 当前周期：empty_cache + synchronize + 显存监控日志（MPS & CUDA 统一处理）。
             try:
                 _empty_cache_every = int(os.environ.get("RL_EMPTY_CACHE_EVERY", "100"))
             except (TypeError, ValueError):
                 _empty_cache_every = 100
             if _empty_cache_every > 0 and (ep_cursor // max(1, bs)) % _empty_cache_every == 0:
                 try:
+                    _mem_gauges = {}
                     if device.type == "mps":
                         torch.mps.empty_cache()
                         if hasattr(torch.mps, "synchronize"):
                             torch.mps.synchronize()
-                        # P0-A+ · 显存监控：把 driver/current 占用打到 jsonl，看板可观测
-                        # 同时一旦 driver_allocated > 高水位 80% 触发额外 trim
                         try:
-                            _drv_alloc = float(torch.mps.driver_allocated_memory()) / (1024 ** 3) if hasattr(torch.mps, "driver_allocated_memory") else 0.0
-                            _cur_alloc = float(torch.mps.current_allocated_memory()) / (1024 ** 3) if hasattr(torch.mps, "current_allocated_memory") else 0.0
-                            if last_update is not None:
-                                last_update["mps_driver_gb"] = round(_drv_alloc, 2)
-                                last_update["mps_current_gb"] = round(_cur_alloc, 2)
+                            if hasattr(torch.mps, "driver_allocated_memory"):
+                                _mem_gauges["mps_driver_gb"] = round(float(torch.mps.driver_allocated_memory()) / (1024 ** 3), 2)
+                            if hasattr(torch.mps, "current_allocated_memory"):
+                                _mem_gauges["mps_current_gb"] = round(float(torch.mps.current_allocated_memory()) / (1024 ** 3), 2)
                         except Exception:
                             pass
                     elif device.type == "cuda":
                         torch.cuda.empty_cache()
                         torch.cuda.synchronize()
+                        try:
+                            _mem_gauges["cuda_allocated_gb"] = round(float(torch.cuda.memory_allocated()) / (1024 ** 3), 2)
+                            _mem_gauges["cuda_reserved_gb"] = round(float(torch.cuda.memory_reserved()) / (1024 ** 3), 2)
+                            if torch.cuda.is_available():
+                                _total = float(torch.cuda.get_device_properties(0).total_memory) / (1024 ** 3)
+                                _mem_gauges["cuda_total_gb"] = round(_total, 1)
+                                _mem_gauges["cuda_util_pct"] = round(_mem_gauges["cuda_allocated_gb"] / _total * 100, 1)
+                        except Exception:
+                            pass
+                    if last_update is not None and _mem_gauges:
+                        last_update.update(_mem_gauges)
+                        # 当显存占用 > 85% 时额外强制 GC
+                        _mem_pct = _mem_gauges.get("cuda_util_pct") or _mem_gauges.get("mps_driver_gb", 0) / 48.0 * 100
+                        if _mem_pct > 85:
+                            import gc
+                            gc.collect()
+                            if device.type == "cuda":
+                                torch.cuda.empty_cache()
+                            elif device.type == "mps":
+                                torch.mps.empty_cache()
                 except Exception:
                     pass
 

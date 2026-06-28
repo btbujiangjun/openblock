@@ -1895,7 +1895,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
 <!-- ═══════ 2.1.2.3a 架构总览 ═══════ -->
 <section class="slide" id="algo-spawn-tuning-bg">
-  <h3><span class="ch">2.1.2.3</span> S 曲线算法实现：自适应引擎 + 深度神经网络</h3>
+  <h3><span class="ch">2.1.2.3</span> S 曲线算法实现：自适应引擎 + 深度学习优化</h3>
 
   <div style="padding:10px 16px;background:rgba(255,183,77,0.06);border-left:3px solid rgba(255,183,77,0.4);border-radius:0 8px 8px 0;margin-bottom:0.5em;font-size:0.82rem;line-height:1.7;color:#b0c8e0">
     <strong>离线训练 → 在线部署</strong>产线：
@@ -1995,13 +1995,14 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   <h3><span class="ch">2.1.2.3a</span> 形式化建模</h3>
 
   <div class="quo" style="font-size:0.95rem;padding:10px 18px;margin-bottom:0.3em">
-    <strong style="color:#ffb74d">双层嵌套优化</strong>：1）内层学习给定 $(c,\theta)$ 到曲线的映射函数；2）外层对每 context 搜索最优 $\theta^*$ 使预测曲线趋近业务目标
+    <strong style="color:#ffb74d">问题定义</strong>：通过模型优化出块参数组合（36 维），使得每个 context 下S体验曲线逼近理想形态<br>
+    <strong style="color:#ffb74d">两层优化</strong>：内层学习 $f_\phi:(c,\theta)\mapsto(D,E,F)$；外层对每 context 搜索 $\theta^*$ 使预测曲线趋近业务目标
   </div>
 
   <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:0.4em">
 
-    <!-- 列1：符号 -->
-    <div style="flex:1.4;min-width:280px">
+    <!-- 列1：符号 + θ 分组 -->
+    <div style="flex:1.4;min-width:280px;display:flex;flex-direction:column;gap:10px">
       <div style="background:rgba(74,158,255,0.04);border:1px solid rgba(74,158,255,0.10);border-radius:8px;padding:10px 14px">
         <div style="color:#7eb8ff;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">符号系统</div>
         <table style="font-size:0.62rem;line-height:1.5;color:#b0c8e0;width:100%;border-collapse:collapse">
@@ -2014,20 +2015,37 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
           <tr><td style="color:#e8a0c8;font-weight:700;vertical-align:top;padding:1px 4px 1px 0;white-space:nowrap;width:1px">$f_{\phi}$</td><td style="vertical-align:top;padding:1px 0;word-break:break-word">$\mathcal{C} \times [0, 1]^{36} \to [0, 1]^{20 \times 3}$，神经网络</td></tr>
         </table>
       </div>
+      <div style="background:rgba(232,160,200,0.04);border:1px solid rgba(232,160,200,0.10);border-radius:8px;padding:10px 14px">
+        <div style="color:#e8a0c8;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">$\theta$ 分组</div>
+        <table style="font-size:0.55rem;line-height:1.35;color:#b0c8e0;width:100%;border-collapse:collapse">
+          <tr><th style="color:#e8a0c8;padding:0 4px 2px 0;text-align:left;border-bottom:1px solid rgba(232,160,200,0.12)">组</th><th style="color:#e8a0c8;padding:0 4px 2px;text-align:center;border-bottom:1px solid rgba(232,160,200,0.12)">维</th><th style="color:#e8a0c8;padding:0 0 2px 4px;text-align:left;border-bottom:1px solid rgba(232,160,200,0.12)">功能</th></tr>
+          <tr><td style="padding:1px 4px 1px 0">A</td><td style="padding:1px 4px;text-align:center">5</td><td style="padding:1px 0 1px 4px">候选选拔/个性化</td></tr>
+          <tr><td style="padding:1px 4px 1px 0">B</td><td style="padding:1px 4px;text-align:center">4</td><td style="padding:1px 0 1px 4px">PB 双 S 曲线</td></tr>
+          <tr><td style="padding:1px 4px 1px 0">C</td><td style="padding:1px 4px;text-align:center">8</td><td style="padding:1px 0 1px 4px">augmentPool 加权</td></tr>
+          <tr><td style="padding:1px 4px 1px 0">D</td><td style="padding:1px 4px;text-align:center">5</td><td style="padding:1px 0 1px 4px">SpawnTargets 翻译矩阵</td></tr>
+          <tr><td style="padding:1px 4px 1px 0">E</td><td style="padding:1px 4px;text-align:center">5</td><td style="padding:1px 0 1px 4px">PB 段细节弯折</td></tr>
+<tr><td style="padding:1px 4px 1px 0">F</td><td style="padding:1px 4px;text-align:center">2</td><td style="padding:1px 0 1px 4px">顺序难度</td></tr>
+<tr><td style="padding:1px 4px 1px 0">G</td><td style="padding:1px 4px;text-align:center">2</td><td style="padding:1px 0 1px 4px">构造式出块</td></tr>
+<tr><td style="padding:1px 4px 1px 0">H</td><td style="padding:1px 4px;text-align:center">2</td><td style="padding:1px 0 1px 4px">解空间区间</td></tr>
+<tr><td style="padding:1px 4px 1px 0">I</td><td style="padding:1px 4px;text-align:center">3</td><td style="padding:1px 0 1px 4px">节奏/special</td></tr>
+        </table>
+      </div>
     </div>
 
     <!-- 列2：双层优化 -->
-    <div style="flex:1.6;min-width:280px">
+    <div style="flex:1.6;min-width:280px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#1a1a2e transparent">
       <div style="background:rgba(255,183,77,0.04);border:1px solid rgba(255,183,77,0.10);border-radius:8px;padding:10px 14px">
         <div style="color:#ffb74d;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">双层优化</div>
         <div style="font-size:0.64rem;line-height:1.55;color:#b0c8e0">
 
-          <span style="color:#ffb74d;font-size:0.68rem">① Phase A：学习映射 $f_{\phi} : (c,\theta) \mapsto (D,E,F)$</span><br/>
-          训练集 $\mathcal{D} = \{ ((c_i,\theta_i), (\hat{D}_i,\hat{E}_i,\hat{F}_i,\text{aux}_i)) \}_{i=1}^{N_{\text{train}}}$，$N_{\text{train}} > 1.2 \times 10^{5}$，每样本为固定 $(c,\theta)$ 下从真实游戏环境采样的体验曲线与辅助信号。<br/>
-          $\displaystyle \min_{\phi}\; \mathbb{E}_{(c,\theta)\sim\mathcal{D}} \big[ \mathcal{L}_{\text{total}}(f_{\phi}(c,\theta), \text{targets}) \big]$<br/>
-          $\mathcal{L}_{\text{total}} = \alpha\mathcal{L}_{\text{shape}} + \kappa\mathcal{L}_{\text{anchor}} + \mu\mathcal{L}_{\text{monotonic}} + \delta\mathcal{L}_{\text{breaking}} + \varepsilon\mathcal{L}_{\text{smooth}} + \zeta\mathcal{L}_{\text{aux}} + \eta\mathcal{L}_{\text{curve-e}} + \iota\mathcal{L}_{\text{curve-f}} + \lambda\mathcal{L}_{\text{frust-cap}} + \tau\mathcal{L}_{\text{diversity}} + \nu\mathcal{L}_{\text{deploy}} + \cdots$（17 项加权求和）。优化器：$\text{Adam}(\eta = 1\times 10^{-3})$，epoch $=50$，batch $=256$，LR schedule：warmup + cosine 退火。输出 $\phi^*$。<br/>
+          <span style="color:#ffb74d;font-size:0.68rem">① 内层：学习映射 $f_{\phi} : (c,\theta) \mapsto (D,E,F)$</span><br/>
 
-          <span style="color:#ffb74d;font-size:0.68rem">② Phase C：逐 context 搜索最优 $\theta^*$</span><br/>
+          $\displaystyle \min_{\phi}\; \mathbb{E}_{(c,\theta)\sim\mathcal{D}} \big[ \mathcal{L}_{\text{total}}(f_{\phi}(c,\theta), \text{targets}) \big]$<br/>
+
+
+           <div style="height:6px;background:#060810;border-radius:3px;margin:5px 0"></div>
+
+           <span style="color:#ffb74d;font-size:0.68rem">② 外层：逐 context 搜索最优 $\theta^*$</span><br/>
           冻结 $f_{\phi^*}$，视为可微分代理模型（surrogate）。$\forall c \in \mathcal{C}$ 独立求解：<br/>
           $\displaystyle \theta_c^* = \operatorname*{arg\,min}_{\theta \in [0,1]^{36}} \mathcal{J}\big( f_{\phi^*}(c,\theta) \big)$<br/>
           目标 $\mathcal{J} = \alpha\mathcal{L}_{\text{shape}}(D_c(\theta), D^*) + \delta\mathcal{L}_{\text{breaking}}(D_c(\theta)) + \gamma\mathcal{L}_{\text{surprise}}(D_c(\theta)) + \eta\mathcal{L}_{\text{curve-e}}(E_c(\theta), E^*) + \iota\mathcal{L}_{\text{curve-f}}(F_c(\theta), F^*) + \lambda\mathcal{L}_{\text{frust-cap}}(F_c(\theta))$，驱使预测曲线逼近理想目标 $(D^*,E^*,F^*)$。<br/>
@@ -2043,8 +2061,9 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
           <span style="color:rgba(255,255,255,0.30)"> $\theta_c^* = \operatorname*{arg\,min} \mathcal{L}_{\text{shape}}$</span><br/>
           输出：$\theta_c^* \in [0,1]^{36} + D_c(\theta_c^*) + \text{MAE} \to \text{policies.json}$<br/><br/>
 
-          <span style="color:#ffb74d;font-size:0.68rem">⏤⏤⏤⏤⏤⏤⏤ 替代方案 ⏤⏤⏤⏤⏤⏤⏤</span><br/>
-          <span style="color:#ffb74d;font-size:0.68rem">③ G6（v3.0.11）：联合训练，端到端生成 $\theta^*$</span><br/>
+           <div style="height:6px;background:#060810;border-radius:3px;margin:5px 0"></div>
+
+           <span style="color:#ffb74d;font-size:0.68rem">③ G6：联合训练，端到端生成 $\theta^*$</span><br/>
           $\Theta_{\text{raw}} \in \mathbb{R}^{480\times 36}$ 作为 nn.Parameter 嵌入模型，sigmoid 约束：$\Theta_c = \sigma(\Theta_{\text{raw},c}) \in [0,1]^{36}$。<br/>
           $\displaystyle \min_{\phi,\,\Theta_{\text{raw}}}\; \mathcal{L}_{\text{total}}(\phi) + \nu \big\| f_{\phi}(c,\Theta_c) - D^* \big\|^2$<br/>
           每步训练完成 $\mathcal{L}_{\text{total}}$ 反向传播后，$\text{loss}_{\text{deploy}}$ 对所有 $c \in \mathcal{C}$ 计算 $\| f_{\phi}(c,\Theta_c) - D^* \|^2$，梯度同时更新 $\phi$ 与 $\Theta_{\text{raw}}$。训练终止时 $\Theta^* = \sigma(\Theta_{\text{raw}})$ 即为最优参数表，直接通过 model.theta_optim() 读取部署。<br/>
@@ -2055,22 +2074,31 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
     </div>
 
     <!-- 列3：复合损失 -->
-    <div style="flex:1.3;min-width:220px">
+    <div style="flex:1.3;min-width:220px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#1a1a2e transparent">
       <div style="background:rgba(129,199,132,0.04);border:1px solid rgba(129,199,132,0.10);border-radius:8px;padding:10px 14px">
         <div style="color:#81c784;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">复合损失：$\mathcal{L}_{\text{total}} = \sum_j w_j \mathcal{L}_j$</div>
-        <table style="font-size:0.60rem;line-height:1.45;color:#b0c8e0;width:100%;border-collapse:collapse">
-          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\alpha=5$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{shape}} = \mathbb{E}[w_b(D_b - \hat{D}_b)^2]$（拐点 bin 加权）</td></tr>
-          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\kappa=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{anchor}} = \sum_{a\in\mathcal{A}} \text{Hinge}(D(r_a), l_a, u_a)$</td></tr>
-          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\mu=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{monotonic}} = \mathbb{E}[\text{ReLU}(D_b - D_{b+1} + \varepsilon)]$</td></tr>
-          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\delta=0.5$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{breaking}} = \mathbb{E}[\text{ReLU}(D_{[0.9,1.0)} - D_{[1.0,2.0]})]$</td></tr>
-          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\tau=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{diversity}} = \mathbb{E}[\text{ReLU}(\eta - \text{Var}_g[D])^2]$（$\eta=0.005$）</td></tr>
-          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\nu=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{deploy}} = \| f_{\phi}(c,\Theta_c) - D^* \|^2$</td></tr>
-          <tr style="color:rgba(255,255,255,0.15)"><td style="padding:1px 4px 1px 0;white-space:nowrap;width:1px">---</td><td style="padding:1px 0;word-break:break-word">$+\ \beta\mathcal{L}_{\text{balance}} + \gamma\mathcal{L}_{\text{surprise}} + \varepsilon\mathcal{L}_{\text{smooth}} + \zeta\mathcal{L}_{\text{aux}}$ $+\ \xi\mathcal{L}_{\text{endpoint}} + \eta\mathcal{L}_{\text{curve-e}} + \iota\mathcal{L}_{\text{curve-f}} + \lambda\mathcal{L}_{\text{frust-cap}}$</td></tr>
+        <table style="font-size:0.55rem;line-height:1.35;color:#b0c8e0;width:100%;border-collapse:collapse">
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\alpha=5$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{shape}}$ 拐点 bin 加权 MSE</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\kappa=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{anchor}}$ 22 关键 r 点 hinge 约束</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\mu=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{monotonic}}$ 软单调性约束</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\delta=0.5$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{breaking}}$ PB 后难度 ≥ PB 前</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\xi=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{endpoint}}$ 锚定首末 bin</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\tau=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{diversity}}$ 同 ctx 方差 → 0.005</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\nu=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{deploy}}$ G6 θ vs ideal S</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\zeta=0.2$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{aux}}$ BCE/MSE 多任务辅助</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\varepsilon=0.04$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{smooth}}$ 对 θ 敏感度约束</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\beta=0.15$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{balance}}$ PB 档位间方差均衡</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\gamma=0.3$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{surprise}}$ 惊喜频率 ~7%</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\eta=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{curve-e}}$ E 曲线拟合</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\iota=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{curve-f}}$ F 曲线拟合</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\lambda=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{frust-cap}}$ F ≤ 0.30 硬上限</td></tr>
+          <tr><td style="color:rgba(129,199,132,0.50);font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$0.5$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{r-value}}$ Smooth L1(r_pred, r)</td></tr>
         </table>
       </div>
     </div>
 
   </div>
+
 </section>
 
 <!-- ═══════ 2.1.2.3b Transformer 架构 ═══════ -->
