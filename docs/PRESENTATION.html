@@ -14,10 +14,10 @@
   body{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#060810;color:#f0f2f8;line-height:1.8;overflow-x:hidden}
 
   /* ═══════ GAME TITLE COVER ═══════ */
-  .cover{min-height:100vh;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:5vh 6vw;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,#0f1e30 0%,#080c18 55%,#060810 100%)}
+   .cover{min-height:100vh;height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:0 6vw;position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 45%,#0f1e30 0%,#080c18 55%,#060810 100%)}
   .cover::before{content:'';position:absolute;inset:0;background:radial-gradient(2px 2px at 20% 30%,rgba(74,158,255,0.50),transparent 50%),radial-gradient(2px 2px at 80% 70%,rgba(255,183,77,0.40),transparent 50%);background-size:200px 200px;pointer-events:none}
-  .cover .game-brand{position:relative;margin-bottom:1.8vh;width:100%}
-  .cover .game-brand .logo-sub{position:absolute;top:-4rem;left:50%;transform:translateX(-50%);font-family:'Kaushan Script',cursive;font-size:clamp(0.85rem,1.6vw,1.6rem);letter-spacing:0.02em;color:rgba(126,184,255,0.40);font-weight:400;white-space:nowrap;perspective:500px;display:inline-block;transform-style:preserve-3d;will-change:transform}
+   .cover .game-brand{position:relative;margin-bottom:0;width:100%}
+   .cover .game-brand .logo-sub{position:absolute;top:-3.5rem;left:50%;transform:translateX(-50%);font-family:'Kaushan Script',cursive;font-size:clamp(0.85rem,1.6vw,1.6rem);letter-spacing:0.02em;color:rgba(126,184,255,0.40);font-weight:400;white-space:nowrap;perspective:500px;display:inline-block;transform-style:preserve-3d;will-change:transform}
   .cover .game-brand .logo-sub::after{content:'ALGORITHMS · INTELLIGENCE';position:absolute;top:0;left:0;font-family:'Kaushan Script',cursive;font-size:clamp(0.85rem,1.6vw,1.6rem);letter-spacing:0.02em;color:rgba(74,158,255,0.12);transform:scaleY(-1) translateY(-0.12em);mask-image:linear-gradient(to bottom,rgba(0,0,0,0.35) 0%,transparent 55%);-webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,0.35) 0%,transparent 55%);pointer-events:none}
   .cover .game-brand .logo-sub .ai{display:inline-block;animation:aiBreathe 2.5s ease-in-out infinite}
   .cover .game-brand .logo-sub .ai .ai-i{display:inline-block;font-size:1.4em;font-weight:800;background:linear-gradient(135deg,#4a9eff 0%,#7eb8ff 60%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
@@ -26,7 +26,7 @@
   .cover .game-title svg{width:auto;height:auto;max-width:50%;max-height:12vh;display:block;margin:0 auto;transform-style:preserve-3d;will-change:transform;position:relative;z-index:1}
   .cover>canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
   .cover>*:not(canvas){position:relative;z-index:1}
-  .cover .main-title-3d-wrap{width:100%;margin-bottom:0.8vh;position:relative;perspective:600px;display:flex;flex-direction:column;align-items:center}
+   .cover .main-title-3d-wrap{width:100%;margin-bottom:0;position:relative;perspective:600px;display:flex;flex-direction:column;align-items:center}
    .cover .main-title-3d-wrap .title-css3d{font-family:'Ma Shan Zheng',cursive;font-size:clamp(1.3rem,2.4vw,2.4rem);font-weight:400;letter-spacing:0.06em;color:#e8ecf6;white-space:nowrap;position:relative;display:inline-block;transform-style:preserve-3d;will-change:transform;animation:titleGlow 3s ease-in-out infinite alternate,subtitleFloat 4s ease-in-out infinite;text-shadow:0 0 10px rgba(74,158,255,0.6),0 0 30px rgba(74,158,255,0.3),0 0 60px rgba(74,158,255,0.15),0 1px 0 rgba(255,255,255,0.15),0 2px 0 rgba(255,255,255,0.10),0 4px 0 rgba(255,255,255,0.06),0 6px 0 rgba(255,255,255,0.03),0 8px 12px rgba(0,0,0,0.5),0 14px 20px rgba(0,0,0,0.3);filter:drop-shadow(0 4px 6px rgba(0,0,0,0.15))}
    .cover .main-title-3d-wrap .title-css3d::before{content:'';position:absolute;top:50%;left:-20px;right:-20px;height:2px;background:linear-gradient(90deg,transparent,rgba(74,158,255,0.8),rgba(255,183,77,0.6),rgba(74,158,255,0.8),transparent);filter:blur(4px);opacity:0;animation:rayFlash 4s ease-in-out infinite;pointer-events:none}
    .cover .main-title-3d-wrap .title-css3d::after{content:'算法驱动的方块消除类智能游戏平台';position:absolute;top:0;left:0;right:0;font-family:'Ma Shan Zheng',cursive;font-size:clamp(1.3rem,2.4vw,2.4rem);font-weight:400;letter-spacing:0.06em;color:rgba(74,158,255,0.12);transform:scaleY(-1) translateY(-0.18em);mask-image:linear-gradient(to bottom,rgba(0,0,0,0.5) 0%,transparent 65%);-webkit-mask-image:linear-gradient(to bottom,rgba(0,0,0,0.5) 0%,transparent 65%);pointer-events:none;filter:blur(0.5px)}
@@ -50,7 +50,7 @@
    @keyframes drift3{0%{transform:translate(0,0) rotate(0deg)}100%{transform:translate(4px,8px) rotate(1deg)}}
    @keyframes drift4{0%{transform:translate(0,0) rotate(0deg)}100%{transform:translate(-6px,7px) rotate(-2deg)}}
    @keyframes drift5{0%{transform:translate(0,0) scale(1)}100%{transform:translate(3px,-5px) scale(1.04)}}
-  #cover-date{margin-top:1.5vh;font-size:clamp(0.85rem,1.1vw,1.1rem);color:rgba(126,184,255,0.55);letter-spacing:0.15em;font-family:'JetBrains Mono','SF Mono','Fira Code',monospace;perspective:500px;display:inline-block;transform-style:preserve-3d;will-change:transform;animation:datePulse 4s ease-in-out infinite alternate}
+   #cover-date{margin-top:1.2vh;font-size:clamp(0.85rem,1.1vw,1.1rem);color:rgba(126,184,255,0.55);letter-spacing:0.15em;font-family:'JetBrains Mono','SF Mono','Fira Code',monospace;perspective:500px;display:inline-block;transform-style:preserve-3d;will-change:transform;animation:datePulse 4s ease-in-out infinite alternate}
   @keyframes datePulse{0%{text-shadow:0 0 6px rgba(74,158,255,0.3),0 0 15px rgba(74,158,255,0.15)}100%{text-shadow:0 0 10px rgba(255,183,77,0.35),0 0 25px rgba(255,183,77,0.15)}}
   .cover .scroll-hint{position:absolute;bottom:3vh;left:50%;transform:translateX(-50%);font-size:clamp(0.7rem,0.8vw,0.85rem);color:rgba(126,184,255,0.45);animation:bounce 2s infinite;letter-spacing:0.2em}
   /* ═══════ SLIDE LAYOUT ═══════ */
@@ -566,7 +566,7 @@
 </svg></div>
   </div>
   <div class="main-title-3d-wrap"><span class="title-css3d">算法驱动的方块消除类智能游戏平台</span></div>
-  <div id="cover-date" class="date-3d" style="margin-top:1.5vh;font-size:clamp(0.85rem,1.1vw,1.1rem);color:rgba(126,184,255,0.55);letter-spacing:0.15em;font-family:'JetBrains Mono','SF Mono','Fira Code',monospace"></div>
+  <div id="cover-date" class="date-3d" style="font-size:clamp(0.85rem,1.1vw,1.1rem);color:rgba(126,184,255,0.55);letter-spacing:0.15em;font-family:'JetBrains Mono','SF Mono','Fira Code',monospace"></div>
   <div class="scroll-hint">▼ 键盘 ← → 或点击切换 ▼</div>
 </section>
 
