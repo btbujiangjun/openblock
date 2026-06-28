@@ -2036,39 +2036,30 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
     <div style="flex:1.6;min-width:280px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#1a1a2e transparent">
       <div style="background:rgba(255,183,77,0.04);border:1px solid rgba(255,183,77,0.10);border-radius:8px;padding:10px 14px">
         <div style="color:#ffb74d;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">双层优化</div>
-        <div style="font-size:0.64rem;line-height:1.55;color:#b0c8e0">
-
-          <span style="color:#ffb74d;font-size:0.68rem">① 内层：学习映射 $f_{\phi} : (c,\theta) \mapsto (D,E,F)$</span><br/>
-
-          $\displaystyle \min_{\phi}\; \mathbb{E}_{(c,\theta)\sim\mathcal{D}} \big[ \mathcal{L}_{\text{total}}(f_{\phi}(c,\theta), \text{targets}) \big]$<br/>
-
-
-           <div style="height:6px;background:#060810;border-radius:3px;margin:5px 0"></div>
-
-           <span style="color:#ffb74d;font-size:0.68rem">② 外层：逐 context 搜索最优 $\theta^*$</span><br/>
-          冻结 $f_{\phi^*}$，视为可微分代理模型（surrogate）。$\forall c \in \mathcal{C}$ 独立求解：<br/>
-          $\displaystyle \theta_c^* = \operatorname*{arg\,min}_{\theta \in [0,1]^{36}} \mathcal{J}\big( f_{\phi^*}(c,\theta) \big)$<br/>
-          目标 $\mathcal{J} = \alpha\mathcal{L}_{\text{shape}}(D_c(\theta), D^*) + \delta\mathcal{L}_{\text{breaking}}(D_c(\theta)) + \gamma\mathcal{L}_{\text{surprise}}(D_c(\theta)) + \eta\mathcal{L}_{\text{curve-e}}(E_c(\theta), E^*) + \iota\mathcal{L}_{\text{curve-f}}(F_c(\theta), F^*) + \lambda\mathcal{L}_{\text{frust-cap}}(F_c(\theta))$，驱使预测曲线逼近理想目标 $(D^*,E^*,F^*)$。<br/>
-          算法（LHS 多起点梯度下降）：<br/>
-          <span style="color:rgba(255,255,255,0.30)">$\forall c \in \mathcal{C}$:</span><br/>
-          <span style="color:rgba(255,255,255,0.30)"> for $s = 1,\dots,8$:</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">  $\theta \leftarrow \text{Uniform}(0,1)^{36}$  # LHS 多起点初始化</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">  for $t = 1,\dots,T,\ T=300$:</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">   $(D,E,F) = f_{\phi^*}(c,\theta)$  # NN 前向传播</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">   $\ell = \mathcal{J}(D,E,F)$  # 计算偏离理想目标的损失</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">   $\theta \leftarrow \text{Proj}_{[0,1]^{36}}(\theta - \eta \cdot \text{Adam}(\nabla_{\theta}\ell))$ # $\eta=0.05$</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">  若 $\mathcal{L}_{\text{shape}}$ 当前最低，记录 $\theta$</span><br/>
-          <span style="color:rgba(255,255,255,0.30)"> $\theta_c^* = \operatorname*{arg\,min} \mathcal{L}_{\text{shape}}$</span><br/>
-          输出：$\theta_c^* \in [0,1]^{36} + D_c(\theta_c^*) + \text{MAE} \to \text{policies.json}$<br/><br/>
-
-           <div style="height:6px;background:#060810;border-radius:3px;margin:5px 0"></div>
-
-           <span style="color:#ffb74d;font-size:0.68rem">③ G6：联合训练，端到端生成 $\theta^*$</span><br/>
-          $\Theta_{\text{raw}} \in \mathbb{R}^{480\times 36}$ 作为 nn.Parameter 嵌入模型，sigmoid 约束：$\Theta_c = \sigma(\Theta_{\text{raw},c}) \in [0,1]^{36}$。<br/>
-          $\displaystyle \min_{\phi,\,\Theta_{\text{raw}}}\; \mathcal{L}_{\text{total}}(\phi) + \nu \big\| f_{\phi}(c,\Theta_c) - D^* \big\|^2$<br/>
-          每步训练完成 $\mathcal{L}_{\text{total}}$ 反向传播后，$\text{loss}_{\text{deploy}}$ 对所有 $c \in \mathcal{C}$ 计算 $\| f_{\phi}(c,\Theta_c) - D^* \|^2$，梯度同时更新 $\phi$ 与 $\Theta_{\text{raw}}$。训练终止时 $\Theta^* = \sigma(\Theta_{\text{raw}})$ 即为最优参数表，直接通过 model.theta_optim() 读取部署。<br/>
-          <span style="color:rgba(255,255,255,0.20)">注：G6 为 Phase C 的内联替代——二者目标等价（求 $\theta^*$），实现路径不同。G6 在训练过程中自动完成寻参；若特定 c 的 MAE 未达阈值，可对其单独执行 Phase C 精调。</span>
-
+        <div style="font-size:0.64rem;line-height:1.45;color:#b0c8e0">
+            <span style="color:#ffb74d;font-size:0.68rem">① 内层：学习映射 $f_{\phi} : (c,\theta) \mapsto (D,E,F)$</span><br/>
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:4px 8px;margin:3px 0;text-align:center"><span style="color:#4dd0e1;font-weight:600;display:inline-block">$\displaystyle \min_{\phi}\; \mathbb{E}_{(c,\theta)\sim\mathcal{D}} \big[ \mathcal{L}_{\text{total}}(f_{\phi}(c,\theta), \text{targets}) \big]$</span></div>
+              <div style="height:3px;background:#060810;border-radius:2px;margin:2px 0"></div>
+             <span style="color:#ffb74d;font-size:0.68rem">② 外层：逐 context 搜索最优 $\theta^*$</span><br/>
+             冻结 $f_{\phi^*}$ 视为可微分代理模型，$\forall c \in \mathcal{C}$ 独立求解：<br/>
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:4px 8px;margin:3px 0;text-align:center"><span style="color:#4dd0e1;font-weight:600;display:inline-block">$\displaystyle \theta_c^* = \operatorname*{arg\,min}_{\theta \in [0,1]^{36}} \mathcal{J}\big( f_{\phi^*}(c,\theta) \big)$</span></div>
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:4px 8px;margin:3px 0;font-size:0.55rem;color:rgba(255,255,255,0.30);line-height:1.4">
+            $\forall c \in \mathcal{C}$:<br/>
+             for $s = 1,\dots,8$:<br/>
+              $\theta \leftarrow \text{Uniform}(0,1)^{36}$  # LHS 多起点初始化<br/>
+              for $t = 1,\dots,T,\ T=300$:<br/>
+               $(D,E,F) = f_{\phi^*}(c,\theta)$  # NN 前向传播<br/>
+               $\ell = \mathcal{J}(D,E,F)$  # 计算偏离理想目标的损失<br/>
+               $\theta \leftarrow \text{Proj}_{[0,1]^{36}}(\theta - \eta \cdot \text{Adam}(\nabla_{\theta}\ell))$ # $\eta=0.05$<br/>
+              若 $\mathcal{L}_{\text{shape}}$ 当前最低，记录 $\theta$<br/>
+             $\theta_c^* = \operatorname*{arg\,min} \mathcal{L}_{\text{shape}}$<br/>
+            输出：$\theta_c^* \in [0,1]^{36} + D_c(\theta_c^*) + \text{MAE} \to \text{policies.json}$
+            </div>
+           <div style="height:3px;background:#060810;border-radius:2px;margin:2px 0"></div>
+            <span style="color:#ffb74d;font-size:0.68rem">③ 端到端联合训练 $\theta^*$</span><br/>
+            $\Theta_{\text{raw}} \in \mathbb{R}^{480\times 36}$，sigmoid 约束：$\Theta_c = \sigma(\Theta_{\text{raw},c}) \in [0,1]^{36}$<br/>
+            <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:4px 8px;margin:3px 0;text-align:center"><span style="color:#4dd0e1;font-weight:600;display:inline-block">$\displaystyle \min_{\phi,\,\Theta_{\text{raw}}}\; \mathcal{L}_{\text{total}}(\phi) + \nu \big\| f_{\phi}(c,\Theta_c) - D^* \big\|^2$</span></div>
+           每步训练完成 $\mathcal{L}_{\text{total}}$ 反向传播后，$\text{loss}_{\text{deploy}}$ 对所有 $c \in \mathcal{C}$ 计算 $\| f_{\phi}(c,\Theta_c) - D^* \|^2$，梯度同时更新 $\phi$ 与 $\Theta_{\text{raw}}$，训练终止时 $\Theta^* = \sigma(\Theta_{\text{raw}})$ 即为最优参数表
         </div>
       </div>
     </div>
