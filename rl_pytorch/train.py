@@ -32,6 +32,11 @@ import uuid
 from pathlib import Path
 from typing import Union
 
+import warnings
+
+# 多进程正常关闭时资源追踪器的 leak 警告属于无害噪声，予以压制
+warnings.filterwarnings("ignore", category=UserWarning, module="multiprocessing.resource_tracker")
+
 from . import torch_env  # noqa: F401 — 须在 import torch 之前（NNPACK 警告 / CPU 环境）
 
 import numpy as np
@@ -220,6 +225,32 @@ def _pool_worker_init(
             _atexit.register(_close_shared_table_on_exit)
         except Exception:
             _pool_shared_table = None
+
+    # P0-2+ · worker 退出时清理 torch 缓存和进程资源
+    import atexit as _atexit_torch
+    def _cleanup_worker_on_exit():
+        try:
+            if hasattr(torch, "empty_cache"):
+                torch.empty_cache()
+            import gc
+            gc.collect()
+        except Exception:
+            pass
+    _atexit_torch.register(_cleanup_worker_on_exit)
+
+    # 压制 pool 关闭时的 BrokenPipeError traceback（属于正常 shutdown 而非真正错误）
+    import sys as _sys
+    _orig_excepthook = _sys.excepthook
+    def _worker_excepthook(etype, value, tb):
+        if etype is BrokenPipeError:
+            return
+        _orig_excepthook(etype, value, tb)
+    _sys.excepthook = _worker_excepthook
+
+    # pool.terminate() 时静默退出，不打印 traceback 也不执行 atexit（OS 回收）
+    import signal as _signal
+    import os as _os
+    _signal.signal(_signal.SIGTERM, lambda *a: _os._exit(0))
 
 
 def _pool_worker_collect(args: tuple) -> list[dict]:
@@ -2675,21 +2706,21 @@ def train_loop(
     grad_clip: float = 1.0,
     adv_min_std: float = 1e-4,
     value_huber_beta: float = 10.0,
-    gae_lambda: float = 0.95,
-    temp_floor: float = 0.3,
+    gae_lambda: float = 0.85,
+    temp_floor: float = 0.4,
     explore_first_moves: int = 2,
     explore_temp_mult: float = 1.2,
-    dirichlet_epsilon: float = 0.08,
-    dirichlet_alpha: float = 0.28,
+    dirichlet_epsilon: float = 0.12,
+    dirichlet_alpha: float = 0.35,
     train_arch: str = "conv-shared",
     mlp_ratio: float = 2.0,
     policy_depth_arg: int = 4,
     value_depth_arg: int = 4,
-    batch_episodes: int = 8,
+    batch_episodes: int = 256,
     n_workers: int = 0,
-    ppo_epochs: int = 4,
-    ppo_clip: float = 0.2,
-    target_kl: float = 0.0,
+    ppo_epochs: int = 6,
+    ppo_clip: float = 0.25,
+    target_kl: float = 0.02,
     eval_gate_every: int = 0,
     eval_gate_games: int = 50,
     eval_gate_win_ratio: float = 0.55,
@@ -4372,13 +4403,26 @@ def train_loop(
     finally:
         _cleanup_weight_file(_pending_weight_path)
         if pool is not None:
-            pool.close()
-            pool.join()
+            try:
+                pool.close()
+                pool.join(timeout=120)
+            except Exception:
+                pool.terminate()
+                pool.join()
         if _shared_ztable is not None:
             try:
                 _shared_ztable.close_and_unlink()
+                _shared_ztable = None
             except Exception:
                 pass
+        # P0-2+ · 主进程退出时清理 GPU 缓存
+        try:
+            if device.type == "mps" and hasattr(torch, "empty_cache"):
+                torch.mps.empty_cache()
+            elif device.type == "cuda" and hasattr(torch, "empty_cache"):
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
     return ep_cursor
 
@@ -4416,7 +4460,7 @@ def main() -> None:
     p.add_argument(
         "--entropy-coef",
         type=float,
-        default=0.025,
+        default=0.03,
         help="策略熵 bonus；防止策略过早确定化",
     )
     p.add_argument(
@@ -4471,25 +4515,25 @@ def main() -> None:
     p.add_argument(
         "--batch-episodes",
         type=int,
-        default=128,
+        default=256,
         help="采集多少局后做一次梯度更新（大 batch 提高梯度稳定性）",
     )
     p.add_argument(
         "--ppo-epochs",
         type=int,
-        default=4,
+        default=6,
         help="每批数据的 PPO 更新轮数；1=退化为 REINFORCE",
     )
     p.add_argument(
         "--ppo-clip",
         type=float,
-        default=float(os.environ.get("RL_PPO_CLIP", "0.2")),
+        default=float(os.environ.get("RL_PPO_CLIP", "0.25")),
         help="PPO clipped surrogate ε；仅 ppo-epochs>1 时生效（env RL_PPO_CLIP 覆盖默认）",
     )
     p.add_argument(
         "--target-kl",
         type=float,
-        default=float(os.environ.get("RL_TARGET_KL", "0.03")),
+        default=float(os.environ.get("RL_TARGET_KL", "0.02")),
         help="信任域早停阈值：单批近似 KL 超此值即停止剩余 PPO epoch（0=关闭）。防小批多轮过拟合漂移",
     )
     p.add_argument(
@@ -4501,7 +4545,7 @@ def main() -> None:
     p.add_argument(
         "--temp-floor",
         type=float,
-        default=0.35,
+        default=0.4,
         help="温度下限；保持足够随机性以防过早收敛",
     )
     p.add_argument(
@@ -4520,13 +4564,13 @@ def main() -> None:
     p.add_argument(
         "--dirichlet-epsilon",
         type=float,
-        default=0.15,
-        help="Dirichlet 混合权重初值；v6 默认 0.15 增强早期探索",
+        default=0.12,
+        help="Dirichlet 混合权重初值；v6 默认 0.12 增强早期探索",
     )
     p.add_argument(
         "--dirichlet-alpha",
         type=float,
-        default=0.28,
+        default=0.35,
         help="Dirichlet 总浓度（dirichlet-epsilon=0 时无效）",
     )
     p.add_argument(
