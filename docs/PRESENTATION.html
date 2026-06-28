@@ -2001,17 +2001,17 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:0.4em">
 
     <!-- 列1：符号 -->
-    <div style="flex:1;min-width:220px">
+    <div style="flex:1.4;min-width:280px">
       <div style="background:rgba(74,158,255,0.04);border:1px solid rgba(74,158,255,0.10);border-radius:8px;padding:10px 14px">
         <div style="color:#7eb8ff;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">符号系统</div>
         <table style="font-size:0.62rem;line-height:1.5;color:#b0c8e0;width:100%;border-collapse:collapse">
-          <tr><td style="color:#e8a0c8;font-weight:700;width:80px;vertical-align:top;padding:1px 4px 1px 0">$c \in \mathcal{C}$</td><td style="vertical-align:top;padding:1px 0">$= \{\text{难度},\ \text{生成器},\ \text{机器人},\ \text{历史分档},\ \text{生命周期}\}$，$|\mathcal{C}| = 480$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$\theta \in [0, 1]^{36}$</td><td style="padding:1px 0">spawn 参数向量（9 组 A–I），$\subset \mathbb{R}^{36}$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$r \in [0, 2]$</td><td style="padding:1px 0">归一化进度 $= \text{score} / \text{PB}$，$\subset \mathbb{R}$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$b \in \{1,\dots,20\}$</td><td style="padding:1px 0">离散 bin（$\subset \mathbb{N}$），$r \in [(b-1)\cdot 0.1,\, b\cdot 0.1)$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$D, E, F$</td><td style="padding:1px 0">预测的难度 / 爽感 / 挫败曲线，$\in [0, 1]^{20}$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$D^*, E^*, F^*$</td><td style="padding:1px 0">业务定义的 ideal 目标曲线，$\in [0, 1]^{20}$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$f_{\phi}$</td><td style="padding:1px 0">$\mathcal{C} \times [0, 1]^{36} \to [0, 1]^{20 \times 3}$，神经网络</td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;vertical-align:top;padding:1px 4px 1px 0;white-space:nowrap;width:1px">$c \in \mathcal{C}$</td><td style="vertical-align:top;padding:1px 0">$= \{\text{难度},\text{生成器},\text{机器人},\text{历史分档},\text{生命周期}\}$，$|\mathcal{C}| = 480$</td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;vertical-align:top;padding:1px 4px 1px 0;white-space:nowrap;width:1px">$\theta \in [0, 1]^{36}$</td><td style="vertical-align:top;padding:1px 0">spawn 参数向量（9 组 A–I），$\subset \mathbb{R}^{36}$</td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;vertical-align:top;padding:1px 4px 1px 0;white-space:nowrap;width:1px">$r \in [0, 2]$</td><td style="vertical-align:top;padding:1px 0">归一化进度 $= \text{score} / \text{PB}$，$\subset \mathbb{R}$</td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;vertical-align:top;padding:1px 4px 1px 0;white-space:nowrap;width:1px">$b \in \{1,\dots,20\}$</td><td style="vertical-align:top;padding:1px 0">离散 bin（$\subset \mathbb{N}$），$r \in [(b-1)\cdot 0.1,\, b\cdot 0.1)$</td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;vertical-align:top;padding:1px 4px 1px 0;white-space:nowrap;width:1px">$D, E, F$</td><td style="vertical-align:top;padding:1px 0">预测的难度 / 爽感 / 挫败曲线，$\in [0, 1]^{20}$</td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;vertical-align:top;padding:1px 4px 1px 0;white-space:nowrap;width:1px">$D^*, E^*, F^*$</td><td style="vertical-align:top;padding:1px 0">业务定义的 ideal 目标曲线，$\in [0, 1]^{20}$</td></tr>
+          <tr><td style="color:#e8a0c8;font-weight:700;vertical-align:top;padding:1px 4px 1px 0;white-space:nowrap;width:1px">$f_{\phi}$</td><td style="vertical-align:top;padding:1px 0">$\mathcal{C} \times [0, 1]^{36} \to [0, 1]^{20 \times 3}$，神经网络</td></tr>
         </table>
       </div>
     </div>
