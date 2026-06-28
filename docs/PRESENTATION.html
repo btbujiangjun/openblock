@@ -2092,12 +2092,12 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
 </section>
 
-<!-- ═══════ 2.1.2.3b Transformer 架构 ═══════ -->
+<!-- ═══════ 2.1.2.3b Transformer ═══════ -->
 <section class="slide" id="algo-transformer">
-  <h3><span class="ch">2.1.2.3b</span> Transformer 信号融合架构</h3>
+  <h3><span class="ch">2.1.2.3b</span> Transformer 架构</h3>
 
   <div class="quo" style="font-size:1.0rem;padding:10px 18px;margin-bottom:0.3em">
-    SpawnParamTuner<strong style="color:#ffb74d">Transformer 多 bin 序列架构</strong>——将 20 档曲线视为序列，通过自注意力捕捉相邻档位间的单调依赖
+    <strong style="color:#ffb74d">Transformer 序列架构</strong>：参数规模~200K，4 层多头自注意力 encoder 堆叠，自注意力逐 bin 聚合全局上下文，天然捕捉 D(r) 单调性与相邻档位依赖；位置编码保留进度轴次序，替代模型为轻量选择
   </div>
 
   <div class="img-frame" style="padding:16px 20px;background:rgba(0,0,0,0.35);text-align:center">
@@ -2117,25 +2117,19 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
       <!-- ═══════ L1: INPUT ═══════ -->
       <rect x="30" y="32" width="820" height="92" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <text x="50" y="50" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">INPUT  (32 + 27 + 9 = 68 维)</text>
+      <text x="50" y="50" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">INPUT  (32 + 36 = 68 维)</text>
 
       <rect x="50" y="58" width="210" height="56" rx="6" fill="url(#bg1)" stroke="rgba(74,158,255,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
       <text x="155" y="72" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="700">context(32)</text>
       <text x="155" y="84" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">diff₃→₄  gen₂→₄  bot₄→₄</text>
       <text x="155" y="96" fill="rgba(255,255,255,0.25)" font-size="7" text-anchor="middle">pb₅→₈  life₄→₈  logPB→₄</text>
 
-      <rect x="290" y="58" width="330" height="56" rx="6" fill="url(#bg2)" stroke="rgba(255,183,77,0.20)" stroke-width="1.2" filter="url(#sf2)"/>
-      <text x="455" y="72" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">theta(27)</text>
-      <text x="455" y="83" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">personalization₅  pbTension₄  scoring₈  translation₅  challenge₅</text>
-      <text x="455" y="93" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pers·temp·surp·cool·mEval₅  pbTC·pbTW·pbBC·pbBW₄</text>
-      <text x="455" y="101" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pcW·mcF·nearF·eFit·mFlush·pW·sPref·divP₈</text>
-      <text x="455" y="108" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">cpx·cRlf·sol·pbTWt·pbBWt₅  chSlp·chCap·pOv·rls·farPB₅</text>
-
-      <rect x="640" y="58" width="190" height="56" rx="6" fill="url(#bg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2" filter="url(#sf2)"/>
-      <text x="735" y="72" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">spawn(9)</text>
-      <text x="735" y="84" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">order₂  constructive₂  solution₂  special₃</text>
-      <text x="735" y="96" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">ordR·ordBud₂  cCmp·crwM₂</text>
-      <text x="735" y="107" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">shCpx·solSp₂  rlfQt·prsQt·mfCap₃</text>
+      <rect x="290" y="58" width="540" height="56" rx="6" fill="url(#bg2)" stroke="rgba(255,183,77,0.20)" stroke-width="1.2" filter="url(#sf2)"/>
+      <text x="560" y="72" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">theta(36)</text>
+      <text x="560" y="83" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">personalization₅  pbTension₄  scoring₈  translation₅  challenge₅  order₂  constructive₂  solution₂  special₃</text>
+      <text x="560" y="93" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pers·temp·surp·cool·mEval₅  pbTC·pbTW·pbBC·pbBW₄</text>
+      <text x="560" y="101" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pcW·mcF·nearF·eFit·mFlush·pW·sPref·divP₈</text>
+      <text x="560" y="108" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">cpx·cRlf·sol·pbTWt·pbBWt₅  chSlp·chCap·pOv·rls·farPB₅  ordR·ordBud₂  cCmp·crwM₂  shCpx·solSp₂  rlfQt·prsQt·mfCap₃</text>
 
       <text x="440" y="138" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
 
@@ -2227,10 +2221,10 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
 <!-- ═══════ 2.1.2.3c ResNet-MLP 架构 ═══════ -->
 <section class="slide" id="algo-resnet">
-  <h3><span class="ch">2.1.2.3c</span> ResNet-MLP 能力预测架构</h3>
+  <h3><span class="ch">2.1.2.3c</span> ResNet-MLP 架构</h3>
 
   <div class="quo" style="font-size:1.0rem;padding:10px 18px;margin-bottom:0.3em">
-    SpawnParamTuner<strong style="color:#81c784">ResNet 残差架构</strong>（默认模型，~325K params）——8 层残差块构建深且稳的能力预测网络
+    <strong style="color:#81c784">ResNet 残差架构</strong>：参数规模~325K，8 层残差块堆叠支持更深梯度传播，避免退化；多头输出分别预测 D/E/F 曲线与 5 个辅助信号，容量更大，拟合能力更强
   </div>
 
   <div class="img-frame" style="padding:16px 20px;background:rgba(0,0,0,0.35);text-align:center">
@@ -2250,25 +2244,19 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
       <!-- ═══════ L1: INPUT ═══════ -->
       <rect x="30" y="32" width="820" height="92" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
-      <text x="50" y="50" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">INPUT  (32 + 27 + 9 = 68 维)</text>
+      <text x="50" y="50" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600" letter-spacing="0.1em">INPUT  (32 + 36 = 68 维)</text>
 
       <rect x="50" y="58" width="210" height="56" rx="6" fill="url(#cg1)" stroke="rgba(74,158,255,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
       <text x="155" y="72" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="700">context(32)</text>
       <text x="155" y="84" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">diff₃→₄  gen₂→₄  bot₄→₄</text>
       <text x="155" y="96" fill="rgba(255,255,255,0.25)" font-size="7" text-anchor="middle">pb₅→₈  life₄→₈  logPB→₄</text>
 
-      <rect x="290" y="58" width="330" height="56" rx="6" fill="url(#cg2)" stroke="rgba(255,183,77,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
-      <text x="455" y="72" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">theta(27)</text>
-      <text x="455" y="83" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">personalization₅  pbTension₄  scoring₈  translation₅  challenge₅</text>
-      <text x="455" y="93" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pers·temp·surp·cool·mEval₅  pbTC·pbTW·pbBC·pbBW₄</text>
-      <text x="455" y="101" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pcW·mcF·nearF·eFit·mFlush·pW·sPref·divP₈</text>
-      <text x="455" y="108" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">cpx·cRlf·sol·pbTWt·pbBWt₅  chSlp·chCap·pOv·rls·farPB₅</text>
-
-      <rect x="640" y="58" width="190" height="56" rx="6" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
-      <text x="735" y="72" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">spawn(9)</text>
-      <text x="735" y="84" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">order₂  constructive₂  solution₂  special₃</text>
-      <text x="735" y="96" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">ordR·ordBud₂  cCmp·crwM₂</text>
-      <text x="735" y="107" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">shCpx·solSp₂  rlfQt·prsQt·mfCap₃</text>
+      <rect x="290" y="58" width="540" height="56" rx="6" fill="url(#cg2)" stroke="rgba(255,183,77,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
+      <text x="560" y="72" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">theta(36)</text>
+      <text x="560" y="83" fill="rgba(255,255,255,0.30)" font-size="7" text-anchor="middle">personalization₅  pbTension₄  scoring₈  translation₅  challenge₅  order₂  constructive₂  solution₂  special₃</text>
+      <text x="560" y="93" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pers·temp·surp·cool·mEval₅  pbTC·pbTW·pbBC·pbBW₄</text>
+      <text x="560" y="101" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">pcW·mcF·nearF·eFit·mFlush·pW·sPref·divP₈</text>
+      <text x="560" y="108" fill="rgba(255,255,255,0.22)" font-size="6.5" text-anchor="middle">cpx·cRlf·sol·pbTWt·pbBWt₅  chSlp·chCap·pOv·rls·farPB₅  ordR·ordBud₂  cCmp·crwM₂  shCpx·solSp₂  rlfQt·prsQt·mfCap₃</text>
 
       <text x="440" y="138" fill="rgba(255,183,77,0.50)" font-size="20" text-anchor="middle" font-weight="400">↓</text>
 
@@ -2358,6 +2346,119 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
       <!-- Training note -->
       <text x="580" y="448" fill="rgba(255,255,255,0.18)" font-size="8" text-anchor="middle">θ 表(360×36) 端到端联合训练 · 8 随机起点寻优 · policies.json</text>
     </svg>
+  </div>
+</section>
+
+<!-- ═══════ 2.1.2.3d 端侧部署推理 ═══════ -->
+<section class="slide" id="algo-inference">
+  <h3><span class="ch">2.1.2.3d</span> 端侧部署推理</h3>
+
+  <div class="quo" style="font-size:0.9rem;padding:8px 16px;margin-bottom:0.2em;line-height:1.6">
+    <strong style="color:#e57373">主要挑战</strong>：游戏响应时效要求高，且算力有限，难以承载神经网络运行时推理<br>
+    <strong style="color:#4dd0e1">解决思路</strong>：训练 + $\theta$ 寻优在离线阶段打包成 $\Theta^* \in \mathbb{R}^{480 \times 36}$ 参数表；端侧 $O(1)$ 查表消费当前 context 对应的 $\theta$ 参数
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:0.15em;align-items:stretch">
+
+    <!-- 列1：离线训练 → 在线推理（合并） -->
+    <div style="flex:1.8;min-width:300px;display:flex;flex-direction:column;gap:5px">
+      <div style="background:rgba(74,158,255,0.04);border:1px solid rgba(74,158,255,0.10);border-radius:6px;padding:5px 10px">
+        <div style="color:#7eb8ff;font-size:0.72rem;font-weight:700;letter-spacing:0.04em;margin-bottom:3px">① 离线训练 → 在线推理</div>
+
+        <!-- 离线 -->
+        <div style="background:rgba(74,158,255,0.06);border-radius:4px;padding:3px 7px;font-size:0.55rem;line-height:1.4;color:#b0c8e0;margin-bottom:2px">
+          <span style="color:#7eb8ff;font-weight:700">离线训练 (Python)</span>
+          <div style="margin-left:3px">数据采集 → 训练 $f_\phi$ → 外层寻优 $\forall c, \theta_c^*$ → 联合训练 $\min_{\phi,\Theta_{\text{raw}}} \mathcal{L}_{\text{total}}$ → <span style="color:rgba(126,184,255,0.45)">导出 $\Theta^*$（480 组 × 36 维）</span></div>
+        </div>
+
+        <div style="text-align:center;color:rgba(74,158,255,0.20);font-size:0.55rem;line-height:0.7">↓ 加载至客户端 ↓</div>
+
+        <!-- 在线：加载参数表 -->
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:4px;padding:2px 6px;margin:1px 0;text-align:center;font-size:0.52rem">
+          <span style="color:#e8a0c8;font-weight:700">① 加载参数表</span><br/>
+          <span style="color:rgba(255,255,255,0.20)">游戏启动加载 $\Theta^*$ 至内存，按 context 维度构建三层索引（精确 / 模糊 / 粗）</span>
+        </div>
+
+        <div style="text-align:center;color:rgba(232,160,200,0.20);font-size:0.55rem;line-height:0.7">↓ 每局 context 查询 ↓</div>
+
+        <!-- 在线：查表匹配 4 层 -->
+        <div style="background:rgba(232,160,200,0.04);border:1px solid rgba(232,160,200,0.08);border-radius:4px;padding:2px 6px;font-size:0.52rem;line-height:1.35;color:#b0c8e0">
+          <span style="color:#e8a0c8;font-weight:700">② 每局查表 · 4 层降级匹配</span>
+          <div style="display:flex;flex-wrap:wrap;gap:1px;margin:2px 0 0">
+            <div style="flex:1;min-width:50px;background:rgba(255,255,255,0.03);border-radius:3px;padding:1px 3px;text-align:center"><span style="color:#e8a0c8;font-weight:700">精确</span><br/><span style="color:rgba(255,255,255,0.15);font-size:0.45rem">5 维全匹配</span></div>
+            <div style="flex:1;min-width:50px;background:rgba(255,255,255,0.03);border-radius:3px;padding:1px 3px;text-align:center"><span style="color:#e8a0c8;font-weight:700">模糊</span><br/><span style="color:rgba(255,255,255,0.15);font-size:0.45rem">通配生命周期</span></div>
+            <div style="flex:1;min-width:50px;background:rgba(255,255,255,0.03);border-radius:3px;padding:1px 3px;text-align:center"><span style="color:#e8a0c8;font-weight:700">粗</span><br/><span style="color:rgba(255,255,255,0.15);font-size:0.45rem">仅难度+生成器</span></div>
+            <div style="flex:1;min-width:50px;background:rgba(255,255,255,0.03);border-radius:3px;padding:1px 3px;text-align:center"><span style="color:#e8a0c8;font-weight:700">基线</span><br/><span style="color:rgba(255,255,255,0.15);font-size:0.45rem">DEFAULT 兜底</span></div>
+          </div>
+        </div>
+
+        <div style="text-align:center;color:rgba(232,160,200,0.20);font-size:0.55rem;line-height:0.7">↓ 写入上下文 ↓</div>
+
+        <!-- 在线：分模块消费 -->
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:4px;padding:2px 6px;margin:1px 0;text-align:center;font-size:0.52rem">
+          <span style="color:#e8a0c8;font-weight:700">③ 分模块消费</span><br/>
+          <span style="color:rgba(255,255,255,0.20)">$\theta_c^*$ 按 A–I 九组分别注入 5 个运行时模块，并行产出 D/E/F 三条体验曲线</span>
+        </div>
+
+        <div style="margin:2px 0 0;font-size:0.58rem;color:#4dd0e1;text-align:center;font-weight:600">$\text{NN FLOPs}_{\text{runtime}} = 0 \quad \text{Lookup} = O(1)$</div>
+      </div>
+
+      <div style="display:flex;gap:3px;flex-wrap:wrap">
+        <div style="flex:1;min-width:55px;background:rgba(255,183,77,0.05);border:1px solid rgba(255,183,77,0.10);border-radius:5px;padding:3px 6px;text-align:center">
+          <div style="color:#ffb74d;font-size:0.68rem;font-weight:700">~2 KB</div>
+          <div style="color:rgba(255,255,255,0.25);font-size:0.48rem">每局查表</div>
+        </div>
+        <div style="flex:1;min-width:55px;background:rgba(255,183,77,0.05);border:1px solid rgba(255,183,77,0.10);border-radius:5px;padding:3px 6px;text-align:center">
+          <div style="color:#ffb74d;font-size:0.68rem;font-weight:700">&lt; 0.01ms</div>
+          <div style="color:rgba(255,255,255,0.25);font-size:0.48rem">单次查表</div>
+        </div>
+        <div style="flex:1;min-width:55px;background:rgba(255,183,77,0.05);border:1px solid rgba(255,183,77,0.10);border-radius:5px;padding:3px 6px;text-align:center">
+          <div style="color:#ffb74d;font-size:0.68rem;font-weight:700">480</div>
+          <div style="color:rgba(255,255,255,0.25);font-size:0.48rem">context 覆盖</div>
+        </div>
+        <div style="flex:1;min-width:55px;background:rgba(255,183,77,0.05);border:1px solid rgba(255,183,77,0.10);border-radius:5px;padding:3px 6px;text-align:center">
+          <div style="color:#ffb74d;font-size:0.68rem;font-weight:700">3 条</div>
+          <div style="color:rgba(255,255,255,0.25);font-size:0.48rem">体验曲线</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:center;font-size:0.95rem;color:rgba(129,199,132,0.20);font-weight:700;padding:0 1px;flex-shrink:0;align-self:stretch">→</div>
+
+    <!-- 列3：Θ→模块消费 -->
+    <div style="flex:1.1;min-width:170px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#1a1a2e transparent">
+      <div style="background:rgba(129,199,132,0.04);border:1px solid rgba(129,199,132,0.10);border-radius:6px;padding:5px 10px">
+        <div style="color:#81c784;font-size:0.72rem;font-weight:700;letter-spacing:0.04em;margin-bottom:3px">③ $\Theta^*_c$ 分模块消费</div>
+        <table style="font-size:0.52rem;line-height:1.35;color:#b0c8e0;width:100%;border-collapse:collapse">
+          <tr><th style="color:#81c784;padding:0 2px 1px 0;text-align:left;border-bottom:1px solid rgba(129,199,132,0.10)">组</th><th style="color:#81c784;padding:0 2px 1px;text-align:left;border-bottom:1px solid rgba(129,199,132,0.10)">模块</th><th style="color:#81c784;padding:0 0 1px 2px;text-align:left;border-bottom:1px solid rgba(129,199,132,0.10)">产出</th></tr>
+          <tr><td style="padding:0 2px 0 0;color:#e8a0c8">A</td><td style="padding:0 2px">spawnExperiments</td><td style="padding:0 0 0 2px">个性强度 · 惊喜预算</td></tr>
+          <tr><td style="padding:0 2px 0 0;color:#e8a0c8">B</td><td style="padding:0 2px">pbCurve.js</td><td style="padding:0 0 0 2px">pbTension · pbBrake · pbRelease</td></tr>
+          <tr><td style="padding:0 2px 0 0;color:#e8a0c8">C</td><td style="padding:0 2px">blockSpawn.js</td><td style="padding:0 0 0 2px">28 候选形状加权</td></tr>
+          <tr><td style="padding:0 2px 0 0;color:#e8a0c8">D</td><td style="padding:0 2px">adaptiveSpawn.js</td><td style="padding:0 0 0 2px">6 × spawnTarget 翻译</td></tr>
+          <tr><td style="padding:0 2px 0 0;color:#e8a0c8">E</td><td style="padding:0 2px">adaptiveSpawn.js</td><td style="padding:0 0 0 2px">挑战增幅 · PB 超调</td></tr>
+          <tr><td style="padding:0 2px 0 0;color:#e8a0c8">F</td><td style="padding:0 2px">adaptiveSpawn.js</td><td style="padding:0 0 0 2px">顺序难度 · 排列上限</td></tr>
+          <tr><td style="padding:0 2px 0 0;color:#e8a0c8">G</td><td style="padding:0 2px">blockSpawn.js</td><td style="padding:0 0 0 2px">构造式补全增益</td></tr>
+          <tr><td style="padding:0 2px 0 0;color:#e8a0c8">H</td><td style="padding:0 2px">adaptiveSpawn.js</td><td style="padding:0 0 0 2px">解空间复杂度缩放</td></tr>
+          <tr><td style="padding:0 2px 0 0;color:#e8a0c8">I</td><td style="padding:0 2px">blockSpawn</td><td style="padding:0 0 0 2px">节奏 · special 配额</td></tr>
+        </table>
+        <div style="margin-top:3px;background:rgba(255,183,77,0.05);border:1px solid rgba(255,183,77,0.08);border-radius:4px;padding:3px 7px;font-size:0.54rem;line-height:1.4;color:#b0c8e0">
+          <div style="color:#4dd0e1;font-weight:600">$D_c$ 难度 · $E_c$ 爽感 · $F_c$ 挫败</div>
+          <div style="color:rgba(255,255,255,0.15);font-size:0.48rem">+ pbBroke · noMove · score · survival · r_value</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</section>
+
+<!-- ═══════ 2.1.2.3e 模型生产管线 ═══════ -->
+<section class="slide" id="algo-pipeline" style="height:100vh;overflow:hidden">
+  <h3 style="flex-shrink:0"><span class="ch">2.1.2.3e</span> 模型生产管线</h3>
+  <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-height:0">
+    <div class="img-frame" style="flex:1;min-height:0;padding:4px;background:rgba(0,0,0,0.35);overflow:hidden;display:flex">
+      <iframe src="http://localhost:3000/spawn-tuning-v2-dashboard.html" style="width:100%;height:100%;border:none;border-radius:6px" title="模型生产管线"></iframe>
+    </div>
   </div>
 </section>
 
