@@ -651,6 +651,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
         <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-decision" style="color:inherit;text-decoration:none">决策 AI</a></span>
         <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-genai" style="color:inherit;text-decoration:none">生成式 AI</a></span>
         <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-rl" style="color:inherit;text-decoration:none">RL 自博弈</a></span>
+        <span style="background:rgba(255,183,77,0.1);color:#ffb74d;padding:2px 10px;border-radius:12px;font-size:0.8rem"><a href="#algo-constructive" style="color:inherit;text-decoration:none">构造式出块</a></span>
       </div>
     </div>
     <div class="card accent-p" style="padding:22px 24px">
@@ -2320,7 +2321,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
       <text x="410" y="388" fill="rgba(186,104,200,0.35)" font-size="7" text-anchor="middle">20 bins · sigmoid</text>
 
       <!-- Auxiliary heads -->
-      <text x="660" y="354" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle" letter-spacing="0.08em">AUXILIARY  —  Linear(128→64→1)</text>
+      <text x="660" y="392" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle" letter-spacing="0.08em">AUXILIARY  —  Linear(128→64→1)</text>
 
       <rect x="530" y="364" width="100" height="28" rx="5" fill="url(#cg5)" stroke="rgba(232,160,200,0.20)" stroke-width="1.2"/>
       <text x="580" y="378" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">pb_broke</text>
@@ -2470,7 +2471,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   <h3><span class="ch">2.1.2.4</span> Arc-Aware S 曲线——局间弧线调制</h3>
 
   <div class="img-frame" style="padding:0 20px 8px 20px;background:rgba(0,0,0,0.35)">
-    <svg viewBox="0 0 900 510" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+    <svg viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
       <defs>
         <marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.25)"/></marker>
       </defs>
@@ -2677,120 +2678,415 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
   <div class="quo" style="font-size:0.9rem;padding:8px 16px;margin-bottom:0.2em;line-height:1.6">
     <strong style="color:#e57373">目标</strong>：决策层回答"给什么"，执行层解决"怎么给"——<span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">序贯可解</span>、<span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">机动性</span>、<span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">形状唯一</span>约束下把抽象意图翻译为具体的三块候选<br>
-    <strong style="color:#4dd0e1">方案</strong>：9 层流水线 + <span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">双轨架构</span>（决策AI + 生成式AI）+ <span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">构造式爽感制造机</span> + <span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">DFS 序贯可解验证</span>，每步输出完整诊断快照
+    <strong style="color:#4dd0e1">方案</strong>：9 层流水线 + 双轨架构（决策AI + 生成AI）+ 构造式爽感制造机 + DFS 序贯可解验证，全链路完整诊断快照
   </div>
 
   <div class="img-frame" style="padding:0 20px 8px 20px;background:rgba(0,0,0,0.35)">
-    <svg viewBox="0 0 900 510" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+    <svg viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
       <defs>
         <marker id="arrEx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.25)"/></marker>
       </defs>
 
-      <rect x="14" y="20" width="872" height="86" rx="10" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <rect x="14" y="20" width="872" height="82" rx="10" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
       <text x="450" y="38" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="700">① 双轨生成架构</text>
 
-      <rect x="24" y="50" width="408" height="46" rx="6" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
-      <text x="228" y="66" fill="#81c784" font-size="11" text-anchor="middle" font-weight="700">轨道一：决策AI</text>
-      <text x="228" y="82" fill="rgba(255,255,255,0.35)" font-size="9" text-anchor="middle">端侧无网络依赖· 零延迟 · 完全可解释 · 每步 &lt;5ms · 异常回退兜底</text>
+      <rect x="24" y="48" width="408" height="52" rx="6" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
+      <text x="228" y="68" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">轨道一：决策AI</text>
+      <text x="228" y="88" fill="rgba(255,255,255,0.35)" font-size="9.5" text-anchor="middle">端侧无网络依赖· 零延迟 · 完全可解释 · 每步 &lt;5ms · 异常回退兜底</text>
 
-      <rect x="444" y="50" width="428" height="46" rx="6" fill="rgba(232,160,200,0.04)" stroke="rgba(232,160,200,0.10)" stroke-width="1"/>
-      <text x="658" y="66" fill="#e8a0c8" font-size="11" text-anchor="middle" font-weight="700">轨道二：生成式 SpawnPolicyNet</text>
-      <text x="658" y="82" fill="rgba(255,255,255,0.35)" font-size="9" text-anchor="middle">Transformer 自回归 · 拟合真实玩家序列 · 服务端推理 · 护栏回退</text>
+      <rect x="444" y="48" width="428" height="52" rx="6" fill="rgba(232,160,200,0.04)" stroke="rgba(232,160,200,0.10)" stroke-width="1"/>
+      <text x="658" y="68" fill="#e8a0c8" font-size="12" text-anchor="middle" font-weight="700">轨道二：生成式 SpawnPolicyNet</text>
+      <text x="658" y="88" fill="rgba(255,255,255,0.35)" font-size="9.5" text-anchor="middle">Transformer 自回归 · 拟合真实玩家序列 · 服务端推理 · 护栏回退</text>
 
-      <rect x="14" y="120" width="872" height="160" rx="10" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <rect x="14" y="120" width="872" height="194" rx="10" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
       <text x="450" y="138" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">② 9 层流水线（generateDockShapes）</text>
 
-      <rect x="24" y="150" width="100" height="40" rx="5" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
-      <text x="74" y="162" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">层0</text>
-      <text x="74" y="178" fill="rgba(255,255,255,0.30)" font-size="8" text-anchor="middle">输入组装</text>
+      <rect x="54" y="148" width="136" height="36" rx="5" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="122" y="170" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="600">1.输入组装</text>
+      <text x="200" y="171" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="216" y="148" width="136" height="36" rx="5" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="284" y="170" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="600">2.盘面感知</text>
+      <text x="362" y="171" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="378" y="148" width="136" height="36" rx="5" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="446" y="170" fill="#81c784" font-size="11" text-anchor="middle" font-weight="600">3.评分构建</text>
+      <text x="524" y="171" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="540" y="148" width="136" height="36" rx="5" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="608" y="170" fill="#7eb8ff" font-size="11" text-anchor="middle" font-weight="600">4.优先选拔</text>
+      <text x="686" y="171" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="702" y="148" width="136" height="36" rx="5" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
+      <text x="770" y="170" fill="#e57373" font-size="11" text-anchor="middle" font-weight="600">5.加权补齐</text>
+      <rect x="134" y="191" width="136" height="36" rx="5" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="202" y="216" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="600">6.约束验证</text>
+      <text x="280" y="216" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="296" y="191" width="136" height="36" rx="5" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="364" y="216" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="600">7.注入优化</text>
+      <text x="442" y="216" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="458" y="191" width="136" height="36" rx="5" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="526" y="216" fill="#81c784" font-size="11" text-anchor="middle" font-weight="600">8.输出交付</text>
+      <text x="604" y="216" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="620" y="191" width="136" height="36" rx="5" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="688" y="216" fill="#7eb8ff" font-size="11" text-anchor="middle" font-weight="600">9.染色展示</text>
 
-      <text x="132" y="170" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="24" y="238" width="420" height="68" rx="6" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
+      <text x="234" y="254" fill="#81c784" font-size="10" text-anchor="middle" font-weight="600">构造式预扫描（C1/C2/C3）</text>
+      <text x="234" y="270" fill="rgba(255,255,255,0.35)" font-size="9" text-anchor="middle">C1 completer — 补全盘面已有消行机会</text>
+      <text x="234" y="284" fill="rgba(255,255,255,0.35)" font-size="9" text-anchor="middle">C2 setup — 构造未来消行条件 · C3 orderAnchor — 锁定排列顺序</text>
 
-      <rect x="144" y="150" width="100" height="40" rx="5" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="194" y="162" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="600">层1</text>
-      <text x="194" y="178" fill="rgba(255,255,255,0.30)" font-size="8" text-anchor="middle">盘面感知</text>
+      <rect x="456" y="238" width="416" height="68" rx="6" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="664" y="254" fill="#7eb8ff" font-size="10" text-anchor="middle" font-weight="600">意图优先级调度（10 档 priority）</text>
+      <text x="664" y="270" fill="rgba(255,255,255,0.35)" font-size="9" text-anchor="middle">warm_run(115) > pb_chase(102) > relief(100) > delight_starved(95)</text>
+      <text x="664" y="284" fill="rgba(255,255,255,0.35)" font-size="9" text-anchor="middle">engage(90) > harvest(80) > pressure(70) > sprint(60) > flow(50) > maintain(0)</text>
 
-      <text x="252" y="170" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="14" y="320" width="872" height="80" rx="10" fill="rgba(229,115,115,0.02)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
+      <text x="450" y="338" fill="#e57373" font-size="12" text-anchor="middle" font-weight="700">③ 回退与护栏</text>
 
-      <rect x="264" y="150" width="100" height="40" rx="5" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
-      <text x="314" y="162" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">层2</text>
-      <text x="314" y="178" fill="rgba(255,255,255,0.30)" font-size="8" text-anchor="middle">评分构建</text>
+      <rect x="24" y="350" width="200" height="40" rx="5" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="124" y="364" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="600">生成轨回退</text>
+      <text x="124" y="380" fill="rgba(255,255,255,0.25)" font-size="8" text-anchor="middle">服务不可用/验证不通过</text>
 
-      <text x="372" y="170" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="236" y="350" width="200" height="40" rx="5" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
+      <text x="336" y="364" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">温暖局钳制</text>
+      <text x="336" y="380" fill="rgba(255,255,255,0.25)" font-size="8" text-anchor="middle">warmRun 后置覆写 hints</text>
 
-      <rect x="384" y="150" width="100" height="40" rx="5" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
-      <text x="434" y="162" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="600">层3</text>
-      <text x="434" y="178" fill="rgba(255,255,255,0.30)" font-size="8" text-anchor="middle">优先选拔</text>
+      <rect x="448" y="350" width="200" height="40" rx="5" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
+      <text x="548" y="364" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">PEOG 产钳</text>
+      <text x="548" y="380" fill="rgba(255,255,255,0.25)" font-size="8" text-anchor="middle">限制构造算子候选</text>
 
-      <text x="492" y="170" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="660" y="350" width="212" height="40" rx="5" fill="rgba(229,115,115,0.03)" stroke="rgba(229,115,115,0.06)" stroke-width="1"/>
+      <text x="766" y="364" fill="#e57373" font-size="9" text-anchor="middle" font-weight="600">兜底简化路径</text>
+      <text x="766" y="380" fill="rgba(255,255,255,0.25)" font-size="8" text-anchor="middle">MAX_SPAWN_ATTEMPTS=22 失败</text>
 
-      <rect x="504" y="150" width="100" height="40" rx="5" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
-      <text x="554" y="162" fill="#e57373" font-size="9" text-anchor="middle" font-weight="600">层4</text>
-      <text x="554" y="178" fill="rgba(255,255,255,0.30)" font-size="8" text-anchor="middle">加权补齐</text>
-
-      <text x="612" y="170" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
-
-      <rect x="624" y="150" width="100" height="40" rx="5" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
-      <text x="674" y="162" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">层5</text>
-      <text x="674" y="178" fill="rgba(255,255,255,0.30)" font-size="8" text-anchor="middle">约束验证</text>
-
-      <text x="732" y="170" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
-
-      <rect x="744" y="150" width="128" height="40" rx="5" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="808" y="162" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="600">层6-8</text>
-      <text x="808" y="178" fill="rgba(255,255,255,0.30)" font-size="8" text-anchor="middle">注入·输出·染色</text>
-
-      <rect x="24" y="200" width="420" height="68" rx="6" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
-      <text x="234" y="216" fill="#81c784" font-size="10" text-anchor="middle" font-weight="600">构造式预扫描（C1/C2/C3）</text>
-      <text x="234" y="232" fill="rgba(255,255,255,0.35)" font-size="9" text-anchor="middle">C1 completer — 补全盘面已有消行机会</text>
-      <text x="234" y="246" fill="rgba(255,255,255,0.35)" font-size="9" text-anchor="middle">C2 setup — 构造未来消行条件 · C3 orderAnchor — 锁定排列顺序</text>
-
-      <rect x="456" y="200" width="416" height="68" rx="6" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
-      <text x="664" y="216" fill="#7eb8ff" font-size="10" text-anchor="middle" font-weight="600">意图优先级调度（10 档 priority）</text>
-      <text x="664" y="232" fill="rgba(255,255,255,0.35)" font-size="9" text-anchor="middle">warm_run(115) > pb_chase(102) > relief(100) > delight_starved(95)</text>
-      <text x="664" y="246" fill="rgba(255,255,255,0.35)" font-size="9" text-anchor="middle">engage(90) > harvest(80) > pressure(70) > sprint(60) > flow(50) > maintain(0)</text>
-
-      <rect x="14" y="294" width="872" height="80" rx="10" fill="rgba(229,115,115,0.02)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
-      <text x="450" y="312" fill="#e57373" font-size="12" text-anchor="middle" font-weight="700">③ 回退与护栏</text>
-
-      <rect x="24" y="324" width="200" height="40" rx="5" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
-      <text x="124" y="338" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="600">生成轨回退</text>
-      <text x="124" y="354" fill="rgba(255,255,255,0.25)" font-size="8" text-anchor="middle">服务不可用/验证不通过</text>
-
-      <rect x="236" y="324" width="200" height="40" rx="5" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
-      <text x="336" y="338" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">温暖局钳制</text>
-      <text x="336" y="354" fill="rgba(255,255,255,0.25)" font-size="8" text-anchor="middle">warmRun 后置覆写 hints</text>
-
-      <rect x="448" y="324" width="200" height="40" rx="5" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
-      <text x="548" y="338" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">PEOG 产钳</text>
-      <text x="548" y="354" fill="rgba(255,255,255,0.25)" font-size="8" text-anchor="middle">限制构造算子候选</text>
-
-      <rect x="660" y="324" width="212" height="40" rx="5" fill="rgba(229,115,115,0.03)" stroke="rgba(229,115,115,0.06)" stroke-width="1"/>
-      <text x="766" y="338" fill="#e57373" font-size="9" text-anchor="middle" font-weight="600">兜底简化路径</text>
-      <text x="766" y="354" fill="rgba(255,255,255,0.25)" font-size="8" text-anchor="middle">MAX_SPAWN_ATTEMPTS=22 失败</text>
-
-      <rect x="14" y="388" width="872" height="100" rx="8" fill="rgba(74,158,255,0.01)" stroke="rgba(74,158,255,0.04)" stroke-width="1"/>
-      <text x="24" y="406" fill="#7eb8ff" font-size="11" font-weight="600">三层分层架构</text>
-      <rect x="24" y="416" width="270" height="62" rx="5" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
-      <text x="159" y="432" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">Layer 1 — 盘面瞬时</text>
-      <text x="159" y="448" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">几何·拓扑·填充·空洞·平整度</text>
-      <text x="159" y="464" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">解法熵·机动性·死腔</text>
-      <rect x="306" y="416" width="270" height="62" rx="5" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
-      <text x="441" y="432" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">Layer 2 — 局内体验</text>
-      <text x="441" y="448" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">combo 链·节奏张弛·多消奖励</text>
-      <text x="441" y="464" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">清屏机会·同花顺注入</text>
-      <rect x="588" y="416" width="284" height="62" rx="5" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
-      <text x="730" y="432" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">Layer 3 — 跨局会话</text>
-      <text x="730" y="448" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">热身·里程碑·冷却·RoR弧</text>
-      <text x="730" y="464" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">温暖局·回流保护</text>
+      <rect x="14" y="414" width="872" height="100" rx="8" fill="rgba(74,158,255,0.01)" stroke="rgba(74,158,255,0.04)" stroke-width="1"/>
+      <text x="24" y="432" fill="#7eb8ff" font-size="11" font-weight="600">三层分层架构</text>
+      <rect x="24" y="442" width="270" height="62" rx="5" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="159" y="458" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">Layer 1 — 盘面瞬时</text>
+      <text x="159" y="474" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">几何·拓扑·填充·空洞·平整度</text>
+      <text x="159" y="490" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">解法熵·机动性·死腔</text>
+      <rect x="306" y="442" width="270" height="62" rx="5" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
+      <text x="441" y="458" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">Layer 2 — 局内体验</text>
+      <text x="441" y="474" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">combo 链·节奏张弛·多消奖励</text>
+      <text x="441" y="490" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">清屏机会·同花顺注入</text>
+      <rect x="588" y="442" width="284" height="62" rx="5" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
+      <text x="730" y="458" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">Layer 3 — 跨局会话</text>
+      <text x="730" y="474" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">热身·里程碑·冷却·RoR弧</text>
+      <text x="730" y="490" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">温暖局·回流保护</text>
     </svg>
   </div>
 
+
+
+<!-- ═══════ 2.1.3.1 轨道一：决策AI ═══════ -->
+<section class="slide" id="algo-decision">
+  <h3><span class="ch">2.1.3.1</span> 轨道一：决策AI</h3>
+  <div class="quo" style="font-size:0.9rem;padding:8px 16px;margin-bottom:0.2em;line-height:1.6">
+    <strong style="color:#e57373">核心职责</strong>：blockSpawn.js 消费决策层信号，经 14 维权重链 + 两阶段构造 + 约束验证，将意图翻译为三块候选<br>
+    <strong style="color:#4dd0e1">设计原则</strong>：端侧无网络依赖 · 完全可解释 · 零死局保障 · 每步 &lt;5ms · 22 次重试兜底
+  </div>
+  <div class="img-frame" style="padding:0 20px 8px 20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 900 480" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs><marker id="arrDr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.40)"/></marker></defs>
+      <rect x="14" y="16" width="872" height="92" rx="10" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="450" y="34" fill="#7eb8ff" font-size="14" text-anchor="middle" font-weight="700">🧠 决策流程</text>
+      <rect x="24" y="46" width="216" height="54" rx="6" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.12)" stroke-width="1"/>
+      <text x="132" y="66" fill="#ffb74d" font-size="13" text-anchor="middle" font-weight="700">意图解析</text>
+      <text x="132" y="88" fill="#e0c8a0" font-size="11" text-anchor="middle">10 档 priority → shapeWeights</text>
+      <text x="254" y="76" fill="rgba(255,255,255,0.30)" font-size="16" text-anchor="middle">→</text>
+      <rect x="266" y="46" width="216" height="54" rx="6" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.12)" stroke-width="1"/>
+      <text x="374" y="66" fill="#81c784" font-size="13" text-anchor="middle" font-weight="700">14 维权重链</text>
+      <text x="374" y="88" fill="#a0dcc0" font-size="11" text-anchor="middle">形状基础权重 × 增强层</text>
+      <text x="496" y="76" fill="rgba(255,255,255,0.30)" font-size="16" text-anchor="middle">→</text>
+      <rect x="508" y="46" width="216" height="54" rx="6" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.12)" stroke-width="1"/>
+      <text x="616" y="66" fill="#7eb8ff" font-size="13" text-anchor="middle" font-weight="700">两阶段构造</text>
+      <text x="616" y="88" fill="#a0c8f0" font-size="11" text-anchor="middle">clearSeats + weightedFill</text>
+      <text x="738" y="76" fill="rgba(255,255,255,0.30)" font-size="16" text-anchor="middle">→</text>
+      <rect x="750" y="46" width="146" height="54" rx="6" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.12)" stroke-width="1"/>
+      <text x="823" y="66" fill="#ba68c8" font-size="13" text-anchor="middle" font-weight="700">约束验证</text>
+      <text x="823" y="88" fill="#c8a0e0" font-size="11" text-anchor="middle">DFS可解·机动·唯一</text>
+      <rect x="14" y="124" width="872" height="176" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <rect x="24" y="134" width="214" height="156" rx="8" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="131" y="154" fill="#ffb74d" font-size="14" text-anchor="middle" font-weight="700">🎯 意图解析</text>
+      <rect x="34" y="166" width="194" height="24" rx="4" fill="rgba(255,183,77,0.05)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="131" y="183" fill="#e0c890" font-size="11" text-anchor="middle" font-weight="600">10 档 priority 调度</text>
+      <text x="131" y="204" fill="#c0b090" font-size="10" text-anchor="middle">warm_run(115) > pb_chase(102)</text>
+      <text x="131" y="219" fill="#c0b090" font-size="10" text-anchor="middle">relief(100) > engage(90) > harvest(80)</text>
+      <text x="131" y="234" fill="#c0b090" font-size="10" text-anchor="middle">pressure(70) > sprint(60) > flow(50)</text>
+      <text x="131" y="249" fill="#c0b090" font-size="10" text-anchor="middle">> maintain(0)</text>
+      <text x="131" y="268" fill="#e0c890" font-size="10.5" text-anchor="middle" font-weight="600">→ 映射 shapeWeights</text>
+      <rect x="248" y="134" width="214" height="156" rx="8" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="355" y="154" fill="#81c784" font-size="14" text-anchor="middle" font-weight="700">🔧 14 维权重链</text>
+      <rect x="258" y="166" width="194" height="22" rx="4" fill="rgba(129,199,132,0.05)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="355" y="182" fill="#a0dcc0" font-size="10" text-anchor="middle" font-weight="600">基础权重（12 维）</text>
+      <text x="355" y="201" fill="#b0d0c0" font-size="9.5" text-anchor="middle">gapFills · multiClear · holeReduce</text>
+      <text x="355" y="215" fill="#b0d0c0" font-size="9.5" text-anchor="middle">mobility · salvage · pcPotential</text>
+      <text x="355" y="229" fill="#b0d0c0" font-size="9.5" text-anchor="middle">clearGuarantee · comboFwd</text>
+      <text x="355" y="243" fill="#b0d0c0" font-size="9.5" text-anchor="middle">diversity · novelty · stressBalance · monoTarget</text>
+      <rect x="258" y="266" width="194" height="18" rx="4" fill="rgba(255,183,77,0.05)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="355" y="279" fill="#e0c890" font-size="10" text-anchor="middle" font-weight="600">增强层: delightBoost · stressOverride</text>
+      <rect x="472" y="134" width="214" height="156" rx="8" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="579" y="154" fill="#7eb8ff" font-size="14" text-anchor="middle" font-weight="700">🔧 两阶段构造</text>
+      <rect x="482" y="166" width="98" height="44" rx="5" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
+      <text x="531" y="184" fill="#81c784" font-size="11" text-anchor="middle" font-weight="600">Stage 1</text>
+      <text x="531" y="202" fill="#a0dcc0" font-size="9.5" text-anchor="middle">clearSeats</text>
+      <text x="586" y="190" fill="rgba(255,255,255,0.30)" font-size="14" text-anchor="middle">→</text>
+      <rect x="598" y="166" width="78" height="44" rx="5" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.10)" stroke-width="1"/>
+      <text x="637" y="184" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="600">Stage 2</text>
+      <text x="637" y="202" fill="#e0c8a0" font-size="9.5" text-anchor="middle">weightedFill</text>
+      <rect x="482" y="220" width="194" height="20" rx="4" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
+      <text x="579" y="234" fill="#e09090" font-size="10" text-anchor="middle">⛓️ PEOG 产钳限制候选</text>
+      <rect x="482" y="246" width="194" height="20" rx="4" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="579" y="260" fill="#c8a0e0" font-size="10" text-anchor="middle">🔁 22次重试 → fallback</text>
+      <text x="579" y="280" fill="#a0b8d0" font-size="8" text-anchor="middle">C1/C2/C3 构造算子协作</text>
+      <rect x="696" y="134" width="190" height="156" rx="8" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="791" y="154" fill="#ba68c8" font-size="14" text-anchor="middle" font-weight="700">✅ 约束验证</text>
+      <rect x="706" y="166" width="170" height="24" rx="4" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="791" y="183" fill="#90b8f0" font-size="10" text-anchor="middle"><tspan font-weight="600">① 形状唯一性</tspan> — 三块不重复</text>
+      <rect x="706" y="196" width="170" height="24" rx="4" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="791" y="213" fill="#90d8b0" font-size="10" text-anchor="middle"><tspan font-weight="600">② 机动性检查</tspan> — ≥ minMobility</text>
+      <rect x="706" y="226" width="170" height="24" rx="4" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="791" y="243" fill="#d8c080" font-size="10" text-anchor="middle"><tspan font-weight="600">③ DFS 序贯可解</tspan> — 全部放完</text>
+      <rect x="750" y="258" width="82" height="22" rx="11" fill="rgba(129,199,132,0.08)" stroke="rgba(129,199,132,0.20)" stroke-width="1"/>
+      <text x="791" y="274" fill="#81c784" font-size="11" text-anchor="middle" font-weight="700">✔ 通过 → 上 Dock</text>
+      <rect x="14" y="316" width="872" height="148" rx="10" fill="rgba(74,158,255,0.01)" stroke="rgba(74,158,255,0.04)" stroke-width="1"/>
+      <text x="24" y="336" fill="#7eb8ff" font-size="14" font-weight="700">🎯 设计原则</text>
+      <rect x="24" y="348" width="205" height="70" rx="6" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
+      <text x="126" y="370" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">先验证后交付</text>
+      <text x="126" y="392" fill="#a0dcc0" font-size="10" text-anchor="middle">DFS + 机动性 + 形状唯一</text>
+      <text x="126" y="408" fill="#a0dcc0" font-size="10" text-anchor="middle">三关通过才上 Dock</text>
+      <rect x="242" y="348" width="205" height="70" rx="6" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
+      <text x="344" y="370" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">意图驱动</text>
+      <text x="344" y="392" fill="#e0c8a0" font-size="10" text-anchor="middle">10 档 priority 精确传导</text>
+      <text x="344" y="408" fill="#e0c8a0" font-size="10" text-anchor="middle">到出块行为</text>
+      <rect x="460" y="348" width="205" height="70" rx="6" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
+      <text x="562" y="370" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="700">公平性优先</text>
+      <text x="562" y="392" fill="#c8a0e0" font-size="10" text-anchor="middle">所有轨道经同套验证</text>
+      <text x="562" y="408" fill="#c8a0e0" font-size="10" text-anchor="middle">生成轨不通过自动回退</text>
+      <rect x="678" y="348" width="196" height="70" rx="6" fill="rgba(229,115,115,0.03)" stroke="rgba(229,115,115,0.06)" stroke-width="1"/>
+      <text x="776" y="370" fill="#e57373" font-size="12" text-anchor="middle" font-weight="700">零死局保障</text>
+      <text x="776" y="392" fill="#e0a0a0" font-size="10" text-anchor="middle">22 次重试 + fallback</text>
+      <text x="776" y="408" fill="#e0a0a0" font-size="10" text-anchor="middle">端侧无网络依赖</text>
+    </svg>
+  </div>
   <div class="theory-line">
-    <span class="label">设计原则</span>
-    <div class="row"><span class="s">双轨互备</span>：规则轨默认执行，生成轨可选开启；生成轨输出经规则轨同套约束验证，不通过自动回退规则轨，保证零死局</div>
-    <div class="row"><span class="s">先验证后交付</span>：所有候选块经过 <span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">DFS 序贯可解验证</span> + <span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">机动性</span>检查 + <span style="text-decoration:wavy underline;text-decoration-color:#ffb74d;text-underline-offset:4px">形状唯一</span>性校验后才能上 Dock，确保盘面公平性</div>
-    <div class="row"><span class="s">意图驱动</span>：10 档 intent 优先级决定形状池偏置和 clearGuarantee 配额，让抽象决策层信号精确传导到具体出块行为</div>
+    <span class="label">关键参数</span>
+    <div class="row"><span class="s">端侧延迟</span>：每步 &lt; 5ms | 22 次重试兜底 | 零死局保障</div>
+    <div class="row"><span class="s">14 维权重链</span>：12 维形状基础权重 × 2 维增强层（delightBoost + stressOverride）</div>
+    <div class="row"><span class="s">约束验证</span>：形状唯一性 → 机动性检查 → DFS 序贯可解，三关校验</div>
+  </div>
+</section>
+
+<!-- ═══════ 2.1.3.2a SpawnPolicyNet：问题形式化与建模 ═══════ -->
+<section class="slide" id="algo-genai-formal">
+  <h3><span class="ch">2.1.3.2a</span> SpawnPolicyNet：形式化与建模</h3>
+  <div class="quo" style="font-size:0.9rem;padding:8px 16px;margin-bottom:0.2em;line-height:1.6">
+    <strong style="color:#ffb74d">问题定义</strong>：给定盘面 B、玩家画像 π、出块历史 H，预测三槽联合分布 P(s₁,s₂,s₃ | B,π,H)；自回归分解保证联合一致性
+  </div>
+  <div class="card-row c3" style="padding:0 20px;gap:10px;margin-bottom:0.3em">
+    <div style="flex:1;min-width:240px;background:rgba(74,158,255,0.02);border:1px solid rgba(74,158,255,0.08);border-radius:8px;padding:10px 14px">
+      <div style="color:#7eb8ff;font-size:0.72rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">📐 形式化定义</div>
+      <div style="font-size:0.60rem;line-height:1.4;color:#b0c8e0">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:6px 10px;margin:4px 0;text-align:center"><span style="color:#4dd0e1;font-weight:600">P(s₁,s₂,s₃|B,π,H) = Π P(s_k|s_&lt;k, B,π,H)</span></div>
+        <div><span style="color:#ffb74d">自回归遮蔽</span></div>
+        <div style="padding-left:6px">· <span style="color:#81c784">head₀</span>: s₁ — 无历史依赖</div>
+        <div style="padding-left:6px">· <span style="color:#81c784">head₁</span>: s₂ — 遮蔽第一槽</div>
+        <div style="padding-left:6px">· <span style="color:#81c784">head₂</span>: s₃ — 遮蔽前两槽</div>
+        <div style="height:3px;background:#060810;border-radius:2px;margin:3px 0"></div>
+        <div><span style="color:#ffb74d">输入/输出</span></div>
+        <table style="font-size:0.50rem;width:100%;border-collapse:collapse">
+          <tr><td style="color:#81c784;padding:1px 4px 1px 0">B</td><td style="padding:1px 0">棋盘 8×8 occupancy</td></tr>
+          <tr><td style="color:#81c784;padding:1px 4px 1px 0">π</td><td style="padding:1px 0">玩家 behaviorContext(24)</td></tr>
+          <tr><td style="color:#81c784;padding:1px 4px 1px 0">H</td><td style="padding:1px 0">近3轮 × 3 shape_id</td></tr>
+          <tr><td style="color:#81c784;padding:1px 4px 1px 0">d</td><td style="padding:1px 0">难度目标 ∈ [0,1]（可选）</td></tr>
+          <tr><td style="padding:1px 4px 1px 0;color:#ffb74d">→ s_k</td><td style="padding:1px 0">28种形状ID, k=1,2,3</td></tr>
+        </table>
+      </div>
+    </div>
+    <div style="flex:1.4;min-width:240px;background:rgba(129,199,132,0.02);border:1px solid rgba(129,199,132,0.08);border-radius:8px;padding:10px 14px">
+      <div style="color:#81c784;font-size:0.72rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">🎯 V3.1 复合损失</div>
+      <div style="font-size:0.62rem;line-height:1.4;color:#b0c8e0">
+        <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:4px 8px;margin:3px 0;text-align:center"><span style="color:#4dd0e1;font-weight:600;font-size:0.56rem">L = w_ce·L_ce_AR + w_div·L_div + w_anti·L_anti + w_diff·L_diff + w_feas·L_feas + w_si·L_si + w_st·L_style + w_intent·L_intent</span></div>
+        <table style="font-size:0.50rem;line-height:1.3;width:100%;border-collapse:collapse;margin:3px 0">
+          <tr><td style="color:#81c784;font-weight:700;padding:1px 4px 1px 0;white-space:nowrap">w_ce=1.0</td><td style="padding:1px 0">交叉熵自回归主损失</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;padding:1px 4px 1px 0;white-space:nowrap">w_div=0.3</td><td style="padding:1px 0">品类多样性正则</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;padding:1px 4px 1px 0;white-space:nowrap">w_anti=0.5</td><td style="padding:1px 0">重复形状惩罚</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;padding:1px 4px 1px 0;white-space:nowrap">w_diff=0.1</td><td style="padding:1px 0">难度回归</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;padding:1px 4px 1px 0;white-space:nowrap">w_feas=0.4</td><td style="padding:1px 0">BCE 可放置性</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;padding:1px 4px 1px 0;white-space:nowrap">w_si=0.2</td><td style="padding:1px 0">软不可行惩罚</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;padding:1px 4px 1px 0;white-space:nowrap">w_st=0.15</td><td style="padding:1px 0">风格自监督</td></tr>
+          <tr><td style="color:#81c784;font-weight:700;padding:1px 4px 1px 0;white-space:nowrap">w_intent=0.10</td><td style="padding:1px 0">意图自监督</td></tr>
+        </table>
+      </div>
+    </div>
+    <div style="flex:1;min-width:200px;background:rgba(255,183,77,0.02);border:1px solid rgba(255,183,77,0.08);border-radius:8px;padding:10px 14px">
+      <div style="color:#ffb74d;font-size:0.72rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">📊 训练数据</div>
+      <div style="font-size:0.60rem;line-height:1.4;color:#b0c8e0">
+        <div style="background:rgba(74,158,255,0.04);border:1px solid rgba(74,158,255,0.06);border-radius:6px;padding:4px 8px;margin:3px 0"><span style="color:#7eb8ff;font-weight:600">👤 玩家对局回放</span><div style="color:rgba(255,255,255,0.28);font-size:0.48rem">拟合真实玩家分布</div></div>
+        <div style="background:rgba(129,199,132,0.04);border:1px solid rgba(129,199,132,0.06);border-radius:6px;padding:4px 8px;margin:3px 0"><span style="color:#81c784;font-weight:600">🤖 规则引擎对局</span><div style="color:rgba(255,255,255,0.28);font-size:0.48rem">锚定规则轨好性质</div></div>
+        <div style="background:rgba(255,183,77,0.04);border:1px solid rgba(255,183,77,0.06);border-radius:6px;padding:4px 8px;margin:3px 0"><span style="color:#ffb74d;font-weight:600">🔄 自博弈生成</span><div style="color:rgba(255,255,255,0.28);font-size:0.48rem">RL Bot 收集样本</div></div>
+        <div style="height:3px;background:#060810;border-radius:2px;margin:3px 0"></div>
+        <div style="background:rgba(186,104,200,0.03);border:1px solid rgba(186,104,200,0.06);border-radius:6px;padding:4px 8px;margin:3px 0"><span style="color:#ba68c8;font-weight:600">📐 离线蒸馏</span><div>teacher 规则轨 → student 生成轨</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="theory-line">
+    <span class="label">关键设计</span>
+    <div class="row"><span class="s">自回归遮蔽</span>：head₁ 拼接前一槽 embedding，head₂ 拼接前两槽；训练 teacher-forcing，推理逐槽采样</div>
+    <div class="row"><span class="s">软不可行惩罚</span>：feasibility_mask 指示不可放形状，对 logits 施加软惩罚而非硬屏蔽，保留泛化</div>
+    <div class="row"><span class="s">风格自监督</span>：额外 head 预测风格/意图标签，让 encoder 学到风格敏感的表示</div>
+  </div>
+</section>
+
+<!-- ═══════ 2.1.3.2b SpawnPolicyNet V3.1 网络结构 ═══════ -->
+<section class="slide" id="algo-genai-arch">
+  <h3><span class="ch">2.1.3.2b</span> SpawnPolicyNet V3.1 网络结构</h3>
+  <div class="quo" style="font-size:1.0rem;padding:10px 18px;margin-bottom:0.3em">
+    <strong style="color:#e8a0c8">SpawnPolicyNet V3.1</strong>：参数~317K，6层 Transformer + 自回归 slot heads + 5 辅助 heads；LoRA 个性化（5.6K/玩家），推理 &lt;5ms CPU
+  </div>
+  <div class="img-frame" style="padding:16px 20px;background:rgba(0,0,0,0.35);text-align:center">
+    <svg viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs>
+        <linearGradient id="bg1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(74,158,255,0.12)"/><stop offset="100%" stop-color="rgba(74,158,255,0.04)"/></linearGradient>
+        <linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(255,183,77,0.10)"/><stop offset="100%" stop-color="rgba(255,183,77,0.03)"/></linearGradient>
+        <linearGradient id="bg3" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(129,199,132,0.10)"/><stop offset="100%" stop-color="rgba(129,199,132,0.03)"/></linearGradient>
+        <linearGradient id="bg4" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(186,104,200,0.10)"/><stop offset="100%" stop-color="rgba(186,104,200,0.03)"/></linearGradient>
+        <filter id="sf1"><feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="rgba(74,158,255,0.12)"/></filter>
+        <filter id="sf2"><feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="rgba(255,183,77,0.10)"/></filter>
+      </defs>
+      <text x="450" y="20" fill="rgba(255,255,255,0.30)" font-size="13" text-anchor="middle" font-weight="600" letter-spacing="0.12em">SpawnPolicyNet V3.1  ·  ~317K params</text>
+      <!-- L1 INPUT -->
+      <rect x="14" y="32" width="872" height="78" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="34" y="48" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600">INPUT (64+24+9+1=98维)</text>
+      <rect x="24" y="54" width="200" height="48" rx="6" fill="url(#bg1)" stroke="rgba(74,158,255,0.20)" stroke-width="1.2" filter="url(#sf1)"/>
+      <text x="124" y="70" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="700">board 8×8 (64)</text>
+      <text x="124" y="86" fill="rgba(255,255,255,0.20)" font-size="7" text-anchor="middle">flatten</text>
+      <rect x="238" y="54" width="200" height="48" rx="6" fill="url(#bg2)" stroke="rgba(255,183,77,0.20)" stroke-width="1.2" filter="url(#sf2)"/>
+      <text x="338" y="70" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">context(24)</text>
+      <text x="338" y="86" fill="rgba(255,255,255,0.20)" font-size="7" text-anchor="middle">behaviorContext</text>
+      <rect x="452" y="54" width="200" height="48" rx="6" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
+      <text x="552" y="70" fill="#81c784" font-size="9" text-anchor="middle" font-weight="700">history(9) + diff/style</text>
+      <text x="552" y="86" fill="rgba(255,255,255,0.20)" font-size="7" text-anchor="middle">近3轮×3 shape_id · d∈[0,1] · style</text>
+      <text x="666" y="54" width="206" font-size="9" text-anchor="middle" font-weight="700" fill="#ba68c8">→ shape_embed(29×128)</text>
+      <text x="666" y="70" fill="rgba(255,255,255,0.25)" font-size="7" text-anchor="middle">每个形状 128维 embedding</text>
+      <text x="666" y="86" fill="rgba(255,255,255,0.18)" font-size="7" text-anchor="middle">trainable lookup table</text>
+      <text x="450" y="124" fill="rgba(255,183,77,0.50)" font-size="18" text-anchor="middle">↓</text>
+      <!-- L2 TOKENIZATION -->
+      <rect x="14" y="132" width="872" height="36" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <rect x="24" y="138" width="852" height="24" rx="4" fill="url(#bg2)" stroke="rgba(255,183,77,0.10)" stroke-width="1"/>
+      <text x="450" y="155" fill="#ffb74d" font-size="10" text-anchor="middle" font-weight="600">tokens = [CLS, state, diff, hist₀,…,hist₈]  ·  [B, ~12, 128]</text>
+      <text x="450" y="182" fill="rgba(255,183,77,0.50)" font-size="18" text-anchor="middle">↓</text>
+      <!-- L3 ENCODER -->
+      <rect x="14" y="190" width="872" height="80" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="34" y="206" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600">TRANSFORMER ENCODER ×6 layers</text>
+      <rect x="34" y="214" width="832" height="48" rx="8" fill="url(#bg2)" stroke="rgba(255,183,77,0.12)" stroke-width="1.5" filter="url(#sf2)"/>
+      <text x="450" y="232" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">Multi-Head Self-Attention (4 heads, 128)  +  FFN (GELU, dropout=0.1)  +  Residual + LN</text>
+      <text x="450" y="254" fill="rgba(255,255,255,0.20)" font-size="9" text-anchor="middle">×6 layers stacked  ·  output: [B, N, 128]</text>
+      <text x="450" y="284" fill="rgba(255,183,77,0.50)" font-size="18" text-anchor="middle">↓  CLS token</text>
+      <!-- L4 OUTPUT HEADS -->
+      <rect x="14" y="294" width="430" height="108" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="34" y="310" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600">SLOT HEADS — 自回归三槽</text>
+      <rect x="24" y="320" width="120" height="28" rx="5" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
+      <text x="84" y="334" fill="#81c784" font-size="10" text-anchor="middle" font-weight="700">head₀</text>
+      <text x="84" y="344" fill="rgba(255,255,255,0.20)" font-size="7" text-anchor="middle">128→28</text>
+      <text x="152" y="336" fill="rgba(255,255,255,0.15)" font-size="12" text-anchor="middle">+</text>
+      <rect x="164" y="320" width="120" height="28" rx="5" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
+      <text x="224" y="334" fill="#81c784" font-size="10" text-anchor="middle" font-weight="700">head₁</text>
+      <text x="224" y="344" fill="rgba(255,255,255,0.20)" font-size="7" text-anchor="middle">256→28</text>
+      <text x="292" y="336" fill="rgba(255,255,255,0.15)" font-size="12" text-anchor="middle">+</text>
+      <rect x="304" y="320" width="120" height="28" rx="5" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
+      <text x="364" y="334" fill="#81c784" font-size="10" text-anchor="middle" font-weight="700">head₂</text>
+      <text x="364" y="344" fill="rgba(255,255,255,0.20)" font-size="7" text-anchor="middle">384→28</text>
+      <text x="24" y="362" fill="rgba(255,255,255,0.15)" font-size="7.5">三槽独立：s₁=CLS only, s₂=CLS+emb(s₁), s₃=CLS+emb(s₁)+emb(s₂)</text>
+      <text x="24" y="376" fill="rgba(255,255,255,0.10)" font-size="7">teacher-forcing训练 · 推理逐槽采样</text>
+      <rect x="456" y="294" width="430" height="108" rx="10" fill="rgba(255,255,255,0.01)" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+      <text x="476" y="310" fill="rgba(255,255,255,0.32)" font-size="9" font-weight="600">AUX HEADS — from CLS token</text>
+      <rect x="466" y="320" width="130" height="22" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
+      <text x="531" y="335" fill="#ba68c8" font-size="8" text-anchor="middle" font-weight="600">diversity 128→3×7</text>
+      <rect x="606" y="320" width="130" height="22" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
+      <text x="671" y="335" fill="#ba68c8" font-size="8" text-anchor="middle" font-weight="600">difficulty 128→1</text>
+      <rect x="746" y="320" width="130" height="22" rx="5" fill="url(#bg4)" stroke="rgba(186,104,200,0.20)" stroke-width="1.2"/>
+      <text x="811" y="335" fill="#ba68c8" font-size="8" text-anchor="middle" font-weight="600">feasibility 128→28</text>
+      <rect x="466" y="352" width="130" height="22" rx="5" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
+      <text x="531" y="367" fill="#81c784" font-size="8" text-anchor="middle" font-weight="600">style 128→N_s</text>
+      <rect x="606" y="352" width="130" height="22" rx="5" fill="url(#bg3)" stroke="rgba(129,199,132,0.20)" stroke-width="1.2"/>
+      <text x="671" y="367" fill="#81c784" font-size="8" text-anchor="middle" font-weight="600">intent 128→N_i</text>
+      <!-- L5 LoRA -->
+      <rect x="14" y="416" width="872" height="36" rx="10" fill="rgba(229,115,115,0.02)" stroke="rgba(229,115,115,0.06)" stroke-width="1"/>
+      <text x="450" y="438" fill="#e57373" font-size="10" text-anchor="middle" font-weight="600">🔌 LoRA 个性化 — self_attn.q_proj+v_proj · r=4 · 5.6K/player · 加载~30ms</text>
+      <text x="450" y="464" fill="rgba(255,255,255,0.15)" font-size="8" text-anchor="middle">feasibility_mask &lt;0.05ms · 推理 4-8ms · ONNX部署 · 约束验证 → 不通过回退规则轨</text>
+    </svg>
+  </div>
+  <div class="theory-line">
+    <span class="label">关键参数</span>
+    <div class="row"><span class="s">模型</span>：trunk ~317K | LoRA 5.6K (1.8%) | ONNX 服务端推理</div>
+    <div class="row"><span class="s">性能</span>：推理 4-8ms CPU | feasibility_mask &lt;0.05ms | 端到端 &lt;15ms</div>
+    <div class="row"><span class="s">部署</span>：约束验证 → 通过交付，不通过自动回退规则轨</div>
+  </div>
+</section>
+
+<!-- ═══════ 2.1.3.3 构造式出块 ═══════ -->
+<section class="slide" id="algo-constructive">
+  <h3><span class="ch">2.1.3.3</span> 构造式出块</h3>
+  <div class="quo" style="font-size:0.9rem;padding:8px 16px;margin-bottom:0.2em;line-height:1.6">
+    <strong style="color:#e57373">核心挑战</strong>：如何在保证可解性的同时让玩家获得「恰好能消」「刚好触发同花顺」的爽感？<br>
+    <strong style="color:#4dd0e1">解决思路</strong>：构造式预扫描（C1/C2/C3）+ 两阶段加权采样 + 意图驱动的调度配额
+  </div>
+  <div class="img-frame" style="padding:0 20px 8px 20px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 900 340" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+      <defs><marker id="arrCt" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.25)"/></marker></defs>
+      <rect x="14" y="16" width="872" height="62" rx="10" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="450" y="34" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="700">🔍 构造算子预扫描</text>
+      <rect x="24" y="46" width="270" height="26" rx="5" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="159" y="62" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">C1 completer — 补全消行机会</text>
+      <text x="302" y="59" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="318" y="46" width="270" height="26" rx="5" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="453" y="62" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="600">C2 setup — 构造未来消行条件</text>
+      <text x="596" y="59" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="612" y="46" width="262" height="26" rx="5" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="743" y="62" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">C3 orderAnchor — 锁定排列顺序</text>
+      <rect x="14" y="94" width="430" height="116" rx="10" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="229" y="112" fill="#81c784" font-size="11" text-anchor="middle" font-weight="700">🔧 两阶段构造流程</text>
+      <rect x="24" y="124" width="200" height="36" rx="5" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
+      <text x="124" y="140" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="600">Stage 1: clearSeats</text>
+      <text x="124" y="155" fill="rgba(255,255,255,0.30)" font-size="7.5" text-anchor="middle">clearGuarantee>0时占坑</text>
+      <text x="232" y="144" fill="rgba(255,255,255,0.15)" font-size="13" text-anchor="middle">→</text>
+      <rect x="248" y="124" width="180" height="36" rx="5" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="338" y="140" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="600">Stage 2: weightedFill</text>
+      <text x="338" y="155" fill="rgba(255,255,255,0.30)" font-size="7.5" text-anchor="middle">剩余槽位加权补齐</text>
+      <rect x="24" y="172" width="394" height="28" rx="4" fill="rgba(229,115,115,0.03)" stroke="rgba(229,115,115,0.06)" stroke-width="1"/>
+      <text x="221" y="190" fill="#e57373" font-size="8.5" text-anchor="middle">⛓️ PEOG 产钳 — 两阶段间限制构造算子候选</text>
+      <rect x="456" y="94" width="430" height="116" rx="10" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="671" y="112" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">🎯 意图调度与配额</text>
+      <rect x="466" y="124" width="200" height="36" rx="5" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="566" y="140" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="600">clearGuarantee 配额</text>
+      <text x="566" y="155" fill="rgba(255,255,255,0.30)" font-size="7.5" text-anchor="middle">warm_run=2 · engage=1 · maintain=0</text>
+      <rect x="678" y="124" width="196" height="36" rx="5" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
+      <text x="776" y="140" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">池偏置 + 尺寸偏好</text>
+      <text x="776" y="155" fill="rgba(255,255,255,0.30)" font-size="7.5" text-anchor="middle">大块/长条/同花顺倾向</text>
+      <rect x="466" y="172" width="408" height="28" rx="4" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
+      <text x="671" y="190" fill="#81c784" font-size="8.5" text-anchor="middle">过载保护：填充率>70%时自动降低难度目标</text>
+      <rect x="14" y="228" width="872" height="100" rx="8" fill="rgba(186,104,200,0.01)" stroke="rgba(186,104,200,0.04)" stroke-width="1"/>
+      <text x="24" y="246" fill="#ba68c8" font-size="11" font-weight="700">✅ 约束验证链（三关校验）</text>
+      <rect x="24" y="258" width="200" height="28" rx="5" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="124" y="276" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="600">① 形状唯一性</text>
+      <text x="124" y="288" fill="rgba(255,255,255,0.20)" font-size="7" text-anchor="middle">三块不重复·跨槽不冲突</text>
+      <text x="232" y="274" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="248" y="258" width="200" height="28" rx="5" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
+      <text x="348" y="276" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">② 机动性检查</text>
+      <text x="348" y="288" fill="rgba(255,255,255,0.20)" font-size="7" text-anchor="middle">合法落点数 ≥ minMobilityTarget</text>
+      <text x="456" y="274" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="472" y="258" width="200" height="28" rx="5" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
+      <text x="572" y="276" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="600">③ DFS 序贯可解</text>
+      <text x="572" y="288" fill="rgba(255,255,255,0.20)" font-size="7" text-anchor="middle">三块按某种顺序可全部放完</text>
+      <text x="680" y="274" fill="rgba(255,255,255,0.15)" font-size="11" text-anchor="middle">→</text>
+      <rect x="696" y="258" width="178" height="28" rx="5" fill="rgba(229,115,115,0.03)" stroke="rgba(229,115,115,0.06)" stroke-width="1"/>
+      <text x="785" y="276" fill="#e57373" font-size="9" text-anchor="middle" font-weight="600">✔ 通过上 Dock</text>
+      <text x="785" y="288" fill="rgba(255,255,255,0.20)" font-size="7" text-anchor="middle">全部校验通过</text>
+    </svg>
+  </div>
+  <div class="theory-line">
+    <span class="label">工作流</span>
+    <div class="row"><span class="s">触发入口</span>：generateDockShapes → 构造预扫描 → 两阶段加权 → 约束验证 → 三块上 Dock</div>
+    <div class="row"><span class="s">重试机制</span>：MAX_SPAWN_ATTEMPTS=22，每次重试重新执行完整两阶段构造；全部失败回退 fallback_simple</div>
+    <div class="row"><span class="s">续约兜底</span>：构造失败 constructiveRetry+1，下轮 pComp/pMc 叠加 retryBoost(+0.25)，最多续 2 轮</div>
   </div>
 </section>
 
@@ -3013,7 +3309,7 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   </div>
 
   <div class="img-frame" style="padding:0 20px 8px 20px;background:rgba(0,0,0,0.35)">
-    <svg viewBox="0 0 900 510" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+    <svg viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
       <defs>
         <marker id="arrCl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.25)"/></marker>
       </defs>
