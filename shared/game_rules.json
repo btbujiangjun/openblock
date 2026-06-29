@@ -29,10 +29,10 @@
       "retryCap": 6
     },
     "quantile": {
-      "comment": "v11.4 温和加压课程参数。p=60 → 目标 win_rate=40%（介于 v11.2 的 30% 与过激的 50% 之间）。windowEpisodes=300 平衡响应速度与抖动。emaAlpha=0.08 ≈ 8 局衰减一半，追踪能力提升但不过激（v11.3 的 0.15 配合弱在线学习器导致门槛爬升过快、得分退化）。bootstrap 期（前 100 局）使用 winThresholdStart=40 同值。floor/ceil 是兜底夹紧，正常不会触发。",
-      "p": 60,
-      "windowEpisodes": 300,
-      "emaAlpha": 0.08,
+      "comment": "v11.5 优化课程参数。p=55 → 目标 win_rate=45%（从40%提升到45%，降低难度递增速度）。windowEpisodes=250 减少历史窗口提高响应性。emaAlpha=0.12 加快阈值更新响应。bootstrap 期（前 100 局）使用 winThresholdStart=40 同值。floor/ceil 是兜底夹紧，正常不会触发。",
+      "p": 55,
+      "windowEpisodes": 250,
+      "emaAlpha": 0.12,
       "bootstrapEpisodes": 100,
       "bootstrapThreshold": 40,
       "floor": 40,
@@ -1287,8 +1287,8 @@
       "saturationClip": 1.5
     },
     "rndCuriosity": {
-      "comment": "v11.2 方案 C（opt-in，默认 off）：Random Network Distillation 内在动机（Burda 2018, arXiv:1810.12894）。双 MLP（target 冻结 + predictor 学习），r_intrinsic = β·||target(s) - predictor(s)||²，鼓励访问新颖 state。解决高 ep 后探索退化（entropy→0、score 停滞）问题。⚠️ 启用会引入额外网络与 β 调参；触发条件未到时启用可能干扰已收敛策略。即使 enabled=false 也会定期打印触发条件评估 alert。RL_RND=1/0 可热切换。",
-      "enabled": false,
+      "comment": "v11.5 启用 RND Curiosity：Random Network Distillation 内在动机（Burda 2018, arXiv:1810.12894）。双 MLP（target 冻结 + predictor 学习），r_intrinsic = β·||target(s) - predictor(s)||²，鼓励访问新颖 state。解决高 ep 后探索退化（entropy→0、score 停滞）问题。",
+      "enabled": true,
       "stateDim": 204,
       "hiddenDim": 64,
       "outputDim": 32,
@@ -1297,13 +1297,13 @@
       "updateEverySteps": 1,
       "normalizeIntrinsic": true,
       "gradClip": 5.0,
-      "minEpisode": 50000,
-      "scoreSlopeWindow": 5000,
+      "minEpisode": 500,
+      "scoreSlopeWindow": 100,
       "scoreSlopeThreshold": 0.001,
       "entropyCollapseThreshold": 0.2,
       "expectedScoreAtCollapse": null,
       "scoreCollapseRatio": 0.8,
-      "triggerCheckEvery": 2000
+      "triggerCheckEvery": 100
     },
     "winBonus": 35,
     "stuckPenalty": -8.0,

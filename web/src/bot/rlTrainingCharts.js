@@ -417,6 +417,14 @@ function drawLineChart(ctx, cssW, cssH, title, x, series, chartOpts, panelHint =
     ymin -= yPad;
     ymax += yPad;
 
+    // 5 个等分刻度 × 4 间隔，autoYTick 用 toFixed(2) 时每个间隔至少 0.015 才能避免标签重复
+    const _minRange = 0.06;
+    if (ymax - ymin < _minRange) {
+        const c = (ymax + ymin) / 2;
+        ymin = c - _minRange / 2;
+        ymax = c + _minRange / 2;
+    }
+
     if (chartOpts?.yMinFloor != null) {
         ymin = Math.max(chartOpts.yMinFloor, ymin);
     }
@@ -2074,7 +2082,7 @@ export function updateRlTrainingCharts(root, entries, summaryEl = null, maxEpiso
     upsertChartPanel(
         root,
         CHART_PANEL_IDS.DEPLOY,
-        20,
+        10,
         '部署分（贪心 argmax 评估，与训练 score 口径不同）',
         evalX,
         [

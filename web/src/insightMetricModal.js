@@ -153,9 +153,11 @@ function _setText(el, text) {
 }
 
 /**
- * 计算 points 的 [lo, hi] 区间（带 1e-9 抗压平兜底）。
+ * 计算 points 的 [lo, hi] 区间（带抗压平兜底 + 精度感知 padding）。
+ * @param {Array<{value:number}>} points
+ * @param {string} [fmt]  可选格式化方式（'f2'/'f3'/'int'等），用于推算最小刻度间距
  */
-function _computeRange(points) {
+function _computeRange(points, fmt) {
     let lo = Infinity;
     let hi = -Infinity;
     for (const p of points) {
@@ -166,10 +168,18 @@ function _computeRange(points) {
         lo = 0;
         hi = 1;
     }
-    if (hi - lo < 1e-9) {
+    // 估算该格式下一个刻度能分辨的最小单位
+    // f2=0.01, f3=0.001, int/pct=1, 默认 f2
+    let _unit = 0.01;
+    if (fmt === 'f3') _unit = 0.001;
+    else if (fmt === 'int' || fmt === 'pct') _unit = 1;
+    // 5 个刻度有 4 个间隔，各间隔需 > _unit 以避免 toFixed 四舍五入后重复
+    // 乘以 1.5 留额外余量（如 0.015 到 toFixed(2) 的浮点边界情况）
+    const minRange = _unit * 4 * 1.5;
+    if (hi - lo < minRange) {
         const c = (hi + lo) / 2;
-        lo = c - 0.5;
-        hi = c + 0.5;
+        lo = c - minRange / 2;
+        hi = c + minRange / 2;
     }
     return { lo, hi };
 }
@@ -198,7 +208,7 @@ function _renderPlot(svg, primaryPoints, totalFrames, primaryColor, opts = {}) {
     const innerH = PLOT_H - PAD_T - PAD_B;
     const maxIdx = Math.max(totalFrames - 1, 1);
 
-    const { lo: loP, hi: hiP } = _computeRange(primaryPoints);
+    const { lo: loP, hi: hiP } = _computeRange(primaryPoints, opts.primaryFmt);
     const rangeP = hiP - loP;
     const toX = (idx) => PAD_L + (idx / maxIdx) * innerW;
     const toY = (val) => PAD_T + innerH - ((val - loP) / rangeP) * innerH;
@@ -208,7 +218,7 @@ function _renderPlot(svg, primaryPoints, totalFrames, primaryColor, opts = {}) {
     let rangeS = 1;
     let toYSecondary = null;
     if (hasSecondary) {
-        const sr = _computeRange(secondaryPoints);
+        const sr = _computeRange(secondaryPoints, opts.secondaryFmt);
         loS = sr.lo;
         hiS = sr.hi;
         rangeS = hiS - loS;
@@ -412,7 +422,7 @@ function _attachHover(svg, renderInfo, primaryPoints, opts, readout) {
         if (!target) return;
         const cxView = PAD_L + (target.idx / maxIdx) * innerW;
         const innerH = PLOT_H - PAD_T - PAD_B;
-        const { lo: loP, hi: hiP } = _computeRange(primaryPoints);
+        const { lo: loP, hi: hiP } = _computeRange(primaryPoints, opts.primaryFmt);
         const rangeP = hiP - loP;
         const cyView = PAD_T + innerH - ((target.value - loP) / rangeP) * innerH;
         cursorLine.setAttribute('x1', cxView.toFixed(1));
@@ -434,7 +444,7 @@ function _attachHover(svg, renderInfo, primaryPoints, opts, readout) {
         if (hasSecondary && dotSecondary && opts.secondaryPoints?.length > 0) {
             const s = nearestPointByIdx(opts.secondaryPoints, target.idx);
             if (s) {
-                const sr = _computeRange(opts.secondaryPoints);
+                const sr = _computeRange(opts.secondaryPoints, opts.secondaryFmt);
                 const cyS = PAD_T + innerH - ((s.value - sr.lo) / (sr.hi - sr.lo)) * innerH;
                 const cxS = PAD_L + (s.idx / maxIdx) * innerW;
                 dotSecondary.setAttribute('cx', cxS.toFixed(1));
