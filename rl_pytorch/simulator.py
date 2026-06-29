@@ -15,7 +15,7 @@ from .grid import Grid
 from .dock_color_bias import mono_near_full_line_color_weights, pick_three_dock_colors
 from .player_profile_lite import PlayerProfileLite
 from .shapes_data import get_all_shapes, shape_category
-from .spawn_step_difficulty import DIFFICULTY_BUCKETS, spawn_step_difficulty_features
+from .spawn_step_difficulty import DIFFICULTY_BUCKETS, spawn_step_difficulty_features, get_placeability_shape_matrices
 from . import fast_grid as _fg
 from . import spawn_online as _spawn_online
 
@@ -681,17 +681,22 @@ class OpenBlockSimulator:
 
     def get_supervision_signals(self, feasibility_node_budget: int = 200) -> dict[str, float]:
         """一次调用返回所有直接监督目标值。v12 新增 spawn_difficulty_after：trunk 显式预测
-        本步落子（dock 重抽）后的 4 维 spawnStepDifficulty 子向量，强化对难度的归纳偏置。"""
+        本步落子（dock 重抽）后的 spawnStepDifficulty 子向量（4 维）+ per-shape placeability（8 维），
+        共 12 维。placeability 直接量化「长条块在当前棋盘上是否放得进去」。"""
         gnp = self._ensure_grid_np()
         occupied = int(_fg.fast_board_features(gnp)["filled"])
         unplaced_shapes = [b["shape"] for b in self.dock if not b.get("placed")]
+        spawn_diff_4 = np.asarray(
+            spawn_step_difficulty_features(unplaced_shapes, occupied), dtype=np.float32
+        )
+        # v13: per-shape placeability — 8 fixed shapes × normalized legal position count
+        place_mats = get_placeability_shape_matrices()
+        place_8 = _fg.per_shape_placeability(gnp, place_mats)
         return {
             "board_quality": board_potential_np(gnp, self.dock) / _BOARD_POT_NORM,
             "feasibility": self.check_sequential_feasibility(node_budget=feasibility_node_budget),
             "topology_after": _fg.topology_aux_targets(gnp, self.dock, _ACTION_NORM),
-            "spawn_difficulty_after": np.asarray(
-                spawn_step_difficulty_features(unplaced_shapes, occupied), dtype=np.float32
-            ),
+            "spawn_difficulty_after": np.concatenate([spawn_diff_4, place_8]),
         }
 
     def _eval_step_reward(

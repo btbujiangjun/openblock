@@ -7,7 +7,8 @@ v5 核心改动（修复不收敛根因）：
     board_quality_loss: MSE，回归 board_potential（棋盘结构质量）
     feasibility_loss:   BCE，预测"剩余 dock 块是否全部可放"
     survival_loss:      MSE，回归 steps_to_end / 30（生存预期）
-    topology_aux_loss:  SmoothL1，预测落子后的 8 维拓扑分量
+    topology_aux_loss:  SmoothL1，预测落子后的 10 维拓扑分量
+    spawn_diff_aux_loss: SmoothL1，预测 12 维出块难度（4 维 spawn + 8 维 per-shape placeability）
   - 精简奖励：仅保留得分增量 + 势函数塑形 + 胜利奖励；
     placeBonus / holePenalty / heightPenalty 等噪声项已移除
   - DockBoardAttention（conv-shared 架构）：dock 块对棋盘 CNN 特征做交叉注意力

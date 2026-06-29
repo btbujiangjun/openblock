@@ -473,6 +473,26 @@ def get_all_legal_actions(grid_np: np.ndarray, dock: list[dict]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# v13: Per-Shape Placeability — 固定形状在当前棋盘上的合法放置数
+# ---------------------------------------------------------------------------
+
+def per_shape_placeability(
+    grid_np: np.ndarray,
+    shape_mats: list,
+) -> np.ndarray:
+    """返回各形状在当前棋盘上的归一化合法放置数 [0,1]^K。
+
+    shape_mats: [(shape_id, np.ndarray(h,w), norm_denom), ...] 来自
+                spawn_step_difficulty.get_placeability_shape_matrices()
+    """
+    out = np.empty(len(shape_mats), dtype=np.float32)
+    for i, (_sid, mat, norm) in enumerate(shape_mats):
+        n = float(len(get_legal_positions(grid_np, mat)))
+        out[i] = np.float32(np.clip(n / max(norm, 1.0), 0.0, 1.0))
+    return out
+
+
+# ---------------------------------------------------------------------------
 # 批量消行预测  — 向量化替代 N 次 _count_clears_fast
 # ---------------------------------------------------------------------------
 

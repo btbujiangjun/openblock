@@ -2446,6 +2446,9 @@ scoreMean/P50/P90, stepsMean, noMoveRate, terminalFillMean, clearInterval, multi
 - **出块难度**：`spawnStepDifficulty` 新增 `fragmentation` 项 = `regionEntropy×0.6 + smallRegionCellRatio×0.4`，
   权重重平衡为 scd0.26 / board0.18 / flex0.18 / solution0.13 / killer0.13 / **fragmentation0.12**（缺省时该权重按比例重分配）。
   让"难度"不再只由 fill/scd 决定 —— 这一处自动流向 RL `spawn_diff_aux`、难度桶、面板、透视仪。
+  **v13 扩展**：`spawn_diff_aux` 辅助监督头从 4 维扩展为 **12 维**（4 维 spawn + 8 维 per-shape placeability），
+  新增的 8 维对固定形状（1×4/4×1/1×5/5×1/2×2/3×3/t-up/l3-a）量化当前棋盘上的合法放置数，
+  直接暴露「长条块死亡」瓶颈。详见 `ALGORITHMS_RL.md` §7.5 和 §11。
 - **玩家能力**：`playerAbilityModel.boardPlanning` 升级为 5 维，新增 `spatialPlanning` 项（权重 0.18），
   由 `computeSpatialPlanningScore`（保全 + 词表机动性 + 开放空间整片度 + 家族覆盖 + 选项熵）合成。
 - **AI Bot 架构**：RL state / behaviorContext 扩维（旧 checkpoint 因尺寸不符自动从零重训，符合"不考虑兼容性"）；

@@ -208,6 +208,59 @@ def scd_level(scd: float, cfg: Optional[dict] = None) -> str:
 
 SPAWN_STEP_DIFFICULTY_FEATURE_DIM = 4
 
+# ---------------------------------------------------------------------------
+# v13: Per-Shape Placeability — 固定形状在当前棋盘上的合法放置数
+# ---------------------------------------------------------------------------
+# 8 个代表性形状覆盖关键瓶颈类别（长条 1×4/1×5 + 方块 + T/L 复杂形），
+# 归一化分母 = 8×8 空棋盘最大合法位置数（理论上限）。
+# 与 spawn_step_difficulty_features 的 4 维拼接成 12 维 aux target。
+PLACEABILITY_SHAPE_IDS: list[str] = [
+    "1x4", "4x1", "1x5", "5x1",  # 长条瓶颈（最易先死）
+    "2x2", "3x3",                 # 方块基线
+    "t-up", "l3-a",               # T / L 复杂形
+]
+
+# 每个形状在 8×8 空棋盘上的理论最大合法位置数
+PLACEABILITY_NORMS: dict[str, float] = {
+    "1x4": 40.0,   # (8-1+1) × (8-4+1) = 8×5 = 40
+    "4x1": 40.0,   # (8-4+1) × (8-1+1) = 5×8 = 40
+    "1x5": 32.0,   # (8-1+1) × (8-5+1) = 8×4 = 32
+    "5x1": 32.0,   # (8-5+1) × (8-1+1) = 4×8 = 32
+    "2x2": 49.0,   # (8-2+1) × (8-2+1) = 7×7 = 49
+    "3x3": 36.0,   # (8-3+1) × (8-3+1) = 6×6 = 36
+    "t-up": 42.0,  # (8-2+1) × (8-3+1) = 7×6 = 42
+    "l3-a": 49.0,  # (8-2+1) × (8-2+1) = 7×7 = 49
+}
+
+# 懒加载缓存：模块 import 时从 shapes.json 载入矩阵
+_placeability_matrices: list | None = None
+
+
+def get_placeability_shape_matrices() -> list:
+    """返回 [(shape_id, np.ndarray), ...] 的 8 个固定形状矩阵（懒加载）。"""
+    global _placeability_matrices
+    if _placeability_matrices is not None:
+        return _placeability_matrices
+    import numpy as np
+    from .shapes_data import get_all_shapes
+    all_shapes = {s["id"]: s for s in get_all_shapes()}
+    mats = []
+    for sid in PLACEABILITY_SHAPE_IDS:
+        s = all_shapes.get(sid)
+        if s is None:
+            raise KeyError(f"Placeability shape '{sid}' not found in shapes.json")
+        d = s["data"]
+        h = len(d)
+        w = max((len(r) for r in d), default=0)
+        m = np.zeros((h, w), dtype=np.uint8)
+        for r_idx, row in enumerate(d):
+            for c_idx, v in enumerate(row):
+                if v:
+                    m[r_idx, c_idx] = 1
+        mats.append((sid, m, PLACEABILITY_NORMS.get(sid, 1.0)))
+    _placeability_matrices = mats
+    return mats
+
 
 def spawn_step_difficulty_features(
     shapes: Iterable,

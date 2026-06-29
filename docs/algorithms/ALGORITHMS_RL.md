@@ -373,6 +373,12 @@ stateDim 181 → 185、phiDim 196 → 200**（v1.66 再 +2 维几何 → 48 / 18
 - **跨语言一致性**：fixture 每个 case 追加 `expected.features`，JS / Python 双侧断言逐位相等。
 - **RND**：`rlRewardShaping.rndCuriosity.stateDim` 与 state 空间同步（当前 204；RND 复用同一 state 空间）。
 
+> **v13 per-shape placeability**：上述 4 维 spawn 难度在 RL state 中保持不变，但 `spawn_diff_aux` 辅助监督头
+> 已扩展为 **12 维**（4 维 spawn + 8 维 per-shape placeability）。placeability 对 8 个固定形状
+> （1×4/4×1/1×5/5×1/2×2/3×3/t-up/l3-a）各计算当前棋盘上的归一化合法放置数 $[0,1]^8$，
+> 让 trunk 显式学习「长条块在当前盘面上是否放得进去」。该信号不进 RL state（避免 MCTS 热路径开销），
+> 仅作为 aux target 出现在损失函数中。详见 §7.5 和 §11.1。
+
 ### 3.7 客观几何难度进入 state（v1.66，理想态）
 
 在 §3.6 的 4 维单步难度之后、`features.js` / `features.py` 标量段尾部再拼 **2 维客观几何难度**，
@@ -683,6 +689,7 @@ loss = (
     + bq_coef       · bq_loss              # board_quality
     + feas_coef     · feas_loss            # feasibility
     + surv_coef     · surv_loss            # survival
+    + spawn_diff_coef · spawn_diff_loss    # v13: 12 维出块难度 + per-shape placeability
     + q_distill_coef · q_distill_loss      # Q 分布蒸馏（可选）
 )
 ```
@@ -734,10 +741,13 @@ entropy_loss = entropy_coef · mean(H)
 |------|------|-----|------------|
 | hole_aux | SmoothL1 | hole_coef | 放置并消行后的不可覆盖空洞数 |
 | clear_pred | CrossEntropy(4 类) | clear_pred_coef | 实际消行类别（0/1/2/≥3） |
-| topology_aux | SmoothL1(8 维) | topology_coef | 落子后的 holes / transitions / wells / 可填 close1 / 可填 close2 / mobility / fill |
+| topology_aux | SmoothL1(10 维) | topology_coef | 落子后的 holes / transitions / wells / 可填 close1 / 可填 close2 / mobility / fill / contiguousRegions / concaveCorners |
 | board_quality | SmoothL1 | bq_coef | $\Phi(s)$ |
 | feasibility | BCE | feas_coef | 是否仍有合法动作 |
 | survival | SmoothL1 | surv_coef | 距离游戏结束的步数（归一） |
+| spawn_diff_aux | SmoothL1(12 维) | spawn_diff_coef(0.05) | 4 维 spawnStepDifficulty（scd/comboCells/killer/longBar）+ 8 维 per-shape placeability（1×4/4×1/1×5/5×1/2×2/3×3/t-up/l3-a 当前棋盘合法位置数归一化） |
+
+> **v13 新增 per-shape placeability**：原 `spawn_diff_aux` 仅预测 dock 块自身的 4 维组合难度，与胜负近乎零相关（r=-0.009, p=0.69）。v13 扩展为 12 维，追加 8 个固定形状在当前棋盘上的归一化合法放置数，直接量化「长条块（1×4/1×5）是否放得进去」——这是已验证的主要死亡瓶颈（70%+ 填充率时 33%-56% 长条块零合法位置）。详见 [§11.1](#111-设计思想)。
 
 ### 7.6 Q 蒸馏（可选）
 
@@ -951,8 +961,9 @@ Outcome： "终局这一局打了多少分（log 后除以胜利门槛）"
 | `board_quality` | $\Phi(s)$ | trunk 学会"棋盘好坏" |
 | `feasibility` | 是否存在顺序能放完剩余 dock | trunk 学会"是否还能继续" |
 | `survival` | 距离 game over 步数（归一） | trunk 学会"活多久" |
+| `spawn_diff_aux` | 12 维：4 维出块难度 + 8 维 per-shape placeability | trunk 学会"长条块还能放吗"（v13 新增） |
 | `hole_aux` | 放置并消行后的不可覆盖 holes | $\phi$ 学会"这步会留下多少真实死角" |
-| `topology_aux` | 落子后 8 维拓扑向量 | $\phi$ 学会"这步会如何改变盘面结构" |
+| `topology_aux` | 落子后 10 维拓扑向量 | $\phi$ 学会"这步会如何改变盘面结构" |
 | `clear_pred` | 实际消行类别 (0/1/2/≥3) | $\phi$ 学会"会不会消行" |
 
 ### 11.2 信号来源
@@ -965,19 +976,29 @@ Outcome： "终局这一局打了多少分（log 后除以胜利门槛）"
     'feasibility': 1 if sequential_solution_leaves > 0 else 0,
     'survival_steps_remaining': T_max - t,  # 估算
     'holes_after': count_unfillable_cells(grid_after_clear),
-    'topology_after': [holes, row_trans, col_trans, wells, fillable_close1, fillable_close2, mobility, fill],
+    'topology_after': [holes, row_trans, col_trans, wells, fillable_close1, fillable_close2, mobility, fill, contiguous_regions, concave_corners],
     'clears_class': 0/1/2/3,
+    # v13: 12 维出块难度向量（4 维 spawn + 8 维 per-shape placeability）
+    'spawn_difficulty_after': concat([
+        spawn_step_difficulty_features(dock, occupied),   # [scd, comboCells, killer, longBar] × 4
+        per_shape_placeability(grid, fixed_shapes),       # [1x4, 4x1, 1x5, 5x1, 2x2, 3x3, t-up, l3-a] × 8
+    ]),
 }
 ```
+
+> **v13 per-shape placeability**：对 8 个固定形状各调用一次 `get_legal_positions()`（~0.16ms/Numba），
+> 返回归一化合法放置位置数 $[0,1]^8$。与 4 维 spawn 难度拼接为 12 维 `spawn_difficulty_after`，
+> 由 `forward_spawn_diff_aux` 头预测（SmoothL1 回归）。
 
 ### 11.3 系数策略
 
 ```
-hole_coef:        0.1   # 较强（直接信号）
-clear_pred_coef:  0.05
-bq_coef:          0.05
-feas_coef:        0.05
-surv_coef:        0.03
+hole_coef:          0.1   # 较强（直接信号）
+clear_pred_coef:    0.05
+bq_coef:            0.5   # board_quality
+feas_coef:          0.3   # feasibility
+surv_coef:          0.2   # survival
+spawn_diff_coef:    0.05  # v13: 12 维出块难度 + per-shape placeability
 ```
 
 总辅助损失约占总损失 20-30%。过高会主导 trunk，过低又起不到 regularization 作用。

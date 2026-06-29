@@ -338,7 +338,7 @@ stress = Σ(signal_i * weight_i), clamp(-0.2, 1.0)
                       /api/rl/*
   线性 REINFORCE                      残差双塔网络
   + 价值基线                          DockBoardAttention
-                                      直接监督头（位置/形状/combo）
+                                      直接监督头（board_quality / feasibility / survival / spawn_diff / topology / hole / clear_pred）
                                       课程学习（40 → 220 分）
 ```
 
@@ -358,10 +358,13 @@ shared/shapes.json ──────┬── shapes.js (前端)
 
 ```
 ψ(s) = [
-    15 维全局统计（分数、消行数、连击、填充率等）
-    + 棋盘占用（8×8 = 64 维，或 maxGridWidth²）
-    + 待选块形状掩码（3块 × dockMaskSide²）
+    65 维标量（25 结构基元 + 19 颜色摘要 + 4 单步难度 + 3 空间规划 + 3 策略 one-hot + 11 条件 token）
+    + 棋盘占用（8×8 = 64 维）
+    + dock 形状掩码（3块 × 5×5 = 75 维）
 ]
+总维度：204 维（stateDim）= 65 + 64 + 75
+动作特征 φ(a)：15 维（nearFullRatio + 8 邻域 + 6 自特征）
+训练辅助监督头：12 维 spawn_diff_aux（含 v13 per-shape placeability）+ 10 维 topology_aux
 总维度：见 shared/game_rules.json 的 featureEncoding.stateDim
 ```
 

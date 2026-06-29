@@ -30,10 +30,11 @@ _GRID_FLAT = _GRID_SIDE * _GRID_SIDE
 _DOCK_MASK_SIDE = int(FEATURE_ENCODING.get("dockMaskSide", 5))
 _DOCK_SLOTS = int(FEATURE_ENCODING.get("dockSlots", 3))
 _DOCK_FLAT = _DOCK_SLOTS * _DOCK_MASK_SIDE * _DOCK_MASK_SIDE
-# v12: topology_aux 8 → 10（追加 contiguous_regions / concave_corners）；
-# spawn_diff_aux 4 维（scd / comboCells / killer / longBar），target 来自当前 dock 一手计算。
+# v13: topology_aux 8 → 10（追加 contiguous_regions / concave_corners）；
+# spawn_diff_aux 4 → 12 维（原 4 维 scd/comboCells/killer/longBar + 新增 8 维 per-shape placeability），
+# 显式量化「长条块 1×4/1×5 等在当前棋盘上是否放得进去」。
 TOPOLOGY_AUX_DIM = int(RL_REWARD_SHAPING.get("topologyAuxDim") or 10)
-SPAWN_DIFF_AUX_DIM = int((RL_REWARD_SHAPING.get("spawnDiffAux") or {}).get("dim") or 4)
+SPAWN_DIFF_AUX_DIM = int((RL_REWARD_SHAPING.get("spawnDiffAux") or {}).get("dim") or 12)
 
 
 # ---------------------------------------------------------------------------
@@ -389,7 +390,7 @@ class ConvSharedPolicyValueNet(nn.Module):
         return self.survival_head(h).squeeze(-1)
 
     def forward_spawn_diff_aux(self, state_feat: torch.Tensor) -> torch.Tensor:
-        """预测当前 dock 的 4 维 spawnStepDifficulty 子向量（trunk 直接从 state 回归）。"""
+        """预测当前 12 维 spawnDiff 子向量（4 维难度 + 8 维 per-shape placeability）。"""
         h = self._encode_state(state_feat)
         return self.spawn_diff_aux_head(h)
 

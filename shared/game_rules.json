@@ -1313,10 +1313,10 @@
     "topologyAuxLossCoef": 0.08,
     "topologyAuxDim": 10,
     "spawnDiffAux": {
-      "comment": "v12 单步出块难度辅助监督：让 trunk 显式预测当前 dock 的 4 维 spawnStepDifficulty 子向量（与 RL state 同源 spawn_step_difficulty_features），强化对难度分布的归纳偏置。target 取当前 dock 一手计算，不依赖未来块（无泄漏）。",
+      "comment": "v13 单步出块难度辅助监督：12 维 = 原 4 维 spawnStepDifficulty（scd/comboCells/killer/longBar）+ 新增 8 维 per-shape placeability（1x4/4x1/1x5/5x1/2x2/3x3/t-up/l3-a 当前棋盘合法位置数归一化），显式量化长条块可放性瓶颈。target 每步即时计算，无泄漏。",
       "enabled": true,
       "coef": 0.05,
-      "dim": 4
+      "dim": 12
     },
     "evalFeedbackShaping": {
       "comment": "v12 评估反馈进 ΔΦ 塑形：把局内累计的 regret / forced_bad / salvage 信号转为势函数项（Ng 1999 不改变最优策略）。当 closeRound 信号可得时叠加；自博弈侧用 simulator 的近似口径（regret = best_reward - chosen_reward / norm，forced_bad = last_round_unfillable_holes_increase）。与 _pb_reward 离线权重同量级以对齐口径。",
