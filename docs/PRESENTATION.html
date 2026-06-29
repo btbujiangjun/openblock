@@ -2001,33 +2001,6 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
 
   <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:0.4em">
 
-<<<<<<< HEAD
-    <!-- 列1：符号系统 + 问题定义 -->
-    <div style="flex:1;min-width:220px">
-      <div style="background:rgba(74,158,255,0.04);border:1px solid rgba(74,158,255,0.10);border-radius:8px;padding:10px 14px">
-        <div style="color:#7eb8ff;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:5px">符号系统</div>
-        <table style="font-size:0.60rem;line-height:1.45;color:#b0c8e0;width:100%;border-collapse:collapse">
-          <tr><td style="color:#e8a0c8;font-weight:700;width:80px;vertical-align:top;padding:1px 4px 1px 0">$c \in \mathcal{C}$</td><td style="vertical-align:top;padding:1px 0">(difficulty, generator, bot, pb_bin, lifecycle) 多元组，$|\mathcal{C}| = 3 \times 2 \times 4 \times 5 \times 4 = 480$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$\theta \in [0,1]^{36}$</td><td style="padding:1px 0">spawn 参数向量，$\subset \mathbb{R}^{36}$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$r \in [0, 2]$</td><td style="padding:1px 0">归一化进度 $= \text{score} / \text{PB}$，$\subset \mathbb{R}$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$b \in \{1,\dots,20\}$</td><td style="padding:1px 0">离散 bin（$\subset \mathbb{N}$），$r \in [(b-1) \cdot 0.1,\; b \cdot 0.1)$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$D, E, F$</td><td style="padding:1px 0">预测的难度 / 爽感 / 挫败曲线，$\in [0,1]^{20}$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$D^*, E^*, F^*$</td><td style="padding:1px 0">业务定义的 ideal 目标曲线，$\in [0,1]^{20}$</td></tr>
-          <tr><td style="color:#e8a0c8;font-weight:700;padding:1px 4px 1px 0">$f_{\phi}$</td><td style="padding:1px 0">$\mathcal{C} \times [0,1]^{36} \to [0,1]^{20 \times 3}$，NN</td></tr>
-        </table>
-      </div>
-
-      <div style="background:rgba(255,183,77,0.04);border:1px solid rgba(255,183,77,0.10);border-radius:8px;padding:10px 14px;margin-top:6px">
-        <div style="color:#ffb74d;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:4px">①内层学习</div>
-        <div style="font-size:0.62rem;line-height:1.5;color:#b0c8e0">
-          $\displaystyle \min_{\phi}\; \mathcal{L}_{\text{total}}(\phi) \triangleq \mathbb{E}_{(c,\theta)\sim\mathcal{D}}\!\big[ \mathcal{L}_{\text{total}}(f_{\phi}(c,\theta), \text{targets}) \big]$
-        </div>
-        <div style="color:#ffb74d;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin:6px 0 4px">②外层学习</div>
-        <div style="font-size:0.62rem;line-height:1.5;color:#b0c8e0">
-          $\forall c \in \mathcal{C}:$<br/>
-          $\displaystyle \min_{\theta}\; \mathcal{J}\big(f_{\phi^*}(c,\theta)\big)$<br/>
-          <span style="color:rgba(255,255,255,0.35)">$\text{s.t.}\; 0 \le \theta_i \le 1,\; i = 1,\dots,36$</span>
-=======
     <!-- 列1：符号 + θ 分组 -->
     <div style="flex:1.4;min-width:280px;display:flex;flex-direction:column;gap:10px">
       <div style="background:rgba(74,158,255,0.04);border:1px solid rgba(74,158,255,0.10);border-radius:8px;padding:10px 14px">
@@ -2087,78 +2060,10 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
             $\Theta_{\text{raw}} \in \mathbb{R}^{480\times 36}$，sigmoid 约束：$\Theta_c = \sigma(\Theta_{\text{raw},c}) \in [0,1]^{36}$<br/>
             <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:6px;padding:4px 8px;margin:3px 0;text-align:center"><span style="color:#4dd0e1;font-weight:600;display:inline-block">$\displaystyle \min_{\phi,\,\Theta_{\text{raw}}}\; \mathcal{L}_{\text{total}}(\phi) + \nu \big\| f_{\phi}(c,\Theta_c) - D^* \big\|^2$</span></div>
            每步训练完成 $\mathcal{L}_{\text{total}}$ 反向传播后，$\text{loss}_{\text{deploy}}$ 对所有 $c \in \mathcal{C}$ 计算 $\| f_{\phi}(c,\Theta_c) - D^* \|^2$，梯度同时更新 $\phi$ 与 $\Theta_{\text{raw}}$，训练终止时 $\Theta^* = \sigma(\Theta_{\text{raw}})$ 即为最优参数表
->>>>>>> 913fa8379966d005dba5ffd9f6f5eb33a1096bcb
         </div>
       </div>
     </div>
 
-<<<<<<< HEAD
-    <!-- 列2：Phase A 复合损失 + 目标曲线 -->
-    <div style="flex:1.4;min-width:260px">
-      <div style="background:rgba(129,199,132,0.04);border:1px solid rgba(129,199,132,0.10);border-radius:8px;padding:10px 14px">
-        <div style="color:#81c784;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:4px">$\mathcal{L}_{\text{total}} = \sum_j w_j \mathcal{L}_j$（17 项）</div>
-        <div style="font-size:0.58rem;line-height:1.4;color:#b0c8e0;margin-bottom:4px;max-height:220px;overflow-y:auto">
-          $\alpha\mathcal{L}_{\text{shape}} = \mathbb{E}\!\big[ \sum_b w_b (d_b - \hat{d}_b)^2 \cdot \text{conf}_b \big]$，$\text{conf} = \frac{n}{n+3}$<br/>
-          $\beta\mathcal{L}_{\text{balance}} = \text{Var}(\{\mu_k\})$，$\mu_k = \text{mean of } D \text{ over PB bin } k$<br/>
-          $\gamma\mathcal{L}_{\text{surprise}} = \big( \mathbb{E}[\sigma(10(0.3-d))] - 0.07 \big)^2$<br/>
-          $\delta\mathcal{L}_{\text{breaking}} = \mathbb{E}\!\big[ \text{ReLU}(\bar{D}_{[0.9,1.0)} - \bar{D}_{[1.0,2.0]}) \big]$<br/>
-          $\varepsilon\mathcal{L}_{\text{smooth}} = \mathbb{E}\!\big[ \|\nabla_{\theta} \bar{D}\|^2 \big]$<br/>
-          $\zeta\mathcal{L}_{\text{aux}} = \text{MSE}( \text{pb_broke}, \text{noMove}, \text{score}, \text{survival} )$<br/>
-          $\eta\mathcal{L}_{\text{pb_dist}} = \text{KL}( P_{\text{reach}}(r) \,\|\, P_{\text{target}}(r) )$<br/>
-          $\kappa\mathcal{L}_{\text{anchor}} = |\mathcal{A}|^{-1} \sum_{(r,\text{dir},v)} \text{Hinge}(D(r), \text{dir}, v)$，22 锚点<br/>
-          $\mu\mathcal{L}_{\text{monotonic}} = \mathbb{E}\!\big[ \text{ReLU}(d_b - d_{b+1} + \varepsilon) \big]$<br/>
-          $\nu\mathcal{L}_{\text{target_fit}} = \| D - D^* \|^2$<br/>
-          $\xi\mathcal{L}_{\text{endpoint}} = \text{Hinge}(D(0), D(2))$<br/>
-          $\mathcal{L}_{\text{r_value}} = \text{MSE}( \hat{r}, r )$<br/>
-          $\omega\mathcal{L}_{\text{deploy}} = |\mathcal{C}|^{-1} \sum_c \| f_{\phi}(c, \Theta_c) - D^* \|^2$<br/>
-          $\tau\mathcal{L}_{\text{theta_div}} = \mathbb{E}\!\big[ \text{ReLU}(0.005 - \text{Var}_g[D])^2 \big]$<br/>
-          $\mathcal{L}_{\text{curve_e}} = \| E - E^* \|^2$<br/>
-          $\iota\mathcal{L}_{\text{curve_f}} = \| F - F^* \|^2$<br/>
-          $\lambda\mathcal{L}_{\text{frust_cap}} = \text{ReLU}(\max(F) - 0.30)$<br/>
-        </div>
-      </div>
-
-      <div style="background:rgba(229,115,115,0.03);border:1px solid rgba(229,115,115,0.08);border-radius:8px;padding:10px 14px;margin-top:6px">
-        <div style="color:#e57373;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:3px">目标 S 曲线 $D^*(r)$ — 4 段分段函数</div>
-        <div style="font-size:0.58rem;line-height:1.35;color:#b0c8e0">
-          $\displaystyle D^*(r) = \begin{cases} 0.10 + \frac{0.01}{0.45}r, & r \in [0, 0.45) \\ 0.11 + \frac{0.07}{0.20}(r-0.45), & r \in [0.45, 0.65) \\ 0.18 + 0.80\,\sigma_{\text{rs}}\big(10.5\,(t-0.5)\big), & r \in [0.65, 1.15),\; t=\frac{r-0.65}{0.50} \\ 0.98 + 0.02\,(1-e^{-6.0\,(r-1.15)}), & r \in [1.15, 2.0] \end{cases}$<br/>
-          <span style="color:rgba(255,255,255,0.15)">$E^* = 0.20 + 0.20\,e^{-((r-1.0)/0.40)^2}$ &emsp; $F^* = \min\big(0.30,\; 0.08 + 0.22\,\text{smoothstep}\big(\frac{r-0.80}{0.80}\big)\big)$</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- 列3：Phase C + G6 -->
-    <div style="flex:1.4;min-width:260px">
-      <div style="background:rgba(186,104,200,0.03);border:1px solid rgba(186,104,200,0.10);border-radius:8px;padding:10px 14px">
-        <div style="color:#ba68c8;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:4px">Phase C — 逐 context 寻参</div>
-        <div style="font-size:0.60rem;line-height:1.45;color:#b0c8e0">
-          冻结 $f_{\phi^*}$，$\forall c \in \mathcal{C}$ 独立求解：<br/>
-          $\displaystyle \min_{\theta}\; \mathcal{J}\big(D_c(\theta), E_c(\theta), F_c(\theta)\big)$<br/>
-          $\text{s.t.}\; 0 \le \theta \le 1$<br/>
-          $\mathcal{J} \triangleq \alpha\sum_b w_b (d_b - d_b^*)^2 + \delta\,\text{ReLU}\big(\bar{D}_{[0.9,1.0)} - \bar{D}_{[1.0,2.0]}\big)$<br/>
-          <span style="color:rgba(255,255,255,0.25)">$\qquad + \gamma\big(\mathbb{E}[\sigma(10(0.3-d))] - 0.07\big)^2 + \eta\|E - E^*\|^2 + \iota\|F - F^*\|^2 + \lambda\,\text{ReLU}(\max(F) - 0.30)$</span><br/>
-          LHS 多起点梯度下降：<br/>
-          <span style="color:rgba(255,255,255,0.30)">$\forall c \in \mathcal{C}:$</span><br/>
-          <span style="color:rgba(255,255,255,0.30)"> for $s = 1 \dots 8$:</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">  $\theta \sim \text{Uniform}(0,1)^{36}$ &emsp; # LHS 初始化</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">  for $t = 1 \dots 300$:</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">   $(D,E,F) = f_{\phi^*}(c,\theta)$ &emsp; # NN 前向</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">   $\ell = \mathcal{J}(D,E,F)$ &emsp; # 偏差损失</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">   $\theta \leftarrow \text{Proj}_{[0,1]^{36}}\big(\theta - \eta \cdot \text{Adam}(\nabla_{\theta}\ell)\big)$ &emsp; $\eta = 0.05$</span><br/>
-          <span style="color:rgba(255,255,255,0.30)">  若 $\mathcal{L}_{\text{shape}}$ 最低，保存 $\theta$</span><br/>
-          <span style="color:rgba(255,255,255,0.30)"> $\theta_c^* = \arg\min \mathcal{L}_{\text{shape}}$</span><br/>
-          输出 $\theta_c^* \in [0,1]^{36} + D_c(\theta_c^*) + \text{MAE} \to \text{policies.json}$
-        </div>
-      </div>
-
-      <div style="background:rgba(186,104,200,0.03);border:1px solid rgba(186,104,200,0.10);border-radius:8px;padding:10px 14px;margin-top:6px">
-        <div style="color:#ba68c8;font-size:0.75rem;font-weight:700;letter-spacing:0.06em;margin-bottom:4px">G6（v3.0.11）— 替代 Phase C</div>
-        <div style="font-size:0.60rem;line-height:1.45;color:#b0c8e0">
-          $\Theta_{\text{raw}} \in \mathbb{R}^{480 \times 36}$ 嵌入为 nn.Parameter，$\Theta_c = \sigma(\Theta_{\text{raw},c}) \in [0,1]^{36}$<br/>
-          $\displaystyle \min_{\phi, \Theta_{\text{raw}}}\; \mathcal{L}_{\text{total}}(\phi) + \nu\,|\mathcal{C}|^{-1} \sum_c \| f_{\phi}(c, \theta_c) - D^* \|^2$<br/>
-          <span style="color:rgba(255,255,255,0.20)">训练中自动完成寻参。训练终止 $\Theta^* = \sigma(\Theta_{\text{raw}})$ 即为最优 $\theta$ 表，直接部署，无需事后 Phase C。</span>
-        </div>
-=======
     <!-- 列3：复合损失 -->
     <div style="flex:1.3;min-width:220px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#1a1a2e transparent">
       <div style="background:rgba(129,199,132,0.04);border:1px solid rgba(129,199,132,0.10);border-radius:8px;padding:10px 14px">
@@ -2180,7 +2085,6 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
           <tr><td style="color:#81c784;font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$\lambda=1$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{frust-cap}}$ F ≤ 0.30 硬上限</td></tr>
           <tr><td style="color:rgba(129,199,132,0.50);font-weight:700;white-space:nowrap;width:1px;padding:1px 4px 1px 0">$0.5$</td><td style="padding:1px 0;word-break:break-word">$\mathcal{L}_{\text{r-value}}$ Smooth L1(r_pred, r)</td></tr>
         </table>
->>>>>>> 913fa8379966d005dba5ffd9f6f5eb33a1096bcb
       </div>
     </div>
 
