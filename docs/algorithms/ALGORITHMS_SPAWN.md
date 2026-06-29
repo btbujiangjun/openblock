@@ -2,7 +2,7 @@
 
 > 本文是 OpenBlock **出块子系统**的算法侧统一手册。
 > 范围：启发式与 SpawnPolicyNet 生成式双轨、共享上下文、护栏校验、训练/推理与数学化形式。
-> 本手册是 OpenBlock 出块子系统的**统一权威文档**：在算法与模型工程主线（§1–§11）之外，已整合架构分层（§12）、出块建模与设计 rationale（§13）、难度调控与评估工具（§14）、参数寻优 SpawnParamTuner（§15）、局间难度 RoR（§十六）、温暖局 Warm Run（§十七）；运行时 10 信号融合与完整流水线深潜见 `ADAPTIVE_SPAWN.md`。
+> 本手册是 OpenBlock 出块子系统的**统一权威文档**：在算法与模型工程主线（§1–§11）之外，已整合架构分层（§12）、出块建模与设计 rationale（§13）、难度调控与评估工具（§14）、参数寻优 SpawnParamTuner（§15）、局间难度 RoR（§十六）、温暖局 Warm Run（§十七）、难度相对论（§十八）；运行时 10 信号融合与完整流水线深潜见 `ADAPTIVE_SPAWN.md`。
 > 若需要横向理解 Spawn 与 RL、玩家画像、商业化、LTV、PCGRL 的模型契约，先读 [`MODEL_ENGINEERING_GUIDE.md`](./MODEL_ENGINEERING_GUIDE.md)。
 
 ---
@@ -54,8 +54,18 @@
      - 17.9.1 面板可视化与决策透视（v1.70.1）
    - 17.10 模块契约与代码索引
    - 17.11 回滚与降级
+   - 17.12 与 PEOG 的协作（v1.71）
+18. [难度相对论（Difficulty Relativity）](#十八难度相对论difficulty-relativity)
+   - [18.1 动机与设计前提](#dr-18-1)
+   - [18.2 数学形式化](#dr-18-2)
+   - [18.3 相位化对齐预算](#dr-18-3)
+   - [18.4 联动优化](#dr-18-4)
+   - [18.5 模块契约与代码索引](#dr-18-5)
+   - [18.6 配置与灰度](#dr-18-6)
+   - [18.7 验证清单](#dr-18-7)
 
 ---
+
 
 > **快速定位**：如需端到端流水线全图，见下方架构图；
 > 规则引擎细节见 §3，自适应映射见 §4，SpawnTransformer 见 §5。
@@ -1495,100 +1505,6 @@ dock 颜色改为轻偏置随机：盘面存在近满且已同 icon/同色的行
 
 除了启发式规则，还提供基于 Transformer 的生成式模型架构（§9.1 - §9.9）。详见 本手册 §13。
 
-#### 2.10 难度相对论：等体感选块接入点（θ⃗ × b⃗ × b*）（P-research，✅ 已落地·默认开 rollout 100%）
-
-> **本节是算法侧实现清单**，对应策划契约 [`BEST_SCORE_CHASE_STRATEGY.md §4.17`](../player/BEST_SCORE_CHASE_STRATEGY.md)（难度相对论：体感难度不变量 × 客观难度个性化）。
->
-> **不可动摇前提**：**S 形 stress 曲线仍是调控主线**，§2.3 五阶段流水线结构不变。本方案只在「体感目标 → 客观题目」之间插一层按玩家能力的标定，**不改 stress 计算链、不改硬约束、不改纪录线**。
-
-> **🟢 落地状态（v-research P0~P5 + 激活链已实现并默认启用，`adaptiveSpawn.difficultyRelativity.enabled = true` / `rolloutPercent = 100`；`enabled=false` 时全链路恒等=现状）**
->
-> ⚠️ **v-research §改进（恢复体感波动性）**：上线后实测「难度被钉在线上、爽块被等体感对齐确定性剔除、波动性/趣味下降」。已把等体感选块从**确定性 argmax** 改为**softmax 采样 + 爽点预算**，并把对齐锐度/个性化强度降为「温和偏置」。详见本节末「选块软化」小节与 [`BEST_SCORE_CHASE_STRATEGY.md §4.17`](../player/BEST_SCORE_CHASE_STRATEGY.md)。
->
-> | 模块 | 文件 | 职责 |
-> |---|---|---|
-> | θ⃗ 贝叶斯标定器 | `web/src/playerLatentAbility.js` | 6 维潜在能力后验（μ/σ）+ 置信度 + 序列化；只吃行为质量不吃分数 |
-> | b⃗ 投影 | `web/src/spawnStepDifficulty.js`（`projectDifficultyVector` / `difficultyVec`）| 把 6 项 terms 确定性投影成 6 维考点向量；标量分与 5 档桶口径不变 |
-> | b* 反解 + 对齐乘子 | `web/src/difficultyRelativity.js`（`solveObjectiveTarget` / `alignmentMultiplier`）| λ=0 恒等于 stress；12 路 bypass；弱项加权对齐 |
-> | 影子反解 | `web/src/adaptiveSpawn.js`（`resolveAdaptiveStrategy`）| finalStress 确定后追加 `_objectiveTarget`/`_relativityBypass`/`relativityDStar`，不回写 stress |
-> | 等体感选块 | `web/src/bot/blockSpawn.js`（`generateDockShapes`）| 硬过滤通过后 best-of-K 缓冲；**`burstReleaseProb` 概率放行最偏离 b\* 的爆点、否则按 `softmax(align/alignTemperature)` 采样**（有 `ctx.rng` 时；无 rng 退回 argmax），`diagnostics.relativity` 落字段 |
-> | 形状先验（阶段5） | `web/src/adaptiveSpawn.js`（`applyRelativityShapePrior`）| 按 `gap=b*−θ⃗` × `shapePrior.dimAffinity` 对 7 类形状权重做乘性偏置（distressed/救济帧禁用），与选块互补 |
-> | 激活链 | `web/src/playerProfile.js` + `web/src/game.js` | θ⃗ 跨局持久化（`recordSessionEnd` 更新 / `toJSON·fromJSON`）+ spawnContext 注入 `latentCalibration` |
-> | 配置 | `shared/game_rules.json`（`adaptiveSpawn.difficultyRelativity` + `spawnStepDifficulty.vectorWeights`）| `enabled/rolloutPercent/personalizationStrength/deltaCurriculumK/noiseAmp/minConfidence/candidateK/dimWeights/weaknessBoost/`**`alignSharpness/alignTemperature/burstReleaseProb`**`/shapePrior/latentAbility` |
->
-> **验证清单（已通过）**：
-> - 单元：`tests/playerLatentAbility.test.js`(8)、`tests/difficultyRelativity.test.js`(10)、`tests/spawnStepDifficulty.test.js`(18，含 difficultyVec)、`tests/difficultyRelativityShadow.test.js`(4)、`tests/difficultyRelativitySpawn.test.js`(4)、`tests/playerProfileLatent.test.js`(4)。
-> - 退化保证：λ=0 → b* 各维=stress；`enabled=false`/低置信 θ⃗/救济·濒死·瓶颈·破纪录释放·warmup → bypass，`b*=null`，`generateDockShapes` 无 `diagnostics.relativity`，finalStress 开/关逐位一致。
-> - 全量回归：`npx vitest run` 185 文件 / 3201 通过 + 1 skipped；`tests/test_spawn_step_difficulty.py`·`test_spawn_construction.py`(35) 通过（标量跨语言不变）。
-> - 跨端同源：`npm run sync:core` + `npm run verify:cocos-core` 通过（新模块已加入 `scripts/sync-core.sh` 与 `scripts/sync-cocos-engine.mjs` 名单）。
->
-> **已落地（增强）**：阶段5 构造算子 target-aware 形状先验（`applyRelativityShapePrior`，gap × dimAffinity 乘性偏置）。
-> **未落地（观测，后续切片）**：阶段6a 玩家面板 θ⃗ 展示；6c 决策数据流派生；6d 出块信号透视仪；6e RL state / `bot/features.js` / 训练样本落 b⃗。
-
-> **选块软化（v-research §改进，恢复爽感/波动性）**——`web/src/bot/blockSpawn.js generateDockShapes` 的 best-of-K 定稿：
-> - **旧版**：`_pickBestAligned = argmax(align)`，确定性挑对齐度最高（=最贴 b\*）者 → 高 combo/perfectClear 爆点 `align` 最低 → 被系统性剔除 → 难度钉在线上、无爽点。
-> - **新版**（有 `ctx.rng` 时）：① 以 `burstReleaseProb`(0.2) 概率直接放行**最偏离 b\* 的爆点**（`argmin(align)`，制造爽点节奏）；② 否则按 `softmax(align / alignTemperature(0.15))` **采样**而非取最大（保留次优候选、恢复难度方差）。无 `ctx.rng`（离线/无种子）退回 argmax，行为=现状、零漂移。
-> - **对齐锐度配置化**：`alignmentMultiplier` 的 `exp(−λ·sharpness·dist)` 中 `sharpness` 由硬编码 `3` 改为读 `cfg.alignSharpness`（生产 `2.0`，更软）。
-> - **参数温和化**：`personalizationStrength` 0.3→0.18、`weaknessBoost` 1.5→1.15、`candidateK` 4→3、`shapePrior.strength/cap` 0.6/0.30→0.4/0.20——把「等体感钳制」降为「温和偏置」，避免弱项被全程定向施压。
-> - **不变量**：硬约束/救济/PEOG 仍全部先行；`enabled=false`/无 b\*/bypass 时整链恒等。回归 `tests/difficultyRelativitySpawn.test.js`(4)、`tests/difficultyRelativity.test.js`(10) 全绿。
-
-**一句话接入**：S 曲线产出目标体感 `d* = stress`（不变）→ 按能力 θ⃗ 反解客观目标 `b* = θ⃗ ⊕ d* (+Δ⃗ 课程, +噪声)` → **阶段 1/3 候选评分新增对齐项 `−w·‖difficultyVec(候选) − b*‖`**（弱项维加大 w）→ 阶段 4 硬约束照旧兜底。同一 `d*` 对资深落到客观更难、对新手落到客观更易的题目（详见 §4.17 公式 `d_perceived≈b⊖θ`）。
-
-**五阶段流水线接入点标注**（在 §2.3 基础上叠加，█ = 新增/改造，其余不变）：
-
-```
-[阶段 0] 解包 hints / shapeWeights / spawnTargets / ctx
-         █ 额外解包 ctx.latentAbility(θ⃗) 与 ctx.perceivedTarget(d*=stress)
-[阶段 1] 候选池构建：28 shape 逐个评分（清屏 > 多消 > 消行）
-         █ 每个候选额外算 difficultyVec(b⃗)（来自 spawnStepDifficulty 扩展，见下）
-[阶段 2] 清屏/消行优先槽位（clearGuarantee + comboChain）           ← 不变
-[阶段 3] 加权抽样补齐：30+ hints → 乘子 → 轮盘抽样
-         █ 乘子链叠加"等体感对齐项" exp(−w·‖b⃗(候选) − b*‖)
-[阶段 4] 硬约束校验循环（机动性 · DFS 可解 · 解法数 · orderRigor）  ← 不变，且优先级高于对齐项
-[阶段 5] 打乱 → 写诊断（█ 落 θ⃗/b⃗/b*/‖b⃗−b*‖）→ 返回 3 块
-```
-
-**改造点 × 文件 × 函数**（web 为源，标 ◆ 需 `npm run sync:core` 镜像到 `cocos/.../engine/*.mjs` + `miniprogram/core/*.js` + 跨语言契约测试）：
-
-| # | 文件 / 函数 | 当前 | 改造 | 类型 |
-|---|-------------|------|------|------|
-| 1 | 新增 `web/src/playerLatentAbility.js` | — | 贝叶斯潜在能力 θ⃗=`{μ_d,σ_d}`（TrueSkill 风格），观测来自 `AbilityVector`/`playerAnalytics`，每局/里程碑段更新；导出 `getLatentAbility()` | 新增 |
-| 2 ◆ | `web/src/spawnStepDifficulty.js → computeSpawnStepDifficulty` | 输出标量 + 4 维子向量 + 5 档桶 | 增导出考点向量 `b⃗={b_spatial,b_combo,b_order,b_recovery,b_tempo,b_clearEff}`；标量保持不变（契约测试不破） | 改造（扩展，兼容） |
-| 3 ◆ | `web/src/adaptiveSpawn.js → resolveAdaptiveStrategy` | 算 `stress`（=d*）| **stress 链零改动**；末尾新增反解 `b* = clamp(θ⃗ ⊕ stress + Δ⃗ + noise)` 写入 `ctx`/输出；低置信 σ → 恒等（b*≈现状） | 改造（追加旁路） |
-| 4 ◆ | `web/src/bot/blockSpawn.js → generateDockShapes`（阶段 1/3） | 候选评分 + 乘子轮盘抽样 | 候选附 `b⃗(候选)`，乘子链叠加等体感对齐项；强度受 `personalizationStrength` 限幅 | 改造（核心，最敏感） |
-| 5 ◆ | `blockSpawn.js` 构造算子（`findMultiClearCompleter` 等） | 不感知能力 | 触发/yield 受 `b*` 弱项维约束（复用 PEOG yield cap 机制） | 改造 |
-| 6 | `adaptiveSpawn.js → applySpawnPrior` | ±5~10% 风味偏置 | 升级为"客观目标 `b*` 的考点结构偏置"输入（§4.17 支柱⑤） | 改造 |
-| 7 | `shared/game_rules.json` | — | 新增 `adaptiveSpawn.difficultyRelativity = { enabled, rolloutPercent, personalizationStrength, deltaCurriculumK, noiseAmp, dims, lowConfFallback }` | 新增配置 |
-| 8 | `stressBreakdown` + 回放帧 `frames[].ps` + `web/src/audit/profileAuditContracts.js` | 记录 stress 分量 | 落 θ⃗/b⃗/b*/Δ⃗/‖b⃗−b*‖；新增契约：`d*` 不被个性化抬高、`b*` 随 θ⃗ 单调、救济期对齐项=0 | 新增可观测 |
-
-**护栏顺序（与 §一硬约束集合、PEOG 12 路 bypass 同纪律，不可违背）**：
-
-```
-硬约束(阶段4: DFS可解/机动性)  >  救济链(recovery/nearMiss/bottleneck)  >  PEOG/warmup  >  等体感对齐项(b*)
-```
-
-任一上游触发 → 对齐项自动 bypass（个性化绝不制造死局、绝不绕过救济、绝不抬高目标体感 `d*`）。
-
-**数据契约（最小新增字段）**：
-
-```jsonc
-// ctx 注入（game.js → _spawnContext）
-{ "latentAbility": { "spatial": {mu, sigma}, "combo": {...}, ... },  // 来自 playerLatentAbility
-  "perceivedTarget": 0.58 }                                          // = stress（d*），由 resolveAdaptiveStrategy 写回
-// 候选诊断（_spawnDiagnostics / frames[].ps）
-{ "b_vec": {...}, "b_star": {...}, "alignErr": 0.12, "personalizationLambda": 0.4 }
-```
-
-**最小落地切片（MVP，严格按 §4.17 落地阶段）**：
-
-1. **切片 0（零线上风险）**：仅做改造点 1+2+8 —— 上线 θ⃗、b⃗、可观测，但 generateDockShapes **不消费**（影子）。离线用 `move_sequences` 验证 `θ⃗` 对未来 N 局表现的预测力优于 PB/skillLevel，并验证 `‖b⃗−b*‖` 与心流命中率相关。
-2. **切片 1（灰度）**：接通改造点 3+4，仅高置信 θ⃗ 玩家、`personalizationStrength` 小幅起步、`rolloutPercent` 逐步放量；看板盯"等体感约束下 `b*` 随 θ⃗ 单调上移"与"救济 bypass 占比"。
-3. **切片 2**：接改造点 5+6（构造算子 + applySpawnPrior 结构偏置），把"客观题目考点结构"按 archetype 差异化。
-
-**回归红线**：人均时长 −3% / 心流偏离方差上升 / 救济 bypass 误伤 >15% / `d*` 被对齐项隐性抬高（体感主线被污染）→ 任一触发回滚灰度阶。
-
----
-
 ### 三、架构图生成 Prompt
 
 > 可复用的「喂给大模型即生成出块算法架构图」的 Prompt 模板。
@@ -1622,75 +1538,6 @@ dock 颜色改为轻偏置随机：盘面存在近满且已同 icon/同色的行
 | 染色层 | 颜色绑定 | 同花顺锁色 + 三色无放回抽样 |
 
 完整 Prompt 全文见 `docs/algorithms/本手册 §12`（搜索 `## Prompt 全文`）。派生用法包括子图提取、Mermaid/HTML 版本、算法评审材料等。
-
----
-
-### §2.10 / §4.17 难度相对论 — 系统性优化 五项系统性优化（v1.68）
-
-> 📍 **背景**：commit `8ff29f4f` 引入难度相对论后实测出现"新手/高 PB 玩家前期出块碎、温暖局/构造式爽消被对齐评分挑掉"等 4 类体感回退。**五项系统性优化 不是开关**，而是把相对论与现有相位/状态机的耦合做架构级软化，让"等体感不变 × 客观个性化"只在该生效的相位生效。
-
-#### 相位化对齐预算 相位化对齐预算（`resolveRelativityIntent`）
-
-把"全开 / 关 / 半开"统一抽象为 4 档：
-
-| intent | shapePrior（池微偏） | best-of-K（评分挑选） | 触发条件（优先级降序） |
-|---|---|---|---|
-| `off` | ❌ | ❌ | `bypass≠null` ∨ `needsRecovery` ∨ `hasBottleneckSignal` ∨ `hadRecentNearMiss` ∨ `inOnboarding` |
-| `prior_only` | ✅ 轻微 | ❌ | `spawnIntent∈{harvest,engage,warm}` ∨ `sessionArc=warmup` ∨ `pbPhase∈{chase,release}` |
-| `kbest_only` | ❌ | ✅ | （保留位，当前规则不主动派发） |
-| `full` | ✅ | ✅ | 其它（mid 段 maintain/flow/sprint/pressure 默认） |
-
-SSOT：`web/src/difficultyRelativity.js :: resolveRelativityIntent(ctx)`。透出到 `stressBreakdown.relativityIntent / _relativityIntent`，下游 `adaptiveSpawn.applyRelativityShapePrior` 门控 `_allowPrior`、`blockSpawn._alignActive` 门控 `_kbestAllowed`。
-
-#### 相位化几何增益 相位化几何信号增益（`phaseGeomGain`）
-
-`buildPlayerAbilityVector` 中由真实几何派生的**负向**项（`holePenalty / nearClearScore / lockRiskScore`）在低相位下按系数衰减：
-
-```
-phaseGeomGain = isInOnboarding ? 0.3 : warmRun.active ? 0.5 : 1.0
-holePenalty *= g; nearClearScore *= g; lockRiskScore *= g
-```
-
-**正向** `spatialPlanningScore` 不受影响（保留"客观规划质量"信号）。修复"1 个 close1 就把 ability 中 riskLevel 拉高、形状先验滑向 t/z/小碎块"的新手早期僵化。
-
-配置：`game_rules.json :: adaptiveSpawn.phaseGeomGain.{onboarding,warmRun,default}`。
-
-#### PEOG 抗抖动 PEOG bottleneck/near_miss 延迟让位（持续阈值）
-
-旧实现：单帧 `hasBottleneckSignal=true` 立刻 `_bypassNow("bottleneck")`，PB 加压窗口被瞬时几何谷值打断。
-新实现：累计计数器 `_bottleneckHits / _nearMissHits`，连续 ≥ 阈值（默认 2）才让位；信号消失立即归零（防累积污染）。
-
-配置：`game_rules.json :: adaptiveSpawn.earlyOvershootGuard.{bottleneckYieldHits, nearMissYieldHits}`。
-
-#### difficultyVec 真实信号化 `difficultyVec` 真实化（三新 term + 缺省自动重分配）
-
-为 6 维 `difficultyVec` 引入 3 个由 `solutionMetrics` 派生的真实信号：
-
-| term | 计算 | 主消费维 |
-|---|---|---|
-| `clearPotential` | `clamp01(meanNearFullDelta / 2)` | `clearEff` 0.50 |
-| `cleanPath` | `clamp01(1 − minHoleIncrement / 4)` | `recovery` 0.50 |
-| `permVariance` | `clamp01(solutionDiversity)` | `combo` 0.40 / `order` 0.20 |
-
-`projectDifficultyVector` 升级为"`null`/`NaN` 自动从加权和剔除"——`solutionMetrics.truncated=true`（DFS 不完整）时新 term 全 null，回退到原 5 项，scalar `stepDifficulty` 完全向后兼容。
-
-#### b* 前期上界 b\* 早期上界（低 d\* 阶段保护高 θ 玩家）
-
-低 d\* 阶段（`d* < earlyPhaseDStar=0.40`）即便 θ 极高，把任一维 b\* 钳制在 `d + earlyPhaseBStarCap=0.10` 以内。高 PB 玩家前期不被立刻喂到客观偏难三连，让分先立起来。中后段 `d* ≥ earlyPhaseDStar` 自动让位主公式。
-
-配置：`game_rules.json :: adaptiveSpawn.difficultyRelativity.{earlyPhaseDStar, earlyPhaseBStarCap}`。
-
-#### 数据流落库（pv=5+）
-
-`game.js :: _captureAdaptiveInsight → insight.relativity` 新增字段：`intent / phaseGeomGain / earlyPhaseCapHit / peogYieldHits`。
-经 `moveSequence.js` 落 `frames[].ps.adaptive.relativity.*`；
-`derivation/selectors.js :: relativityViewFromInsight` 提供稳定纯函数视图（缺省 null/false）；
-`REPLAY_METRICS` 新增 4 条 sparkline：`relativityIntent / phaseGeomGain / peogBottleneckHits / earlyPhaseCapHit`；
-`playerInsightPanel / algorithmDynamicsCard / DFV / spawn-signal-explorer.html` 均消费上述字段（无口径漂移）。
-
-#### RL 行为上下文（v1.68）
-
-`SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM` 由 72 → 78：尾部追加 `[72-75] intent one-hot + [76] phaseGeomGain + [77] earlyPhaseCapHit`。旧 0-71 含义不变；服务端按 dim mismatch 主动拒推，离线管线需重新冻结。
 
 ---
 
@@ -3721,6 +3568,350 @@ blockSpawn.generateDockShapes
 
 ---
 
+## 十八、难度相对论（Difficulty Relativity）：等体感不变 × 客观个性化
+
+> 对应策划契约 [`BEST_SCORE_CHASE_STRATEGY.md §4.17`](../player/BEST_SCORE_CHASE_STRATEGY.md)（难度相对论：体感难度不变量 × 客观难度个性化）。
+>
+> **落地状态**：P0~P5 + 激活链已实现并默认启用，`adaptiveSpawn.difficultyRelativity.enabled = true` / `rolloutPercent = 100`；`enabled=false` 时全链路恒等（行为 = 现状）。
+>
+> **不可动摇前提**：**S 形 stress 曲线仍是调控主线**，§2.3 五阶段流水线结构不变。本方案只在「体感目标 → 客观题目」之间插一层按玩家能力的标定，**不改 stress 计算链、不改硬约束、不改纪录线**。
+
+<a id="dr-18-1"></a>
+### 18.1 动机与设计前提
+
+难度相对论的核心洞察：**同一道题（客观难度 $\vec{b}$），不同能力的玩家体感不同**。高能力玩家觉得「简单」的题目，对低能力玩家可能是「劝退」；反之，低能力玩家觉得「适中」的题目，高能力玩家会觉得「无聊」。
+
+传统出块系统的目标是「目标体感难度 $d^*$」（S 曲线产出），但候选块只能以「客观难度 $\vec{b}$」描述。两者缺一层按玩家能力的映射。
+
+**解决思路**：引入玩家潜在能力 $\vec{\theta}$（6 维，与 $\vec{b}$ 同维），把「目标体感 $d^*$」反解为「客观目标 $\vec{b}^* = \vec{\theta} \oplus d^*$」，再让候选块以 $\exp(-w \cdot \|\vec{b} - \vec{b}^*\|)$ 向 $\vec{b}^*$ 对齐——**同一 $d^*$ 落到高手变客观更难的题、落到新手变客观更易的题，体感不变**。
+
+**关键性质**：
+
+| 性质 | 说明 |
+|------|------|
+| 个人化强度 $\lambda \in [0,1]$ | $\lambda = 0 \to$ 恒等退化（$\vec{b}^* = d^*$ = 现状）；$\lambda = 1 \to$ 完整相对论 |
+| bypass 短路 | 12 路 bypass（disabled/rollout/low_conf/recovery/near_miss/bottleneck/…）任一触发 $\to$ $\vec{b}^* = \text{null}$，上游退回恒等 |
+| 护栏顺序 | 硬约束 > 救济链 > PEOG/warmup > 等体感对齐项（$\vec{b}^*$ 绝不绕过救济/硬约束） |
+| 纯函数 | 确定性（噪声仅在显式 rng 时启用），跨端可镜像，无 DOM/网络依赖 |
+
+<a id="dr-18-2"></a>
+### 18.2 数学形式化
+
+<a id="dr-18-2-1"></a>
+#### 18.2.1 考点向量 $\vec{b}$（difficultyVec）
+
+每块候选三连（spawn step）由 6 项原始难度指标（terms）描述的 P2 难度分，确定性投影为 6 维考点向量：
+
+**6 项原始 term**（来自 `computeSpawnStepDifficulty`）：
+
+| term | 含义 | 公式 |
+|------|------|------|
+| $c_{\text{scd}}$ | 空间约束密度 | $\text{SCD} = \frac{\text{三块总格}}{\text{空格数} + \varepsilon}$，归一化 $\min(\text{SCD} / s, 1)$ |
+| $c_{\text{board}}$ | 盘面难度 | $\text{clamp}(\text{fill} + \text{holePressure} \times 0.8,\; 0,\; 1)$ |
+| $c_{\text{flex}}$ | 机动性短板 | $1 - \min(\text{legalPlacements} / f_{\text{free}},\; 1)$ |
+| $c_{\text{sol}}$ | 解空间稀缺度 | $1 - \min(\text{solutionCount} / n_{\text{abundant}},\; 1)$ |
+| $c_{\text{killer}}$ | 致命块 + 长条压力 | $(\text{killerCnt} + \text{longBarCnt} \times 0.5) / 3$ |
+| $c_{\text{frag}}$ | 空白区域碎片化 | $\text{regionEntropy} \times 0.6 + \text{smallRegionRatio} \times 0.4$ |
+
+**投影矩阵** $W_{\text{proj}}$（$\sum_k w_{d,k} = 1$ 对每维 $d$）：
+
+$$
+b_d = \text{clamp}\!\left(\frac{\sum_k w_{d,k} \cdot c_k}{\sum_k w_{d,k}},\; 0,\; 1\right), \quad d \in \{\text{spatial}, \text{combo}, \text{order}, \text{recovery}, \text{tempo}, \text{clearEff}\}
+$$
+
+**默认投影权重**（`vectorWeights`）：
+
+| 考点维 $d$ | 依赖 term 及权重 |
+|------------|-----------------|
+| $b_{\text{spatial}}$ | $c_{\text{scd}}:0.55,\; c_{\text{frag}}:0.45$ |
+| $b_{\text{combo}}$ | $c_{\text{permVariance}}:0.40,\; c_{\text{killer}}:0.30,\; c_{\text{scd}}:0.20,\; c_{\text{board}}:0.10$ |
+| $b_{\text{order}}$ | $c_{\text{sol}}:0.50,\; c_{\text{flex}}:0.30,\; c_{\text{permVariance}}:0.20$ |
+| $b_{\text{recovery}}$ | $c_{\text{cleanPath}}:0.50,\; c_{\text{board}}:0.30,\; c_{\text{killer}}:0.20$ |
+| $b_{\text{tempo}}$ | $c_{\text{scd}}:0.40,\; c_{\text{board}}:0.30,\; c_{\text{flex}}:0.30$ |
+| $b_{\text{clearEff}}$ | $c_{\text{clearPotential}}:0.50,\; c_{\text{cleanPath}}:0.25,\; c_{\text{sol}}:0.15,\; c_{\text{flex}}:0.10$ |
+
+**真实信号 term**（三新 term，来自 `solutionMetrics`；缺省自动剔除并重分配权重）：
+
+| term | 计算 |
+|------|------|
+| $c_{\text{clearPotential}}$ | $\min(\text{meanNearFullDelta} / 2,\; 1)$ |
+| $c_{\text{cleanPath}}$ | $1 - \min(\text{minHoleIncrement} / 4,\; 1)$ |
+| $c_{\text{permVariance}}$ | $\min(\text{solutionDiversity},\; 1)$ |
+
+<a id="dr-18-2-2"></a>
+#### 18.2.2 潜在能力 $\vec{\theta}$（PlayerLatentAbility）
+
+6 维潜在能力后验（与 $\vec{b}$ 同维：spatial/combo/order/recovery/tempo/clearEff），每维独立建模为 1-D 高斯：
+
+$$
+\theta_d \sim \mathcal{N}(\mu_d,\; \sigma_d^2), \quad d = 1,\dots,6
+$$
+
+**先验**（`createLatentState`）：
+
+$$
+\mu_d^{(0)} = 0.5,\quad \sigma_d^{(0)} = 0.25
+$$
+
+**观测映射**（`mapAbilityToObservation`）：将 `AbilityVector`（行为质量/盘面应对，不含分数）映射为 6 维观测 $z_d \in [0,1]$。
+
+**1-D Kalman 更新**（`updateLatentState`，纯函数）：
+
+$$
+\begin{aligned}
+K &\gets \max\!\left(\frac{\sigma_{t-1}^2}{\sigma_{t-1}^2 + \sigma_{\text{obs}}^2},\; \beta\right) \quad (\beta = 0.12) \\
+\mu_t &\gets \text{clamp}(\mu_{t-1} + K \cdot (z - \mu_{t-1}),\; 0,\; 1) \\
+\sigma_t^2 &\gets \max\!\left((1 - K) \cdot \sigma_{t-1}^2,\; \sigma_{\text{floor}}^2\right) \quad (\sigma_{\text{floor}} = 0.06)
+\end{aligned}
+$$
+
+**置信度**（`latentConfidence`）：
+
+$$
+\text{conf} = 1 - e^{-n / N_0}, \quad N_0 = 12
+$$
+
+$\text{conf} < \text{minConfidence}\,(=0.45)$ 时 `getCalibrationVector` 返回 `null`，上游退回恒等（行为 = 现状）。
+
+<a id="dr-18-2-3"></a>
+#### 18.2.3 客观目标 $\vec{b}^*$ 反解
+
+给定目标体感难度 $d^* = \text{stress}$（S 曲线主线产出），反解客观目标（`solveObjectiveTarget`）：
+
+$$
+b_d^* = \text{clamp}\!\Big((1-\lambda) \cdot d^* + \lambda \cdot \text{clamp}(\theta_d + d^* - 0.5,\; 0,\; 1) + k \cdot (0.5 - \theta_d) + \varepsilon_d,\; 0,\; 1\Big)
+$$
+
+**参数说明**：
+
+| 参数 | 含义 | 默认值 |
+|------|------|--------|
+| $\lambda$ | 个人化强度（personalizationStrength） | $0.18$ |
+| $k$ | 课程学习偏置（deltaCurriculumK） | 可配置 |
+| $\varepsilon_d$ | 受控噪声 $\sim \text{Unif}(-\text{noiseAmp},\; \text{noiseAmp})$ | 仅显式 rng 时启用 |
+
+**早期上界**（`earlyPhaseDStar = 0.40`、`earlyPhaseBStarCap = 0.10`）：当 $d^* < \text{earlyPhaseDStar}$ 时，$b_d^* \leq d^* + \text{earlyPhaseBStarCap}$——低目标体感阶段即使玩家能力高，也不被立刻喂到客观偏难的题。
+
+**12 路 bypass**（任一触发 $\to$ $\vec{b}^* = \text{null}$）：
+
+| bypass | 条件 |
+|--------|------|
+| `disabled` | `cfg.enabled !== true` |
+| `rollout_out` | `hash(userId) >= rolloutPercent` |
+| `recovery` | `needsRecovery === true` |
+| `near_miss` | `hadRecentNearMiss === true` |
+| `bottleneck` | `hasBottleneckSignal === true` |
+| `post_pb_release` | `postPbReleaseActive === true` |
+| `warmup` | `sessionArc === 'warmup'` |
+| `low_conf` | `calibration === null`（置信度不足） |
+
+<a id="dr-18-2-4"></a>
+#### 18.2.4 等体感对齐乘子
+
+候选块三连的 `difficultyVec` $\vec{b}_{\text{cand}}$ 与客观目标 $\vec{b}^*$ 越接近，对齐乘子越大（`alignmentMultiplier`）：
+
+$$
+\text{alignMult} = \exp\!\left(-\lambda \cdot \alpha \cdot \sqrt{\frac{\sum_d w_d \cdot (b_{d,\text{cand}} - b_d^*)^2}{\sum_d w_d}}\right)
+$$
+
+其中 $\alpha = \text{alignSharpness}$（生产 $= 2.0$），$w_d$ 在 $\theta_d < 0.5$（玩家弱项维）额外乘以 $\text{weaknessBoost}\,(= 1.15)$，实现定向训练加压。
+
+**选块软化**（v-research 改进）：选块定稿从确定性 $\arg\max(\text{alignMult})$ 改为：
+
+1. 以 `burstReleaseProb = 0.2` 概率直接放行 $\arg\min(\text{alignMult})$ 的爆点，制造爽点节奏；
+2. 否则按 $\text{softmax}(\text{alignMult} / T)$ 采样（$T = 0.15$），保留次优候选恢复难度方差；
+3. 无 `ctx.rng` 时退回 $\arg\max$，行为 = 现状、零漂移。
+
+<a id="dr-18-2-5"></a>
+#### 18.2.5 形状先验偏置（stage 5）
+
+阶段 5（加权补齐层）新增 `applyRelativityShapePrior`，按「弱点差距」对 7 类形状权重做乘性偏置：
+
+$$
+\text{gap} = \vec{b}^* - \vec{\theta} \quad \text{（缺口向量：弱点差距）}
+$$
+
+对形状 $s$，由其 `dimAffinity` 映射到考点维 $d$，得偏置乘子：
+
+$$
+\text{prior}(s) = 1 + \text{strength} \cdot \text{gap}_d
+$$
+
+默认 $\text{strength} = 0.4$，强度增加倍数在 $\text{gap}_d > 0$（弱项补偿）时为 $\text{strength}$，在 $\text{gap}_d < 0$（强项抑制）时受 `cap = 0.20` 限幅。distressed/救济帧禁用该偏置。
+
+<a id="dr-18-3"></a>
+### 18.3 相位化对齐预算（`resolveRelativityIntent`）
+
+**背景**：完整相对论上线后实测发现「新手/高 PB 玩家前期出块碎、温暖局/构造式爽消被对齐评分挑掉」等 4 类体感回退。五项系统性优化（v1.68）**不是开关**，而是把相对论与现有相位/状态机的耦合做架构级软化。
+
+将「是否应用难度相对论」按 spawnIntent / sessionArc / pbPhase / inOnboarding / 救济信号统一抽象为 4 档：
+
+| intent | shapePrior（池微偏） | best-of-K（评分挑选） | 触发条件（优先级降序） |
+|--------|-------------------|---------------------|----------------------|
+| `off` | ❌ | ❌ | `bypass \neq \text{null}` $\lor$ `needsRecovery` $\lor$ `hasBottleneckSignal` $\lor$ `hadRecentNearMiss` $\lor$ `inOnboarding` |
+| `prior_only` | ✅ 轻微 | ❌ | `spawnIntent \in \{\text{harvest},\text{engage},\text{warm}\}$ $\lor$ `sessionArc = \text{warmup}` $\lor$ `pbPhase \in \{\text{chase},\text{release}\}$ |
+| `kbest_only` | ❌ | ✅ | （保留位，当前规则不主动派发） |
+| `full` | ✅ | ✅ | 其它（mid 段 `maintain`/`flow`/`sprint`/`pressure` 默认） |
+
+SSOT：`web/src/difficultyRelativity.js :: resolveRelativityIntent(ctx)`。透出到 `stressBreakdown.relativityIntent` / `_relativityIntent`，下游 `adaptiveSpawn.applyRelativityShapePrior` 门控 `_allowPrior`、`blockSpawn._alignActive` 门控 `_kbestAllowed`。
+
+<a id="dr-18-4"></a>
+### 18.4 联动优化
+
+<a id="dr-18-4-1"></a>
+#### 18.4.1 相位化几何增益（`phaseGeomGain`）
+
+`buildPlayerAbilityVector` 中由真实几何派生的**负向**项（`holePenalty` / `nearClearScore` / `lockRiskScore`）在低相位下按系数衰减：
+
+$$
+g = \begin{cases}
+0.3 & \text{if inOnboarding} \\
+0.5 & \text{if warmRun.active} \\
+1.0 & \text{otherwise}
+\end{cases}
+$$
+
+正向 `spatialPlanningScore` 不受影响，保留客观规划质量信号。配置：`game_rules.json :: adaptiveSpawn.phaseGeomGain.{onboarding,warmRun,default}`。
+
+<a id="dr-18-4-2"></a>
+#### 18.4.2 PEOG 抗抖动
+
+旧实现：单帧 `hasBottleneckSignal = true` 立刻 bypass，PB 加压窗口被瞬时几何谷值打断。
+新实现：累计计数器 `_bottleneckHits` / `_nearMissHits`，连续 $\geq$ 阈值（默认 2）才让位；信号消失立即归零。
+
+配置：`game_rules.json :: adaptiveSpawn.earlyOvershootGuard.{bottleneckYieldHits, nearMissYieldHits}`。
+
+<a id="dr-18-4-3"></a>
+#### 18.4.3 difficultyVec 真实信号化
+
+为 6 维 `difficultyVec` 引入 3 个由 `solutionMetrics` 派生的真实信号（已在 §18.2.1 定义公式）：
+
+| term | 主消费维 |
+|------|---------|
+| `clearPotential` | `clearEff` 0.50 |
+| `cleanPath` | `recovery` 0.50 |
+| `permVariance` | `combo` 0.40 / `order` 0.20 |
+
+`projectDifficultyVector` 升级为「`null`/`NaN` 自动从加权和剔除」——`solutionMetrics.truncated = true`（DFS 不完整）时新 term 全 null，回退到原 5 项，scalar `stepDifficulty` 完全向后兼容。
+
+<a id="dr-18-4-4"></a>
+#### 18.4.4 $\vec{b}^*$ 早期上界（低 $d^*$ 阶段保护高 $\theta$ 玩家）
+
+低 $d^*$ 阶段（$d^* < \text{earlyPhaseDStar} = 0.40$）即便 $\theta$ 极高，把任一维 $b^*$ 钳制在 $d^* + \text{earlyPhaseBStarCap} = 0.10$ 以内。高 PB 玩家前期不被立刻喂到客观偏难三连，让分先立起来。中后段 $d^* \geq \text{earlyPhaseDStar}$ 自动让位主公式。
+
+配置：`game_rules.json :: adaptiveSpawn.difficultyRelativity.{earlyPhaseDStar, earlyPhaseBStarCap}`。
+
+<a id="dr-18-4-5"></a>
+#### 18.4.5 选块软化与参数温和化
+
+v-research 改进（恢复体感波动性），上线后实测「难度被钉在线上、爽块被等体感对齐确定性剔除、波动性/趣味下降」：
+
+| 参数 | 旧值 | 新值 | 效果 |
+|------|------|------|------|
+| `personalizationStrength` | 0.30 | **0.18** | 个人化降为温和偏置 |
+| `weaknessBoost` | 1.50 | **1.15** | 弱项对准适度 |
+| `candidateK` | 4 | **3** | 候选池缩紧 |
+| `alignSharpness` | 3 | **2.0** | 对齐锐度更软 |
+| `alignTemperature` | — | **0.15** | 保留次优候选，恢复难度方差 |
+| `burstReleaseProb` | — | **0.20** | 概率放行爆点恢复爽感 |
+| `shapePrior.strength` | 0.60 | **0.40** | 形状先验温和化 |
+| `shapePrior.cap` | 0.30 | **0.20** | 强项抑制上限降低 |
+
+**不变量**：硬约束/救济/PEOG 仍全部先行；`enabled = false` / 无 $\vec{b}^*$ / bypass 时整链恒等。回归全绿。
+
+<a id="dr-18-5"></a>
+### 18.5 模块契约与代码索引
+
+| 模块 | 文件 | 公开 API | 职责 |
+|------|------|----------|------|
+| 潜在能力标定器 | `web/src/playerLatentAbility.js` | `createLatentState`, `updateLatentState`, `getCalibrationVector`, `mapAbilityToObservation`, `latentConfidence`, `snapshotLatent`, `serializeLatent`, `deserializeLatent` | 6 维贝叶斯 $\vec{\theta}$ 后验（$\mu/\sigma$），置信度，跨局持久化；只吃行为质量不吃分数 |
+| 考点向量投影 | `web/src/spawnStepDifficulty.js` | `projectDifficultyVector`, `computeSpawnStepDifficulty` | 6 项 terms $\to$ 6 维 $\vec{b}$ 确定性投影；标量分与 5 档桶口径不变 |
+| 相对论核心 | `web/src/difficultyRelativity.js` | `solveObjectiveTarget`, `alignmentMultiplier`, `resolveRelativityBypass`, `resolveRelativityIntent` | $\vec{b}^*$ 反解、对齐乘子、12 路 bypass、4 档 intent |
+| 影子反解 | `web/src/adaptiveSpawn.js` | `resolveAdaptiveStrategy` | finalStress 确定后追加 `_objectiveTarget` / `_relativityBypass` / `relativityDStar`，不回写 stress |
+| 等体感选块 | `web/src/bot/blockSpawn.js` | `generateDockShapes` | 硬过滤后 best-of-K 缓冲；softmax 采样 + 爆点放行；`diagnostics.relativity` 落字段 |
+| 形状先验 | `web/src/adaptiveSpawn.js` | `applyRelativityShapePrior` | 按 $\text{gap} = \vec{b}^* - \vec{\theta}$ $\times$ `dimAffinity` 对 7 类形状乘性偏置 |
+| 激活链 | `web/src/playerProfile.js` + `web/src/game.js` | `recordSessionEnd`, `toJSON`, `fromJSON` | $\vec{\theta}$ 跨局持久化 + spawnContext 注入 `latentCalibration` |
+| 配置 | `shared/game_rules.json` | — | `adaptiveSpawn.difficultyRelativity` + `spawnStepDifficulty.vectorWeights` |
+
+**数据流落库**（pv = 5+）：`game.js :: _captureAdaptiveInsight` $\to$ `insight.relativity` 字段：`intent` / `phaseGeomGain` / `earlyPhaseCapHit` / `peogYieldHits`。经 `moveSequence.js` 落 `frames[].ps.adaptive.relativity.*`；`derivation/selectors.js :: relativityViewFromInsight` 提供稳定纯函数视图。
+
+**RL 行为上下文**（v1.68）：`SPAWN_MODEL_BEHAVIOR_CONTEXT_DIM` 由 72 $\to$ 78：尾部追加 `[72-75] intent one-hot + [76] phaseGeomGain + [77] earlyPhaseCapHit`。旧 0-71 含义不变；服务端按 dim mismatch 主动拒推。
+
+**多端同步**：
+
+| 端 | 路径 | 同步方式 |
+|----|------|---------|
+| web（真源） | `web/src/playerLatentAbility.js`, `web/src/difficultyRelativity.js`, `web/src/spawnStepDifficulty.js` | — |
+| miniprogram | `miniprogram/core/…` | `sync-core.sh` |
+| cocos | `cocos/assets/scripts/engine/…` | `sync-cocos-engine.mjs` |
+| Python（RL） | `rl_pytorch/spawn_step_difficulty.py` | 跨语言契约测试（标量跨语言不变） |
+
+<a id="dr-18-6"></a>
+### 18.6 配置与灰度
+
+完整配置见 `shared/game_rules.json` 的 `adaptiveSpawn.difficultyRelativity` 节点：
+
+```jsonc
+{
+  "enabled": true,
+  "rolloutPercent": 100,
+  "personalizationStrength": 0.18,
+  "deltaCurriculumK": 0,
+  "noiseAmp": 0,
+  "minConfidence": 0.45,
+  "candidateK": 3,
+  "dimWeights": {},
+  "weaknessBoost": 1.15,
+  "alignSharpness": 2.0,
+  "alignTemperature": 0.15,
+  "burstReleaseProb": 0.20,
+  "earlyPhaseDStar": 0.40,
+  "earlyPhaseBStarCap": 0.10,
+  "shapePrior": { "strength": 0.40, "cap": 0.20, "dimAffinity": { ... } },
+  "latentAbility": { "priorMu": 0.5, "priorSigma": 0.25, "beta": 0.12, "sigmaFloor": 0.06, "confN0": 12 }
+}
+```
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `personalizationStrength` | 0.18 | $\lambda$，个人化 vs 均匀 stress 的插值比 |
+| `alignSharpness` | 2.0 | $\alpha$，对齐乘子锐度（越低越软） |
+| `alignTemperature` | 0.15 | softmax 采样温度（有 rng 时） |
+| `burstReleaseProb` | 0.20 | 爆点放行概率 |
+| `weaknessBoost` | 1.15 | 弱项对齐加权倍率 |
+| `candidateK` | 3 | best-of-K 候选数 |
+| `earlyPhaseDStar` | 0.40 | 低 $d^*$ 阶段阈值 |
+| `earlyPhaseBStarCap` | 0.10 | $\vec{b}^*$ 高于 $d^*$ 的上限溢价 |
+| `shapePrior.strength` | 0.40 | 形状先验偏置强度 |
+| `shapePrior.cap` | 0.20 | 强项抑制上限 |
+
+<a id="dr-18-7"></a>
+### 18.7 验证清单
+
+**单元测试**：
+
+| 测试文件 | 用例数 |
+|---------|--------|
+| `tests/playerLatentAbility.test.js` | 8 |
+| `tests/difficultyRelativity.test.js` | 10 |
+| `tests/spawnStepDifficulty.test.js` | 18（含 difficultyVec） |
+| `tests/difficultyRelativityShadow.test.js` | 4 |
+| `tests/difficultyRelativitySpawn.test.js` | 4 |
+| `tests/playerProfileLatent.test.js` | 4 |
+
+**退化保证**：
+- $\lambda = 0 \to$ $\vec{b}^*$ 各维 = stress（恒等退化）
+- `enabled = false` / 低置信 $\vec{\theta}$ / 救济·濒死·瓶颈·破纪录释放·warmup $\to$ bypass，$\vec{b}^* = \text{null}$
+- `generateDockShapes` 无 `diagnostics.relativity`
+- finalStress 开/关逐位一致
+
+**回归红线**：人均时长 $-3\%$ / 心流偏离方差上升 / 救济 bypass 误伤 $>15\%$ / $d^*$ 被对齐项隐性抬高（体感主线被污染）$\to$ 任一触发回滚灰度阶。
+
+**全量回归**：`npx vitest run` 185 文件 / 3201 通过 + 1 skipped；`tests/test_spawn_step_difficulty.py`、`test_spawn_construction.py`(35) 通过（标量跨语言不变）。
+
+**跨端同源**：`npm run sync:core` + `npm run verify:cocos-core` 通过。
+
+
 ## 关联文档
 
 | 文档 | 关系 |
@@ -3733,6 +3924,7 @@ blockSpawn.generateDockShapes
 | [`REALTIME_STRATEGY.md`（玩法偏好识别与出块联动）](./REALTIME_STRATEGY.md#玩法偏好识别与出块联动) | 玩法风格 → dock 调整 |
 | [`ALGORITHMS_RL.md`](./ALGORITHMS_RL.md) | RL 与 SpawnPredictor 接口 |
 | 本手册 §17 温暖局（Warm Run） | 新手/回流/连挫人群保护（v1.70） |
+| 本手册 §18 难度相对论 | 等体感不变 × 客观个性化（v1.67+） |
 
 ---
 
