@@ -1,12 +1,12 @@
 {
   "version": "2.0.0",
   "n_contexts": 480,
-  "generated_at": 1781677084,
-  "generated_at_iso": "2026-06-17T14:18:04",
-  "model_id": 60,
-  "model_sha256": "fc01e41c2319779d722ff534dfec14b0ee4309873f542d240f7ee40cb25bd53c",
+  "generated_at": 1782653350,
+  "generated_at_iso": "2026-06-28T21:29:10",
+  "model_id": 18,
+  "model_sha256": "4a5383532d9c99ee17c4983e88da6109155205e42eae03f120fab8f8f55354ad",
   "rollout_pct": 100,
-  "sha256": "fc5e35134b2fcfde663c8102b640d25458b734f915966821a92a5ca2b42545c9",
-  "average_curve_mae": 0.0254842625,
+  "sha256": "b1cb84c7d486685e620070ed0ec28446bd014fd748399783c58137f9bba7d0b7",
+  "average_curve_mae": 0.04504328333333333,
   "build_mode": "model-joint-trained-theta"
 }
