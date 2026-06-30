@@ -1490,7 +1490,149 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   <div style="display:flex;flex-direction:column;gap:6px;flex:1;min-height:0">
     <div class="img-frame" style="flex:1;min-height:0;padding:4px;background:rgba(0,0,0,0.35);overflow:hidden;display:flex">
       <iframe src="/docs/tool/algorithms/spawn-signal-explorer.html" style="width:100%;height:100%;border:none;border-radius:6px" title="出块算法信号透视仪"></iframe>
-    </div>
+</section>
+
+<!-- ═══════ 2.1.1b 用户画像 ═══════ -->
+<section class="slide" id="algo-profile">
+  <h3><span class="ch">2.1.1b</span> 用户画像</h3>
+
+  <div class="quo" style="font-size:0.9rem;padding:6px 16px;margin-bottom:0.15em;line-height:1.5">
+    <strong style="color:#e57373">挑战</strong>：无账号、无历史、全客户端 — 决策层需要知道"谁在玩"<br>
+    <strong style="color:#4dd0e1">方案</strong>：5 维技能 → 双速 EMA → 置信度冷启动 → 心流模型 F(t)
+  </div>
+
+  <div class="img-frame" style="padding:0 14px 6px 14px;background:rgba(0,0,0,0.35)">
+    <svg viewBox="0 0 960 460" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+
+      <!-- ═══════ Row 1: Profile Collection & Fusion Pipeline ═══════ -->
+      <rect x="14" y="16" width="932" height="145" rx="10" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="480" y="38" fill="#7eb8ff" font-size="14" text-anchor="middle" font-weight="700">画像采集与融合 Pipeline</text>
+
+      <!-- Row 1 — 5 维原始信号 -->
+      <text x="30" y="60" fill="rgba(255,255,255,0.35)" font-size="9" font-weight="600">5 维原始技能信号</text>
+      <rect x="30" y="68" width="100" height="38" rx="4" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="80" y="85" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">thinkScore</text>
+      <text x="80" y="99" fill="rgba(255,255,255,0.50)" font-size="8" text-anchor="middle">决策速度</text>
+      <rect x="138" y="68" width="100" height="38" rx="4" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="188" y="85" fill="#81c784" font-size="9" text-anchor="middle" font-weight="700">clearScore</text>
+      <text x="188" y="99" fill="rgba(255,255,255,0.50)" font-size="8" text-anchor="middle">消行效率</text>
+      <rect x="246" y="68" width="100" height="38" rx="4" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="296" y="85" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">comboScore</text>
+      <text x="296" y="99" fill="rgba(255,255,255,0.50)" font-size="8" text-anchor="middle">连击节奏</text>
+      <rect x="354" y="68" width="100" height="38" rx="4" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
+      <text x="404" y="85" fill="#e57373" font-size="9" text-anchor="middle" font-weight="700">missScore</text>
+      <text x="404" y="99" fill="rgba(255,255,255,0.50)" font-size="8" text-anchor="middle">失误率</text>
+      <rect x="462" y="68" width="100" height="38" rx="4" fill="rgba(232,160,200,0.04)" stroke="rgba(232,160,200,0.08)" stroke-width="1"/>
+      <text x="512" y="85" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">loadScore</text>
+      <text x="512" y="99" fill="rgba(255,255,255,0.50)" font-size="8" text-anchor="middle">认知负荷</text>
+
+      <text x="580" y="91" fill="rgba(255,255,255,0.25)" font-size="16" text-anchor="middle">→</text>
+
+      <!-- 归一化 -->
+      <rect x="600" y="68" width="84" height="38" rx="4" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="642" y="91" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="600">归一化</text>
+      <text x="642" y="103" fill="rgba(255,255,255,0.35)" font-size="6.5" text-anchor="middle">[0,1] 映射</text>
+
+      <!-- 箭头向下 -->
+      <polygon points="648,114 642,124 654,124" fill="rgba(74,158,255,0.25)"/>
+      <polygon points="672,114 666,124 678,124" fill="rgba(74,158,255,0.25)"/>
+      <polygon points="696,114 690,124 702,124" fill="rgba(74,158,255,0.25)"/>
+
+      <!-- Row 1 — 双速 EMA + 置信度融合 -->
+      <text x="30" y="140" fill="rgba(255,255,255,0.35)" font-size="9" font-weight="600">双速 EMA 平滑 → 置信度融合</text>
+
+      <rect x="30" y="148" width="210" height="46" rx="6" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <rect x="38" y="152" width="92" height="38" rx="4" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.06)" stroke-width="0.5"/>
+      <text x="84" y="170" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">Fast EMA</text>
+      <text x="84" y="185" fill="rgba(255,255,255,0.40)" font-size="7" text-anchor="middle">α=0.3 快速收敛</text>
+      <rect x="140" y="152" width="92" height="38" rx="4" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.06)" stroke-width="0.5"/>
+      <text x="186" y="170" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">Slow EMA</text>
+      <text x="186" y="185" fill="rgba(255,255,255,0.40)" font-size="7" text-anchor="middle">α=0.05 稳定追踪</text>
+
+      <text x="258" y="175" fill="rgba(255,255,255,0.25)" font-size="14" text-anchor="middle">→</text>
+
+      <rect x="278" y="148" width="180" height="46" rx="6" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="368" y="168" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="600">置信度融合</text>
+      <text x="368" y="183" fill="rgba(255,255,255,0.40)" font-size="7" text-anchor="middle">样本量加权 · 历史基线约束</text>
+
+      <text x="476" y="175" fill="rgba(255,255,255,0.25)" font-size="14" text-anchor="middle">→</text>
+
+      <rect x="498" y="148" width="150" height="46" rx="6" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="573" y="168" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">finalSkill 6D</text>
+      <text x="573" y="183" fill="rgba(255,255,255,0.40)" font-size="7" text-anchor="middle">玩家能力画像输出</text>
+
+      <text x="666" y="175" fill="rgba(255,255,255,0.25)" font-size="14" text-anchor="middle">→</text>
+
+      <rect x="688" y="148" width="246" height="46" rx="6" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="811" y="166" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="600">决策层消费</text>
+      <text x="811" y="181" fill="rgba(255,255,255,0.40)" font-size="7" text-anchor="middle">压力曲线 · 意图调制 · 出块生成</text>
+      <text x="811" y="192" fill="rgba(255,255,255,0.25)" font-size="6.5" text-anchor="middle">每个信号 O(1) 独立追踪，全客户端实时</text>
+
+      <!-- ═══════ Row 2: Flow Model ═══════ -->
+      <rect x="14" y="176" width="932" height="145" rx="10" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="480" y="198" fill="#81c784" font-size="14" text-anchor="middle" font-weight="700">心流模型 F(t) — 动态心流判定</text>
+
+      <!-- ability -->
+      <rect x="30" y="214" width="280" height="64" rx="6" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="170" y="234" fill="#7eb8ff" font-size="11" text-anchor="middle" font-weight="700">ability</text>
+      <text x="170" y="252" fill="rgba(255,255,255,0.50)" font-size="9" text-anchor="middle">技能分 × (1 + 动量 − 认知负荷)</text>
+      <text x="170" y="268" fill="rgba(255,255,255,0.30)" font-size="8" text-anchor="middle">动量: skill 滑动趋势 · 认知负荷: 操作变异系数</text>
+
+      <text x="324" y="250" fill="rgba(255,255,255,0.25)" font-size="16" text-anchor="middle">−</text>
+
+      <!-- challenge -->
+      <rect x="342" y="214" width="280" height="64" rx="6" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
+      <text x="482" y="234" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="700">challenge</text>
+      <text x="482" y="252" fill="rgba(255,255,255,0.50)" font-size="9" text-anchor="middle">stress × (1 + 板面填充 + 近满行)</text>
+      <text x="482" y="268" fill="rgba(255,255,255,0.30)" font-size="8" text-anchor="middle">stress: 当前压力值 · 盘面复杂度因子</text>
+
+      <text x="636" y="250" fill="rgba(255,255,255,0.25)" font-size="16" text-anchor="middle">⇨</text>
+
+      <!-- flowState 三态 -->
+      <rect x="654" y="214" width="280" height="64" rx="6" fill="rgba(186,104,200,0.02)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
+      <text x="794" y="234" fill="#ba68c8" font-size="11" text-anchor="middle" font-weight="700">flowState 三态判定</text>
+
+      <rect x="662" y="244" width="82" height="26" rx="4" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="0.8"/>
+      <text x="703" y="259" fill="#81c784" font-size="8" text-anchor="middle" font-weight="600">能力≈挑战</text>
+      <text x="703" y="268" fill="rgba(255,255,255,0.25)" font-size="6.5" text-anchor="middle">心流</text>
+
+      <rect x="750" y="244" width="82" height="26" rx="4" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="0.8"/>
+      <text x="791" y="259" fill="#ffb74d" font-size="8" text-anchor="middle" font-weight="600">能力>挑战</text>
+      <text x="791" y="268" fill="rgba(255,255,255,0.25)" font-size="6.5" text-anchor="middle">无聊</text>
+
+      <rect x="838" y="244" width="86" height="26" rx="4" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.08)" stroke-width="0.8"/>
+      <text x="881" y="259" fill="#e57373" font-size="8" text-anchor="middle" font-weight="600">能力<挑战</text>
+      <text x="881" y="268" fill="rgba(255,255,255,0.25)" font-size="6.5" text-anchor="middle">焦虑</text>
+
+      <!-- 心流调节说明 -->
+      <rect x="30" y="286" width="904" height="26" rx="4" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.04)" stroke-width="0.5"/>
+      <text x="482" y="303" fill="rgba(255,255,255,0.35)" font-size="8" text-anchor="middle">心流通道: |ability − challenge| < 阈值 → 最佳体验窗口 · 超出阈值时决策层自动调节目标难度 b*</text>
+
+      <!-- ═══════ Row 3: Cold Start ═══════ -->
+      <rect x="14" y="336" width="932" height="108" rx="10" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="480" y="358" fill="#ffb74d" font-size="14" text-anchor="middle" font-weight="700">冷启动框架 — 置信度驱动的渐进估计</text>
+
+      <!-- 三阶段 -->
+      <rect x="30" y="372" width="290" height="38" rx="6" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="175" y="390" fill="#7eb8ff" font-size="10" text-anchor="middle" font-weight="600">Phase 1 · 基线引导</text>
+      <text x="175" y="405" fill="rgba(255,255,255,0.35)" font-size="7.5" text-anchor="middle">前 n 步: 历史/全局基线替代</text>
+
+      <text x="338" y="395" fill="rgba(255,255,255,0.25)" font-size="14" text-anchor="middle">→</text>
+
+      <rect x="358" y="372" width="290" height="38" rx="6" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.06)" stroke-width="1"/>
+      <text x="503" y="390" fill="#81c784" font-size="10" text-anchor="middle" font-weight="600">Phase 2 · 混合估计</text>
+      <text x="503" y="405" fill="rgba(255,255,255,0.35)" font-size="7.5" text-anchor="middle">基线 + 当前 EMA 置信度加权平均</text>
+
+      <text x="666" y="395" fill="rgba(255,255,255,0.25)" font-size="14" text-anchor="middle">→</text>
+
+      <rect x="686" y="372" width="248" height="38" rx="6" fill="rgba(186,104,200,0.02)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
+      <text x="810" y="390" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="600">Phase 3 · 自主估计</text>
+      <text x="810" y="405" fill="rgba(255,255,255,0.35)" font-size="7.5" text-anchor="middle">样本充足 → 完全信任当前估计</text>
+
+      <!-- 设计保证 -->
+      <rect x="30" y="416" width="904" height="22" rx="4" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.04)" stroke-width="0.5"/>
+      <text x="482" y="432" fill="rgba(255,255,255,0.40)" font-size="8" text-anchor="middle">设计保证: 全客户端 · &lt;1ms/次 · 零数据上传 · 零历史可用 · 双速 EMA O(1) · 置信度自动切换</text>
+    </svg>
   </div>
 </section>
 
@@ -3401,6 +3543,22 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   </div>
 
   <div class="card-row c3" style="margin-bottom:0.4em">
+    <div class="card accent-g"><div class="tit" style="font-size:0.8rem">😌 stressMeter 压力感知</div><div class="desc" style="font-size:0.72rem;line-height:1.5">
+      <div class="img-frame" style="margin-bottom:6px;display:flex;align-items:center;justify-content:center;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.12);max-height:200px">
+        <img src="/docs/asset/architecture/assets/StressMeter.png" alt="StressMeter 情绪映射" class="zoomable-img" style="width:100%;height:auto;display:block" data-zoom-group="stress-meter" data-zoom-index="0">
+      </div>
+      <ul style="margin:4px 0 0 14px;padding:0;list-style:none;color:rgba(255,255,255,0.75);font-size:0.75rem;line-height:1.6">
+        <li style="margin-bottom:4px"><strong style="color:#81c784">情绪映射 6 档</strong>：
+          <br><span style="color:rgba(255,255,255,0.45);font-size:0.68rem">calm（平静）· easy（轻松）· flow（心流）
+          <br>engaged（投入）· tense（紧张）· intense（强烈）</span></li>
+        <li style="margin-bottom:4px"><strong style="color:#81c784">环境氛围 4 通道</strong>：板面辉光 · 呼吸节奏 · 抖动幅度 · 音频低通
+          <br><span style="color:rgba(255,255,255,0.30);font-size:0.65rem">与情绪档位联动，动态调参</span></li>
+        <li style="margin-bottom:4px"><strong style="color:#81c784">状态文本</strong>：summarizeContributors() 提取 top 压力源
+          <br><span style="color:rgba(255,255,255,0.30);font-size:0.65rem">实时归因展示，逐帧更新</span></li>
+        <li><strong style="color:#81c784">意图感知</strong>：relief / struggling 情境适配
+          <br><span style="color:rgba(255,255,255,0.30);font-size:0.65rem">根据玩家状态切换展示风格</span></li>
+      </ul>
+    </div></div>
     <div class="card accent-b"><div class="tit" style="font-size:0.8rem">👤 PlayerInsight玩家洞察</div><div class="desc" style="font-size:0.72rem;line-height:1.5">
       <div class="img-frame" style="margin-bottom:6px;display:flex;align-items:center;justify-content:center;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.12);max-height:200px">
         <img src="/docs/asset/architecture/assets/PlayerInsight.png" alt="PlayerInsight 能力仪表盘" class="zoomable-img" style="width:100%;height:auto;display:block" data-zoom-group="player-insight" data-zoom-index="0">
@@ -3420,94 +3578,10 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
         <img src="/docs/asset/architecture/assets/spawn_strategy2.png" alt="Spawn 策略 2" class="zoomable-img" style="width:100%;height:auto;display:block" data-zoom-group="decision-flow" data-zoom-index="2">
       </div>
     </div></div>
-    <div class="card accent-g"><div class="tit" style="font-size:0.8rem">😌 stressMeter 压力感知</div><div class="desc" style="font-size:0.72rem;line-height:1.5">
-      <div class="img-frame" style="margin-bottom:6px;display:flex;align-items:center;justify-content:center;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.12);max-height:200px">
-        <img src="/docs/asset/architecture/assets/StressMeter.png" alt="StressMeter 情绪映射" class="zoomable-img" style="width:100%;height:auto;display:block" data-zoom-group="stress-meter" data-zoom-index="0">
-      </div>
-      <ul style="margin:4px 0 0 14px;padding:0;list-style:none;color:rgba(255,255,255,0.75);font-size:0.68rem;line-height:1.5">
-        <li style="margin-bottom:3px"><strong style="color:#81c784">情绪映射 6 档</strong>：
-          <br><span style="color:rgba(255,255,255,0.45);font-size:0.62rem">calm（平静）· easy（轻松）· flow（心流）
-          <br>engaged（投入）· tense（紧张）· intense（强烈）</span></li>
-        <li style="margin-bottom:3px"><strong style="color:#81c784">环境氛围 4 通道</strong>：板面辉光 · 呼吸节奏 · 抖动幅度 · 音频低通
-          <br><span style="color:rgba(255,255,255,0.30);font-size:0.6rem">与情绪档位联动，动态调参</span></li>
-        <li style="margin-bottom:3px"><strong style="color:#81c784">状态文本</strong>：summarizeContributors() 提取 top 压力源
-          <br><span style="color:rgba(255,255,255,0.30);font-size:0.6rem">实时归因展示，逐帧更新</span></li>
-        <li><strong style="color:#81c784">意图感知</strong>：relief / struggling 情境适配
-          <br><span style="color:rgba(255,255,255,0.30);font-size:0.6rem">根据玩家状态切换展示风格</span></li>
-      </ul>
-    </div></div>
   </div>
 </section>
 
-<!-- 4.1 PROFILE -->
-<section class="slide" id="algo-profile">
-  <h3><span class="ch">2.2</span> 画像系统</h3>
-
-  <h4><span class="sec-label sec-rationale">设计初衷</span><span class="sec-label sec-selection">技术选型</span><span class="sec-label sec-feature">特征</span></h4>
-
-  <div class="dialog dialog-p">
-    <div class="avatar">P</div><div class="body">
-      <div class="name">玩法设计师</div>
-      <div class="text">为什么画像系统不做成服务器端的「大数据」解决方案？客户端纯 JS 计算能力有限，不会漏掉重要信号吗？</div></div>
-  </div>
-  <div class="dialog dialog-a">
-    <div class="avatar">A</div><div class="body">
-      <div class="name">算法工程师</div>
-      <div class="text">这是经过深思熟虑的取舍 — 服务器端方案意味着：需要账号系统（门槛高）、有网络延迟（无法实时）、涉及隐私合规（成本高）— 我们的画像全部在浏览器内计算，<strong>每个操作后 1ms 内完成更新，不上传任何行为数据</strong> — 这不仅是技术选型，更是产品理念：画像系统是服务的玩家，不是监控玩家</div></div>
-  </div>
-
-  <h4>设计初衷</h4>
-  <p>画像系统的核心目标：<strong>用最轻量的方式，实时捕捉玩家的多维状态</strong> — 设计约束：
-  <br>① 全客户端执行，零服务器依赖；② 每次操作后 &lt; 1ms 完成更新；③ 不上传任何玩家行为数据；④ 冷启动（无历史数据）时也能工作</p>
-
-  <h4>技术选型：为什么是 EMA + 三阶窗口，而不是 RNN / 卡尔曼滤波？</h4>
-  <div class="card-row c3">
-    <div class="card accent-b"><div class="tit">❌ RNN/LSTM</div><div class="desc">PyTorch 模型无法在移动端 Web 环境轻量运行 — 推理延迟不可控</div></div>
-    <div class="card accent-o"><div class="tit">❌ 卡尔曼滤波</div><div class="desc">假设状态转移和观测噪声均为高斯分布 — 游戏行为（如突然连击爆发）是典型的非高斯事件</div></div>
-    <div class="card accent-g"><div class="tit">✅ 双速 EMA</div><div class="desc">常数时间更新 O(1)，无状态存储仅 1 个浮点数 — 前 5 步高 α (0.35) 快速收敛，之后低 α (0.15) 稳定追踪 — 参数含义直观（α=0.35 意味着新观测占 35% 权重），设计师可调</div></div>
-  </div>
-
-  <h4>特征设计：5 维原始技能信号</h4>
-  <p>为什么是这 5 个维度？每个维度的选择对应一个<strong>玩家行为假设</strong>：</p>
-  <div class="table-wrap">
-  <table>
-    <tr><th>维度</th><th>公式</th><th>行为假设</th><th>权重</th></tr>
-    <tr><td>thinkScore</td><td>1 − clamp((thinkMs−800)/12000, 0, 1)</td><td>高手决策快（直觉模式识别），新手犹豫慢。800ms 为理想阈值。</td><td>0.15</td></tr>
-    <tr><td>clearScore</td><td>min(1, clearRate / 0.55)</td><td>消行率直接反映核心能力。0.55 为经验阈值，高于此即高手。</td><td>0.30</td></tr>
-    <tr><td>comboScore</td><td>min(1, comboRate / 0.45)</td><td>连击率反映节奏连续性和规划能力。</td><td>0.20</td></tr>
-    <tr><td>missScore</td><td>1 − min(1, missRate / 0.3)</td><td>失误率 &lt; 30% 为正常，高于此说明操作不稳定。</td><td>0.20</td></tr>
-    <tr><td>loadScore</td><td>1 − cognitiveLoad</td><td>认知负荷通过操作间隔标准差估算。负荷越高，操作越不规律。</td><td>0.15</td></tr>
-  </table>
-  </div>
-
-  <p>最终技能分通过双速 EMA 平滑，再与跨会话历史基线以置信度加权融合：</p>
-  <div class="formula"><span class="hl2">smoothSkill</span><sub>t</sub> = <span class="hl">α</span>(r<sub>skill</sub>) × r<sub>skill_t</sub> + (1 − <span class="hl">α</span>(r<sub>skill</sub>)) × <span class="hl2">smoothSkill</span><sub>t−1</sub>
-<span class="hl">α</span>(r) = steps ≤ 5 ? 0.35 : 0.15
-
-<span class="hl2">finalSkill</span> = <span class="hl">w₁</span> × smoothSkill + <span class="hl">w₂</span> × <span class="hl2">historicalSkill</span>
-<span class="hl">w₁</span> = <span class="hl3">confidence</span>,  <span class="hl">w₂</span> = 1 − <span class="hl3">confidence</span>
-<span class="cm">// confidence 由当前局样本量决定，样本越多越依赖当前局估计</span></div>
-
-  <h4>心流模型 F(t) 的特征设计</h4>
-  <p>心流判定不是简单的「能力-挑战」差值 — 它融合了五个信号源</p>
-  <div class="formula"><span class="hl2">flowDeviation</span> = |<span class="hl">ability</span> − <span class="hl">challenge</span>|
-<span class="hl">ability</span>  = <span class="hl3">finalSkill</span> × (1 + 0.2 × <span class="hl4">momentum</span> − 0.15 × <span class="hl4">cognitiveLoad</span>)
-<span class="hl">challenge</span> = <span class="hl3">stress</span> × (1 + 0.1 × <span class="hl4">boardFill</span> + 0.08 × <span class="hl4">nearFullLines</span>)
-
-<span class="hl">flowState</span> = flowDeviation &lt; 0.30 → <span class="hl3">心流</span>
-            else if ability > challenge → <span class="hl">无聊</span>
-            else → <span class="hl2">焦虑</span>
-
-<span class="cm">// momentum: 最近 5 步 skill 变化趋势（正=进步，负=退步）</span>
-<span class="cm">// cognitiveLoad: 操作间隔变异系数（越高越不稳定）</span></div>
-
-  <h4>冷启动策略：置信度框架</h4>
-  <p>新玩家无历史数据 — confidence 从 0 开始，smoothSkill 快速收敛，但 finalSkill 仍偏向 historicalSkill 的预设中性值，随着样本量增长，confidence 逐渐将权重转移给 smoothSkill</p>
-  <div class="formula"><span class="hl2">confidence</span> = <span class="hl">sigmoid</span>((<span class="hl3">sampleCount</span> − <span class="hl3">coldStartThreshold</span>) / <span class="hl3">decayRate</span>)
-<span class="hl3">coldStartThreshold</span> = 10 <span class="cm">// 10 步后开始置信当前局估计</span></div>
-</section>
-
-<!-- 4.2 DECISION AI -->
+<!-- 2.3 DECISION AI -->
 <section class="slide" id="algo-decision">
   <h3><span class="ch">2.3</span> 决策 AI（SpawnPolicyRules）</h3>
 
