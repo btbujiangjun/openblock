@@ -14,7 +14,10 @@
 
 OpenBlock is an open-source research platform for adaptive, personalized puzzle gameplay that unifies four co-evolving pillars—a tile-matching game engine, an adaptive spawn AI, a self-play reinforcement learning (RL) agent, and a non-intrusive monetization framework—under a single real-time player profile. At its core lies a **dual-track spawn architecture**: a deterministic rule-based heuristic engine (`SpawnPolicyRules`) provides always-available content generation with sub-5ms latency, while an optional Transformer-based neural generator (`SpawnPolicyNet`, ~317K parameters) learns the conditional distribution P(s₁,s₂,s₃ | board, profile, history) from real player replay data. Both tracks feed through a unified **nine-layer generation pipeline** terminating in depth-first search (DFS) sequential feasibility verification—guaranteeing by construction that every delivered dock is fully placeable. The RL agent is trained via Proximal Policy Optimization (PPO) with Generalized Advantage Estimation (GAE) and seven auxiliary supervision heads that inject dense per-step gradient signals, including a novel **per-shape placeability head** (v13) that quantifies whether long-bar polyominoes (1×4, 1×5) remain viable on the current board. Training on 230,000+ self-play episodes achieves a 35.6% win rate with a median score of 4,200. Empirical analysis identifies the long-bar bottleneck as the primary late-game failure mode: at ≥70% board fill, 33–56% of 1×4 and 1×5 pieces have zero legal placements. The full platform is configuration-driven via `game_rules.json`, browser-first (playable without backend), and validated by cross-language (JavaScript ↔ Python) contract tests.
 
----
+
+**Keywords:** tile-matching game, adaptive difficulty, reinforcement learning, procedural content generation, player modeling, polyomino puzzle, self-play, PPO, GAE, dual-track architecture, nine-layer pipeline
+
+------
 
 ## 1. Introduction
 
