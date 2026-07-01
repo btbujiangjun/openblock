@@ -1511,32 +1511,32 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
       <!-- Tier 1 — 5 维原始信号 → 归一化 -->
       <text x="24" y="74" fill="rgba(255,255,255,0.35)" font-size="12" font-weight="600">5 维原始技能信号</text>
 
-      <!-- 5 cards evenly: (24..608) → 5×104 + 4×14 = 576, +24=600, margin right=8 -->
-      <rect x="24" y="86" width="104" height="50" rx="4" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="76" y="108" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">thinkScore</text>
-      <text x="76" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">决策速度</text>
+      <!-- 5 cards evenly spread across full width: 24..662, gap=22 -->
+      <rect x="24" y="86" width="110" height="50" rx="4" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="79" y="108" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">thinkScore</text>
+      <text x="79" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">决策速度</text>
 
-      <rect x="142" y="86" width="104" height="50" rx="4" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
-      <text x="194" y="108" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">clearScore</text>
-      <text x="194" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">消行效率</text>
+      <rect x="156" y="86" width="110" height="50" rx="4" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="211" y="108" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">clearScore</text>
+      <text x="211" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">消行效率</text>
 
-      <rect x="260" y="86" width="104" height="50" rx="4" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
-      <text x="312" y="108" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="700">comboScore</text>
-      <text x="312" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">连击节奏</text>
+      <rect x="288" y="86" width="110" height="50" rx="4" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="343" y="108" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="700">comboScore</text>
+      <text x="343" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">连击节奏</text>
 
-      <rect x="378" y="86" width="104" height="50" rx="4" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
-      <text x="430" y="108" fill="#e57373" font-size="12" text-anchor="middle" font-weight="700">missScore</text>
-      <text x="430" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">失误率</text>
+      <rect x="420" y="86" width="110" height="50" rx="4" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
+      <text x="475" y="108" fill="#e57373" font-size="12" text-anchor="middle" font-weight="700">missScore</text>
+      <text x="475" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">失误率</text>
 
-      <rect x="496" y="86" width="104" height="50" rx="4" fill="rgba(232,160,200,0.04)" stroke="rgba(232,160,200,0.08)" stroke-width="1"/>
-      <text x="548" y="108" fill="#e8a0c8" font-size="12" text-anchor="middle" font-weight="700">loadScore</text>
-      <text x="548" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">认知负荷</text>
+      <rect x="552" y="86" width="110" height="50" rx="4" fill="rgba(232,160,200,0.04)" stroke="rgba(232,160,200,0.08)" stroke-width="1"/>
+      <text x="607" y="108" fill="#e8a0c8" font-size="12" text-anchor="middle" font-weight="700">loadScore</text>
+      <text x="607" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">认知负荷</text>
 
-      <text x="618" y="115" fill="rgba(255,255,255,0.25)" font-size="22" text-anchor="middle">→</text>
+      <text x="686" y="115" fill="rgba(255,255,255,0.25)" font-size="22" text-anchor="middle">→</text>
 
-      <rect x="642" y="86" width="96" height="50" rx="4" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
-      <text x="690" y="108" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="600">归一化</text>
-      <text x="690" y="128" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">[0, 1] 映射</text>
+      <rect x="714" y="86" width="96" height="50" rx="4" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="762" y="108" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="600">归一化</text>
+      <text x="762" y="128" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">[0, 1] 映射</text>
 
       <!-- 下箭头 -->
       <polygon points="668,146 660,158 676,158" fill="rgba(74,158,255,0.25)"/>
