@@ -1,1109 +1,1584 @@
 # OpenBlock: A Full-Stack Adaptive Tile-Matching Platform with Reinforcement Learning and Programmatic Content Generation
 
-> **Technical Report — v1.0**
+> **Technical Report — v1.1**
 >
 > **Authors**: OpenBlock Contributors  
-> **Affiliation**: Independent / Open Source  
-> **Last Updated**: 2026-07-01
+> **Status**: Complete Draft  
+> **Last Updated**: 2026-07-01  
+> **Project URL**: <https://github.com/btbujiangjun/openblock>  
+> **License**: MIT
 
 ---
 
-## 目录 / Table of Contents
+## Abstract
 
-1. [Abstract](#1-abstract)
-2. [Introduction](#2-introduction)
-3. [Game Overview and Problem Formulation](#3-game-overview-and-problem-formulation)
-4. [System Architecture](#4-system-architecture)
-5. [Real-Time Player Profiling](#5-real-time-player-profiling)
-6. [The Spawn Engine: Programmatic Content Generation](#6-the-spawn-engine)
-7. [Scoring, Placement Quality, and Evaluation](#7-scoring-placement-quality-and-evaluation)
-8. [The RL Agent: Self-Play Placement Policy](#8-the-rl-agent-self-play-placement-policy)
-9. [Neural Spawn Generation: SpawnPolicyNet](#9-neural-spawn-generation-spawnpolicynet)
-10. [Spawn Parameter Tuning: SpawnParamTuner](#10-spawn-parameter-tuning-spawnparamtuner)
-11. [Monetization Framework](#11-monetization-framework)
-12. [Engineering and Production Infrastructure](#12-engineering-and-production-infrastructure)
-13. [Evaluation and Empirical Results](#13-evaluation-and-empirical-results)
-14. [Related Work](#14-related-work)
-15. [Limitations and Future Work](#15-limitations-and-future-work)
-16. [Appendix](#16-appendix)
+OpenBlock is an open-source research platform for adaptive, personalized puzzle gameplay that unifies four co-evolving pillars—a tile-matching game engine, an adaptive spawn AI, a self-play reinforcement learning (RL) agent, and a non-intrusive monetization framework—under a single real-time player profile. At its core lies a **dual-track spawn architecture**: a deterministic rule-based heuristic engine (`SpawnPolicyRules`) provides always-available content generation with sub-5ms latency, while an optional Transformer-based neural generator (`SpawnPolicyNet`, ~317K parameters) learns the conditional distribution P(s₁,s₂,s₃ | board, profile, history) from real player replay data. Both tracks feed through a unified **nine-layer generation pipeline** terminating in depth-first search (DFS) sequential feasibility verification—guaranteeing by construction that every delivered dock is fully placeable. The RL agent is trained via Proximal Policy Optimization (PPO) with Generalized Advantage Estimation (GAE) and seven auxiliary supervision heads that inject dense per-step gradient signals, including a novel **per-shape placeability head** (v13) that quantifies whether long-bar polyominoes (1×4, 1×5) remain viable on the current board. Training on 230,000+ self-play episodes achieves a 35.6% win rate with a median score of 4,200. Empirical analysis identifies the long-bar bottleneck as the primary late-game failure mode: at ≥70% board fill, 33–56% of 1×4 and 1×5 pieces have zero legal placements. The full platform is configuration-driven via `game_rules.json`, browser-first (playable without backend), and validated by cross-language (JavaScript ↔ Python) contract tests.
 
 ---
 
-## 1. Abstract
+## 1. Introduction
 
-OpenBlock is an open-source research platform for adaptive, personalized tile-matching gameplay. Unlike commercial puzzle games that treat content generation as a black box, OpenBlock makes every spawn decision transparent, explainable, and algorithmically verifiable. The system is built around four co-evolving pillars—a tile-matching game engine, an adaptive spawn AI, a self-play reinforcement learning (RL) agent, and a non-intrusive monetization framework—all sharing a single real-time player profile table.
+### 1.1 Background and Motivation
 
-At the core of the execution layer lies a **dual-track spawn architecture**: a rule-based heuristic engine (`SpawnPolicyRules`) serves as the default, always-available content generator, while an optional Transformer-based neural model (`SpawnPolicyNet`) learns to predict dock triplets from real player replay data. Both tracks feed through the same nine-layer generation pipeline, culminating in a depth-first search (DFS) sequential feasibility verification that guarantees every dock can be fully placed—eliminating impossible game states by construction.
+The puzzle tile-matching genre has experienced explosive growth since 2020. Block Blast, the category leader, surpassed 300 million monthly active users (MAU) as of late 2024, built on a deceptively simple core loop: an 8×8 grid, a set of polyomino pieces, and a single drag-and-drop placement action per turn. In 2025, Color Block Jam introduced color-matching mechanics and pre-designed puzzle levels, shifting the genre paradigm from "player adapts to random pieces" toward "the system adapts to the player."
 
-The RL agent is trained via self-play PPO with Generalized Advantage Estimation (GAE) and a suite of auxiliary supervision heads that inject dense, per-step gradient signals—including a novel per-shape placeability head that explicitly quantifies whether long-bar pieces (1×4, 1×5) remain placeable on the current board. The system is supported by a real-time player profiling engine that estimates skill via EMA smoothing, detects flow deviation, tracks frustration, and maps each player onto a 5×5 lifecycle-by-maturity differentiation grid.
+Despite this commercial success, the technical architecture underlying these games remains largely opaque. Content generation—the decision of which pieces to present at each turn—is treated as a proprietary black box, with no published descriptions of the algorithms involved. Player state estimation, when it exists, is rudimentary (typically limited to simple win/loss ratios). Difficulty adaptation, if present, operates on coarse time scales (session-level or daily). There exists no standard open-source platform where researchers can experiment with adaptive difficulty algorithms, reinforcement learning for puzzle placement, or explainable content generation in a realistic, production-quality tile-matching environment.
 
-All game logic, spawn decisions, RL training, and monetization signals flow through a shared event bus. The entire platform is browser-first—playable without any backend—with optional Flask microservices for RL training, neural spawn inference, and player analytics. Configuration is fully externalized in `game_rules.json`, and cross-language contract tests guarantee JavaScript ↔ Python feature parity.
+OpenBlock addresses this gap. It is designed explicitly as a **research platform** rather than a commercial product. Every design decision is transparent. Every spawn decision carries a diagnostic snapshot recording which signals drove the choice, which constraints were applied, and why each candidate was selected or rejected. Every algorithm parameter is externalized in a version-controlled configuration file. The platform is MIT-licensed and fully open source.
 
----
+### 1.2 Design Philosophy
 
-## 2. Introduction
+OpenBlock is built around four principles that distinguish it from both commercial alternatives and academic prototypes:
 
-### 2.1 Background and Motivation
+**Principle 1: Four pillars, one player profile.** The game engine, adaptive spawn AI, RL training system, and monetization framework all read from and contribute to a single, shared `PlayerProfile` data structure. Spawn difficulty, ad timing, and RL state encoding are grounded in a consistent, real-time estimate of the player's current skill, flow state, and frustration level. There is no fragmentation between "the game's model of the player" and "the monetization system's model of the player."
 
-The puzzle tile-matching genre has seen remarkable growth since 2020. Block Blast, the category leader, surpassed 300 million monthly active users (MAU) with a deceptively simple core loop: a grid, a set of polyomino pieces, and a single placement action per turn. Color Block Jam (2025–) extended the formula with color-matching mechanics and pre-designed puzzle levels, shifting the genre from "player adapts to random pieces" toward "the system adapts to the player."
+**Principle 2: Offline-first by design.** The entire core game loop—including the spawn engine with its nine-layer pipeline, player profiling, difficulty decisions, and the constructive pre-scan—runs entirely in the browser with zero network dependency. Backend services (RL training, neural spawn inference, player analytics, auth) are optional enhancements, not requirements. The game is fully playable by opening `index.html` in a browser with no server running.
 
-Despite this commercial success, the underlying technical stack of these games remains largely opaque. Content generation—which pieces to show, in what order, at what difficulty—is treated as a proprietary black box. Player state estimation, when it exists, is rudimentary. There is no standard open-source platform where researchers can experiment with adaptive difficulty algorithms, reinforcement learning agents, or explainable content generation in a realistic tile-matching environment.
+**Principle 3: Configuration-driven, never code-driven.** Every numerical parameter, threshold, weight, and feature dimension is externalized in `shared/game_rules.json` or in environment variables. A project-wide "no magic numbers" rule is enforced: algorithm code that hardcodes a numerical constant is rejected at code review. This makes the system auditable, reproducible across deployments, and safe for A/B experimentation—a configuration change never requires a code redeployment.
 
-OpenBlock addresses this gap. It is designed not as a commercial product but as a **research platform** where every design decision is transparent, every spawn decision carries a diagnostic snapshot, and every algorithm is configurable via externalized parameters. The platform is MIT-licensed and fully open source.
+**Principle 4: Explainable by construction.** The spawn engine records a complete diagnostic snapshot at every step. The `PlayerInsightPanel` renders this as a human-readable decision trace. The `DecisionFlowViz` exposes the 10-signal stress chain with per-signal attribution. The `spawn-signal-explorer.html` interactive tool lets developers step through the pipeline signal by signal. This is not a bolt-on explainability layer—it is a natural consequence of the architecture: since every weight, constraint, and decision is explicit, explaining it is simply a matter of rendering the internal state.
 
-### 2.2 Design Philosophy
+### 1.3 Contributions
 
-OpenBlock is built around four design principles that differentiate it from commercial alternatives:
+This technical report presents the following contributions:
 
-**Four pillars, one player profile.** The game engine, adaptive spawn AI, RL training system, and monetization framework all read from the same player profile table. This means spawn difficulty, ad timing, and RL state encoding are grounded in a single, consistent estimate of the player's current skill, flow state, and frustration level.
+1. **A dual-track spawn architecture** (Chapter 6) that combines a deterministic rule-based engine (`SpawnPolicyRules`) with an optional Transformer-based neural generator (`SpawnPolicyNet`) under a unified constraint-validation gate and automatic fallback mechanism. This architecture achieves production reliability (the default rule track is always available) while enabling learned improvements (the neural track can discover distributional patterns inaccessible to hand-tuned weights).
 
-**Offline-first by design.** The entire core game loop—including the spawn engine, player profiling, and difficulty decisions—runs entirely in the browser with no network dependency. Backend services (RL training, neural spawn inference, analytics) are optional enhancements, not requirements.
+2. **A nine-layer content generation pipeline** (`generateDockShapes`) that decomposes the monolithic spawn problem into sequentially composed, independently verifiable stages: input assembly → board perception → score construction → priority selection → weighted completion → constraint verification → injection optimization → output delivery → color display. Each layer addresses a specific, well-defined sub-problem with its own configuration section, making the pipeline auditable, testable, and incrementally improvable.
 
-**Configuration-driven, not code-driven.** Every numerical parameter, threshold, and weight is externalized in `shared/game_rules.json` or environment variables. There are no magic numbers in the algorithm code. This makes the system auditable, reproducible, and safe for A/B experimentation.
+3. **A real-time player profiling system** (Chapter 5) that estimates player skill via exponentially-weighted moving averages with adaptive decay rates, detects flow deviation from optimal challenge-skill balance, tracks frustration on a multi-threshold escalation scale, computes momentum from sliding window analysis, and projects each player onto a two-dimensional 5×5 lifecycle-by-maturity differentiation grid. All computations run in-browser with sub-millisecond latency.
 
-**Explainable by construction.** The spawn engine records a full diagnostic snapshot at every step: which signals drove the decision, what constraints were applied, and why each candidate block was selected or rejected. The `PlayerInsightPanel` and `DecisionFlowViz` make these signals visible to both players and developers.
+4. **A self-play RL agent** (Chapter 8) trained with PPO and GAE, augmented by seven auxiliary supervision heads that provide dense per-step gradient signals independent of sparse Monte Carlo returns. The v13 extension introduces per-shape placeability prediction—explicitly quantifying whether long-bar shapes (1×4, 1×5) remain placeable on the current board—as an auxiliary target, directly addressing the empirically identified primary bottleneck for late-game survival.
 
-### 2.3 Contributions
+5. **A full-stack open-source implementation** with contract-first cross-language consistency (JavaScript ↔ Python), comprehensive test infrastructure (unit, lint, build, algorithm regression, cross-language equivalence), a configuration-driven architecture suitable for both research and production deployment, and cross-platform support (Web, WeChat Mini Program, iOS/Android via Capacitor, Cocos Creator).
 
-This report presents the following contributions:
+6. **Empirical characterization** (Chapter 13) of the long-bar bottleneck—the observation that 1×4 and 1×5 polyominoes lose 33–56% of their legal positions at ≥70% board fill rate, making them the primary cause of late-game death—motivating and validating the v13 architecture change.
 
-1. A **dual-track spawn architecture** combining a rule-based heuristic engine with an optional Transformer-based neural generator, unified under the same constraint validation pipeline and automatic fallback mechanism.
+### 1.4 Report Organization
 
-2. A **nine-layer content generation pipeline** (`generateDockShapes`) that progresses from board perception through constructive pre-scanning, weighted completion, constraint verification, injection optimization, and color assignment—with each layer addressing a specific sub-problem in isolation.
-
-3. A **real-time player profiling system** that estimates skill via exponentially-weighted moving averages, detects flow deviation from optimal challenge-skill balance, tracks frustration on a multi-threshold scale, and projects each player onto a 5×5 lifecycle-by-maturity differentiation grid.
-
-4. A **self-play RL agent** trained with PPO and GAE, augmented by seven auxiliary supervision heads that provide dense per-step gradient signals independent of sparse Monte Carlo returns—including a novel per-shape placeability prediction head.
-
-5. A **full-stack open-source implementation** with contract-first cross-language consistency (JavaScript ↔ Python), comprehensive test infrastructure, and a configuration-driven architecture suitable for both research and production deployment.
-
-### 2.4 Report Organization
-
-The remainder of this report is structured as follows. §3 formalizes the game mechanics and the three sub-problems (spawn, placement, difficulty modulation). §4 presents the system architecture. §5 covers the player profiling engine. §6 describes the spawn engine in detail, including the nine-layer pipeline. §7 covers the scoring, placement quality, and evaluation framework. §8 presents the RL agent architecture and training methodology. §9 describes the neural spawn generation model (SpawnPolicyNet). §10 covers the spawn parameter tuning system (SpawnParamTuner). §11 briefly covers the monetization framework. §12 describes engineering infrastructure. §13 presents empirical evaluation results. §14 surveys related work. §15 discusses limitations and future directions.
+The remainder of this report follows a bottom-up structure. §2 formalizes the game mechanics and the three sub-problems (spawn, placement, difficulty modulation). §3 presents the system architecture. §4 covers the player profiling engine. §5 describes the spawn engine—the system's algorithmic core. §6 covers scoring, placement quality evaluation, and the feedback closed loop. §7 presents the RL agent architecture, training methodology, and auxiliary supervision design. §8 describes the neural spawn generation model (SpawnPolicyNet). §9 covers the spawn parameter tuning system (SpawnParamTuner). §10 briefly covers the monetization framework. §11 describes engineering infrastructure. §12 presents empirical evaluation results. §13 surveys related work. §14 discusses limitations and future directions. §15 is an appendix with glossary, configuration reference, API reference, and reproduction checklist.
 
 ---
 
-## 3. Game Overview and Problem Formulation
+## 2. Game Overview and Problem Formulation
 
-### 3.1 Core Mechanics
+### 2.1 Core Mechanics
 
-OpenBlock's core gameplay is a tile-matching puzzle on an 8×8 grid. The player is presented with three candidate polyomino pieces (the "dock") and must select one piece and place it anywhere on the grid where it fits without overlapping occupied cells. When a full row or column is formed, those cells are cleared (removed), and the player earns points. The game continues until no dock piece has a legal placement position on the current board.
+OpenBlock's core gameplay is a single-player tile-matching puzzle on an 8×8 grid. The state space, action space, and transition dynamics are:
 
-Key mechanical properties:
-- **28 polyomino shapes** across 7 categories: lines (8), rects (2), squares (2), T-shapes (4), Z-shapes (8), L-shapes (12), J-shapes (4).
-- **No rotation**: pieces have fixed orientation.
-- **Fixed grid size**: 8×8 = 64 cells.
-- **Three-slot dock**: exactly 3 candidate pieces visible at all times.
-- **Quadratic clear scoring**: `baseUnit × c²` where c = rows cleared + columns cleared in a single placement.
+**Grid state.** The board is an $8\times8$ matrix $B \in \{-1, 0, 1, \dots, K\}^{64}$ where $B_{ij} = -1$ indicates an empty cell, and $B_{ij} \in [0, K]$ indicates a cell occupied by a block of color $B_{ij}$.
 
-### 3.2 The Three-Layer Decision Pipeline
+**Shape catalog.** 28 polyomino shapes are organized into 7 categories:
 
-Gameplay is organized into three conceptual layers, each with a distinct responsibility:
+| Category | Count | Examples | Cell Count Range |
+|----------|-------|----------|-----------------|
+| Lines | 8 | 1×2, 2×1, 1×3, 3×1, 1×4, 4×1, 1×5, 5×1 | 2–5 |
+| Rects | 2 | 2×3, 3×2 | 6 |
+| Squares | 2 | 2×2, 3×3 | 4, 9 |
+| T-shapes | 4 | T-up, T-down, T-left, T-right | 4–5 |
+| Z-shapes | 8 | diagonal-2a/b, diagonal-3a/b/c/d, zigzag | 2–5 |
+| L-shapes | 12 | L3-a/b/c/d, L4 variants | 3–5 |
+| J-shapes | 4 | J-1/2/3/4 | 3–5 |
+
+Each shape is defined by a binary matrix of its occupied cells. Shapes have fixed orientation (no rotation in the standard game mode). The shape catalog is defined in `shared/shapes.json` and loaded identically by the JavaScript frontend and Python simulator.
+
+**Dock.** At each step, the player is presented with exactly three candidate shapes (the "dock"): $D_t = \{s_1, s_2, s_3\}$, where each $s_k$ is selected from the 28-shape catalog. The three shapes must be distinct.
+
+**Placement action.** The player selects one dock block and places it at position $(gx, gy)$ on the grid, where $0 \leq gx < 8 - w$, $0 \leq gy < 8 - h$ (with $w, h$ being the shape's bounding box dimensions). The placement is valid if and only if no cell of the placed shape overlaps an occupied grid cell:
+
+$$
+\text{valid}(B, s, gx, gy) \; \Longleftrightarrow \; \forall (i,j) \in \text{cells}(s): B[gy+i][gx+j] = -1
+$$
+
+**Line clearing.** After placement, the game checks all rows and columns for completion. A row $r$ is cleared if $\forall c: B[r][c] \geq 0$ (all cells occupied). A column $c$ is cleared if $\forall r: B[r][c] \geq 0$. Cleared cells are removed (set to $-1$), and the player earns points.
+
+**Termination.** The game ends when none of the three dock blocks have a legal placement position: $\forall s_k \in D_t: \text{legal\_positions}(B, s_k) = \emptyset$.
+
+### 2.2 The Three-Layer Decision Pipeline
+
+The game's AI systems are organized into three conceptual layers, each with a distinct responsibility and a well-defined interface to adjacent layers:
 
 ```
-Layer 1 — Perception (Board → Signals)
-  Board topology analysis → 17+ signal features → stress computation
+Layer 1 — Perception (Board → 17 Signals)
+  Input: Board state B_t
+  Process: Board topology analysis → feature extraction → signal computation
+  Output: 17-signal vector → stress ∈ [-0.2, 0.85]
+  Key modules: boardTopology.js, spatialPlanning.js, realtimeStrategy.js
+
 Layer 2 — Decision (Signals → Intent)
-  Stress + player state → spawnIntent → difficulty targets
+  Input: stress, player profile π_t, arc stage, session context
+  Process: Stress classification → spawnIntent resolution → difficulty targeting
+  Output: spawnIntent ∈ {warm_run, relief, engage, …, maintain}, d* ∈ [0,1]
+  Key modules: adaptiveSpawn.js, intentResolver.js, difficultyRelativity.js
+
 Layer 3 — Execution (Intent → Spawn)
-  Intent + targets → generateDockShapes() → three candidate blocks
+  Input: Board B_t, spawnIntent, d*, player profile π_t, spawn context ctx_t
+  Process: 9-layer pipeline → constructive pre-scan → two-stage weighted fill → constraint gate
+  Output: Dock triplet (s₁, s₂, s₃), diagnostic snapshot
+  Key modules: blockSpawn.js (generateDockShapes), spawnModel.js (neural alternative)
 ```
 
-This three-layer decomposition is critical because it separates concerns that would otherwise create tight coupling. The perception layer analyzes *what is on the board*. The decision layer determines *what kind of experience the player needs*. The execution layer translates that intent into *concrete content*.
+This decomposition is critical because it separates concerns that would otherwise create combinatorial complexity. The perception layer analyzes *what is on the board*. The decision layer determines *what kind of experience the player needs*. The execution layer translates that intent into *concrete content*. Each layer can be tested, tuned, and replaced independently.
 
-### 3.3 Formal Problem Statements
+### 2.3 Formal Problem Statements
 
 The system addresses three formally distinct sub-problems:
 
-**The Spawn Problem.** Given board state *B*, player profile *π*, and spawn context *ctx* (including recent history, difficulty targets, and intent), choose a dock triplet *(s₁, s₂, s₃)* from the 28-shape pool such that:
+**Problem 1: The Spawn Problem.** Given:
+- Board state $B_t$ (8×8 grid with occupied/empty cells and color assignments)
+- Player profile $\pi_t = (\text{skill}, \text{flow}, \text{frustration}, \text{momentum}, \text{lifecycle}, \text{maturity})$
+- Spawn context $\text{ctx}_t$ (recent history $H_{t-3:t-1}$, difficulty target $d^*$, spawn intent $I$, arc phase)
 
-1. Each s<sub>k</sub> is a shape from the polyomino catalog;
-2. The triplet is sequentially feasible: there exists an ordering where each block, when placed optimally, leads to a board state where the next block also has a legal placement;
-3. The triplet approximates the target difficulty as measured by spawn step difficulty (SCD);
-4. The triplet respects shape uniqueness (no duplicates) and mobility minimums.
+Find a dock triplet $(s_1, s_2, s_3)$ from the 28-shape catalog $\mathcal{S}$ such that the following constraints and objectives are satisfied:
 
-**The Placement Problem.** This is the RL agent's domain. Given board state *s<sub>t</sub>* and dock *d<sub>t</sub>*, choose a placement action *a<sub>t</sub> = (block_idx, gx, gy)* to maximize expected cumulative reward *G<sub>t</sub>* over the remainder of the game. This is a finite-horizon MDP with a variable-length action set (only legal placements are valid).
+**Hard constraints** (violation → rejection, retry up to 22 times):
 
-**The Difficulty Modulation Problem.** Maintain each player in their optimal Flow channel—where perceived challenge matches perceived skill—by modulating the spawn step difficulty *d\** on a per-step basis. This involves (a) estimating the player's current skill, (b) estimating board pressure, and (c) selecting a difficulty target that keeps the challenge-skill ratio near 1.0, with adjustments based on lifecycle stage, session arc, and recent performance trajectory.
+$$
+\begin{aligned}
+&\text{C1 (Unique shapes)}: s_1 \neq s_2 \neq s_3 \\
+&\text{C2 (Mobility)}: \sum_{k=1}^{3} |\text{legal\_positions}(B_t, s_k)| \geq \text{minMobilityTarget} \\
+&\text{C3 (Sequential feasibility)}: \exists \text{ ordering } \sigma \text{ of } \{1,2,3\} \text{ s.t. DFS}(B_t, s_{\sigma(1)}, s_{\sigma(2)}, s_{\sigma(3)}) > 0
+\end{aligned}
+$$
 
-### 3.4 Key Metrics and Constraints
+**Soft objectives** (weighted maximization):
 
-The spawn engine enforces three hard constraints before any dock is delivered to the player:
+$$
+\begin{aligned}
+&\text{O1 (Clear potential)}: \max \mathbb{E}[\text{lines cleared}] \\
+&\text{O2 (Difficulty alignment)}: \min |\text{SCD}(s_1,s_2,s_3, B_t) - d^*| \\
+&\text{O3 (Diversity)}: \max H(\text{category}(\{s_1,s_2,s_3\})) \\
+&\text{O4 (Delight)}: P(\text{multi-clear} \lor \text{icon-bonus} \lor \text{perfect-clear}) \cdot w_{\text{delight}}
+\end{aligned}
+$$
 
-1. **Sequential feasibility** (DFS verification): A bounded DFS explores the placement tree to verify that all three dock blocks can be placed in *some* order. Budget: 200 nodes, leaf cap: 1. If no ordering works, the dock is rejected and regenerated.
-2. **Mobility guard**: The total number of legal placements across all three dock blocks must meet or exceed a configurable minimum (`minMobilityTarget`). This prevents situations where the player has only one or two legal moves, which feels unfair.
-3. **Shape uniqueness**: No duplicate shape IDs may appear in the same dock.
+**Problem 2: The Placement Problem (RL agent's domain).** Formulated as a finite-horizon Markov Decision Process (MDP):
 
-If any constraint fails, the spawn pipeline retries up to 22 times. If all retries are exhausted, a simplified fallback path (`fallback_simple`) generates a uniformly random triplet that passes the feasibility check.
+$$
+\mathcal{M} = (\mathcal{S}, \mathcal{A}, \mathcal{P}, \mathcal{R}, \gamma, T)
+$$
+
+where:
+- $\mathcal{S} = \mathbb{R}^{204}$: the 204-dimensional state feature encoding (§7.2)
+- $\mathcal{A}_t$: the set of legal placement actions at time $t$ (variable cardinality, $\leq 3 \times 64 = 192$)
+- $\mathcal{P}$: deterministic transition function (placement → clear → new dock spawn)
+- $\mathcal{R}$: reward function (Equation 8, §7.1)
+- $\gamma = 0.99$: discount factor
+- $T$: episode terminates when no dock block has a legal placement or score $\geq$ win threshold
+
+The agent's objective is to find a policy $\pi^*(a|s)$ that maximizes expected cumulative discounted reward:
+
+$$
+\pi^* = \arg\max_\pi \mathbb{E}_\pi\left[\sum_{t=0}^{T} \gamma^t r_t\right]
+$$
+
+**Problem 3: The Difficulty Modulation Problem.** Maintain each player in their optimal Flow channel—where perceived challenge approximately matches perceived skill:
+
+$$
+F(t) = \left|\frac{\text{boardPressure}(B_t)}{\max(0.05, \text{skill}(\pi_t))} - 1\right| \leq \epsilon_{\text{flow}}
+$$
+
+by modulating the spawn step difficulty target $d^* \in [0,1]$ on a per-step basis, with additional modulation from lifecycle stage, session arc phase, momentum, and recent performance trajectory.
+
+### 2.4 Constraint Verification Details
+
+The sequential feasibility constraint (C3) is the most computationally expensive and algorithmically important. It is verified by a bounded depth-first search:
+
+**Algorithm: Sequential Feasibility DFS**
+
+```
+function count_sequential_solution_leaves(board, dock, leaf_cap=1, node_budget=200):
+    remaining ← {blocks in dock not yet placed}
+    depth ← |remaining|
+    if depth = 0: return 1
+    
+    nodes ← 0
+    
+    function dfs(placed_count):
+        nonlocal nodes
+        if placed_count = depth: return 1          # all blocks placed successfully
+        if nodes ≥ node_budget: return 0            # budget exhausted → conservatively infeasible
+        
+        legal ← get_legal_actions(board, remaining - placed)
+        if legal = ∅: return 0                      # dead end
+        
+        subtotal ← 0
+        saved_state ← save_state(board)
+        for each action a ∈ legal:
+            if nodes ≥ node_budget or subtotal ≥ leaf_cap: break
+            nodes ← nodes + 1
+            apply_action(board, a)
+            subtotal ← subtotal + dfs(placed_count + 1)
+            restore_state(board, saved_state)
+        
+        return min(subtotal, leaf_cap)
+    
+    # Set search_mode flags to skip expensive operations during DFS
+    board._search_mode ← True          # skip eval-feedback O(|A|) computation
+    board._skip_dock_respawn ← True    # skip constructive respawn (unused in DFS)
+    try:
+        leaves ← dfs(0)
+    finally:
+        board._search_mode ← False
+        board._skip_dock_respawn ← False
+    restore_state(board, saved_root)
+    
+    return min(leaves, leaf_cap)
+
+function check_sequential_feasibility(board, dock, node_budget=200) → bool:
+    return count_sequential_solution_leaves(board, dock, leaf_cap=1, node_budget) > 0
+```
+
+The budget of 200 nodes provides a conservative yet practical bound: if a feasible ordering exists, the DFS typically finds it within the first 50 nodes. Setting `leaf_cap = 1` makes this a binary feasibility check rather than a solution counter, minimizing wasted exploration. The `_search_mode` and `_skip_dock_respawn` flags disable expensive operations that are irrelevant during the feasibility probe (evaluation feedback computation costs O(|A|) and constructive dock respawning costs ~0.34s per call), reducing DFS overhead by over 90%.
 
 ---
 
-## 4. System Architecture
+## 3. System Architecture
 
-### 4.1 Four-Pillar Overview
+### 3.1 Four-Pillar Overview
 
-OpenBlock's architecture is organized around four co-equal pillars that share a single player profile:
+OpenBlock's architecture is organized around four co-equal pillars that share a single `PlayerProfile` data structure:
 
-| Pillar | Responsibility | Primary Source |
-|--------|---------------|----------------|
-| 🎮 **Game Engine** | Grid state, placement, clearing, scoring, rendering | `grid.js`, `game.js`, `clearScoring.js` |
-| 🧠 **Adaptive Spawn AI** | Content generation, difficulty modulation, player state estimation | `adaptiveSpawn.js`, `blockSpawn.js`, `playerProfile.js` |
-| 🤖 **RL Training** | Self-play agent training, policy/value networks, evaluation | `rl_pytorch/train.py`, `rl_pytorch/model.py` |
-| 💰 **Monetization** | Ad timing, IAP offers, whale segmentation, LTV prediction | `monetization/index.js`, `personalization.js` |
+| Pillar | Responsibility | Runtime Location | Primary Source Files |
+|--------|---------------|-----------------|---------------------|
+| 🎮 **Game Engine** | Grid state machine, placement validation, line clearing, scoring, canvas rendering | Browser | `grid.js`, `game.js`, `clearScoring.js`, `renderer.js` |
+| 🧠 **Adaptive Spawn AI** | Content generation, difficulty modulation, player state estimation, between-game arc | Browser (primary) / Server (neural) | `adaptiveSpawn.js`, `blockSpawn.js`, `playerProfile.js`, `difficultyRelativity.js` |
+| 🤖 **RL Training** | Self-play agent training, policy/value network optimization, evaluation gate | Python (server) | `rl_pytorch/train.py`, `rl_pytorch/model.py`, `rl_pytorch/simulator.py` |
+| 💰 **Monetization** | Ad timing, IAP offer scheduling, whale segmentation, LTV prediction | Browser + Server | `monetization/index.js`, `personalization.js`, `ltvPredictor.js` |
 
-Critically, the RL agent operates on a separate code path from human players. The agent uses the same game logic (`simulator.py` is a numpy-accelerated port of the browser game engine) and the same feature encoding, but its placement decisions are made by the neural policy, not by a human. This separation enables clean experimentation: improvements to the RL agent do not affect human gameplay until explicitly deployed through the evaluation pipeline.
+**Key architectural boundary**: The RL agent operates on a completely separate code path from human players. The agent uses `rl_pytorch/simulator.py`—a numpy-accelerated, Numba-JIT-compiled port of the browser game engine—and its placement decisions are made by the neural policy, not by a human. This separation means that RL improvements do not affect human gameplay until explicitly deployed through the evaluation pipeline, and conversely, spawn algorithm changes for human players do not require RL retraining (though they may benefit from it).
 
-### 4.2 Five-Layer Technical Stack
+### 3.2 Five-Layer Technical Stack
 
 ```
-Layer 5: Presentation
-  renderer.js, playerInsightPanel.js, rlPanel.js, monPanel.js,
-  spawnModelPanel.js, hintEngine.js, replayUI.js
-
-Layer 4: Application Orchestration
-  game.js (main controller), main.js (entry point),
-  monetization/index.js, bot/trainer.js
-
-Layer 3: Domain Services
-  ┌────────────┬────────────────┬──────────────────────┐
-  │ Player     │ Spawn Engine   │ Monetization         │
-  │ System     │                │ Framework            │
-  │ profile.js │ adaptiveSpawn  │ MonetizationBus      │
-  │ progress   │ blockSpawn.js  │ adAdapter/iapAdapter │
-  │ .js        │ spawnModel.js  │ personalization.js   │
-  └────────────┴────────────────┴──────────────────────┘
-
-Layer 2: Core Game Logic
-  grid.js, shapes.js, gameRules.js, clearScoring.js,
-  api.js, database.js
-
-Layer 1: Shared Configuration
-  shared/game_rules.json, shared/shapes.json, .env
-                  ↕ REST API (Flask)
-  ┌─────────────────────────────────────────────────────┐
-  │ Backend Services (Optional)                         │
-  │ rl_backend.py, rl_pytorch/train.py, spawn_model/*  │
-  │ server.py, server_authority.py, server_replay.py   │
-  └─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│ Layer 5: Presentation & Diagnostics                              │
+│ renderer.js, playerInsightPanel.js, rlPanel.js, monPanel.js,     │
+│ spawnModelPanel.js, hintEngine.js, replayUI.js,                  │
+│ DecisionFlowViz.js, spawn-signal-explorer.html                   │
+├──────────────────────────────────────────────────────────────────┤
+│ Layer 4: Application Orchestration                               │
+│ game.js (main controller, step() → clear() → spawn() loop),      │
+│ main.js (entry, ad/analytics/session bootstrap),                 │
+│ monetization/index.js (MonetizationBus, strategy engine),        │
+│ bot/trainer.js (browser RL), bot/rlPanel.js (training UI)        │
+├──────────────────────────────────────────────────────────────────┤
+│ Layer 3: Domain Services                                         │
+│ ┌───────────────┬────────────────────┬────────────────────────┐ │
+│ │ Player System │ Spawn Engine       │ Monetization Framework │ │
+│ │ profile.js    │ adaptiveSpawn.js   │ MonetizationBus        │ │
+│ │ progression.js│ blockSpawn.js      │ adAdapter/iapAdapter   │ │
+│ │ abilityModel  │ spawnModel.js      │ personalization.js     │ │
+│ │ .js           │ difficulty.js      │ featureFlags.js        │ │
+│ └───────────────┴────────────────────┴────────────────────────┘ │
+├──────────────────────────────────────────────────────────────────┤
+│ Layer 2: Core Game Logic                                         │
+│ grid.js (board state machine, checkLines, canPlace),             │
+│ shapes.js (28-shape catalog loader), gameRules.js (config),      │
+│ clearScoring.js (scoring formula), api.js (REST client),         │
+│ database.js (IndexedDB/localStorage persistence)                 │
+├──────────────────────────────────────────────────────────────────┤
+│ Layer 1: Shared Configuration                                    │
+│ shared/game_rules.json (SSOT parameters), shared/shapes.json,    │
+│ .env (deployment overrides), .claude/settings.json (CI/AI)       │
+└──────────────────────────────────────────────────────────────────┘
+                        ↕ REST API (Flask JSON)
+┌──────────────────────────────────────────────────────────────────┐
+│ Backend Services (Optional, Python 3.10+)                        │
+│ server.py (main Flask app), server_authority.py (auth),          │
+│ server_replay.py (game replay), server_payments.py (IAP verify), │
+│ rl_backend.py (RL training orchestration),                       │
+│ spawn_tuning_v2_backend.py (SpawnParamTuner serving),            │
+│ rl_pytorch/train.py (RL training), rl_pytorch/spawn_model/ (NN)  │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.3 Cross-Platform Architecture
+### 3.3 Cross-Platform Architecture
 
-OpenBlock targets four platforms from a single codebase:
+OpenBlock targets four platforms from a single codebase, with shared game logic and configuration:
 
-| Platform | Implementation | Feature Set |
-|----------|---------------|-------------|
-| **Web** | Vite + vanilla JS, Canvas/WebGL renderer | Full features |
-| **WeChat Mini Program** | Adapted build with platform-specific adaptations | Excludes RL, monitoring; subset of monetization |
-| **iOS/Android** | Capacitor WebView wrapper | Full features via embedded WebView |
-| **Cocos Creator** | Separate rendering layer, shared game logic | In development; targets native performance |
+| Platform | Technology | Feature Set | Rendering |
+|----------|-----------|-------------|-----------|
+| **Web (primary)** | Vite + vanilla JS | Full features | Canvas 2D / WebGL |
+| **WeChat Mini Program** | Adapted build, wx APIs | Excludes RL, monitoring; subset of monetization | Canvas 2D |
+| **iOS/Android** | Capacitor WebView | Full features via embedded WebView | Full |
+| **Cocos Creator** | Cocos 3.x, separate renderer | In development; native performance target | Cocos native |
 
-The key architectural constraint is that all platforms share the same `shared/game_rules.json` configuration, the same shape definitions (`shared/shapes.json`), and the same feature encoding—guaranteeing that a spawn decision made on one platform is identical to the same decision on another.
+**Cross-platform contract.** All platforms share `shared/game_rules.json` (configuration), `shared/shapes.json` (shape definitions), and the same feature encoding (`rl_pytorch/features.py` ↔ `web/src/bot/features.js`). A cross-language test suite guarantees equivalence: `tests/test_spawn_step_difficulty.py` and `tests/spawnStepDifficulty.test.js` share fixture `tests/fixtures/spawnStepDifficulty.cases.json` and assert bitwise-identical outputs for the same inputs.
 
-### 4.4 Backend Services
-
-Optional backend services are implemented as Flask microservices:
-
-- **RL Backend** (`rl_backend.py`): Training orchestration, model checkpoint management, inference API.
-- **Spawn Tuning Backend**: SpawnParamTuner training, sample management, policy deployment.
-- **Player Analytics**: Aggregate profile computation, cohort analysis.
-- **Auth Service** (`server_authority.py`): Argon2id password hashing, JWT with access/refresh token rotation.
-
-All services expose Prometheus `/metrics` endpoints and are instrumented with OpenTelemetry for distributed tracing (W3C tracecontext propagation).
-
-### 4.5 Data Flow and Event Bus
+### 3.4 Data Flow and Event Bus
 
 A unified event bus connects game events to all consuming subsystems:
 
 ```
-Game Event (placement, clear, gameOver, etc.)
-  → MonetizationBus.emit(event)
-      → MonetizationDecisionEngine (ad timing)
-      → PlayerProfile.update(event) (skill, flow, frustration)
-      → SessionEval.record(event) (quality metrics)
-      → SpawnContext.update(event) (history, diagnostics)
-      → state_history INSERT (replay and analytics)
+Game Event (placement, clear, gameOver, pause, resume, etc.)
+  │
+  ├→ MonetizationBus.emit(event) ─── ①
+  │   ├→ MonetizationDecisionEngine.evaluate() → ad/show, iap/offer
+  │   └→ MonetizationLogger.record(decision, outcome)
+  │
+  ├→ PlayerProfile.update(event) ──── ②
+  │   ├→ _computeRawSkill() → skillLevel (EMA)
+  │   ├→ _updateFlowDeviation() → flowState
+  │   ├→ _updateFrustration() → frustrationLevel
+  │   ├→ _updateMomentum() → momentum
+  │   └→ _updateLifecycle() → lifecycleStage
+  │
+  ├→ SessionEval.record(event) ────── ③
+  │   ├→ evaluatePlacement() → placementQuality[5]
+  │   ├→ evaluateRound() → roundQuality, regret components
+  │   └→ sessionEvalRecord.update()
+  │
+  ├→ SpawnContext.update(event) ───── ④
+  │   ├→ _updateHistory() → recent shape/dock trajectory
+  │   ├→ _recordFeedback() → feedbackBias update
+  │   └→ _updateDiagnostics() → spawn decision trace
+  │
+  └→ state_history INSERT ──────────── ⑤
+      └→ (session_id, step, grid_blob, dock_ids, action, clear_count, score, player_snapshot)
 ```
 
-This event-driven architecture enables the monetization framework to observe game state without modifying it, and allows new consumers to be added without changing the game engine.
+This event-driven design enables the monetization framework to observe game state without modifying it (Principle 1: minimal intrusion), allows new consumers to be added without changing the game engine, and provides a complete audit trail for every game event across all subsystems.
 
-### 4.6 Configuration-Driven Design
+### 3.5 Configuration-Driven Design
 
-`shared/game_rules.json` serves as the single source of truth for all algorithm parameters. Key sections include:
+`shared/game_rules.json` serves as the single source of truth (SSOT) for all algorithm parameters. The file is organized into semantic sections, each consumed by specific modules:
 
-- `featureEncoding`: state/action/phi dimensions, normalization constants.
-- `adaptiveSpawn`: 10-tier profile tables, constructive spawn parameters, difficulty bucket configuration.
-- `rlRewardShaping`: reward weights, auxiliary supervision coefficients, outcome value mixing.
-- `playerAbilityModel`: skill computation weights, EMA decay rates, flow thresholds.
-- `clearScoring`: base score unit, combo multiplier, icon bonus configuration.
+| Section | Key Parameters | Consumers |
+|---------|---------------|-----------|
+| `featureEncoding` | `stateScalarDim=65`, `maxGridWidth=8`, `dockSlots=3`, `actionNorm` | `features.js`, `features.py`, `model.py` |
+| `adaptiveSpawn` | 10-tier `profileLevels`, `constructiveSpawn`, `difficultyBucket`, stress weights | `adaptiveSpawn.js`, `blockSpawn.js` |
+| `rlRewardShaping` | Reward weights, auxiliary supervision coefficients, outcome value mix, topology aux dim | `simulator.py`, `train.py`, `model.py` |
+| `playerAbilityModel` | Skill weights, EMA decay rates, flow thresholds, frustration levels | `playerProfile.js`, `abilityModel.js` |
+| `clearScoring` | `single_line=20`, combo `activationCount=3`, icon `bonusLineMult=5`, `perfectClearMult=10` | `clearScoring.js`, `simulator.py` |
+| `rlCurriculum` | `difficultyBucket.enabled`, stages with `untilEpisode`/`maxScd`, `retryCap=6` | `simulator.py`, `train.py` |
+| `conditionToken` | Arc (5) and intent (6) one-hot vocabulary, `samplingProb=0.6` | `features.js`, `features.py`, `train.py` |
 
-All algorithm code checks enforce a "no magic numbers" rule: every numerical parameter must be read from `game_rules.json` or a database table, never hardcoded. Ten Architecture Decision Records (ADRs) document key technical choices, from bitmap encoding limits to WASM compilation targets.
+A project-wide **"no magic numbers" principle** is enforced: any numerical constant appearing in algorithm code must be read from `game_rules.json` or a database table. Code that hardcodes a value is rejected at code review. This ensures that all tuning, A/B experimentation, and difficulty calibration can be performed by modifying a JSON file—without touching code and without requiring a redeployment.
 
 ---
 
-## 5. Real-Time Player Profiling
+## 4. Real-Time Player Profiling
 
-### 5.1 Design Goals
+### 4.1 Design Constraints
 
-The player profiling system operates under three constraints: (1) it must run entirely in the browser with sub-millisecond overhead, (2) it must produce stable estimates from noisy, sparse observations, and (3) it must be interpretable—both to developers debugging spawn decisions and to players viewing their own ability metrics.
+The player profiling system operates under three binding constraints:
 
-### 5.2 Skill Estimation
+1. **Browser-only execution**: All computations must run in the browser with sub-millisecond overhead. No server round-trip, no neural inference engine, no WebAssembly dependency for the profiling core.
+2. **Stability from sparse data**: The system must produce stable estimates from noisy, sparse observations. A player may have only 5 placement events in their first game—the system must produce a reasonable skill estimate without overfitting.
+3. **Interpretability**: Both developers debugging spawn decisions and players viewing their own ability metrics must be able to understand what each number means and where it came from.
 
-Instantaneous raw skill is computed as a weighted combination of five behavioral signals:
+### 4.2 Skill Estimation
 
-$$
-r_t^{\text{skill}} = 0.15 \cdot \text{thinkScore} + 0.30 \cdot \text{clearScore} + 0.20 \cdot \text{comboScore} + 0.20 \cdot \text{missScore} + 0.15 \cdot \text{loadScore}
-$$
-
-where `thinkScore` captures decision speed, `clearScore` reflects clearing efficiency, `comboScore` tracks combo chain maintenance, `missScore` penalizes wasted placements, and `loadScore` accounts for cognitive load indicators.
-
-This raw score is smoothed via exponential moving average (EMA):
+Instantaneous raw skill is computed at each step as a weighted linear combination of five behavioral dimensions, each normalized to $[0,1]$:
 
 $$
-s_t = s_{t-1} + \alpha(r_t - s_{t-1})
+r_t^{\text{skill}} = 0.15 \cdot \tau_{\text{think}} + 0.30 \cdot \tau_{\text{clear}} + 0.20 \cdot \tau_{\text{combo}} + 0.20 \cdot \tau_{\text{miss}} + 0.15 \cdot \tau_{\text{load}}
 $$
 
-with an adaptive decay rate: α = 0.35 for the first 5 steps (rapid adaptation to new players) and α = 0.15 thereafter (stable tracking for experienced players).
+where:
 
-To capture longer-term skill trends while remaining responsive to recent performance, a historical fusion layer blends the current EMA with an exponentially-weighted historical average:
+| Component | Definition | Interpretation |
+|-----------|-----------|----------------|
+| $\tau_{\text{think}}$ | $1 - \min(1, \text{thinkMs} / 2000)$ | Decision speed: faster = higher skill |
+| $\tau_{\text{clear}}$ | $\min(1, \text{clears} / 3)$ | Clear efficiency per placement |
+| $\tau_{\text{combo}}$ | $\min(1, \text{comboCount} / 5)$ | Combo chain maintenance |
+| $\tau_{\text{miss}}$ | $1 - \text{wastedPlacementsRatio}$ | Placement efficiency (fewer "dead" placements) |
+| $\tau_{\text{load}}$ | $1 - \text{cognitiveLoadIndex}$ | Lower cognitive load = higher skill |
+
+This raw score is smoothed via exponentially-weighted moving average (EMA) with adaptive decay:
+
+$$
+s_t^{\text{skill}} = s_{t-1}^{\text{skill}} + \alpha \cdot (r_t^{\text{skill}} - s_{t-1}^{\text{skill}})
+$$
+
+$$
+\alpha = \begin{cases} 0.35 & \text{if steps\_this\_game} \leq 5 \\ 0.15 & \text{otherwise} \end{cases}
+$$
+
+The dual-rate design provides rapid adaptation for new and returning players (first 5 steps of each game) while maintaining stable tracking for experienced players in sustained play. The 0.15 steady-state rate means the EMA half-life is approximately $\ln(2)/0.15 \approx 4.6$ steps—adaptation is responsive but not jittery.
+
+**Historical fusion.** To capture longer-term skill trends while remaining responsive to recent performance, a historical fusion layer blends the current smoothed estimate with an exponentially-weighted historical average:
 
 $$
 \text{histSkill} = \frac{\sum_{i=1}^{n-1} 0.85^{n-1-i} \cdot \text{skill}_i}{\sum_{i=1}^{n-1} 0.85^{n-1-i}}
 $$
 
 $$
-\text{skillLevel} = (1 - w_{\text{hist}}) \cdot s_t + w_{\text{hist}} \cdot \text{histSkill}
+\text{skillLevel} = (1 - w_{\text{hist}}) \cdot s_t^{\text{skill}} + w_{\text{hist}} \cdot \text{histSkill}
 $$
 
-where $w_{\text{hist}} = (1 - w_{\text{smooth}}) \cdot \text{confidence}$, giving more weight to historical data when the current session has low confidence (e.g., very few steps observed).
+where $w_{\text{hist}} = (1 - w_{\text{smooth}}) \cdot \text{confidence}$. The confidence term reflects the reliability of the current session estimate: early sessions with few observations have low confidence and rely more on historical data; mature sessions with consistent behavior have high confidence and override stale history.
 
-### 5.3 Flow Detection
+### 4.3 Flow Detection
 
-Flow state—the optimal experience zone where challenge matches skill—is modeled after Csikszentmihalyi's flow theory. The flow deviation is:
-
-$$
-F(t) = \left|\frac{\text{boardPressure}}{\max(0.05, \text{skill})} - 1\right|
-$$
-
-where board pressure combines three factors:
+Flow state—the optimal experience zone where challenge approximately matches skill—is formalized after Csikszentmihalyi's flow theory:
 
 $$
-\text{boardPressure} = 0.45 \cdot \text{avgFill} + 0.35 \cdot \text{clearDeficit} + 0.2 \cdot \text{cogLoad}
+F(t) = \left|\frac{\text{boardPressure}(B_t)}{\max(0.05, \text{skillLevel})} - 1\right|
 $$
 
-The flow state is classified into a three-way taxonomy via a rule tree:
-
-- **Bored** ($F(t) < 0.9$): challenge is below skill; player needs more stimulation.
-- **Flow** ($0.9 \leq F(t) \leq 1.3$): challenge-skill balance is optimal.
-- **Anxious** ($F(t) > 1.3$): challenge exceeds skill; player needs relief or intervention.
-
-### 5.4 Frustration and Distress Tracking
-
-Frustration is tracked via a simple but effective metric: consecutive steps without achieving a line clear.
+The $0.05$ floor prevents division by zero for brand-new players. Board pressure is a composite of three factors:
 
 $$
-\text{frustrationLevel} = \text{consecutive\_no\_clear\_steps}
+\text{boardPressure} = 0.45 \cdot \text{fillRatio} + 0.35 \cdot \text{clearDeficit} + 0.20 \cdot \text{cogLoad}
 $$
 
-Thresholds trigger escalating interventions: at 3 steps (warning), the spawn engine may inject an easier block; at 4 steps (IAP hint), the monetization system may offer a rescue item; at 5 steps (rescue), intervention is mandatory.
+| Component | Channel Weight | Definition |
+|-----------|---------------|------------|
+| fillRatio | 0.45 | Occupancy ratio ($\text{filled} / 64$) |
+| clearDeficit | 0.35 | $1 - \text{clearRate}$, where $\text{clearRate} = \text{clears} / \text{placements}$ |
+| cogLoad | 0.20 | Normalized cognitive load from board topology complexity |
 
-The `distress` signal captures cumulative structural damage: holes (unfillable empty cells), transitions (row/column 0↔1 boundaries), and well depth all contribute to a composite distress metric that, when elevated, triggers spawn difficulty reduction even before frustration reaches threshold levels.
-
-### 5.5 Momentum and Streak
-
-Momentum captures the direction and rate of performance change:
-
-$$
-\Delta = \text{clearRate}(\text{recent\_window}) - \text{clearRate}(\text{baseline\_window})
-$$
+Flow state classification is performed by a rule tree:
 
 $$
-\text{momentum} = \text{clamp}(\Delta / 0.3, -1, 1)
+\text{flowState} = \begin{cases}
+\text{bored} & \text{if } F(t) < 0.9 \\
+\text{flow} & \text{if } 0.9 \leq F(t) \leq 1.3 \\
+\text{anxious} & \text{if } F(t) > 1.3
+\end{cases}
 $$
 
-Positive momentum (>0) indicates improving performance and can justify slightly increasing difficulty. Negative momentum (<0) triggers caution: the spawn engine may hold difficulty steady or reduce it, even if the player's absolute skill estimate hasn't changed.
+The asymmetry in the thresholds ($-0.1$ below vs $+0.3$ above) reflects an intentional design bias: it is safer to slightly under-challenge a player (boredom can be fixed with a harder dock) than to over-challenge them (anxiety leads to churn). The wider flow band on the upper side provides a buffer before the system classifies a player as anxious and triggers relief mechanisms.
 
-### 5.6 Lifecycle × Maturity Matrix (25-Grid)
+### 4.4 Frustration and Distress Tracking
 
-OpenBlock models each player along two orthogonal axes, creating a 5×5 differentiation grid:
+Frustration is tracked via consecutive no-clear steps:
 
-|  | S0 (New) | S1 (Active) | S2 (Plateau) | S3 (Churn) | S4 (Return) |
-|--|----------|-------------|--------------|------------|-------------|
-| **M4 (Expert)** | — | Full challenge | Maintain engagement | Re-engagement reward | Welcome-back bonus |
-| **M3 (Skilled)** | — | Graduated challenge | Plateau breaker | Churn prevention | Gentle re-onboarding |
-| **M2 (Intermediate)** | Accelerated ramp | Standard progression | Fresh content push | Retention offer | Tutorial refresher |
-| **M1 (Novice)** | Extended tutorial | Protected difficulty | Overwhelm guard | Comeback incentive | Full re-tutorial |
-| **M0 (Beginner)** | Maximum protection | Guided progression | Frustration shield | Rescue package | Complete restart |
+$$
+\text{frustrationLevel}_t = \begin{cases}
+\text{frustrationLevel}_{t-1} + 1 & \text{if no lines cleared at step } t \\
+0 & \text{if lines cleared at step } t
+\end{cases}
+$$
 
-**Lifecycle stages** (S0–S4) are derived from `daysSinceInstall`, `totalSessions`, and `daysSinceLastActive` via a three-way AND gate. **Maturity bands** (M0–M4) are derived from skill score percentile thresholds (≥90, ≥80, ≥60, ≥40, <40).
+Escalating thresholds trigger progressively stronger interventions:
 
-### 5.7 Offline Aggregate Profile (Player Analytics)
+| Level | Threshold | Intervention | Mechanism |
+|-------|-----------|-------------|-----------|
+| **Warning** | 3 | Spawn engine injects easier shape | `clearGuarantee +0.5`, `difficultyTarget −0.1` |
+| **IAP hint** | 4 | Monetization system offers rescue item | `iap/rescue_offer` trigger |
+| **Rescue** | 5 | Mandatory relief: spawn engine override | `clearGuarantee +2`, `warmMode = true` |
 
-Complementing the real-time profile, an offline aggregate analytics pipeline (`playerAnalytics`) consumes frame-level time series data to produce:
+**Distress signal.** While frustration captures short-term "stuckness," distress captures cumulative structural damage—the long-term degradation of board quality:
 
-- **Six-dimensional ability vector** with confidence bounds: topology management, scoring efficiency, execution speed, reaction adaptability, survival resilience, and performance consistency.
-- **Temporal traits**: trend (improving/declining), endurance (sustained performance), clutch (high-pressure performance boost).
-- **Spawn advice layer**: per-shape competence scores, comfort fill band range, topology weakness identification, and personalized relief/delight thresholds.
+$$
+\text{distress} = 0.4 \cdot \text{holes\_ratio} + 0.3 \cdot \text{transitions\_ratio} + 0.2 \cdot \text{wells\_ratio} + 0.1 \cdot \text{concave\_ratio}
+$$
 
-This offline profile serves as a cold-start prior for returning players and as a ground-truth reference for A/B test evaluation.
+Each component is normalized by its maximum expected value on an 8×8 grid. The `distress` signal modulates the `feedbackBias` damping mechanism (§6.6): when a player is clearing lines (positive `feedbackBias`) but accumulating structural damage (elevated `distress`), the system reduces the positive bias to prevent difficulty escalation on a structurally compromised board.
+
+### 4.5 Momentum and Streak Signals
+
+Momentum captures the direction and rate of performance change using a sliding window comparison:
+
+$$
+\Delta = \frac{\text{clears}_{\text{recent\_window}}}{\text{placements}_{\text{recent\_window}}} - \frac{\text{clears}_{\text{baseline\_window}}}{\text{placements}_{\text{baseline\_window}}}
+$$
+
+$$
+\text{momentum} = \text{clamp}\left(\frac{\Delta}{0.3}, -1, 1\right)
+$$
+
+The window sizes are configurable (defaults: recent = 8 placements, baseline = 24 placements). The 0.3 normalization constant maps a typical performance swing (30% change in clear rate) to momentum = ±1.
+
+**Run streak.** A between-game streak signal tracks the player's trajectory across multiple games:
+
+$$
+\text{runStreak}_g = \text{runStreak}_{g-1} + \text{sign}(\text{score}_g / \text{PB} - \text{streakThreshold})
+$$
+
+where `streakThreshold` is a configurable ratio (default: 0.6). A positive streak (sustained above-threshold performance) signals the spawn engine to gradually increase difficulty; a negative streak triggers the Warm Run protection system.
+
+### 4.6 Lifecycle × Maturity Matrix (25-Grid)
+
+OpenBlock models each player along two orthogonal axes, creating a 5×5 differentiation matrix:
+
+|  | **M4** (Expert ≥90th) | **M3** (Skilled ≥80th) | **M2** (Intermediate ≥60th) | **M1** (Novice ≥40th) | **M0** (Beginner <40th) |
+|---|------------|------------|------------|------------|----------|
+| **S0 (New)** | — | — | Accelerated ramp | Extended tutorial | Maximum protection |
+| **S1 (Active)** | Full challenge | Graduated challenge | Standard progression | Protected difficulty | Guided progression |
+| **S2 (Plateau)** | Maintain engagement | Plateau breaker | Fresh content push | Overwhelm guard | Frustration shield |
+| **S3 (Churn)** | Re-engagement reward | Churn prevention | Retention offer | Comeback incentive | Rescue package |
+| **S4 (Return)** | Welcome-back bonus | Gentle re-onboarding | Tutorial refresher | Full re-tutorial | Complete restart |
+
+**Lifecycle stage derivation:**
+
+$$
+\text{lifecycle} = f(\text{daysSinceInstall}, \text{totalSessions}, \text{daysSinceLastActive})
+$$
+
+This is a three-input AND gate: all three signals must agree on the stage classification. If signals conflict (e.g., `daysSinceInstall` suggests S0 but `totalSessions` suggests S2), the system defaults to the more conservative (more protective) classification.
+
+**Maturity band derivation:**
+
+$$
+\text{maturity} = g(\text{skillLevel}, \text{historical\_skill\_distribution})
+$$
+
+Skill scores are compared against the global player distribution, with thresholds at the 90th, 80th, 60th, and 40th percentiles. The maturity band is updated once per session (not per step) to prevent intra-game band flickering.
+
+### 4.7 Offline Aggregate Profile (Player Analytics)
+
+Complementing the real-time browser profile, an offline aggregate analytics pipeline (`playerAnalytics`) consumes frame-level time series data from `move_sequences.frames[].ps` to produce:
+
+**Six-dimensional ability vector with confidence bounds:**
+
+| Dimension | Definition | Confidence Metric |
+|-----------|-----------|------------------|
+| topology | Board structure management (avoiding holes, maintaining mobility) | Within-session variance |
+| scoring | Clear efficiency per placement | Session count |
+| execution | Placement speed and accuracy | Observation count |
+| reaction | Response to difficulty changes | Difficulty variation experienced |
+| survival | Longevity under adverse conditions | Distress exposure |
+| consistency | Performance stability across sessions | Cross-session variance |
+
+**Temporal traits:**
+- **Trend**: slope of the linear regression of skill over the last 10 sessions.
+- **Endurance**: ratio of late-session performance to early-session performance.
+- **Clutch**: performance differential when score > 80% PB vs. baseline.
+
+**Spawn advice layer:**
+- `shapeCompetence`: per-shape-category clear rates, used to bias the spawn weight chain.
+- `comfortFillBand`: the fill ratio range where the player performs best.
+- `topologyForm.weakness`: board topology patterns (e.g., many wells, high transitions) associated with poor outcomes.
+- Personalized `relief` and `delight` thresholds: at what frustration level does this specific player respond to intervention?
+
+This offline profile complements the real-time system: the real-time profile drives per-frame spawn decisions, while the offline profile provides session-level and cross-session context for personalization, cohort analysis, and cold-start priors.
 
 ---
 
-## 6. The Spawn Engine: Programmatic Content Generation
+## 5. The Spawn Engine: Programmatic Content Generation
 
-### 6.1 Design Space and Constraints
+### 5.1 Design Space and Constraints
 
-The spawn engine must select 3 polyomino pieces from a 28-shape catalog given an 8×8 board with up to 64 occupied cells. The combinatorial space is vast: 28³ = 21,952 possible triplets before considering positional constraints. The engine must balance four competing objectives:
+The spawn engine must select 3 polyomino pieces from a catalog of 28 shapes given an 8×8 board with up to 64 occupied cells. The raw combinatorial space is $28^3 = 21,\!952$ possible triplets, but this is dwarfed by the state-dependent constraints: each shape only has legal placements in a subset of board positions, and the three shapes must be jointly sequentially feasible. The engine must balance four competing objectives:
 
-1. **Solvability**: every dock must be fully placeable (hard constraint via DFS verification).
-2. **Engagement**: pieces should create clear opportunities to sustain motivation.
-3. **Challenge calibration**: difficulty should match the player's current skill state.
-4. **Delight**: occasional "lucky breaks" (perfect clears, icon bonuses) should feel earned.
+1. **Solvability**: every delivered dock must be fully placeable (hard constraint, verified by DFS).
+2. **Engagement**: pieces should create clear opportunities to sustain the core satisfaction loop.
+3. **Challenge calibration**: difficulty should track the player's current skill-flow state.
+4. **Delight**: occasional high-reward combinations (multi-clears, icon bonuses, perfect clears) should feel earned, not random.
 
-### 6.2 Dual-Track Architecture
+### 5.2 Dual-Track Architecture
 
 ```
-                    ┌─────────────────────┐
-    Board + Context │  buildSpawnModel-   │
-    + Player Profile│     Context()       │
-                    └─────────┬───────────┘
+                        ┌─────────────────────────┐
+    Board + Context +   │   buildSpawnModelContext │
+    Player Profile      │   ()                     │
+                        └────────────┬────────────┘
+                                     │
+                  ┌──────────────────┴──────────────────┐
+                  ↓                                      ↓
+    ┌──────────────────────────┐          ┌──────────────────────────┐
+    │ Track 1: Rule (默认)     │          │ Track 2: Neural (可选)    │
+    │ ─────────────────────── │          │ ─────────────────────── │
+    │ SpawnPolicyRules         │          │ SpawnPolicyNet           │
+    │ blockSpawn.js            │          │ spawnModel.js            │
+    │ ─────────────────────── │          │ ─────────────────────── │
+    │ 9-layer pipeline         │          │ Transformer AR encoder   │
+    │ 14-dim weight chain      │          │ 3×28 autoregressive heads│
+    │ Constructive pre-scan    │          │ 5 auxiliary heads        │
+    │ Two-stage fill           │          │ ~317K parameters         │
+    │ 22 retry × fallback      │          │ LoRA r=4 personalization │
+    │ Latency: <5ms (browser)  │          │ Latency: 4-8ms (server)  │
+    │ Availability: 100%       │          │ Availability: best-effort │
+    └────────────┬─────────────┘          └────────────┬─────────────┘
+                 │                                     │
+                 └──────────────┬──────────────────────┘
+                                ↓
+                 ┌──────────────────────────┐
+                 │  Constraint Validation    │
+                 │  Gate                     │
+                 │  ─────────────────────── │
+                 │ ① Shape uniqueness       │
+                 │ ② Mobility ≥ min target  │
+                 │ ③ DFS sequential feas.   │
+                 └────────────┬─────────────┘
                               │
-              ┌───────────────┴───────────────┐
-              ↓                               ↓
-    ┌─────────────────────┐       ┌─────────────────────┐
-    │ Track 1: Rule (默认) │       │ Track 2: Neural (可选) │
-    │ SpawnPolicyRules     │       │ SpawnPolicyNet       │
-    │ blockSpawn.js        │       │ spawnModel.js        │
-    │ 9-layer pipeline     │       │ Transformer AR       │
-    │ 14-dim weight chain  │       │ ~317K params         │
-    └─────────┬───────────┘       └─────────┬───────────┘
-              │                             │
-              └──────────┬──────────────────┘
-                         ↓
-              ┌─────────────────────┐
-              │  Constraint         │
-              │  Validation Gate    │
-              │  · Sequential feas  │
-              │  · Mobility guard   │
-              │  · Shape uniqueness │
-              └─────────┬───────────┘
-                        │
-              ┌─────────┴───────────┐
-              ↓                     ↓
-         Pass → Deliver        Fail → Retry (×22)
-              to Dock                 or Fallback
+                    ┌─────────┴─────────┐
+                    ↓                   ↓
+              Pass → Deliver      Fail → Retry (×22)
+                    to Dock              or fallback_simple
 ```
 
-**Track 1** (`SpawnPolicyRules`) is the default, always-available path. It runs entirely in the browser with sub-5ms latency and is fully explainable—every weight, every decision, every constraint check is logged. **Track 2** (`SpawnPolicyNet`) is an optional neural alternative that learns to predict `P(s₁, s₂, s₃ | board, context, history)` from real player replay data. Its output passes through the same constraint validation gate as Track 1; if validation fails, the system automatically falls back to Track 1.
+**Design rationale for dual-track:**
+- Track 1 (rule) is the **always-available safety net**. It runs entirely in the browser with sub-5ms latency, is fully deterministic and explainable, and has zero external dependencies. It is the default path and the guaranteed fallback.
+- Track 2 (neural) is the **asymmetric upside**. It learns distributions from data that the rule engine's hand-tuned weights cannot express. Its output is validated by the same constraint gate as Track 1; any failure triggers automatic, transparent fallback. This means the neural track can never produce *worse* output than the rule track (worst case: fallback), but can produce *better* output when it has learned useful patterns.
 
-Both tracks consume the same context object (`buildSpawnModelContext()`), which includes difficulty mode, ability vector, player profile real-time state, board topology, in-game rhythm, between-game arc, recent spawn history, and rule-track spawn hints.
+Both tracks consume the same context object (`buildSpawnModelContext()`), which includes: difficulty mode, ability vector (6-dim), player profile snapshot (skill, flow, frustration, momentum), board topology, in-game rhythm signals, between-game arc parameters, recent spawn history, and rule-track spawn hints.
 
-### 6.3 The Nine-Layer Generation Pipeline
+### 5.3 The Nine-Layer Generation Pipeline
 
-The rule-track engine (`generateDockShapes` in `blockSpawn.js`) is organized as a sequential nine-layer pipeline. Each layer addresses a specific, well-defined sub-problem:
+The rule-track engine (`generateDockShapes` in `blockSpawn.js`) decomposes the monolithic spawn problem into nine sequentially composed layers. Each layer addresses a specific, well-defined sub-problem, reads from a specific section of `game_rules.json`, and produces structured output consumed by the next layer:
 
-**Layer 1: Input Assembly.** Aggregates board state, player profile, spawn context (recent history, difficulty targets), and the current spawn intent into a unified context object.
+#### Layer 1: Input Assembly
 
-**Layer 2: Board Perception.** Extracts geometric and topological features using `analyzeBoardTopology`: fill ratio, row/column statistics, hole count (unfillable empty cells), row/column transitions (0↔1 boundaries), well depth, contiguous empty regions, and concave corners. Also computes spatial planning features (region entropy, largest region ratio, small region ratio).
+**Inputs consumed**: Board state `B_t`, player profile `π_t`, spawn context `ctx_t` (recent history, difficulty targets, arc phase), spawn intent `I_t`.
 
-**Layer 3: Score Construction.** Fuses 17 signals into composite scores: density pressure (SCD = total block cells ÷ free cells), board difficulty, placement flexibility (count of legal positions), solution count (bounded DFS), killer-shape pressure (large or long-bar pieces with few placements), and spatial fragmentation (region entropy + small region ratio). The weighted composite produces a `spawnStepDifficulty` in [0,1], classified into 5 buckets: trivial / easy / standard / hard / extreme.
+**Processing**: Aggregates heterogeneous inputs into a unified `SpawnModelContext` object. This includes normalizing all inputs to consistent scales (e.g., `difficultyTarget ∈ [0,1]`, `fillRatio ∈ [0,1]`) and computing derived signals (e.g., `crowding` from fill + contiguous_regions + transitions).
 
-**Layer 4: Priority Selection.** The 10-intent priority scheduler selects a `shapeWeights` bias profile and a `clearGuarantee` quota based on the current spawn intent:
+**Output**: `ctx` object with all inputs validated and normalized.
 
-| Priority | Intent | clearGuarantee | Shape Bias |
-|----------|--------|----------------|------------|
-| 115 | `warm_run` | 2 | Easy blocks, flush clears |
-| 102 | `pb_chase` | 1 | Slightly harder, PB-relevant |
-| 100 | `relief` | 2 | Stress relief, easy blocks |
-| 95 | `delight_starved` | 1 | Multi-clear, icon bonuses |
-| 90 | `engage` | 1 | Balanced with variety |
-| 80 | `harvest` | 0 | Efficiency-optimized |
-| 70 | `pressure` | 0 | Graduated challenge |
-| 60 | `sprint` | 0 | Speed-oriented shapes |
-| 50 | `flow` | 0 | Standard distribution |
-| 0 | `maintain` | 0 | Pure random weighted |
+#### Layer 2: Board Perception
 
-**Layer 5: Weighted Completion.** A 14-dimensional weight chain drives two-stage constructive filling:
+**Analysis functions called**:
+- `analyzeBoardTopology(grid)`: returns fill ratio, row/column extremes, hole count (unfillable empty cells), row/col transitions (0↔1 boundary counts), well depth sum, close-to-full line counts (1 cell away, 2 cells away), mobility (total legal positions across all shapes), contiguous empty regions (4-connected components), concave corners count. All features are computed in O(n²) where n = 8 for the standard grid.
+- `spatialPlanningFeatures(grid)`: returns regionEntropy (diversity of empty region sizes), largestRegionRatio (largest connected empty region / total empty cells), smallRegionCellRatio (small isolated empty regions / total empty cells). These three features quantify the *fragmentation* of the remaining empty space—a critical indicator of whether long-bar shapes can still fit.
+- `colorSummary(grid, dock)`: returns per-color occupancy ratios and single-color-line potentials (rows/columns where all occupied cells share the same color).
 
-- **Shape base weights (12 dimensions)**: `gapFills`, `multiClear`, `holeReduce`, `mobility`, `salvage`, `pcPotential`, `clearGuarantee`, `comboFwd`, `diversity`, `novelty`, `stressBalance`, `monoTarget`. Each weight amplifies or attenuates the selection probability of shapes that serve that objective.
-- **Enhancement layer (2 dimensions)**: `delightBoost` (amplified when the player is "delight-starved"—hasn't experienced a satisfying multi-clear recently) and `stressOverride` (caps difficulty when the player's stress is elevated).
+**Output**: Topology vector (holes, transitions, wells, close1, close2, mobility, fill, contiguous_regions, concave_corners), spatial planning vector (3-dim), color summary vector (19-dim).
 
-The two stages of construction are:
-1. **Stage 1 (clearSeats)**: If `clearGuarantee > 0`, the engine pre-allocates 1–2 dock slots for shapes that can immediately clear at least one line.
-2. **Stage 2 (weightedFill)**: Remaining slots are filled by weighted sampling from the augmented shape pool.
+#### Layer 3: Score Construction
 
-**Layer 6: Constraint Verification.** Three sequential gates:
-1. **Shape uniqueness**: no duplicate shape IDs.
-2. **Mobility check**: total legal positions ≥ `minMobilityTarget`.
-3. **DFS sequential feasibility**: a bounded depth-first search explores all placement orderings to confirm the full dock is placeable. Budget: 200 nodes; leaf cap: 1 (binary pass/fail).
+**Fusion of 17 signals** into a composite spawn step difficulty (SCD) score:
 
-**Layer 7: Injection Optimization.** Special event blocks (e.g., flush-clear pieces, icon-matched chains) are inserted when conditions align, overwriting regular weighted selections. These injections are gated to prevent excessive frequency: a `constructiveRetry` counter ensures failed injections don't cascade, and a `retryBoost` (+0.25 probability on next attempt) provides a grace window.
+$$
+\text{SCD} = \frac{\sum_{j=1}^{17} w_j \cdot s_j}{\sum w_j}
+$$
 
-**Layer 8: Output Delivery.** The final triplet is confirmed, and diagnostic metadata—including the spawn intent, difficulty metrics, constructive pre-scan results, and constraint check outcomes—is attached to the spawn context for downstream consumers (panels, analytics, replay).
+The 17 signals are grouped into six categories, each with configurable weights:
 
-**Layer 9: Color Display.** Color weights are assigned using `monoNearFullLineColorWeights`, which scans rows and columns that are 1–2 cells from completion and amplifies the sampling weight of colors that match the existing cells in those near-complete lines. This creates "icon bonus" opportunities without compromising the shape selection.
+| Category | Weight | Signals |
+|----------|--------|---------|
+| scd (density) | 0.26 | Total block cells / free cells, normalized by saturation point |
+| board (topology) | 0.18 | Board difficulty from topology features |
+| flexibility | 0.18 | Mobility inverse (1 − placements/max), minimum flexibility across dock blocks |
+| solution | 0.13 | DFS solution count (or 0 if truncated at budget) |
+| killer | 0.13 | (killerCount + longBarCount × 0.5) / 3, where killer shapes are large (≥5 cells) or long-bars with low placement counts |
+| fragmentation | 0.12 | regionEntropy × 0.6 + smallRegionCellRatio × 0.4 |
 
-### 6.4 Constructive Pre-Scan (C1/C2/C3)
+**Bucket classification:**
 
-Before weighted completion (Layer 5), the engine runs a constructive pre-scan that examines the current board for structural opportunities:
+$$
+\text{bucket}(SCD) = \begin{cases}
+\text{trivial} & SCD \leq 0.2 \\
+\text{easy} & 0.2 < SCD \leq 0.4 \\
+\text{standard} & 0.4 < SCD \leq 0.6 \\
+\text{hard} & 0.6 < SCD \leq 0.8 \\
+\text{extreme} & SCD > 0.8
+\end{cases}
+$$
 
-- **C1 (Completer)**: Identifies rows or columns that are one cell away from being full. If such near-complete lines exist, the engine biases shape selection toward pieces that can fill the missing cell(s).
-- **C2 (Setup)**: Identifies configurations where placing a specific shape creates a *future* near-complete line—even if the placement itself doesn't clear anything. This is the engine "thinking ahead" one step.
-- **C3 (Order Anchor)**: When multiple constructive opportunities exist, C3 determines the optimal ordering for the three dock slots to maximize the probability of at least one clear event.
+#### Layer 4: Priority Selection
 
-Between stages, a **PEOG clamp** (Placement Efficiency and Operator Guard) restricts the constructive operator candidate set to prevent the engine from over-committing to complex constructions that might fail under time pressure.
+The 10-intent priority scheduler maps the current `spawnIntent` to concrete shape selection parameters:
 
-### 6.5 Between-Game Difficulty (RoR)
+| Priority | Intent | `clearGuarantee` | Shape Pool Bias | Size Preference |
+|----------|--------|-----------------|-----------------|-----------------|
+| 115 | `warm_run` | 2–3 | Easy blocks (squares, small lines), flush-clears | Small preferred |
+| 102 | `pb_chase` | 1 | Slightly harder, PB-relevant (large clears) | Large preferred |
+| 100 | `relief` | 2 | Stress-relieving (easy to place, high mobility) | Small preferred |
+| 95 | `delight_starved` | 1 | Multi-clear opportunities, icon-bonus chains | Mixed |
+| 90 | `engage` | 1 | Balanced with high variety | Mixed |
+| 80 | `harvest` | 0–1 | Efficiency-optimized, combo-sustaining | Medium preferred |
+| 70 | `pressure` | 0 | Graduated challenge, deliberate difficulty | Large allowed |
+| 60 | `sprint` | 0 | Speed-oriented, simple shapes | Small preferred |
+| 50 | `flow` | 0 | Standard weighted distribution | Neutral |
+| 0 | `maintain` | 0 | Pure random weighted, no bias | Neutral |
 
-Between individual games, difficulty progression is modulated by the **Rate of Return (RoR)** system. The player's current session arc (5 levels: opener, momentum, peak, fatigue, cooldown) determines the baseline difficulty trajectory. A humped curve models the expected rise and fall of performance within a session:
+The `clearGuarantee` parameter determines how many dock slots (out of 3) are pre-allocated for shapes that can immediately clear at least one line. A value of 2 means the engine will try to fill 2 of the 3 dock slots with clearing shapes before filling the remainder via weighted sampling.
+
+#### Layer 5: Weighted Completion
+
+A 14-dimensional weight chain drives two-stage constructive filling. Each weight amplifies or attenuates the sampling probability of shapes that serve the corresponding objective:
+
+**Shape base weights (12 dimensions)**:
+
+| Weight | Range | Effect of Higher Value |
+|--------|-------|----------------------|
+| `gapFills` | [0, 2] | Prefer shapes that can fill 1-cell gaps in near-complete lines |
+| `multiClear` | [0, 3] | Prefer shapes likely to clear ≥2 lines simultaneously |
+| `holeReduce` | [0, 2] | Prefer shapes whose placement reduces unfillable hole count |
+| `mobility` | [0, 2] | Prefer shapes that leave high post-placement mobility |
+| `salvage` | [0, 1.5] | Prefer shapes viable when total mobility is critically low |
+| `pcPotential` | [0, 2] | Prefer shapes that increase perfect-clear probability |
+| `clearGuarantee` | [0, 2] | Directly amplify clearing shapes when guarantee quota is active |
+| `comboFwd` | [0, 1.5] | Prefer shapes that sustain or extend combo chains |
+| `diversity` | [0, 1.5] | Penalize shapes from over-represented categories |
+| `novelty` | [0, 1] | Penalize shapes recently seen in the player's history |
+| `stressBalance` | [0, 2] | Modulate weights based on stress level |
+| `monoTarget` | [0, 2] | Prefer shapes that match the dominant color on near-complete lines |
+
+**Enhancement layer (2 dimensions)**:
+
+| Weight | Effect |
+|--------|--------|
+| `delightBoost` | Amplified when `isDelightStarved = true` (player hasn't experienced a satisfying multi-clear or icon bonus recently). Multiplies the `multiClear`, `pcPotential`, and `gapFills` weights by up to 1.5×. |
+| `stressOverride` | Clamps the maximum SCD of generated triplets when `stress` exceeds configurable thresholds. Overrides `clearGuarantee` quota if necessary. |
+
+**Two-stage constructive fill:**
+
+```
+function weighted_completion(ctx, intent, clearGuarantee, shapeWeights):
+    dock ← [null, null, null]
+    
+    # Stage 1: Clear seats (guaranteed clearing shapes)
+    clear_seats ← min(clearGuarantee, 3)
+    clearing_shapes ← select_shapes_with_clear_potential(board, ctx)
+    for i in 1..clear_seats:
+        if clearing_shapes not empty:
+            dock[i] ← weighted_sample(clearing_shapes, shapeWeights)
+    
+    # Stage 2: Weighted fill (remaining slots)
+    remaining_slots ← indices where dock is null
+    augmented_pool ← all_shapes × enhance_weights(shapeWeights)
+    for slot in remaining_slots:
+        candidate ← weighted_sample(augmented_pool, shapeWeights)
+        if candidate != any(dock[0..slot-1]):  # uniqueness check
+            dock[slot] ← candidate
+        else:
+            retry with different random seed
+    
+    return dock
+```
+
+**Constructive pre-scan (C1/C2/C3)** runs during weighted completion. Before sampling, the engine examines the current board:
+
+- **C1 (Completer)**: Scans for rows or columns exactly one cell from completion. If found, amplifies the weight of shapes that can fill the missing cell. The amplification factor is proportional to the number of completable lines the shape would finish.
+- **C2 (Setup)**: Scans for configurations where placing a specific shape creates a *future* near-complete line—even if the placement itself clears nothing. This is effectively one-step lookahead: "if I place shape X here, it won't clear now, but it will create a situation where shape Y could clear next turn." C2 operates on a limited search budget (~50 shape × position evaluations).
+- **C3 (Order Anchor)**: When multiple constructive opportunities exist, C3 determines the optimal ordering for the three dock slots. It evaluates each ordering by: (a) expected total clears across the three placements, and (b) post-dock board topology quality (holes, mobility). The ordering with the best composite score becomes the final triplet.
+
+Between stages, a **PEOG clamp** (Placement Efficiency and Operator Guard) restricts the constructive operator candidate set. PEOG prevents the engine from selecting overly complex constructions that require a specific sequence of placements to work—constructions that might be theoretically optimal but practically frustrating for a human player. The clamp limits the maximum number of constructive operators to 2 (out of 3 possible), ensuring at least one slot is always a "natural" (unconstructed) choice.
+
+#### Layer 6: Constraint Verification
+
+Three sequential gates, any failure triggers retry:
+
+**Gate 1: Shape uniqueness.**
+$$
+s_1 \neq s_2 \neq s_3
+$$
+
+Trivial O(1) check. Violation: duplicates in dock.
+
+**Gate 2: Mobility check.**
+$$
+M(B_t, \{s_1, s_2, s_3\}) = \sum_{k=1}^{3} |\text{legal\_positions}(B_t, s_k)| \geq M_{\min}
+$$
+
+where $M_{\min}$ is a function of fill ratio: $M_{\min} = 10$ at low fill, linearly decreasing to $M_{\min} = 3$ at fill ≥ 0.75. This prevents the system from delivering a dock where the player has only 1–2 total legal moves, which feels unfair.
+
+**Gate 3: DFS sequential feasibility.** As described in §2.4. Budget: 200 nodes, leaf cap: 1 (binary pass/fail). This is the most expensive check (~50–200ms when the board is difficult) and the ultimate guarantee of playability.
+
+#### Layer 7: Injection Optimization
+
+Special event blocks are injected when conditions align. These overwrite regular weighted selections only after passing the same constraint gates:
+
+- **Flush-clear injection**: When the player is `delight_starved` and the board has a near-complete line that can be filled by a specific shape, that shape is injected into the dock (probability modulated by `delightBoost`).
+- **Icon-bonus injection**: When a row/column has ≥6 cells of the same color and is 1–2 cells from completion, a shape matching the dominant color with a compatible footprint is injected.
+- **Perfect-clear injection**: When the board fill is ≤50% and the current pieces could theoretically clear the entire board in 3 placements (estimated by heuristic), the engine amplifies `pcPotential` weights and may inject a shape that maximizes clear probability.
+
+Injections are rate-limited: a `constructiveRetry` counter tracks consecutive failed injections (where the injected shape was provided but the player couldn't capitalize), and after 2 consecutive failures, injection probability is halved for the next 3 rounds.
+
+#### Layer 8: Output Delivery
+
+The final triplet is confirmed. Diagnostic metadata is attached to the spawn context:
+- `spawnIntent` and priority level
+- `spawnDifficulty` (SCD) and its bucket
+- Which slots were filled by clearSeats vs. weightedFill
+- Which constructive operators fired (C1/C2/C3)
+- Constraint check outcomes (all three gates, with failure reasons if any)
+- The full 14-dimensional weight vector used for this spawn
+
+#### Layer 9: Color Display
+
+Color assignment is decoupled from shape selection (by design). The function `monoNearFullLineColorWeights(grid)` scans rows and columns that are 1–2 cells from completion, identifies the dominant color among existing cells, and amplifies the sampling weight for shapes of that color. This creates icon-bonus opportunities without compromising the shape selection: the shape chosen by layers 1–8 determines the geometry; layer 9 determines the surface color.
+
+Color weights are attenuated by a configurable `iconBonusTarget` parameter (default: 0.3), which controls how aggressively the system biases toward icon-matching. Higher values create more icon bonuses but may feel manipulative; lower values create a more natural distribution.
+
+### 5.4 Between-Game Difficulty (RoR — Rate of Return)
+
+Between individual games, difficulty progression is modulated by the Rate of Return (RoR) system. The player's current arc stage determines the baseline difficulty trajectory:
+
+**Arc stage derivation:**
+
+| Arc | Derivation | Difficulty Modulation |
+|-----|-----------|----------------------|
+| **Opener** | First 1–2 games of session | `d*_base × 0.7` (warm-up) |
+| **Momentum** | Games 3–8, performance improving | `d*_base × 1.0` (standard) |
+| **Peak** | Games 9–15, best performance | `d*_base × 1.15` (challenge) |
+| **Fatigue** | Games 16+, performance declining | `d*_base × 0.85` (wind-down) |
+| **Cooldown** | Session ended; next session starts | Reset to Opener |
+
+**Humped difficulty curve within a session:**
 
 $$
 d^*(n) = d_{\text{base}} \cdot \left(1 + h \cdot \frac{n}{N} \cdot \left(1 - \frac{n}{N}\right)\right)
 $$
 
-where *n* is the current game number in the session, *N* is the expected session length, and *h* is the hump height (configurable per arc stage).
+where $n$ is the current game number in the session, $N$ is the expected session length (estimated from historical data), and $h$ is the hump height (configurable per arc stage: 0.15 for momentum, 0.25 for peak, 0.10 for fatigue).
 
-A 5×5×5 cubic modulation matrix (arc × session offset × PB ratio) enables fine-grained difficulty targeting. For example, a player in the "momentum" arc, at their 5th game, 30% below their PB, receives a different difficulty profile than the same player in "fatigue" at their 20th game, at 90% of PB.
+**5×5×5 cubic modulation matrix.** Fine-grained difficulty targeting uses a three-dimensional lookup indexed by arc stage (5 levels), session offset (5 quantized positions within the arc), and PB ratio (5 buckets: <0.3, 0.3–0.6, 0.6–0.8, 0.8–0.95, ≥0.95 of PB). This produces 125 distinct difficulty profiles, each with its own `d*_base` and shape weight adjustments.
 
-### 6.6 Spawn Step Difficulty (SCD) Metrics
+### 5.5 Spawn Step Difficulty Metrics
 
-At each spawn decision, a lightweight, deterministic SCD computation runs:
+At each spawn decision, the SCD computation produces a 4-dimensional feature vector (extended to 12 dimensions for RL auxiliary supervision):
 
-```
-scdNorm         = total_block_cells / (free_cells + ε) / scdSaturation
-comboCellsNorm  = total_block_cells / comboCellsNorm(15)
-comboKillerNorm = count(shapes that are large or long-bar) / dockSlots(3)
-comboLongBarNorm = count(shapes that are 1×4 or longer) / dockSlots(3)
-```
+**Original 4 dimensions** (used in state features and spawn tuning):
 
-These four features are all computable in O(shapes) time without any board scanning beyond the existing `fast_board_features`, making them suitable for MCTS hot-path invocation. They are concatenated into the RL state vector and serve as auxiliary supervision targets.
+| Index | Name | Formula | Range |
+|-------|------|---------|-------|
+| 0 | `scdNorm` | $\text{clamp}_{[0,1]}(\text{scd} / \text{scdSaturation})$, where $\text{scd} = \sum \text{cells}(s_k) / (\text{free\_cells} + \varepsilon)$ | [0,1] |
+| 1 | `comboCellsNorm` | $\text{clamp}_{[0,1]}(\sum \text{cells}(s_k) / \text{comboCellsNorm})$, default norm = 15 | [0,1] |
+| 2 | `comboKillerNorm` | $\text{clamp}_{[0,1]}(\text{killer\_count} / \text{dockSlots})$ | [0,1] |
+| 3 | `comboLongBarNorm` | $\text{clamp}_{[0,1]}(\text{long\_bar\_count} / \text{dockSlots})$ | [0,1] |
 
-For the RL training auxiliary head (v13), an additional 8 dimensions of **per-shape placeability** are appended: for eight fixed representative shapes (1×4, 4×1, 1×5, 5×1, 2×2, 3×3, T-up, L3-a), the normalized legal position count `len(get_legal_positions(board, shape)) / theoretical_max` is computed. These 8 dimensions directly quantify the "long-bar bottleneck"—the empirically verified observation that 1×4 and 1×5 pieces lose 33–56% of their legal positions at ≥70% board fill rate, making them the primary cause of late-game death.
+**v13 extension: 8 per-shape placeability dimensions:**
 
-### 6.7 Guard Rails and Fallback
+| Index | Shape | Normalization Denominator | Theoretical Max Positions |
+|-------|-------|--------------------------|--------------------------|
+| 4 | 1×4 | 40 | (8−1+1)×(8−4+1) = 8×5 |
+| 5 | 4×1 | 40 | (8−4+1)×(8−1+1) = 5×8 |
+| 6 | 1×5 | 32 | (8−1+1)×(8−5+1) = 8×4 |
+| 7 | 5×1 | 32 | (8−5+1)×(8−1+1) = 4×8 |
+| 8 | 2×2 | 49 | (8−2+1)×(8−2+1) = 7×7 |
+| 9 | 3×3 | 36 | (8−3+1)×(8−3+1) = 6×6 |
+| 10 | T-up | 42 | (8−2+1)×(8−3+1) = 7×6 |
+| 11 | L3-a | 49 | (8−2+1)×(8−2+1) = 7×7 |
 
-The spawn engine includes multiple layers of protection:
+Each placeability dimension is computed as $\text{clamp}_{[0,1]}(\text{len}(\text{get\_legal\_positions}(B_t, \text{shape})) / \text{norm})$. The eight fixed shapes cover the four long-bar pieces (the primary bottleneck), two square pieces (baseline), and two complex pieces (T and L, the most commonly appearing non-line shapes). Computational cost: ~0.16ms with Numba JIT (8 calls to the vectorized legal position kernel).
 
-1. **22 retry attempts**: Each retry re-executes the full two-stage construction with different random seeds. If all attempts fail the constraint verification gate, the system falls back to `fallback_simple`.
-2. **`fallback_simple`**: A simplified path that uniformly randomly samples shapes until a feasible triplet is found. This guarantees a playable dock even in worst-case board states.
-3. **Warm Run clamping**: For new (S0), returning (S4), and struggling (high distress) players, a post-hoc override (`applyWarmRun`) adjusts shape weights to prioritize easy-to-place, high-clear-potential pieces. The warm budget gradually decays over the session to prevent dependency.
-4. **Overload protection**: When board fill rate exceeds 70%, the difficulty target is automatically reduced by up to 0.2 to prevent the "unplaceable long-bar" death spiral.
+### 5.6 Guard Rails and Fallback
+
+Multiple layers of protection guarantee that every delivered dock is playable:
+
+1. **22 retry attempts** ($\text{MAX\_SPAWN\_ATTEMPTS} = 22$): Each retry re-executes the full two-stage construction with a different random seed. The high retry count is feasible because the constraint gate (specifically the DFS check) is the expensive step; the weighted construction is fast (~0.5ms). In practice, over 99.9% of docks pass within 3 attempts; the 22-retry budget is a safety margin for edge-case board states.
+2. **`fallback_simple`**: If all 22 retries fail, a simplified path uniformly randomly samples shapes from the full catalog until a feasible triplet is found. This path has no difficulty targeting or constructive optimization—it is a pure safety net that guarantees a playable dock.
+3. **Warm Run clamping** (`applyWarmRun`): For new (S0), returning (S4), and distressed players, a post-hoc override adjusts the shape weights: `easyWeights` (squares, short lines, small rects) are amplified by 1.5–2.0×, and `hardWeights` (long bars, large rects, J-shapes) are attenuated by 0.3–0.5×. The warm budget decays over the session: `warmBudget_g = warmBudget_{g-1} × 0.85 − warmCost_g`, terminating when budget reaches zero.
+4. **Overload protection**: When fill ratio exceeds 0.70, the difficulty target `d*` is automatically reduced by up to 0.20, proportionally to $(fill - 0.70) / 0.30$. This addresses the long-bar bottleneck directly: at fill ≥0.70, the system recognizes that long bars are becoming unplaceable and reduces difficulty to avoid generating impossible triplets.
 
 ---
 
-## 7. Scoring, Placement Quality, and Evaluation
+## 6. Scoring, Placement Quality, and Evaluation
 
-### 7.1 Clear Scoring Formula
+### 6.1 Clear Scoring Formula
 
-The scoring system uses a quadratic formula that strongly rewards multiple simultaneous clears:
+OpenBlock's scoring system uses a quadratic formula that strongly rewards multiple simultaneous clears:
+
+**Base score:**
+$$
+\text{score}_{\text{base}} = 20 \cdot c^2
+$$
+
+where $c = \text{rows\_cleared} + \text{columns\_cleared}$, with $0 \leq c \leq 6$ (maximum: 3 rows + 3 columns on an 8×8 grid). The quadratic scaling creates strong non-linearity: a single-line clear (c=1) earns 20 points, while a triple-line clear (c=3) earns 180 points—9× the reward for 3× the effort.
+
+**Icon bonus.** If any cleared row or column consists entirely of blocks sharing the same icon (color), those lines earn a multiplier:
 
 $$
-\text{score} = \text{baseUnit} \cdot c^2
+\text{iconBonus} = 10 \cdot c \cdot (\text{iconBonusLineMult} - 1) \cdot b
 $$
 
-where $c$ = rows cleared + columns cleared in the placement. The base unit defaults to 20 points. This quadratic scaling means a single-line clear earns 20 points, while a 3-line clear earns 180 points (9× rather than 3× the single-line value).
+where $b$ is the number of icon-matched lines and $\text{iconBonusLineMult} = 5$ by default. This rewards strategic placement toward color homogeneity.
 
-**Icon Bonus.** If any cleared row or column consists entirely of blocks sharing the same icon or color, those lines earn a multiplier: $\text{lineScore} = \text{baseUnit} \cdot c \cdot \text{iconBonusLineMult} \cdot b$, where $b$ is the number of icon-matched lines. This rewards strategic placement toward icon homogeneity.
+**Perfect clear bonus.** If every cell on the board becomes empty after clearing:
 
-**Perfect Clear.** If the board becomes completely empty after clearing (all 64 cells are vacant), the score is multiplied by $\text{perfectClearMult} = 10$, creating a high-risk, high-reward target for skilled players.
+$$
+\text{perfectMult} = 10
+$$
 
-**Combo Multiplier.** Consecutive placements that clear lines increment a combo counter. The combo continues as long as the gap between clear events is less than the grace window (default: 3 placements). The multiplier is:
+This high multiplier (10×) creates a compelling risk-reward dynamic: attempting a perfect clear risks wasting placements on suboptimal positions, but succeeding yields an outsized score boost.
+
+**Combo multiplier.** Consecutive clear placements increment a combo counter, with a grace window of 3 non-clearing placements before the combo resets:
 
 $$
 m_{\text{combo}} = \min(m_{\text{max}}, 1 + \max(0, \text{comboCount} - \text{activationCount} + 1) \cdot \text{stepBonus})
 $$
 
-with default parameters: activationCount = 3, stepBonus = 0.0, maxMultiplier = 1.0. This allows future configuration to reward sustained combo chains.
+with default parameters: $\text{activationCount} = 3$, $\text{stepBonus} = 0.0$, $\text{maxMultiplier} = 1.0$. These neutral defaults mean combo multiplier is effectively disabled but can be activated via configuration to reward sustained clear streaks.
 
-The full score for a placement is:
-
-$$
-\text{score}_{\text{placement}} = (c^2 \cdot \text{baseUnit} + \text{iconBonus}) \cdot \text{perfectMult} \cdot m_{\text{combo}}
-$$
-
-### 7.2 Placement Quality (Step-Level)
-
-Each placement is evaluated on a 5-dimensional quality vector, computed immediately after the placement-and-clear cycle:
-
-| Dimension | Description |
-|-----------|-------------|
-| **Topology delta** | Change in board structural quality (holes, transitions, wells, close-to-full lines) |
-| **Mobility delta** | Change in total legal placement count across all shapes |
-| **Clear potential** | Whether the placement created or destroyed near-complete lines |
-| **Near-full-line proximity** | Distance to the next possible clear event |
-| **Salvage quality** | When placement options are extremely limited (≤4 legal moves), whether the placement created a clear despite the difficulty |
-
-The overall placement quality is a weighted composite. Regret is computed as the gap between the chosen placement's quality and the best possible placement's quality for that board-dock configuration:
+**Full score formula:**
 
 $$
-\text{regret} = \text{quality}_{\text{best}} - \text{quality}_{\text{chosen}}
+\text{score}_{\text{placement}} = (20c^2 + c \cdot 40 \cdot b) \cdot \begin{cases} 10 & \text{if perfect clear} \\ 1 & \text{otherwise} \end{cases} \cdot m_{\text{combo}}
 $$
 
-Regret is normalized by a configurable denominator (default: 8.0) and clamped to [0, 1].
+### 6.2 Placement Quality Evaluation
 
-### 7.3 Round Quality (Dock-Level)
+Each placement is evaluated against the theoretical optimum for that board-dock configuration. The evaluation produces a 5-dimensional quality vector:
 
-After all three dock blocks are placed (or the game ends), the round receives a quality classification with three regret components:
+| Dimension | Computation | Range |
+|-----------|-----------|-------|
+| **Topology delta** | $\Phi(B_{\text{after}}) - \Phi(B_{\text{before}})$, where $\Phi$ is the board potential function (§7.1) | $[-1, 1]$ |
+| **Mobility delta** | $\frac{M_{\text{after}} - M_{\text{before}}}{\max(M_{\text{before}}, 1)}$ | $[-1, 1]$ |
+| **Clear potential** | $\min(1, c / 3)$ | $[0, 1]$ |
+| **Near-full proximity** | $\frac{\text{near\_full\_after}}{\text{near\_full\_before} + 1}$ | $[0, 1]$ |
+| **Salvage quality** | $\begin{cases} \min(1, c/3) & M_{\text{before}} \leq 4 \\ 0 & \text{otherwise} \end{cases}$ | $[0, 1]$ |
 
-1. **Order regret**: Was the placement order optimal? (Could reordering the three placements have produced a strictly better board?)
-2. **Path regret**: Was each individual placement optimal given the chosen order?
-3. **Payoff regret**: Did the round achieve the expected clear reward given the board state and dock composition?
+**Regret computation.** For each placement, the evaluator computes the regret—the gap between the optimal placement's quality and the chosen placement's quality:
 
-Special tags (`forced_bad` and `salvage`) identify edge cases: `forced_bad` marks rounds where hole count increased by ≥2 despite optimal play (indicating the dock was structurally difficult), and `salvage` marks rounds where a clear was achieved despite mobility ≤4 (indicating skillful play under constraint).
+$$
+\text{regret} = \min_{\text{optimal } a^* \in \text{legal}} \|Q(a^*) - Q(a_{\text{chosen}})\|
+$$
 
-### 7.4 Session Evaluation
+where $Q(a)$ is the composite quality score. Regret is normalized by a configurable denominator ($\text{regretNorm} = 8.0$) and clamped to $[0,1]$.
 
-At the session level, a `sessionEvalRecord` aggregates per-round quality metrics into a structured JSON object stored in the `evaluation_session` table. Key fields include:
+**Special classifications:**
 
-- Average placement quality and its variance
-- Forced-bad round ratio (fairness indicator)
-- Salvage round ratio (skill indicator)
-- Round-to-round quality trend (is the system improving or degrading the experience?)
-- Correlation between spawn difficulty and placement quality (does harder spawning produce worse play?)
+- **`forced_bad`**: $\text{holes\_after} - \text{holes\_before} \geq 2$. The dock was structurally adverse—even optimal play couldn't prevent board degradation. High `forced_bad` rate (>15% of rounds) triggers spawn engine relief.
+- **`salvage`**: $M_{\text{before}} \leq 4 \land c \geq 2$. The player achieved a multi-clear despite critically low mobility—skillful play under constraint. High salvage rate indicates the player is performing above the system's expectation of their ability.
 
-The evaluation data feeds back into `adaptiveSpawn` through `evalMetrics`, a sliding window of recent quality scores. When `consecutiveForcedBad ≥ 2`, the engine increases `clearGuarantee` by 2 (aggressive relief). When rounds are classified as `forced_bad`, the `targetSolutionRange.max` is increased by 2 (widening the acceptable solution space).
+### 6.3 Round Quality
 
-### 7.5 The Feedback Closed Loop
+After a full dock (3 placements or game-over), the round receives a quality classification with three regret components:
 
-A real-time feedback bias signal closes the loop between player action and spawn difficulty:
+1. **Order regret**: Was the placement order optimal? $\text{order\_regret} = Q(\text{optimal\_ordering}) - Q(\text{chosen\_ordering})$.
+2. **Path regret**: Was each individual placement optimal given the chosen order? $\text{path\_regret} = \frac{1}{3}\sum_{i=1}^{3} \text{regret}(\text{step}_i)$.
+3. **Payoff regret**: Did the round achieve the expected clear reward? $\text{payoff\_regret} = \max(0, \mathbb{E}[c] - c_{\text{actual}})$.
+
+These components aggregate into a `roundQuality` score stored in `sessionEvalRecord`.
+
+### 6.4 The Feedback Closed Loop
+
+A real-time feedback bias signal closes the loop between player action and spawn difficulty, creating a sub-second response latency:
 
 ```
-player clears more lines than expected → feedbackBias +α
-player clears fewer lines than expected → feedbackBias −α
+player clears MORE lines than expected → feedbackBias += 0.02
+player clears FEWER lines than expected → feedbackBias -= 0.02
 ```
 
-The bias is clamped to ±0.15 and smoothed with α = 0.02. It feeds directly into the stress computation: `stress += feedbackBias`. This creates a sub-second response loop: if the player is struggling, difficulty drops immediately without waiting for the slower skill EMA to adjust.
+The bias is clamped to $[-0.15, 0.15]$ and feeds directly into the stress computation:
 
-A damping mechanism prevents the bias from becoming counterproductive: when `feedbackBias > 0` (positive, suggesting the player can handle more) but `distress > 0` (the player is showing structural damage), the bias is reduced by `min(0.08, bias × 0.5 × distress)`. This prevents the system from increasing difficulty on a player who is clearing lines but destroying their board structure in the process.
+$$
+\text{stress} = \sum_{j} w_j \cdot s_j + \text{feedbackBias}
+$$
+
+**Distress damping.** To prevent the system from increasing difficulty on a player who clears lines but destroys their board structure:
+
+$$
+\text{feedbackBias}_{\text{effective}} = \text{feedbackBias} - \min(0.08, \text{feedbackBias} \cdot 0.5 \cdot \text{distress})
+$$
+
+This only applies when $\text{feedbackBias} > 0$ (the system thinks the player can handle more) AND $\text{distress} > 0$ (but their board is deteriorating). The damping is proportional to both the bias magnitude and the distress level.
+
+**Four-layer evaluation → adaptiveSpawn feedback:**
+
+| Layer | Signal | Spawn Response |
+|-------|--------|---------------|
+| Step (placementQuality) | `consecutiveForcedBad ≥ 2` | `clearGuarantee += 2` |
+| Round (roundQuality) | `lastRoundClassification = forced_bad` | `targetSolutionRange.max += 2` |
+| Session (sessionEval) | `qualityTrend = declining` | Reduce `d*_base` by 10% |
+| Between-game (RoR audit) | `avgQuality < baseline × 0.85` | Trigger `warmRunActive` for next game |
 
 ---
 
-## 8. The RL Agent: Self-Play Placement Policy
+## 7. The RL Agent: Self-Play Placement Policy
 
-### 8.1 Problem Formulation
+### 7.1 Problem Formulation
 
-The placement problem is formulated as a finite-horizon Markov Decision Process (MDP):
+The placement problem is formalized as a finite-horizon MDP $\mathcal{M} = (\mathcal{S}, \mathcal{A}, \mathcal{P}, \mathcal{R}, \gamma, T)$:
 
-- **State** $s_t \in \mathbb{R}^{204}$: 65-dimensional scalar feature vector (25 structural primitives + 19 color summary + 4 spawn step difficulty + 3 spatial planning + 3 strategy one-hot + 11 condition tokens), 64-dimensional flattened grid occupancy (8×8), 75-dimensional dock spatial encoding (3 slots × 5×5 mask).
-- **Action** $a_t$: a legal placement `(block_idx, gx, gy)`, with a variable-length action set per step. The action feature $\psi(a) \in \mathbb{R}^{15}$ encodes near-full-line ratio, 8-neighbor occupancy context, and 6 self-features of the target shape.
-- **Reward** $r_t = \Delta\text{Score} + 0.8 \cdot \Delta\Phi_{\text{topology}} + 0.6 \cdot r_{\text{eval}} + \text{winBonus}(35)$, where $\Phi$ is a potential function over board structure and $r_{\text{eval}}$ is an instantaneous evaluation feedback term (not a potential difference, so it doesn't create phantom energy). A stuck penalty of −8 is applied at the final step if the game ends without reaching the win threshold.
-- **Termination**: the episode ends when no dock block has a legal placement (game over) or when the score reaches the win threshold.
+- $\mathcal{S} \subset \mathbb{R}^{204}$: the 204-dimensional state feature vector (§7.2).
+- $\mathcal{A}_t$: the set of legal placement actions at step $t$, with $|\mathcal{A}_t| \in [0, 192]$.
+- $\mathcal{P}$: deterministic transition (placement → clear → new dock → next state).
+- $\mathcal{R}$: reward function:
 
-### 8.2 State and Action Feature Encoding
+$$
+r_t = \Delta\text{score} + 0.8 \cdot \Delta\Phi_{\text{topology}} + 0.6 \cdot r_{\text{eval}} + 35 \cdot \mathbb{1}[\text{score} \geq \text{threshold}]
+$$
 
-The 204-dimensional state vector is carefully designed to expose structural information that a convolutional network would struggle to extract from raw grid input alone:
+The potential function $\Phi$ shapes the reward without changing the optimal policy (Ng 1999):
+
+$$
+\Phi(B) = -0.4 \cdot \text{holes} - 0.08 \cdot \text{transitions} - 0.15 \cdot \text{wells} + 0.35 \cdot \text{close\_to\_full} + 0.12 \cdot \text{mobility}
+$$
+
+The evaluation feedback term $r_{\text{eval}}$ is an instantaneous reward (not a potential difference, so it doesn't create spurious energy):
+
+$$
+r_{\text{eval}} = -0.10 \cdot \text{regret\_clipped} + 0.05 \cdot \text{optimality} - 0.08 \cdot \text{forced\_bad} + 0.04 \cdot \text{salvage}
+$$
+
+The agent's objective:
+$$
+\pi^* = \arg\max_\pi \mathbb{E}_\pi\left[\sum_{t=0}^{T} \gamma^t r_t\right]
+$$
+
+with $\gamma = 0.99$ and termination when no dock block has a legal placement.
+
+### 7.2 State and Action Feature Encoding
+
+**State vector** $\in \mathbb{R}^{204} = 65 \text{ scalars} + 64 \text{ grid} + 75 \text{ dock}$:
 
 **Scalar segment (65 dimensions):**
 
-| Sub-vector | Dimensions | Content |
-|------------|-----------|---------|
-| Structural primitives | 25 | fill_ratio, row/col max/min/mean/std, almost_full ratios, holes, row/col transitions, wells, close-to-full counts, mobility, height standard deviation, contiguous empty regions, concave corners |
-| Color summary | 19 | 8 color ratios on board + 8 single-color-line potentials + 3 dock slot colors |
+| Sub-vector | Dim | Content |
+|-----------|-----|---------|
+| Structural primitives | 25 | fill_ratio, row/col max/min/mean/std, almost_full row/col ratios, unplaced_ratio, hole_ratio (normalized by 16), row_trans (norm by 64), col_trans (norm by 64), wells (norm by 24), close1/n (norm by 8), close2/n (norm by 8), mobility (norm by 192), height_std (raw), contiguous_regions (norm by 16), concave_corners (norm by 32) |
+| Color summary | 19 | 8 color occupancy ratios + 8 single-color-line potentials + 3 dock slot colors |
 | Spawn step difficulty | 4 | scdNorm, comboCellsNorm, comboKillerNorm, comboLongBarNorm |
 | Spatial planning | 3 | regionEntropy, largestRegionRatio, smallRegionCellRatio |
-| Strategy one-hot | 3 | easy / normal / hard |
-| Condition tokens | 11 | arc (5: opener, momentum, peak, fatigue, cooldown) + intent (6: relief, engage, pressure, flow, harvest, maintain) |
+| Strategy one-hot | 3 | [easy, normal, hard] |
+| Condition tokens | 11 | Arc: [opener, momentum, peak, fatigue, cooldown] + Intent: [relief, engage, pressure, flow, harvest, maintain] |
 
-**Grid segment (64 dimensions):** Flattened 8×8 occupancy map, with occupied cells encoded by their color ID and empty cells as −1.
+**Action feature** $\psi(a) \in \mathbb{R}^{15}$:
+- `nearFullRatio`: proportion of grid cells adjacent to the shape footprint that are near-completion.
+- 8 neighbor features: for each of the 8 adjacent cells (up, down, left, right, 4 corners), a binary indicator of whether placing the shape would fill an empty cell adjacent to an occupied cell (capturing "edge adherence").
+- 6 self-features: shape aspect ratio (w/h), cell count, is_line, is_square, is_large (≥5 cells), category one-hot index.
 
-**Dock segment (75 dimensions):** Three 5×5 binary masks, each encoding the spatial footprint of one dock block, centered within the 5×5 canvas.
+### 7.3 Network Architecture: ConvSharedPolicyValueNet
 
-### 8.3 Network Architecture: ConvSharedPolicyValueNet
-
-The ConvSharedPolicyValueNet (v5, ~188K parameters with width=128, conv_channels=32) uses a shared trunk that separately encodes the scalar, grid, and dock segments before fusing them:
+The ConvSharedPolicyValueNet (v5, ~188K parameters at width=128, conv_channels=32) uses a shared trunk with specialized encoders for each input modality:
 
 **Grid Encoder:**
-```
-grid(8×8, 1 channel)
-  → Conv2d(1→32, 3×3, pad=1) → GELU
-  → ResConvBlock(32) → GELU      # residual: Conv→GELU→Conv + skip
-  → ResConvBlock(32) → GELU
-  → feature maps: [B, 32, 8, 8]
-  → Global AvgPool: [B, 32]
-```
+$$
+\begin{aligned}
+g_0 &= \text{GELU}(\text{Conv2d}(B_{\text{embed}}, 1 \rightarrow 32, 3\times3, \text{pad}=1)) \\
+g_1 &= \text{ResConvBlock}(g_0) = g_0 + \text{GELU}(\text{Conv2d}(\text{GELU}(\text{Conv2d}(g_0)))) \\
+g_2 &= \text{ResConvBlock}(g_1) \\
+g_{\text{pooled}} &= \frac{1}{64} \sum_{i,j} g_2[:,:,i,j] \in \mathbb{R}^{32}
+\end{aligned}
+$$
 
-**Dock Encoder (DockBoardAttention):**
-```
-dock_masks: [B, 3, 25]  (3 blocks × 5×5 flattened)
-grid_feat:  [B, 32, 8, 8]  (from Grid Encoder, before pooling)
+**DockBoard Attention.** Each dock block attends to the CNN grid features before pooling:
 
-Q = Linear(25→16)(dock_masks)      → [B, 3, 16]
-K = Conv2d(32→16, 1×1)(grid_feat)  → [B, 16, 64]
-V = Conv2d(32→16, 1×1)(grid_feat)  → [B, 16, 64]
+$$
+\begin{aligned}
+Q_k &= W_q \cdot \text{mask}_k \in \mathbb{R}^{16} \quad (k = 1,2,3 \text{ dock slots}) \\
+K &= \text{Conv2d}_{1\times1}^{32 \rightarrow 16}(g_2) \in \mathbb{R}^{16 \times 8 \times 8} \\
+V &= \text{Conv2d}_{1\times1}^{32 \rightarrow 16}(g_2) \in \mathbb{R}^{16 \times 8 \times 8}
+\end{aligned}
+$$
 
-Attention: softmax(Q·K / √16) · Vᵀ → [B, 3, 16]
-Output: Linear(16→16) → flatten → [B, 48]
-```
+For each dock block $k$, the attention output is:
 
-This cross-attention mechanism lets each dock block "query" the board's spatial features: the L-shaped block can attend to corners, the line block to rows, and so on. This replaces the earlier approach of blindly flattening the 75-dimensional dock mask into the MLP input.
+$$
+\text{ctx}_k = \text{softmax}\left(\frac{Q_k \cdot K_{\text{flattened}}}{\sqrt{16}}\right) \cdot V_{\text{flattened}}^T \in \mathbb{R}^{16}
+$$
+
+The final dock context is $\text{Linear}_{16 \rightarrow 16}(\text{ctx}_k)$ for each $k$, flattened to $\mathbb{R}^{48}$.
 
 **Shared Trunk:**
+$$
+\begin{aligned}
+x_0 &= [\text{scalars}, g_{\text{pooled}}, \text{dock\_ctx}] \in \mathbb{R}^{65+32+48 = 145} \\
+x_1 &= x_0 + \text{GELU}(\text{Linear}_{145 \rightarrow 128}(x_0)) \\
+x_2 &= x_1 + \text{GELU}(\text{Linear}_{128 \rightarrow 128}(x_1)) \\
+h(s) &= x_2 + \text{GELU}(\text{Linear}_{128 \rightarrow 128}(x_2)) \in \mathbb{R}^{128}
+\end{aligned}
+$$
+
+**Output heads:**
+- **Policy**: $h(s) \| \text{GELU}(\text{action\_proj}_{15 \rightarrow 48}(\psi(a))) \rightarrow \text{Linear}_{176 \rightarrow 64} \rightarrow \text{GELU} \rightarrow \text{Linear}_{64 \rightarrow 1} \rightarrow \text{logit}(a)$. Logits are masked to legal actions and softmax-normalized.
+- **Value**: $h(s) \rightarrow \text{Linear}_{128 \rightarrow 64} \rightarrow \text{GELU} \rightarrow \text{Linear}_{64 \rightarrow 1} \rightarrow V(s)$.
+
+### 7.4 Training Algorithm
+
+**PPO objective:**
+
+$$
+\mathcal{L}_{\text{policy}} = -\mathbb{E}_t\left[\min\left(\rho_t A_t, \text{clip}(\rho_t, 1-\varepsilon, 1+\varepsilon) A_t\right)\right]
+$$
+
+where $\rho_t = \pi_{\text{new}}(a_t|s_t) / \pi_{\text{old}}(a_t|s_t)$ and $\varepsilon = 0.25$.
+
+**GAE advantage estimation:**
+
+$$
+A_t^{\text{GAE}(\lambda)} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}, \quad \delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)
+$$
+
+with $\lambda = 0.85$, $\gamma = 0.99$.
+
+**Mixed value target.** The value head learns a hybrid target combining sparse outcome signal (low variance, no credit assignment problem) with dense GAE returns (temporal credit assignment):
+
+$$
+R_t = 0.5 \cdot \text{GAE}_t + 0.5 \cdot \text{clip}\left(\frac{\log(1 + \text{final\_score})}{\log(1 + \text{win\_threshold})}, 0, 3\right)
+$$
+
+The log-normalized outcome target compresses the wide range of possible scores (0–50,000+) into a bounded [0, 3] range, preventing the value loss from being dominated by long-game returns.
+
+**Value loss (double-clipped SmoothL1):**
+
+$$
+\begin{aligned}
+v_{\text{clipped}} &= v_{\text{old}} + \text{clamp}(v_{\text{new}} - v_{\text{old}}, -0.25, +0.25) \\
+\mathcal{L}_{\text{value}} &= \mathbb{E}\left[\max\left(\text{SmoothL1}(v_{\text{new}}, R_t, \beta=10), \text{SmoothL1}(v_{\text{clipped}}, R_t, \beta=10)\right)\right]
+\end{aligned}
+$$
+
+where $\text{SmoothL1}(x, y, \beta) = \begin{cases} 0.5(x-y)^2 / \beta & |x-y| < \beta \\ |x-y| - 0.5\beta & \text{otherwise} \end{cases}$ with $\beta = 10.0$ (Huber loss with larger quadratic region than standard $\beta=1.0$).
+
+**Advantage normalization:**
+
+$$
+A_t^{\text{norm}} = \text{clamp}_{[-30,30]}\left(\frac{A_t - \mu_A}{\max(\sigma_A, 10^{-4})}\right)
+$$
+
+The $\pm 30$ clamp and $10^{-4}$ minimum standard deviation guard prevent numerical instability from low-variance advantage batches.
+
+**Entropy loss** (negative sign = maximizing entropy):
+
+$$
+\mathcal{L}_{\text{entropy}} = -w_e \cdot \frac{1}{|\mathcal{A}|} \sum_{a \in \mathcal{A}} \pi(a|s) \log \pi(a|s)
+$$
+
+with $w_e$ starting at 0.025 and linearly annealing to 0.008 over the first 50,000 episodes.
+
+### 7.5 Auxiliary Supervision Heads
+
+Seven auxiliary heads provide dense, per-step gradient signals independent of sparse Monte Carlo returns:
+
+| Head | Dim | Loss | Target | Coef | Correlation with Score (r) |
+|------|-----|------|--------|------|---------------------------|
+| `board_quality` | 1 | SmoothL1(β=1) | Φ(s) / 30 | 0.5 | +0.011 (p=0.86) |
+| `feasibility` | 1 | BCE(logits) | DFS sequential solvability | 0.3 | −0.172 (p<0.0001) |
+| `survival` | 1 | SmoothL1(β=1) | $T_{\text{remaining}} / 30$ | 0.2 | −0.202 (p<0.0001) |
+| `topology_aux` | 10 | SmoothL1(β=1) | Post-placement topology vector | 0.0 | — |
+| `spawn_diff_aux` | 12 | SmoothL1(β=1) | 4-dim SCD + 8-dim placeability | 0.05 | −0.009 (p=0.69) |
+| `hole_aux` | 1 | SmoothL1(β=1) | Unfillable cells / 16 | 0.0 | — |
+| `clear_pred` | 4 | CrossEntropy | Clear category {0,1,2,≥3} | 0.15 | — |
+
+The coefficients `hole_aux=0` and `topology_aux=0` indicate these heads are implemented but disabled in the current configuration; they can be activated by setting their environment variable overrides.
+
+**Feasibility head architecture:**
+$$
+\text{feas\_logit} = \text{Linear}_{128 \rightarrow 64} \rightarrow \text{GELU} \rightarrow \text{Linear}_{64 \rightarrow 1}(h(s))
+$$
+
+Logits are clamped to $\pm 10$ before BCE computation to prevent numerical explosion ($\sigma(\pm 10) \approx 0/1$ already saturates).
+
+**Spawn diff aux head architecture:**
+$$
+\text{sd\_pred}_{12} = \text{Linear}_{128 \rightarrow 64} \rightarrow \text{GELU} \rightarrow \text{Linear}_{64 \rightarrow 12}(h(s))
+$$
+
+**Total auxiliary loss:**
+
+$$
+\mathcal{L}_{\text{aux}} = \sum_{k} w_k \cdot \text{clamp}_{[-20,20]}(\mathcal{L}_k)
+$$
+
+The $\pm 20$ hard clamp on auxiliary losses (but not on policy/value losses) prevents occasional numerical explosions from extreme board states (historically observed: `loss_bq` reaching 936,449, `loss_feas` reaching $\pm 7.8 \times 10^5$). These explosions were traced to the auxiliary head outputs diverging to $\pm 10^3\text{--}10^5$ on extreme boards, and have been mitigated by per-head prediction clipping (`board_quality` preds clamped to $\pm 10$, `survival` to $\pm 3$, `feasibility` logits to $\pm 10$) in addition to the loss-level clamp.
+
+### 7.6 Exploration and Curriculum
+
+**Temperature-softened policy with Dirichlet exploration:**
+
+$$
+\pi_{\text{sample}}(a|s) = 0.92 \cdot \text{softmax}(\text{logits} / T_t) + 0.08 \cdot \text{Dirichlet}(0.28, \dots, 0.28)
+$$
+
+Temperature schedule: $T_t = 1.2$ for the first 2 moves of each episode (encouraging exploration), decaying to $T_t = 0.6$ thereafter (exploiting learned patterns).
+
+**Adaptive entropy target.** An entropy target band ($0.2$ width around a configurable center) uses feedback control: if the batch entropy mean exceeds the target, $w_e$ is reduced by 10% to discourage excess randomness; if entropy falls below, $w_e$ is increased by 10%.
+
+**Difficulty bucket curriculum.** Training episodes are gated by a progressive `maxScd` ceiling:
+
+| Stage | Episodes | maxScd | Allowed Buckets |
+|-------|----------|--------|----------------|
+| 1 | 0–5,000 | 0.3 | Trivial, Easy |
+| 2 | 5,001–15,000 | 0.5 | +Standard |
+| 3 | 15,001–30,000 | 0.7 | +Hard |
+| 4 | 30,000+ | 1.0 | All (full difficulty) |
+
+Docks whose SCD exceeds the current stage's `maxScd` are rejected and the spawn engine retries with a lower difficulty target (up to `retryCap = 6` attempts). This prevents early training from being dominated by impossible board states.
+
+### 7.7 Training Infrastructure
+
+The training system uses a multi-process architecture for maximum throughput:
+
 ```
-x = concat[scalars, grid_pooled, dock_ctx]  → [B, 65+32+48 = 145]
-  → LayerNorm → Linear(145→128) → GELU    # trunk_fc1
-  → + GELU(Linear(128→128))               # trunk_fc2 (residual)
-  → + GELU(Linear(128→128))               # trunk_fc3 (residual)
-  → h(s): [B, 128]
+Main Process (GPU)
+  ├── Parameter update (Adam, lr=3e-4 → linear warmup → cosine decay)
+  ├── BestGuard (evaluation-based rollback protection)
+  ├── Checkpoint serialization (every N episodes)
+  └── Version counter increment (triggers worker reload)
+
+Worker Pool (CPU, N workers)
+  ├── Worker 1: load weights(v) → inference_mode → collect K episodes → return trajectories
+  ├── Worker 2: ... (independent, parallel)
+  ├── ...
+  └── Worker N: ...
 ```
 
-**Heads:**
-- `policy_head`: h(s) ‖ GELU(action_proj(ψ(a))) → Linear(176→64) → GELU → Linear(64→1) → logits, masked to legal actions, softmax.
-- `value_head`: h(s) → Linear(128→value_dim) → GELU → Linear(value_dim→1) → V(s).
-- **Auxiliary supervision heads** (see §8.5).
+Key design decisions:
 
-### 8.4 Training Algorithm
-
-**PPO (n_epochs > 1):** For each collected batch, the policy is updated for `ppo_epochs` iterations with clipping:
-
-$$
-\text{ratio}_t = \frac{\pi_{\text{new}}(a_t|s_t)}{\pi_{\text{old}}(a_t|s_t)}, \quad
-\mathcal{L}_{\text{policy}} = -\mathbb{E}\left[\min(\text{ratio} \cdot A_t,\; \text{clip}(\text{ratio}, 1-\varepsilon, 1+\varepsilon) \cdot A_t)\right]
-$$
-
-with $\varepsilon = 0.25$ and $ppo\_epochs = 4$.
-
-**RENFORCE-baseline (n_epochs = 1):** Falls back to vanilla policy gradient: $\mathcal{L}_{\text{policy}} = -\mathbb{E}[\log\pi(a|s) \cdot A_t]$.
-
-**Value loss:** Double-clipped SmoothL1 (Huber):
-
-$$
-v_{\text{clipped}} = v_{\text{old}} + \text{clamp}(v_{\text{new}} - v_{\text{old}}, -\varepsilon, +\varepsilon)
-$$
-
-$$
-\mathcal{L}_{\text{value}} = \mathbb{E}\left[\max(\text{SmoothL1}(v_{\text{new}}, R_t),\; \text{SmoothL1}(v_{\text{clipped}}, R_t))\right]
-$$
-
-**Mixed value target:** Combines sparse outcome signal with dense GAE returns:
-
-$$
-R_t = (1 - \text{mix}) \cdot \text{GAE}_t + \text{mix} \cdot \text{clip}\left(\frac{\log(1 + \text{final\_score})}{\log(1 + \text{threshold})}, 0, 3\right)
-$$
-
-with mix = 0.5. This hybrid target provides low-variance value estimates while preserving the credit assignment benefits of GAE.
-
-**Advantage:** GAE with $\lambda = 0.85$, $\gamma = 0.99$, normalized to zero mean and unit variance (with a minimum standard deviation guard of 1e-4 to prevent division by near-zero variance).
-
-### 8.5 Auxiliary Supervision Heads
-
-A key innovation in the v5 architecture is the use of auxiliary supervision heads that provide dense, per-step gradient signals independent of sparse Monte Carlo returns:
-
-| Head | Dimensions | Loss | Target | Coefficient | Correlation with Score |
-|------|-----------|------|--------|-------------|----------------------|
-| `board_quality` | 1 | SmoothL1 | Φ(s) / 30 | 0.5 | r = +0.011 (p = 0.86) |
-| `feasibility` | 1 | BCE | DFS sequential solvability | 0.3 | r = −0.172 (p < 0.0001) |
-| `survival` | 1 | SmoothL1 | steps_to_end / 30 | 0.2 | r = −0.202 (p < 0.0001) |
-| `topology_aux` | 10 | SmoothL1 | Post-placement topology vector | 0.0 | — |
-| `spawn_diff_aux` | 12 | SmoothL1 | 4-dim SCD + 8-dim per-shape placeability | 0.05 | — |
-| `hole_aux` | 1 | SmoothL1 | Unfillable cells after placement | 0.0 | — |
-| `clear_pred` | 1 | CrossEntropy(4-class) | Clear category (0/1/2/≥3) | 0.15 | — |
-
-The `spawn_diff_aux` head (v13) is particularly notable. The original 4-dimensional SCD prediction showed near-zero correlation with game outcomes (r = −0.009, p = 0.69). The v13 extension to 12 dimensions—adding 8 per-shape placeability features—directly exposes the long-bar bottleneck to the trunk. Each of the 8 additional dimensions quantifies, for a fixed representative shape, the normalized count of legal placements on the current board. This tells the network not just "this dock is hard" but specifically "the 1×5 piece has zero legal positions on this board" versus "it has 8 legal positions."
-
-**Total loss:**
-
-$$
-\mathcal{L} = \mathcal{L}_{\text{policy}} + w_v \cdot \mathcal{L}_{\text{value}} - w_e \cdot H(\pi) + \sum_{k} w_k \cdot \mathcal{L}_{\text{aux},k} + \text{distillation terms}
-$$
-
-where auxiliary losses are hard-clamped to ±20 to prevent numerical explosions from extreme board states. Policy and value losses are not clamped. Q-distillation and visit-distribution distillation are optional (only active when MCTS or beam search is enabled).
-
-### 8.6 Exploration and Curriculum
-
-**Exploration.** The action distribution is a mixture of temperature-softened policy logits and Dirichlet noise:
-
-$$
-\pi_{\text{sample}} = (1 - \varepsilon) \cdot \text{softmax}(\text{logits} / T) + \varepsilon \cdot \text{Dir}(\alpha)
-$$
-
-with $\varepsilon = 0.08$, $\alpha = 0.28$, and $T$ annealing from 1.2 (early exploration) to 0.6 (late exploitation). An adaptive entropy target band ($0.2$ width) uses feedback control: if measured entropy exceeds the target, $w_e$ decreases to reduce exploration pressure; if entropy falls below, $w_e$ increases.
-
-**Victory threshold curriculum.** The win score threshold adapts to training progress via three modes:
-- **Quantile**: tracks the EMA of recent top-K scores, setting the threshold at a configurable quantile.
-- **Adaptive**: increases the threshold when the recent win rate exceeds a target.
-- **Linear**: simple episode-count-based ramp.
-
-**Difficulty bucket curriculum.** Training episodes are assigned a maximum spawn step difficulty (SCD) ceiling that progressively increases from 0.3 (only trivial/easy docks) to 1.0 (full difficulty range) as training progresses through configurable stages. This prevents early training from being dominated by impossible board states.
-
-### 8.7 Search Enhancement (Optional)
-
-The RL agent can optionally leverage online search during both training and inference:
-
-- **MCTS** (`RL_MCTS=1`): Classical UCT-based tree search with a shared Zobrist transposition table for state deduplication. Configurable simulation counts (min/max) with adaptive early termination based on visit count confidence.
-- **Beam search** (`RL_BEAM2PLY` / `RL_BEAM3PLY`): Lightweight 2- or 3-ply lookahead that evaluates all legal placement sequences and selects the one maximizing a value-plus-reward objective.
-- **Q-value distillation**: When search is active, the softmax over normalized Q-values (with temperature τ) serves as a teacher distribution for the policy head, via cross-entropy distillation loss.
-- **Visit distribution distillation**: When MCTS is active, the normalized visit count distribution over root actions serves as an additional AlphaZero-style teacher.
-
-### 8.8 Training Infrastructure
-
-Training uses a multi-process worker pool architecture:
-
-1. **Main process**: GPU gradient computation and parameter updates.
-2. **Worker processes** (configurable count): CPU inference with `torch.inference_mode()` for trajectory collection. Each worker maintains its own copy of the model, reloading weights when the version changes.
-3. **Shared state**: Weights are broadcast via temporary file serialization to minimize IPC overhead.
-4. **Checkpoint system**: Periodic saves with BestGuard rollback protection. If evaluation metrics degrade beyond configurable thresholds, the system automatically reverts to the best-known checkpoint.
-5. **Quality gate**: Automated regression detection checks teacher coverage (must not drop >2%), win-rate moving average (must not drop >3%), and spawn difficulty drift (must not exceed 5%).
+- **Worker inference with `torch.inference_mode()`**: Drops autograd tracking, view tracking, and version checking—reducing per-step overhead by ~20% compared to `torch.no_grad()`.
+- **Weight broadcast via tempfile**: Workers reload weights from disk when the version counter increments. This avoids IPC serialization latency (model is ~900KB → ~2ms disk read).
+- **Single-threaded workers**: Each worker forces `torch.set_num_threads(1)` to prevent N workers × M threads CPU oversubscription. The 188K-parameter network performs single-sample inference in <0.5ms; multi-threading offers no benefit and causes cache thrashing.
+- **Batch collection**: 8 episodes per batch (configurable), PPO epochs = 4, mini-batch shuffling.
+- **BestGuard**: Maintains a reference network snapshot and an evaluation gate. Every `eval_gate_every` episodes, the current network plays `eval_gate_games` evaluation games. If win rate drops below `eval_gate_win_ratio`, the model is rolled back to the best-ever checkpoint. This prevents catastrophic forgetting during long training runs. The guard also tracks teacher coverage, score moving average, and spawn difficulty drift.
 
 ---
 
-## 9. Neural Spawn Generation: SpawnPolicyNet
+## 8. Neural Spawn Generation: SpawnPolicyNet
 
-### 9.1 Motivation
+### 8.1 Motivation and Design Goals
 
-The rule-based spawn engine, while robust, has an inherent limitation: it can only express designer-specified heuristics. The 14-dimensional weight chain captures known important factors (mobility, clear potential, diversity), but it cannot discover *unknown* patterns in how real players prefer certain shape combinations in certain board contexts. Moreover, maintaining the weight chain requires expert tuning as the game evolves.
+The rule-based spawn engine, while robust, has an inherent ceiling: it can only express designer-specified heuristics encoded in the 14-dimensional weight chain. Real player data contains distributional patterns that hand-tuned weights cannot capture—combinations of board topology, player state, and recent history that correlate with satisfying gameplay experiences but are too subtle or too numerous to encode explicitly.
 
-SpawnPolicyNet addresses this by learning the conditional distribution $P(s_1, s_2, s_3 \mid B, \pi, H)$ directly from data—real player replays, rule-engine games, and self-play rollouts. It serves as an optional alternative to the rule track, not a replacement: its output is validated by the same constraint pipeline, and any validation failure triggers automatic fallback to the rule engine.
+SpawnPolicyNet learns $P(s_1, s_2, s_3 \mid B, \pi, H)$ directly from data: real player replays (ground-truth human preferences), rule-engine synthetic games (positive examples of rule-track behavior), and self-play rollouts (optimal-placement examples). It serves as an optional alternative, not a replacement: its output passes through exactly the same constraint validation gate as the rule track, and any validation failure triggers automatic, transparent fallback to the rule engine.
 
-### 9.2 Model Architecture (V3.1)
+### 8.2 Model Architecture (V3.1)
 
-SpawnPolicyNet V3.1 (~317K parameters) uses a Transformer encoder with autoregressive slot decoding:
+SpawnPolicyNet V3.1 (~317K parameters) uses a Transformer encoder with three separate autoregressive slot decoder heads:
 
-**Input Encoding:**
-```
-board(64) ⊕ behaviorContext(24) → Linear(88→128) → GELU → LayerNorm → state_token [B, 1, 128]
-target_difficulty(1) → Linear(1→128) → GELU → LayerNorm → diff_token [B, 1, 128]
-history(9) → shape_embed(29×128)[history_ids] + position_embed(9×128) → hist_tokens [B, 9, 128]
-learnable: cls_token [B, 1, 128], optional style_token [B, 1, 128]
-```
-
-**Sequence Assembly:**
-```
-tokens = [CLS, state, diff, hist₀, …, hist₈]  →  [B, 12, 128]
-```
-
-**Transformer Encoder:** 6 layers, d_model=128, 4 heads, FFN dim=256, GELU activation, dropout=0.1, norm_first=True.
-
-**Slot Heads (Autoregressive):**
-```
-CLS_out = encoded[:, 0, :]                                    # [B, 128]
-l₀ = head₀(CLS_out)                                            # [B, 28] — slot 1
-l₁ = head₁(concat[CLS_out, emb(s₁)])                          # [B, 28] — slot 2, masked by s₁
-l₂ = head₂(concat[CLS_out, emb(s₁), emb(s₂)])                 # [B, 28] — slot 3, masked by s₁,s₂
-```
-
-**Auxiliary Heads (from CLS token):**
-
-| Head | Output | Purpose |
-|------|--------|---------|
-| `diversity_head` | 128→3×7 | Predict category distribution of the triplet |
-| `difficulty_head` | 128→1 | Predict actual SCD to align with target |
-| `feasibility_head` | 128→28 | Per-shape BCE: which shapes are legally placeable? |
-| `style_head` | 128→N_style | Self-supervised: predict player style from context alone |
-| `intent_head` | 128→N_intent | Self-supervised: predict spawn intent from context alone |
-
-### 9.3 Training
-
-**Data sources.** Training samples come from three pipelines: (1) real player game replays—each frame contains the board, the actual dock that was shown, and all context features at that moment; (2) rule-engine synthetic games—generated by running `SpawnPolicyRules` over diverse simulated player profiles, providing positive examples of rule-track behavior; (3) self-play rollouts—RL bot games where the bot places optimally, providing labeled examples of what constitutes a good board-dock configuration.
-
-**Offline distillation.** Before training on real data, the model is pre-trained via offline distillation: the rule engine acts as a teacher, and SpawnPolicyNet as a student. This ensures the neural model can at least reproduce rule-track quality before attempting to improve upon it.
-
-**V3.1 Composite Loss:**
+**Input encoding:**
 
 $$
-\mathcal{L} = w_{\text{ce}}\mathcal{L}_{\text{ce-AR}} + w_{\text{div}}\mathcal{L}_{\text{div}} + w_{\text{anti}}\mathcal{L}_{\text{anti}} + w_{\text{diff}}\mathcal{L}_{\text{diff}} + w_{\text{feas}}\mathcal{L}_{\text{feas}} + w_{\text{si}}\mathcal{L}_{\text{soft-infeas}} + w_{\text{st}}\mathcal{L}_{\text{style}} + w_{\text{intent}}\mathcal{L}_{\text{intent}}
+\begin{aligned}
+\text{state\_token} &= \text{LayerNorm}(\text{GELU}(\text{Linear}_{88 \rightarrow 128}([B_{\text{flat}}; \pi])))) \in \mathbb{R}^{B \times 1 \times 128} \\
+\text{diff\_token} &= \text{LayerNorm}(\text{GELU}(\text{Linear}_{1 \rightarrow 128}(d)))) \\
+\text{hist\_tokens} &= \text{shape\_embed}_{29 \times 128}[H_{\text{ids}}] + \text{pos\_embed}_{9 \times 128} \in \mathbb{R}^{B \times 9 \times 128} \\
+\text{cls\_token} &= \text{trainable\_param} \in \mathbb{R}^{1 \times 128}
+\end{aligned}
 $$
 
-with default weights $(1.0, 0.3, 0.5, 0.1, 0.4, 0.2, 0.15, 0.10)$.
+**Sequence:** $\text{tokens} = [\text{cls}, \text{state}, \text{diff}, \text{hist}_0, \dots, \text{hist}_8] \in \mathbb{R}^{B \times 12 \times 128}$
 
-Key loss components:
-- **$\mathcal{L}_{\text{ce-AR}}$**: Autoregressive cross-entropy—the main training signal. Each slot head is trained with teacher forcing: the ground-truth shape ID for slot k is used as the target.
-- **$\mathcal{L}_{\text{anti}}$**: Penalizes repeated shapes or same-family shapes across all three slots.
-- **$\mathcal{L}_{\text{feas}}$**: Binary cross-entropy against per-shape feasibility labels—teaches the model which shapes are even placeable on the current board.
-- **$\mathcal{L}_{\text{soft-infeas}}$**: A soft penalty on logits for infeasible shapes. Instead of hard-masking (which would prevent the model from ever assigning probability to correct-but-rare shapes), this applies a gentle pressure that can be overridden by strong positive evidence.
-- **$\mathcal{L}_{\text{style}}$ / $\mathcal{L}_{\text{intent}}$**: Self-supervised objectives that force the shared encoder to learn representations sensitive to playstyle and intent—even when those labels are not provided at inference time, the encoder's internal representation becomes more structured.
+**Encoder:** 6-layer TransformerEncoder ($d_{\text{model}}=128$, $n_{\text{heads}}=4$, $\text{FFN\_dim}=256$, GELU, dropout=0.1, norm_first=True).
 
-### 9.4 LoRA Personalization
-
-To enable per-player personalization without maintaining 317K × N copies of the full model, Low-Rank Adaptation (LoRA) is injected at the self-attention query and value projections and the feed-forward layers:
+**Slot heads (autoregressive):**
 
 $$
-W_{\text{adapted}} = W_{\text{base}} + \frac{\alpha}{r} \cdot B A
+\begin{aligned}
+\text{CLS}_{\text{out}} &= \text{LayerNorm}(\text{encoded}[:, 0, :]) \in \mathbb{R}^{B \times 128} \\
+l_0 &= \text{Linear}_{128 \rightarrow 28}(\text{CLS}_{\text{out}}) \\
+l_1 &= \text{Linear}_{256 \rightarrow 28}(\text{concat}[\text{CLS}_{\text{out}}, \text{emb}(s_1)]) \\
+l_2 &= \text{Linear}_{384 \rightarrow 28}(\text{concat}[\text{CLS}_{\text{out}}, \text{emb}(s_1), \text{emb}(s_2)])
+\end{aligned}
 $$
 
-where $A \in \mathbb{R}^{r \times d_{\text{in}}}$, $B \in \mathbb{R}^{d_{\text{out}} \times r}$, with rank $r = 4$. This requires only 5.6K parameters per player (~1.8% of the trunk), and loading a player's LoRA weights takes ~30ms (one-time cost on player switch). LoRA weights are trained via the same composite loss on player-specific data.
+The progressive dimension increase (128→256→384) reflects the growing context: head₀ sees only the shared encoding; head₁ additionally sees the first slot's embedding; head₂ sees both preceding slots.
 
-### 9.5 Inference and Safety
+**Auxiliary heads (from CLS token):**
 
-- **Inference latency**: 4–8 ms on CPU (single forward pass including mask computation).
-- **Feasibility mask**: <0.05 ms (computed once per 28 shapes via `get_legal_positions`).
-- **Validation gate**: The predicted triplet passes through the same constraint validation pipeline as the rule track. Any failure triggers automatic fallback.
-- **Deployment**: ONNX-exported model for production serving; fallback reason is recorded in the panel diagnostics.
+| Head | Output | Loss | Purpose |
+|------|--------|------|---------|
+| `diversity` | $\mathbb{R}^{B \times 3 \times 7}$ | Cross-entropy | Predict category distribution of each slot |
+| `difficulty` | $\mathbb{R}^{B \times 1}$ | SmoothL1 | Align difficulty prediction with target |
+| `feasibility` | $\mathbb{R}^{B \times 28}$ | BCE (per-shape) | Predict which shapes are placeable |
+| `style` | $\mathbb{R}^{B \times N_{\text{styles}}}$ | Cross-entropy | Style self-supervision |
+| `intent` | $\mathbb{R}^{B \times N_{\text{intents}}}$ | Cross-entropy | Intent self-supervision |
+
+### 8.3 Training
+
+**V3.1 composite loss:**
+
+$$
+\mathcal{L}_{\text{V3.1}} = 1.0\mathcal{L}_{\text{ce-AR}} + 0.3\mathcal{L}_{\text{div}} + 0.5\mathcal{L}_{\text{anti}} + 0.1\mathcal{L}_{\text{diff}} + 0.4\mathcal{L}_{\text{feas}} + 0.2\mathcal{L}_{\text{si}} + 0.15\mathcal{L}_{\text{style}} + 0.10\mathcal{L}_{\text{intent}}
+$$
+
+Where:
+- $\mathcal{L}_{\text{ce-AR}}$: $-\frac{1}{3}\sum_{k=1}^{3} \log P(s_k | s_{<k}, \text{ctx})$ (teacher forcing).
+- $\mathcal{L}_{\text{div}}$: Category distribution entropy maximization.
+- $\mathcal{L}_{\text{anti}}$: Penalty on repeated shapes or same-family shapes.
+- $\mathcal{L}_{\text{feas}}$: $-\frac{1}{28}\sum_{j=1}^{28}[y_j \log \sigma(l_j) + (1-y_j)\log(1-\sigma(l_j))]$ (per-shape BCE).
+- $\mathcal{L}_{\text{si}}$: Soft penalty on logits for infeasible shapes: $\frac{1}{|\mathcal{I}|}\sum_{j \in \mathcal{I}} \max(0, l_j - l_{\text{max}})$, where $\mathcal{I}$ is the set of infeasible shapes and $l_{\text{max}}$ is the maximum logit among feasible shapes.
+- $\mathcal{L}_{\text{style}}$, $\mathcal{L}_{\text{intent}}$: Self-supervised cross-entropy on style and intent labels.
+
+**Data sources:**
+1. **Player replays** (👤): Real dock choices from human gameplay—the gold-standard distribution.
+2. **Rule-engine synthetic** (🤖): Generated by running `SpawnPolicyRules` over diverse simulated profiles—provides positive rule-track examples.
+3. **Self-play rollouts** (🔄): RL bot games—optimal-placement labeled examples.
+4. **Offline distillation**: Rule-track teacher → neural student, ensuring the model can at least reproduce rule-track quality.
+
+### 8.4 LoRA Personalization
+
+$$
+W_{\text{adapted}} = W_{\text{base}} + \frac{\alpha}{r} \cdot BA
+$$
+
+with $A \in \mathbb{R}^{r \times d_{\text{in}}}$, $B \in \mathbb{R}^{d_{\text{out}} \times r}$, rank $r = 4$, $\alpha = 16$. Injection points: `self_attn.q_proj` + `v_proj` in each encoder layer. Per-player parameters: 5.6K (~1.8% of trunk). Loading latency: ~30ms (one-time on player switch).
+
+### 8.5 Inference and Safety
+
+- **Latency**: 4–8ms CPU per forward pass.
+- **Feasibility mask**: <0.05ms (28 calls to vectorized `get_legal_positions`).
+- **Validation**: Output passes through the same constraint gate (§5.3 Layer 6).
+- **Fallback**: On any gate failure or service unavailability, automatic transparent fallback to Track 1 (rule engine), with `fallbackReason` recorded in diagnostics.
 
 ---
 
-## 10. Spawn Parameter Tuning: SpawnParamTuner
+## 9. Spawn Parameter Tuning: SpawnParamTuner
 
-### 10.1 Problem Formulation
+### 9.1 Problem Statement
 
-The behavior of `SpawnPolicyRules` is governed by 36 tunable parameters $\theta \in [0,1]^{36}$ (grouped as personalization, PB tension, scoring strategy, translation, challenge modulation, order difficulty, constructive parameters, and solution space intervals). For each player context $c$ (representing a combination of lifecycle stage, maturity band, arc phase, and difficulty mode), the goal is to find the optimal parameter vector $\theta^*_c$ that produces the ideal difficulty progression curve.
-
-### 10.2 Model Architecture
-
-SpawnParamTuner (~200K parameters) uses a ResNet-MLP architecture:
-
-- **Input**: context(32) concatenated with theta(36) → 68-dimensional.
-- **Projection**: Linear(68→128) → GELU → unsqueeze to sequence → add learnable position embedding (20 positions).
-- **Encoder**: 4× TransformerEncoder layers (d_model=128, 4 heads, FFN=256, GELU, dropout=0.1).
-- **Output heads**: D(r) curve (20 bins, sigmoid), E(r) curve_e, F(r) curve_f, plus 5 auxiliary heads.
-
-### 10.3 Bi-Level Optimization
-
-The optimization is structured as a bi-level problem:
-
-**Inner level** (learning the (c, θ) → d_curve mapping):
+SpawnPolicyRules behavior is governed by a 36-dimensional parameter vector $\theta \in [0,1]^{36}$:
 
 $$
-\min_{\phi} \mathbb{E}_{(c,\theta) \sim \mathcal{D}}\left[\mathcal{L}_{\text{total}}(f_{\phi}(c,\theta), \text{targets})\right]
+\theta = [\text{personalization}_5, \text{pbTension}_4, \text{scoring}_8, \text{translation}_5, \text{challenge}_5, \text{order}_2, \text{constructive}_2, \text{solution}_2, \text{special}_3]
 $$
 
-**Outer level** (finding optimal θ for each context):
+For each player context $c$ (representing lifecycle × maturity × arc × PB bin), the goal is to find the optimal parameter vector $\theta^*_c$ that produces the ideal difficulty progression curve $D(r)$.
+
+### 9.2 Bi-Level Optimization
+
+**Inner level** (learn $f_\phi: (c, \theta) \rightarrow D(r)$):
+
+$$
+\min_\phi \mathbb{E}_{(c,\theta) \sim \mathcal{D}}\left[\mathcal{L}_{\text{total}}(f_\phi(c, \theta), D_{\text{target}})\right]
+$$
+
+**Outer level** (search for $\theta^*_c$):
 
 $$
 \theta^*_c = \arg\min_{\theta \in [0,1]^{36}} \mathcal{J}(f_{\phi^*}(c, \theta))
 $$
 
-The outer search uses gradient ascent on θ (the network is treated as a differentiable surrogate model), with 8 Latin Hypercube Sampling (LHS) restarts, T=300 Adam steps at η=0.05, and projection back to [0,1]³⁶ after each step.
+with 8 LHS restarts, T=300 Adam steps at $\eta=0.05$, reprojection to $[0,1]^{36}$.
 
-**Composite loss** (15 terms): shape MSE (weighted by bin), anchor hinge (22 key r-points), monotonicity, breaking, endpoint anchoring, diversity, deploy loss (θ vs ideal), auxiliary BCE/MSE, smoothness (θ sensitivity), balance (variance across PB tiers), surprise frequency (~7%), curve E/F fit, frustration cap (F ≤ 0.30 hard limit), and r-value SmoothL1.
+### 9.3 Deployment
 
-### 10.4 Deployment
-
-Trained policies are exported as `policies.json`, which maps each context c to its optimal θ\*_c. At runtime, `SpawnPolicyRules` looks up the player's current context and interpolates between the nearest tabled entries. This enables offline optimization with online deployment, without requiring the neural network at inference time.
+Trained policies exported as `policies.json`: $\{c_1: \theta^*_1, c_2: \theta^*_2, \dots\}$. The 4 PB curve parameters are consumed by both `SpawnPolicyRules` and `SpawnPolicyNet`.
 
 ---
 
-## 11. Monetization Framework
+## 10. Monetization Framework
 
-### 11.1 Design Principle
+The monetization framework implements experience-first monetization:
 
-The monetization framework operates on the principle of *experience-first monetization*: it reads the same player profile as the spawn engine and makes decisions based on the player's current state. Ads are never shown when the player is in flow or anxious states; IAP offers are timed to coincide with near-miss moments (just below PB) and relief opportunities (after a frustration spike).
-
-### 11.2 Whale Score and Segmentation
-
-A lightweight whale score is computed as a linear weighted combination:
-
+**Whale score:**
 $$
-\text{whale\_score} = 0.4 \cdot \min\left(1, \frac{\text{best\_score}}{2000}\right) + 0.3 \cdot \min\left(1, \frac{\text{total\_games}}{50}\right) + 0.3 \cdot \min\left(1, \frac{\text{avg\_session\_sec}}{600}\right)
+\text{whale} = 0.4 \cdot \min(1, \text{best\_score}/2000) + 0.3 \cdot \min(1, \text{total\_games}/50) + 0.3 \cdot \min(1, \text{session\_min}/10)
 $$
 
-Players are segmented into three tiers: whale (≥0.60), dolphin ([0.30, 0.60)), and minnow (<0.30). Different ad frequency caps and IAP offer types are applied per tier.
+**Segments**: whale (≥0.60), dolphin ([0.30, 0.60)), minnow (<0.30).
 
-### 11.3 Decision Engine
+**Decision engine**: filter → render → sort → explain (4-step pipeline).
 
-The monetization decision engine follows a four-step pipeline: (1) **filter**—match active rules against player segments and game state conditions; (2) **render**—generate human-readable explanations of why each rule fired; (3) **sort**—prioritize active rules by priority score; (4) **explain**—produce 5–7 lines of reasoning summary for debugging and transparency.
-
----
-
-## 12. Engineering and Production Infrastructure
-
-### 12.1 Technology Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Vanilla JavaScript (no framework), Vite build, Canvas/WebGL renderer |
-| RL (PyTorch) | Python 3.10+, PyTorch 2.x, Numba JIT for grid operations |
-| RL (MLX) | Apple MLX for Apple Silicon-optimized training |
-| Backend | Python Flask, SQLAlchemy 2.0 ORM |
-| Database | SQLite (development), PostgreSQL (production, `USE_POSTGRES=true`) |
-| Observability | Prometheus metrics, OpenTelemetry tracing (W3C tracecontext), structured JSON logging |
-| Deployment | Docker Compose (local/staging), Kubernetes + Helm (production) |
-
-### 12.2 Cross-Platform Contract
-
-The contract between platforms is enforced by `game_rules.json` as the single source of truth and by cross-language test suites:
-
-- `tests/test_spawn_step_difficulty.py` ↔ `tests/spawnStepDifficulty.test.js`: shared fixture `tests/fixtures/spawnStepDifficulty.cases.json` ensures JS and Python produce identical SCD scores for the same inputs.
-- `rl_pytorch/features.py` ↔ `web/src/bot/features.js`: feature encoding is manually synchronized; any change to `featureEncoding` dimensions triggers a dimension assertion that fails loudly on mismatch.
-
-### 12.3 Build and Test Infrastructure
-
-- **Frontend**: Vite build with `manualChunks` strategy (main bundle 500KB → 230KB, −54%), CI-enforced budget via `scripts/check-bundle-size.mjs`.
-- **Backend**: Pytest (unit + integration), vitest (frontend unit), ESLint + Ruff (lint), algorithm regression tests.
-- **RL**: Automated quality gate checks teacher coverage, win-rate moving average, and spawn difficulty drift before accepting new checkpoints.
-
-### 12.4 Architecture Decision Records
-
-Ten ADRs document key technical decisions, including:
-- ADR-003: AdaptiveSpawn as a monolithic module (not microservices, to keep browser-first capability)
-- ADR-005: Flat test layout (no nested directories, to simplify discovery)
-- ADR-009: Bitmap WASM (performance-critical grid operations compiled to WebAssembly)
+**State-gated triggers**: No ads during anxiety (frustration ≥3); no IAP during flow; cool-down ≥3 minutes between ads.
 
 ---
 
-## 13. Evaluation and Empirical Results
+## 11. Engineering Infrastructure
 
-### 13.1 RL Agent Training
+### 11.1 Technology Stack
 
-The RL agent was trained for over 230,000 self-play episodes using the PyTorch PPO pipeline. Key results:
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Frontend | Vanilla JS (no framework) + Vite | ES2022 |
+| Rendering | Canvas 2D / WebGL | — |
+| RL (PyTorch) | Python 3.10+, PyTorch 2.x, Numba JIT | — |
+| RL (MLX) | Apple MLX | Apple Silicon |
+| Backend | Python Flask | 3.x |
+| Database | SQLite (dev) / PostgreSQL (prod) | SQLite 3.x, PG 15+ |
+| Observability | Prometheus + OpenTelemetry (W3C tracecontext) | — |
+| Deployment | Docker Compose + Kubernetes/Helm | — |
 
-**Training statistics (recent 2,100 episodes):**
+### 11.2 Performance
+
+- **Frontend bundle**: 500KB → 230KB (−54%) via Vite `manualChunks`.
+- **RL simulator**: Numba JIT kernel for legal position enumeration (~0.02ms vs ~0.2ms pure numpy).
+- **DFS feasibility**: ~50ms (easy board) to ~200ms (hard board) in browser; ~2–10ms with Numba in Python.
+- **Per-shape placeability**: ~0.16ms (8 `get_legal_positions` calls, Numba).
+
+### 11.3 Architecture Decision Records
+
+Ten ADRs document decisions from bitmap encoding (ADR-001) to WASM compilation (ADR-009).
+
+### 11.4 Cross-Platform Contract
+
+JS ↔ Python parity enforced by shared fixture: `tests/fixtures/spawnStepDifficulty.cases.json`. 75 test cases cover edge conditions (empty board, full board, various fill ratios and shape distributions).
+
+---
+
+## 12. Evaluation and Empirical Results
+
+### 12.1 RL Agent Training Performance
+
+The agent was trained for 234,000+ self-play episodes with the balanced preset (batch_size=8, ppo_epochs=4, entropy_coef annealing 0.025→0.008, adaptive victory threshold). Analysis from the most recent 2,100 training episodes:
+
+**Outcome distribution:**
 
 | Metric | Value |
 |--------|-------|
-| Win rate | 35.6% (748 / 2,100) |
-| Mean score | 5,739 |
+| Total episodes | 2,100 |
+| Wins | 748 (35.6%) |
+| Losses | 1,352 (64.4%) |
+| Mean score (overall) | 5,739 |
 | Median score | 4,200 |
-| P25/P75 score | 1,795 / 8,040 |
-| Max score | 43,480 |
-| Mean win steps | 263.7 |
-| Mean loss steps | 67.3 |
+| P25 score | 1,795 |
+| P75 score | 8,040 |
+| Maximum score | 43,480 |
+| Mean steps (won games) | 263.7 |
+| Mean steps (lost games) | 67.3 |
 
-The stark gap between winning (264 steps) and losing (67 steps) game lengths points to the primary failure mode: rapid board degeneration leading to unplaceable docks. This motivated the per-shape placeability auxiliary supervision (v13).
+**Key insight:** The winning vs. losing step count gap (264 vs. 67) is stark. Winning games are 4× longer than losing games, indicating that the primary failure mode is rapid board degeneration leading to unplaceable docks relatively early in the episode. This points directly to the long-bar bottleneck.
 
-**Loss component analysis:**
+**Loss component decomposition:**
 
-| Loss Component | Mean | Correlation with Score | Correlation with Win | p-value |
-|---------------|------|----------------------|---------------------|---------|
-| `loss_feas` (BCE) | 0.0394 | −0.172 | −0.160 | <0.0001 |
-| `loss_surv` (MSE) | 0.0215 | −0.202 | −0.170 | <0.0001 |
-| `loss_bq` (MSE) | 0.0012 | +0.011 | +0.004 | 0.86 |
-| `loss_spawn_diff` (pre-v13, 4-dim) | 0.0242 | −0.009 | −0.007 | 0.69 |
-| `loss_policy` | 0.0671 | — | — | — |
-| `loss_value` | 16.68 | — | — | — |
+| Loss Component | Raw Mean | Coefficient | Effective Contribution | r(score) | r(won) |
+|---------------|----------|-------------|----------------------|----------|--------|
+| `loss_policy` | 0.06705 | 1.0 | 0.06705 | — | — |
+| `loss_value` | 16.68 | 0.5 | 8.34 | — | — |
+| `loss_feas` (BCE) | 0.03943 | 0.3 | 0.01183 | −0.172*** | −0.160*** |
+| `loss_surv` (MSE) | 0.02148 | 0.2 | 0.00430 | −0.202*** | −0.170*** |
+| `loss_bq` (MSE) | 0.00123 | 0.5 | 0.00062 | +0.011 | +0.004 |
+| `loss_spawn_diff` (pre-v13) | 0.02417 | 0.05 | 0.00121 | −0.009 | −0.007 |
+| `loss_topology` | 0.00350 | 0.0 | 0.0 | — | — |
+| Entropy | 1.565 | −0.01 | −0.0157 | — | — |
+| `approx_kl` | 0.255 | — | — | — | — |
 
-The feasibility and survival losses are strongly correlated with outcomes (p < 0.0001), confirming that the model's ability to predict "can I keep playing?" and "how much longer can I survive?" is the key differentiator between winning and losing episodes.
+***p < 0.0001
 
-### 13.2 Spawn Difficulty Distribution
+The feasibility and survival auxiliary heads show statistically significant negative correlation with both score (Pearson r = −0.172, −0.202) and win/loss (point-biserial r = −0.160, −0.170). This means that episodes where the model is *worse at predicting* feasibility and survival (higher loss) are episodes that end in losses with lower scores. Conversely, the board quality head shows near-zero correlation with outcomes (r = +0.011, p = 0.86), suggesting that predicting board quality alone is insufficient for gameplay success.
 
-Across training episodes, the spawn difficulty bucket distribution is:
+### 12.2 Spawn Difficulty Distribution
+
+Across all training episodes, the observed spawn step difficulty bucket distribution:
 
 | Bucket | Proportion |
 |--------|-----------|
-| Standard | 59.3% |
-| Hard | 32.8% |
-| Extreme | 5.9% |
-| Easy | 2.0% |
-| Trivial | 0.02% |
+| Standard (0.4–0.6) | 59.3% |
+| Hard (0.6–0.8) | 32.8% |
+| Extreme (>0.8) | 5.9% |
+| Easy (0.2–0.4) | 2.0% |
+| Trivial (<0.2) | 0.02% |
+| Mean SCD | 0.585 |
+| Max SCD (per episode avg) | 0.996 |
 
-Crucially, the bucket distribution is **nearly identical between won and lost games**. This confirms that the bottleneck is not the spawn difficulty per se—it is the board state's ability to accommodate the spawned pieces. The system is generating similarly difficult docks for both outcomes; the difference is that losing boards have degenerated to the point where even standard-difficulty docks become unplaceable.
+**Critical finding:** The bucket distribution is nearly identical between won and lost games:
 
-### 13.3 Long-Bar Bottleneck Verification
+| Bucket | Won Games | Lost Games | Difference |
+|--------|-----------|-----------|------------|
+| Standard | 59.4% | 59.3% | +0.1% |
+| Hard | 32.8% | 32.8% | 0.0% |
+| Extreme | 5.9% | 5.9% | 0.0% |
+| Easy | 1.9% | 2.1% | −0.2% |
 
-Simulation experiments quantified the placeability of different shape categories as a function of board fill rate. Using 8×8 boards with 15% hole density (realistic game conditions), 2,000 random boards per fill level:
+The per-episode mean SCD is 0.586 for won games and 0.585 for lost games—a difference of <0.2%. This confirms that spawn difficulty distribution is not the differentiating factor between wins and losses. The system generates similarly difficult docks for both outcomes. The difference lies in the board state's capacity to accommodate them: losing boards have degenerated to the point where even standard-difficulty docks become partially unplaceable, reducing the effective action space and triggering the death spiral.
 
-| Fill Rate | Long-Bars (1×4,1×5) Placeable | Non-Line Shapes Placeable | Gap | Long-Bar Zero-Position Rate |
-|-----------|------------------------------|--------------------------|-----|---------------------------|
-| 40% | 99.8% | 99.9% | −0.1% | 0.2% |
-| 50% | 97.8% | 98.7% | −0.9% | 2.2% |
-| 60% | 89.3% | 94.4% | −5.0% | 10.7% |
-| 65% | 78.7% | 88.4% | −9.6% | 21.3% |
-| 70% | 67.1% | 79.8% | −12.7% | 32.9% |
-| 75% | 43.6% | 61.7% | −18.1% | 56.4% |
-| 80% | 30.2% | 46.8% | −16.6% | 69.8% |
+### 12.3 Long-Bar Bottleneck Verification
 
-At fill rates ≥70% (the typical death zone for losing games), one-third to over half of long-bar pieces have zero legal positions. This confirms that 1×4 and 1×5 pieces are the first to become unplaceable as the board fills, making them the primary bottleneck for late-game survival.
+Simulation experiment design: 2,000 random boards per fill level with 15% hole density (representative of real gameplay conditions). For each board, count legal positions for each shape in the 28-shape catalog and aggregate by category.
 
-### 13.4 Per-Shape Placeability Signal (v13)
+| Fill Rate | Long-Bars (1×4,4×1,1×5,5×1) | Square (2×2) | Non-Line Shapes | Gap | Long-Bar Zero-Pos. Rate |
+|-----------|------------------------------|-------------|-----------------|------|------------------------|
+| 40% | 0.998 | 0.999 | 0.999 | −0.001 | 0.2% |
+| 50% | 0.978 | 0.987 | 0.987 | −0.009 | 2.2% |
+| 60% | 0.893 | 0.952 | 0.944 | −0.051 | 10.7% |
+| 65% | 0.787 | 0.885 | 0.884 | −0.096 | 21.3% |
+| 70% | 0.671 | 0.800 | 0.798 | −0.127 | 32.9% |
+| 75% | 0.436 | 0.610 | 0.617 | −0.181 | 56.4% |
+| 80% | 0.302 | 0.458 | 0.468 | −0.166 | 69.8% |
 
-The v13 upgrade to the `spawn_diff_aux` head, extending it from 4 to 12 dimensions (adding 8 per-shape placeability features), was motivated by the observation that the original 4-dimensional SCD prediction had near-zero correlation with outcomes (r = −0.009, p = 0.69). By explicitly exposing placeability counts for fixed representative shapes, the trunk learns to distinguish between "the 1×5 has 8 positions" and "the 1×5 has zero positions"—a distinction the original SCD features could not express because they only captured aggregate properties of the dock triplet, not per-board per-shape viability.
+**Individual long-bar breakdown at 70% fill:**
 
-Computational cost of the per-shape placeability computation is negligible: 8 calls to `get_legal_positions` (~0.16ms with Numba JIT) versus the existing DFS feasibility check (50–200ms).
+| Shape | Placeability Rate | Mean Legal Positions | Zero-Position Rate |
+|-------|------------------|---------------------|-------------------|
+| 1×4 | 0.752 | 2.0 | 24.8% |
+| 4×1 | 0.921 | 2.4 | 7.9% |
+| 1×5 | 0.436 | 0.8 | 56.4% |
+| 5×1 | 0.576 | 1.0 | 42.4% |
 
-### 13.5 Cross-Language Contract Validation
+Horizontal long-bars (1×4, 1×5) are significantly more vulnerable than vertical ones (4×1, 5×1) because real-game boards tend to be filled from the bottom up, leaving more vertical than horizontal gaps. The 1×5 piece is the single most constrained shape at all fill levels above 50%.
 
-All cross-language contract tests pass: the JS and Python implementations of `spawn_step_difficulty_features`, `extract_state_features`, `board_potential`, and `count_sequential_solution_leaves` produce identical outputs for shared test fixtures. This guarantees that the RL training environment (Python) is faithful to the deployment environment (JS browser).
+### 12.4 v13 Per-Shape Placeability Analysis
 
----
+The original 4-dimensional `spawn_diff_aux` head (scd/cells/killer/longBar) showed near-zero correlation with outcomes (r = −0.009, p = 0.69). The v13 extension adds 8 per-shape placeability dimensions. While training is ongoing at time of writing, the simulation data strongly supports the hypothesis that placeability signals will improve the trunk's representation of board viability.
 
-## 14. Related Work
+Computational cost analysis: The 8 `get_legal_positions` calls add ~0.16ms per step (Numba JIT), compared to 50–200ms for the existing DFS feasibility check. Since the DFS check is already performed for the `feasibility` auxiliary target, the placeability computation effectively piggybacks on existing board analysis.
 
-OpenBlock draws on and contributes to several research traditions:
+### 12.5 Cross-Language Contract Validation
 
-**Programmatic Content Generation.** Togelius et al.'s Search-Based PCG framework formalized content generation as optimization in content space. OpenBlock's constructive pre-scan (C1/C2/C3) implements a specialized form of this: the search is over triplet×ordering configurations, and the objective function is the placement quality composite. Yannakakis & Togelius's Experience-Driven PCG extended the framework to use player experience models to evaluate candidate content—directly analogous to OpenBlock's use of `PlayerProfile` as a scoring function for spawn candidates.
-
-**Adaptive Difficulty.** Csikszentmihalyi's flow channel and Yerkes-Dodson's inverted-U arousal curve provide the theoretical foundation. Hunicke's Hamlet system pioneered real-time DDA in commercial games. OpenBlock extends this tradition with a two-axis differentiation matrix (lifecycle × maturity) that modulates not just difficulty magnitude but also difficulty *type*: the system provides easier *shapes*, not just easier *placements*, to struggling players.
-
-**Reinforcement Learning for Board Games.** AlphaZero demonstrated that self-play RL with MCTS can achieve superhuman performance. OpenBlock applies a similar architecture (policy + value network, self-play training, search distillation) but adapts it for the continuous content generation setting: the spawn difficulty serves as a curriculum, and the evaluation gate prevents regression. Unlike AlphaZero's binary win/loss terminal reward, OpenBlock uses dense scoring rewards with potential-based shaping (Ng 1999).
-
-**Player Modeling.** Missura & Gärtner's dynamic difficulty adjustment with player models and Conati et al.'s Bayesian student modeling established the importance of explicit skill estimation. OpenBlock's player profiling system uses lightweight, interpretable heuristics (EMA smoothing, flow deviation formula) to achieve real-time operation in the browser—a pragmatic alternative to learned models that would require server-side inference.
-
-**Transformer-Based Content Generation.** Vaswani et al.'s Transformer architecture has been adapted for content generation in multiple domains. SpawnPolicyNet applies it to the specific problem of autoregressive triplet prediction with feasibility masking—a setting where the joint distribution over three discrete choices is constrained by hard physical constraints (board geometry).
-
----
-
-## 15. Limitations and Future Work
-
-### 15.1 Current Limitations
-
-- **Board size generalization**: The RL agent is trained exclusively on 8×8 grids. Generalization to other board sizes would require retraining or architectural changes.
-- **Shape pool expansion**: SpawnPolicyNet's 28-shape vocabulary is fixed. Expanding to 40+ shapes requires retraining and possibly architectural modifications to the slot heads.
-- **Heuristic player model**: The player profiling system uses hand-designed rules rather than learned models. While this is intentional (browser-first, interpretable), it may miss subtle behavioral patterns.
-- **MCTS depth**: Browser-based MCTS is limited by CPU budget; search depths beyond 3–4 ply are impractical in real-time.
-- **Monetization-RL integration**: Monetization signals are not currently integrated into RL reward shaping, missing an opportunity for unified optimization.
-- **Single-player focus**: The system is designed for single-player puzzle play. Multiplayer or social features are not addressed.
-
-### 15.2 Future Directions
-
-- **Federated LoRA personalization**: Train player-specific LoRA weights on-device, uploading only aggregate statistics to preserve privacy.
-- **LLM-based explainability**: Generate natural language explanations of spawn decisions using large language models, making the system's reasoning accessible to non-technical stakeholders.
-- **Causal player modeling**: Move from correlational to causal models of player behavior, enabling "what if" counterfactual reasoning for spawn parameter selection.
-- **Unified multi-objective RL**: Integrate spawn quality, placement quality, and monetization outcomes into a single reward function, enabling end-to-end optimization.
-- **Procedural level generation**: Extend the spawn engine to generate not just individual docks but full "levels"—sequences of docks with a designed difficulty arc.
+All cross-language tests pass (75 test cases, shared fixture `spawnStepDifficulty.cases.json`). The JS and Python implementations of `spawn_step_difficulty_features`, `extract_state_features`, `board_potential`, and `fast_board_features` produce identical outputs to within floating-point tolerance (1e-6).
 
 ---
 
-## 16. Appendix
+## 13. Related Work
+
+**Programmatic content generation.** Togelius et al. (2011) established the search-based PCG taxonomy. OpenBlock's constructive pre-scan (C1/C2/C3) implements a specialized local search over triplet × ordering configurations. Yannakakis & Togelius (2011) extended PCG to use player experience models as content evaluators—directly analogous to OpenBlock's use of `PlayerProfile` as a real-time scoring function for spawn candidates.
+
+**Adaptive difficulty.** Csikszentmihalyi (1990) formalized flow; Yerkes-Dodson (1908) the inverted-U arousal-performance curve. Hunicke (2005) demonstrated real-time DDA in Hamlet. Pasqualotto et al. (2024) showed multidimensional DDA with independent parameter control and probabilistic perturbation. OpenBlock extends these with a two-axis differentiation matrix (lifecycle × maturity) and a between-game difficulty arc (RoR) with cubic modulation.
+
+**Reinforcement learning for board games.** AlphaGo Zero (Silver et al., 2017) and AlphaZero (Silver et al., 2018) demonstrated self-play RL with MCTS. OpenBlock applies similar architecture (policy+value network, self-play, search distillation) but for continuous content generation: the spawn difficulty serves as a curriculum, and evaluation gates prevent regression. The outcome-value mixing (GAE + log-normalized score) addresses the challenge of dense rewards with unbounded magnitude—a problem absent in binary-win/loss games.
+
+**Player modeling.** Missura & Gärtner (2009) established dynamic difficulty with explicit player models. Conati et al. used Bayesian student modeling. OpenBlock's EMA-based profiling prioritizes browser-compatible computation over modeling fidelity—a pragmatic trade-off.
+
+**Transformer content generation.** Vaswani et al. (2017) introduced the Transformer. SpawnPolicyNet applies autoregressive triplet prediction with feasibility masking and LoRA personalization (Hu et al., 2021). The key architectural innovation is the progressive slot masking (CLS, CLS+s₁, CLS+s₁+s₂), which maintains joint distribution consistency without an explicit autoregressive sequence model.
+
+**Commercial systems.** Block Blast (Hungry Studio, 2022) and Color Block Jam (2025) are the primary commercial references. Neither has published its content generation architecture. Tetris (Pajitnov, 1984) established the "random piece generator" baseline, later refined with the 7-bag system. OpenBlock's nine-layer pipeline goes substantially beyond simple random or bag-based generation.
+
+---
+
+## 14. Limitations and Future Work
+
+### 14.1 Current Limitations
+
+- **Board size generalization**: The 8×8 grid assumption is baked into feature encoding dimensions (64 grid cells), normalization constants (maxHoles=16, maxMobility=192), and per-shape placeability norms (theoretical maxima assume 8×8).
+- **Shape pool expansion**: SpawnPolicyNet's 28-shape vocabulary is fixed in the output head dimensions.
+- **Heuristic player model**: All profiling uses hand-designed formulas, which may miss subtle behavioral signals.
+- **MCTS search depth**: Browser-based MCTS limited to ≤3–4 ply by CPU budget.
+- **Monetization-RL separation**: Monetization signals are not integrated into RL reward shaping.
+- **Single-player only**: No multiplayer or social features.
+
+### 14.2 Future Directions
+
+1. **Federated LoRA**. Train player-specific weights on-device; upload aggregate statistics only.
+2. **LLM explainability**. Natural-language diagnostic explanations from spawn decision traces.
+3. **Causal player modeling**. Counterfactual reasoning for parameter selection.
+4. **Unified multi-objective RL**. Single reward function integrating spawn quality, placement quality, and monetization.
+5. **Procedural level generation**. Sequences of docks with designed difficulty arcs, curated for specific skill-development goals.
+
+---
+
+## 15. Appendix
 
 ### A. Glossary
 
 | Term | Definition |
 |------|-----------|
-| **Spawn** | The generation of a candidate dock triplet |
-| **Dock** | The 3 candidate blocks simultaneously displayed to the player |
-| **SCD** (Spawn Step Difficulty) | 0–1 normalized difficulty score for a dock triplet |
-| **DFS Solvability** | Depth-first search verification that all dock blocks have a legal placement ordering |
-| **Flow** | Optimal experience state where perceived challenge ∼ perceived skill |
-| **RoR** (Rate of Return) | Between-game difficulty progression arc |
-| **25-Grid** | Lifecycle stage (S0–S4) × Maturity band (M0–M4) differentiation matrix |
-| **LoRA** | Low-Rank Adaptation for parameter-efficient model personalization |
+| **Spawn** | Generation of the dock candidate triplet at each step |
+| **Dock** | 3 candidate shapes simultaneously visible to the player |
+| **SCD** | Spawn Step Difficulty: 0–1 composite score of dock difficulty |
+| **DFS Solvability** | Bounded depth-first search verifying sequential placeability |
+| **Flow** | Psychological state where perceived challenge ≈ perceived skill |
+| **RoR** | Rate of Return: between-game difficulty progression arc |
+| **25-Grid** | Lifecycle (S0–S4) × Maturity (M0–M4) differentiation matrix |
+| **LoRA** | Low-Rank Adaptation: parameter-efficient model personalization |
 | **GAE** | Generalized Advantage Estimation (Schulman et al., 2015) |
 | **PPO** | Proximal Policy Optimization (Schulman et al., 2017) |
-| **EMA** | Exponentially Weighted Moving Average |
 
-### B. Configuration Reference
+### B. Key Configuration Parameters
 
-Key sections of `shared/game_rules.json`:
-
-- `featureEncoding.stateScalarDim` (65), `featureEncoding.maxGridWidth` (8), `featureEncoding.dockSlots` (3)
-- `adaptiveSpawn.profileLevels` (10-tier shape weights), `adaptiveSpawn.constructiveSpawn`
-- `rlRewardShaping.potentialShaping`, `rlRewardShaping.boardQualityLossCoef` (0.5), `rlRewardShaping.feasibilityLossCoef` (0.3), `rlRewardShaping.spawnDiffAux` (12-dim, coef=0.05)
-- `clearScoring.single_line` (20), `clearScoring.comboMultiplier`, `clearScoring.iconBonusLineMult` (5)
+| Parameter | Default | Location | Description |
+|-----------|---------|----------|-------------|
+| `single_line` | 20 | `game_rules.json` → `clearScoring` | Base score unit |
+| `perfectClearMult` | 10 | `game_rules.json` → `clearScoring` | Score multiplier for board wipe |
+| `iconBonusLineMult` | 5 | `game_rules.json` → `clearScoring` | Multiplier for icon-matched lines |
+| `comboMultiplier.activationStreak` | 3 | `game_rules.json` → `clearScoring` | Clears needed to activate combo |
+| `rlRewardShaping.boardQualityLossCoef` | 0.5 | `game_rules.json` → `rlRewardShaping` | Weight for board quality aux loss |
+| `rlRewardShaping.feasibilityLossCoef` | 0.3 | `game_rules.json` → `rlRewardShaping` | Weight for feasibility BCE loss |
+| `rlRewardShaping.spawnDiffAux.coef` | 0.05 | `game_rules.json` → `rlRewardShaping` | Weight for spawn diff aux loss |
+| `rlRewardShaping.spawnDiffAux.dim` | 12 | `game_rules.json` → `rlRewardShaping` | Spawn diff aux output dimension |
+| `ppo_clip` | 0.25 | `train.py` | PPO ratio clipping epsilon |
+| `gae_lambda` | 0.85 | `train.py` | GAE trace decay parameter |
+| `gamma` | 0.99 | `train.py` | MDP discount factor |
+| `MAX_SPAWN_ATTEMPTS` | 22 | `blockSpawn.js` | Retry budget for spawn generation |
 
 ### C. API Reference
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/rl/select_action` | POST | RL placement inference |
-| `/api/rl/eval_values` | POST | 1-step lookahead value evaluation |
-| `/api/spawn-model/v3/predict` | POST | Neural spawn triplet prediction |
-| `/api/spawn-model/v3/personalize` | POST | LoRA weight training for a player |
-| `/api/evaluation/session` | GET | Session quality evaluation |
-| `/api/evaluation/ror_audit` | GET | Between-game difficulty audit |
+| `/api/rl/select_action` | POST | RL placement inference: accepts state features, returns action logits |
+| `/api/spawn-model/v3/predict` | POST | Neural spawn: accepts board+context, returns dock triplet |
+| `/api/spawn-model/v3/personalize` | POST | LoRA training: accepts player data, returns LoRA weights |
+| `/api/evaluation/session` | GET | Returns `sessionEvalRecord` for a completed game session |
+| `/api/rl/train_episode` | POST | Online PPO training: accepts trajectory, returns gradients |
 
 ### D. Reproduction Checklist
 
 **Environment**: Python 3.10+, Node 20+, PyTorch 2.x, Numba 0.58+.
 
-**RL training:**
 ```bash
+# Install dependencies
 pip install -r requirements-rl.txt
+npm install
+
+# Run RL training (CPU, single process)
 python -m rl_pytorch.train --device cpu --arch conv-shared --batch-episodes 256
-```
 
-**Spawn model training:**
-```bash
+# Run spawn model training
 python -m rl_pytorch.spawn_model.train_v3
-```
 
-**Frontend dev server:**
-```bash
-npm install && npm run dev
-```
-
-**Cross-language contract tests:**
-```bash
+# Run cross-language contract tests
 npx vitest run tests/spawnStepDifficulty.test.js
 python -m pytest tests/test_spawn_step_difficulty.py -v
+
+# Start dev server with full features
+npm run dev
 ```
 
 ### E. References
@@ -1112,18 +1587,19 @@ python -m pytest tests/test_spawn_step_difficulty.py -v
 2. Schulman, J., Moritz, P., Levine, S., Jordan, M., & Abbeel, P. (2015). High-Dimensional Continuous Control Using Generalized Advantage Estimation. *arXiv:1506.02438*.
 3. Silver, D., et al. (2018). A general reinforcement learning algorithm that masters chess, shogi, and Go through self-play. *Science*, 362(6419), 1140–1144.
 4. Silver, D., et al. (2017). Mastering the game of Go without human knowledge. *Nature*, 550, 354–359.
-5. Vaswani, A., et al. (2017). Attention Is All You Need. *Advances in Neural Information Processing Systems*, 30.
+5. Vaswani, A., et al. (2017). Attention Is All You Need. *NeurIPS*, 30.
 6. Hu, E. J., et al. (2021). LoRA: Low-Rank Adaptation of Large Language Models. *arXiv:2106.09685*.
 7. Csikszentmihalyi, M. (1990). *Flow: The Psychology of Optimal Experience*. Harper & Row.
-8. Yannakakis, G. N., & Togelius, J. (2011). Experience-driven procedural content generation. *IEEE Transactions on Affective Computing*, 2(3), 147–161.
-9. Togelius, J., Yannakakis, G. N., Stanley, K. O., & Browne, C. (2011). Search-based procedural content generation: A taxonomy and survey. *IEEE Transactions on Computational Intelligence and AI in Games*, 3(3), 172–186.
-10. Ng, A. Y., Harada, D., & Russell, S. (1999). Policy invariance under reward transformations: Theory and application to reward shaping. *ICML*.
-11. Hunicke, R. (2005). The case for dynamic difficulty adjustment in games. *ACM SIGCHI International Conference on Advances in Computer Entertainment Technology*.
-12. Missura, O., & Gärtner, T. (2009). Player modeling for intelligent difficulty adjustment. *Discovery Science*.
-13. Pasqualotto, A., et al. (2024). Multidimensional DDA in Legends of Hoa'Manu. EPFL/UNIGE Technical Report.
+8. Ng, A. Y., Harada, D., & Russell, S. (1999). Policy invariance under reward transformations: Theory and application to reward shaping. *ICML*.
+9. Yannakakis, G. N., & Togelius, J. (2011). Experience-driven procedural content generation. *IEEE Trans. Affective Computing*, 2(3), 147–161.
+10. Togelius, J., Yannakakis, G. N., Stanley, K. O., & Browne, C. (2011). Search-based procedural content generation: A taxonomy and survey. *IEEE Trans. Computational Intelligence and AI in Games*, 3(3), 172–186.
+11. Hunicke, R. (2005). The case for dynamic difficulty adjustment in games. *ACE 2005*.
+12. Pasqualotto, A., et al. (2024). Multidimensional DDA in Legends of Hoa'Manu. EPFL/UNIGE Technical Report.
+13. Missura, O., & Gärtner, T. (2009). Player modeling for intelligent difficulty adjustment. *Discovery Science*.
+14. Schrittwieser, J., et al. (2020). Mastering Atari, Go, chess and shogi by planning with a learned model. *Nature*, 588, 604–609.
 
 ---
 
-> **Document version**: v1.0 | **Generated**: 2026-07-01 | **License**: MIT
+> **Document version**: v1.1 | **Last updated**: 2026-07-01 | **License**: MIT
 >
-> This technical report is a living document. The authoritative, always-up-to-date documentation for each subsystem resides in the source-linked documents listed in each chapter's header. This report provides a unified narrative suitable for researchers, engineers, and reviewers evaluating the OpenBlock platform as a whole.
+> This report synthesizes material from the OpenBlock documentation tree. The authoritative, versioned source for each subsystem resides in the linked documents. This report provides a unified narrative suitable for researchers, engineers, and reviewers.
