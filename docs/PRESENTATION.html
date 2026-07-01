@@ -1502,132 +1502,134 @@ document.getElementById('biz-arch').addEventListener('click', function(e){
   </div>
 
   <div class="img-frame" style="padding:0 14px 6px 14px;background:rgba(0,0,0,0.35)">
-    <svg viewBox="0 0 960 480" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
+    <svg viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block;margin:0 auto">
 
       <!-- ═══════ Row 1: 画像采集与融合 Pipeline ═══════ -->
-      <rect x="14" y="16" width="932" height="190" rx="10" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
-      <text x="480" y="38" fill="#7eb8ff" font-size="14" text-anchor="middle" font-weight="700">画像采集与融合 Pipeline</text>
+      <rect x="14" y="16" width="972" height="250" rx="10" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="500" y="44" fill="#7eb8ff" font-size="18" text-anchor="middle" font-weight="700">画像采集与融合 Pipeline</text>
 
       <!-- Tier 1 — 5 维原始信号 → 归一化 -->
-      <text x="24" y="58" fill="rgba(255,255,255,0.35)" font-size="9" font-weight="600">5 维原始技能信号</text>
+      <text x="24" y="74" fill="rgba(255,255,255,0.35)" font-size="12" font-weight="600">5 维原始技能信号</text>
 
-      <rect x="24" y="66" width="102" height="38" rx="4" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="75" y="84" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="700">thinkScore</text>
-      <text x="75" y="98" fill="rgba(255,255,255,0.50)" font-size="7.5" text-anchor="middle">决策速度</text>
+      <!-- 5 cards evenly: (24..608) → 5×104 + 4×14 = 576, +24=600, margin right=8 -->
+      <rect x="24" y="86" width="104" height="50" rx="4" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="76" y="108" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">thinkScore</text>
+      <text x="76" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">决策速度</text>
 
-      <rect x="140" y="66" width="102" height="38" rx="4" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
-      <text x="191" y="84" fill="#81c784" font-size="9" text-anchor="middle" font-weight="700">clearScore</text>
-      <text x="191" y="98" fill="rgba(255,255,255,0.50)" font-size="7.5" text-anchor="middle">消行效率</text>
+      <rect x="142" y="86" width="104" height="50" rx="4" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="194" y="108" fill="#81c784" font-size="12" text-anchor="middle" font-weight="700">clearScore</text>
+      <text x="194" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">消行效率</text>
 
-      <rect x="256" y="66" width="102" height="38" rx="4" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
-      <text x="307" y="84" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="700">comboScore</text>
-      <text x="307" y="98" fill="rgba(255,255,255,0.50)" font-size="7.5" text-anchor="middle">连击节奏</text>
+      <rect x="260" y="86" width="104" height="50" rx="4" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="312" y="108" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="700">comboScore</text>
+      <text x="312" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">连击节奏</text>
 
-      <rect x="372" y="66" width="102" height="38" rx="4" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
-      <text x="423" y="84" fill="#e57373" font-size="9" text-anchor="middle" font-weight="700">missScore</text>
-      <text x="423" y="98" fill="rgba(255,255,255,0.50)" font-size="7.5" text-anchor="middle">失误率</text>
+      <rect x="378" y="86" width="104" height="50" rx="4" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
+      <text x="430" y="108" fill="#e57373" font-size="12" text-anchor="middle" font-weight="700">missScore</text>
+      <text x="430" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">失误率</text>
 
-      <rect x="488" y="66" width="102" height="38" rx="4" fill="rgba(232,160,200,0.04)" stroke="rgba(232,160,200,0.08)" stroke-width="1"/>
-      <text x="539" y="84" fill="#e8a0c8" font-size="9" text-anchor="middle" font-weight="700">loadScore</text>
-      <text x="539" y="98" fill="rgba(255,255,255,0.50)" font-size="7.5" text-anchor="middle">认知负荷</text>
+      <rect x="496" y="86" width="104" height="50" rx="4" fill="rgba(232,160,200,0.04)" stroke="rgba(232,160,200,0.08)" stroke-width="1"/>
+      <text x="548" y="108" fill="#e8a0c8" font-size="12" text-anchor="middle" font-weight="700">loadScore</text>
+      <text x="548" y="128" fill="rgba(255,255,255,0.50)" font-size="10" text-anchor="middle">认知负荷</text>
 
-      <text x="608" y="89" fill="rgba(255,255,255,0.25)" font-size="16" text-anchor="middle">→</text>
+      <text x="618" y="115" fill="rgba(255,255,255,0.25)" font-size="22" text-anchor="middle">→</text>
 
-      <rect x="628" y="66" width="88" height="38" rx="4" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
-      <text x="672" y="84" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="600">归一化</text>
-      <text x="672" y="98" fill="rgba(255,255,255,0.35)" font-size="7" text-anchor="middle">[0, 1] 映射</text>
+      <rect x="642" y="86" width="96" height="50" rx="4" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="690" y="108" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="600">归一化</text>
+      <text x="690" y="128" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">[0, 1] 映射</text>
 
       <!-- 下箭头 -->
-      <polygon points="656,112 650,122 662,122" fill="rgba(74,158,255,0.25)"/>
-      <polygon points="676,112 670,122 682,122" fill="rgba(74,158,255,0.25)"/>
+      <polygon points="668,146 660,158 676,158" fill="rgba(74,158,255,0.25)"/>
+      <polygon points="688,146 680,158 696,158" fill="rgba(74,158,255,0.25)"/>
+      <polygon points="708,146 700,158 716,158" fill="rgba(74,158,255,0.25)"/>
 
       <!-- Tier 2 — 双速 EMA → 置信度融合 → 决策层 -->
-      <text x="24" y="138" fill="rgba(255,255,255,0.35)" font-size="9" font-weight="600">双速 EMA 平滑 → 置信度融合</text>
+      <text x="24" y="178" fill="rgba(255,255,255,0.35)" font-size="12" font-weight="600">双速 EMA 平滑 → 置信度融合</text>
 
-      <rect x="24" y="148" width="200" height="48" rx="6" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
-      <rect x="30" y="154" width="88" height="36" rx="4" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.06)" stroke-width="0.5"/>
-      <text x="74" y="170" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">Fast EMA</text>
-      <text x="74" y="186" fill="rgba(255,255,255,0.40)" font-size="7" text-anchor="middle">α=0.3 快速收敛</text>
-      <rect x="128" y="154" width="88" height="36" rx="4" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.06)" stroke-width="0.5"/>
-      <text x="172" y="170" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">Slow EMA</text>
-      <text x="172" y="186" fill="rgba(255,255,255,0.40)" font-size="7" text-anchor="middle">α=0.05 稳定追踪</text>
+      <rect x="24" y="190" width="220" height="60" rx="6" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <rect x="32" y="198" width="96" height="44" rx="4" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.06)" stroke-width="0.5"/>
+      <text x="80" y="218" fill="#81c784" font-size="12" text-anchor="middle" font-weight="600">Fast EMA</text>
+      <text x="80" y="236" fill="rgba(255,255,255,0.40)" font-size="10" text-anchor="middle">α=0.3 快速收敛</text>
+      <rect x="140" y="198" width="96" height="44" rx="4" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.06)" stroke-width="0.5"/>
+      <text x="188" y="218" fill="#81c784" font-size="12" text-anchor="middle" font-weight="600">Slow EMA</text>
+      <text x="188" y="236" fill="rgba(255,255,255,0.40)" font-size="10" text-anchor="middle">α=0.05 稳定追踪</text>
 
-      <text x="244" y="174" fill="rgba(255,255,255,0.25)" font-size="16" text-anchor="middle">→</text>
+      <text x="262" y="224" fill="rgba(255,255,255,0.25)" font-size="22" text-anchor="middle">→</text>
 
-      <rect x="266" y="148" width="192" height="48" rx="6" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="362" y="168" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="600">置信度融合</text>
-      <text x="362" y="184" fill="rgba(255,255,255,0.40)" font-size="7" text-anchor="middle">样本量加权 · 历史基线约束</text>
+      <rect x="286" y="190" width="200" height="60" rx="6" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="386" y="216" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="600">置信度融合</text>
+      <text x="386" y="236" fill="rgba(255,255,255,0.40)" font-size="10" text-anchor="middle">样本量加权 · 历史基线约束</text>
 
-      <text x="478" y="174" fill="rgba(255,255,255,0.25)" font-size="16" text-anchor="middle">→</text>
+      <text x="504" y="224" fill="rgba(255,255,255,0.25)" font-size="22" text-anchor="middle">→</text>
 
-      <rect x="498" y="148" width="144" height="48" rx="6" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
-      <text x="570" y="168" fill="#ba68c8" font-size="9" text-anchor="middle" font-weight="600">finalSkill 6D</text>
-      <text x="570" y="184" fill="rgba(255,255,255,0.40)" font-size="7" text-anchor="middle">玩家能力画像输出</text>
+      <rect x="526" y="190" width="160" height="60" rx="6" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="606" y="216" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="600">finalSkill 6D</text>
+      <text x="606" y="236" fill="rgba(255,255,255,0.40)" font-size="10" text-anchor="middle">玩家能力画像输出</text>
 
-      <text x="662" y="174" fill="rgba(255,255,255,0.25)" font-size="16" text-anchor="middle">→</text>
+      <text x="704" y="224" fill="rgba(255,255,255,0.25)" font-size="22" text-anchor="middle">→</text>
 
-      <rect x="682" y="148" width="252" height="48" rx="6" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
-      <text x="808" y="166" fill="#7eb8ff" font-size="9" text-anchor="middle" font-weight="600">决策层消费</text>
-      <text x="808" y="182" fill="rgba(255,255,255,0.40)" font-size="7" text-anchor="middle">压力曲线 · 意图调制 · 出块生成</text>
-      <text x="808" y="194" fill="rgba(255,255,255,0.25)" font-size="6.5" text-anchor="middle">O(1) 独立追踪 · 全客户端实时</text>
+      <rect x="726" y="190" width="248" height="60" rx="6" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="850" y="214" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="600">决策层消费</text>
+      <text x="850" y="234" fill="rgba(255,255,255,0.40)" font-size="10" text-anchor="middle">压力曲线 · 意图调制 · 出块生成</text>
+      <text x="850" y="248" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">O(1) 独立追踪 · 全客户端实时</text>
 
       <!-- ═══════ Row 2: 心流模型 F(t) — 动态心流判定 ═══════ -->
-      <rect x="14" y="222" width="932" height="126" rx="10" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
-      <text x="480" y="244" fill="#81c784" font-size="14" text-anchor="middle" font-weight="700">心流模型 F(t) — 动态心流判定</text>
+      <rect x="14" y="286" width="972" height="160" rx="10" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="500" y="314" fill="#81c784" font-size="18" text-anchor="middle" font-weight="700">心流模型 F(t) — 动态心流判定</text>
 
-      <!-- three columns evenly: (932-24-24)/3 ≈ 295 per column -->
-      <rect x="24" y="258" width="292" height="72" rx="6" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
-      <text x="170" y="280" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="700">ability</text>
-      <text x="170" y="298" fill="rgba(255,255,255,0.50)" font-size="9" text-anchor="middle">技能分 × (1 + 动量 − 认知负荷)</text>
-      <text x="170" y="316" fill="rgba(255,255,255,0.30)" font-size="8" text-anchor="middle">动量: skill 滑动趋势 · 认知负荷: 操作变异系数</text>
+      <!-- three columns: (972-24-24)/3 = 308 each -->
+      <rect x="24" y="332" width="308" height="88" rx="6" fill="rgba(74,158,255,0.02)" stroke="rgba(74,158,255,0.06)" stroke-width="1"/>
+      <text x="178" y="360" fill="#7eb8ff" font-size="15" text-anchor="middle" font-weight="700">ability</text>
+      <text x="178" y="382" fill="rgba(255,255,255,0.50)" font-size="11" text-anchor="middle">技能分 × (1 + 动量 − 认知负荷)</text>
+      <text x="178" y="406" fill="rgba(255,255,255,0.30)" font-size="10" text-anchor="middle">动量: skill 趋势 · 认知负荷: 操作变异系数</text>
 
-      <text x="330" y="298" fill="rgba(255,255,255,0.25)" font-size="18" text-anchor="middle">−</text>
+      <text x="346" y="380" fill="rgba(255,255,255,0.25)" font-size="22" text-anchor="middle">−</text>
 
-      <rect x="342" y="258" width="292" height="72" rx="6" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
-      <text x="488" y="280" fill="#ffb74d" font-size="12" text-anchor="middle" font-weight="700">challenge</text>
-      <text x="488" y="298" fill="rgba(255,255,255,0.50)" font-size="9" text-anchor="middle">stress × (1 + 板面填充 + 近满行)</text>
-      <text x="488" y="316" fill="rgba(255,255,255,0.30)" font-size="8" text-anchor="middle">stress: 当前压力 · 盘面复杂度因子</text>
+      <rect x="358" y="332" width="308" height="88" rx="6" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.06)" stroke-width="1"/>
+      <text x="512" y="360" fill="#ffb74d" font-size="15" text-anchor="middle" font-weight="700">challenge</text>
+      <text x="512" y="382" fill="rgba(255,255,255,0.50)" font-size="11" text-anchor="middle">stress × (1 + 板面填充 + 近满行)</text>
+      <text x="512" y="406" fill="rgba(255,255,255,0.30)" font-size="10" text-anchor="middle">stress: 当前压力 · 盘面复杂度因子</text>
 
-      <text x="648" y="298" fill="rgba(255,255,255,0.25)" font-size="18" text-anchor="middle">⇨</text>
+      <text x="680" y="380" fill="rgba(255,255,255,0.25)" font-size="22" text-anchor="middle">⇨</text>
 
-      <rect x="660" y="258" width="276" height="72" rx="6" fill="rgba(186,104,200,0.02)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
-      <text x="798" y="280" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="700">flowState 三态判定</text>
+      <rect x="692" y="332" width="284" height="88" rx="6" fill="rgba(186,104,200,0.02)" stroke="rgba(186,104,200,0.06)" stroke-width="1"/>
+      <text x="834" y="360" fill="#ba68c8" font-size="15" text-anchor="middle" font-weight="700">flowState 三态判定</text>
 
-      <rect x="668" y="290" width="82" height="28" rx="4" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="0.5"/>
-      <text x="709" y="307" fill="#81c784" font-size="9" text-anchor="middle" font-weight="600">能力≈挑战</text>
-      <text x="709" y="317" fill="rgba(255,255,255,0.25)" font-size="7" text-anchor="middle">心流</text>
+      <rect x="702" y="374" width="86" height="34" rx="4" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.08)" stroke-width="0.5"/>
+      <text x="745" y="393" fill="#81c784" font-size="11" text-anchor="middle" font-weight="600">能力≈挑战</text>
+      <text x="745" y="406" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">心流</text>
 
-      <rect x="758" y="290" width="82" height="28" rx="4" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="0.5"/>
-      <text x="799" y="307" fill="#ffb74d" font-size="9" text-anchor="middle" font-weight="600">能力>挑战</text>
-      <text x="799" y="317" fill="rgba(255,255,255,0.25)" font-size="7" text-anchor="middle">无聊</text>
+      <rect x="796" y="374" width="86" height="34" rx="4" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.08)" stroke-width="0.5"/>
+      <text x="839" y="393" fill="#ffb74d" font-size="11" text-anchor="middle" font-weight="600">能力>挑战</text>
+      <text x="839" y="406" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">无聊</text>
 
-      <rect x="848" y="290" width="80" height="28" rx="4" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.08)" stroke-width="0.5"/>
-      <text x="888" y="307" fill="#e57373" font-size="9" text-anchor="middle" font-weight="600">能力<挑战</text>
-      <text x="888" y="317" fill="rgba(255,255,255,0.25)" font-size="7" text-anchor="middle">焦虑</text>
+      <rect x="890" y="374" width="80" height="34" rx="4" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.08)" stroke-width="0.5"/>
+      <text x="930" y="393" fill="#e57373" font-size="11" text-anchor="middle" font-weight="600">能力<挑战</text>
+      <text x="930" y="406" fill="rgba(255,255,255,0.25)" font-size="9" text-anchor="middle">焦虑</text>
 
       <!-- ═══════ Row 3: 冷启动框架 — 置信度驱动的渐进估计 ═══════ -->
-      <rect x="14" y="364" width="932" height="100" rx="10" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
-      <text x="480" y="386" fill="#ffb74d" font-size="14" text-anchor="middle" font-weight="700">冷启动框架 — 置信度驱动的渐进估计</text>
+      <rect x="14" y="466" width="972" height="130" rx="10" fill="rgba(255,183,77,0.02)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+      <text x="500" y="494" fill="#ffb74d" font-size="18" text-anchor="middle" font-weight="700">冷启动框架 — 置信度驱动的渐进估计</text>
 
-      <!-- three phase boxes evenly spaced: (932-24-24)/3 ≈ 295 each -->
-      <rect x="24" y="400" width="290" height="38" rx="6" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
-      <text x="169" y="420" fill="#7eb8ff" font-size="10" text-anchor="middle" font-weight="600">Phase 1 · 基线引导</text>
-      <text x="169" y="434" fill="rgba(255,255,255,0.35)" font-size="7.5" text-anchor="middle">前 n 步: 历史/全局基线替代</text>
+      <!-- three phase boxes: (972-24-24)/3 = 308 each -->
+      <rect x="24" y="510" width="308" height="50" rx="6" fill="rgba(74,158,255,0.03)" stroke="rgba(74,158,255,0.08)" stroke-width="1"/>
+      <text x="178" y="536" fill="#7eb8ff" font-size="12" text-anchor="middle" font-weight="600">Phase 1 · 基线引导</text>
+      <text x="178" y="554" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">前 n 步: 历史/全局基线替代</text>
 
-      <text x="332" y="423" fill="rgba(255,255,255,0.25)" font-size="14" text-anchor="middle">→</text>
+      <text x="346" y="540" fill="rgba(255,255,255,0.25)" font-size="22" text-anchor="middle">→</text>
 
-      <rect x="352" y="400" width="290" height="38" rx="6" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
-      <text x="497" y="420" fill="#81c784" font-size="10" text-anchor="middle" font-weight="600">Phase 2 · 混合估计</text>
-      <text x="497" y="434" fill="rgba(255,255,255,0.35)" font-size="7.5" text-anchor="middle">基线 + 当前 EMA 置信度加权</text>
+      <rect x="358" y="510" width="308" height="50" rx="6" fill="rgba(129,199,132,0.03)" stroke="rgba(129,199,132,0.08)" stroke-width="1"/>
+      <text x="512" y="536" fill="#81c784" font-size="12" text-anchor="middle" font-weight="600">Phase 2 · 混合估计</text>
+      <text x="512" y="554" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">基线 + 当前 EMA 置信度加权</text>
 
-      <text x="660" y="423" fill="rgba(255,255,255,0.25)" font-size="14" text-anchor="middle">→</text>
+      <text x="680" y="540" fill="rgba(255,255,255,0.25)" font-size="22" text-anchor="middle">→</text>
 
-      <rect x="680" y="400" width="256" height="38" rx="6" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
-      <text x="808" y="420" fill="#ba68c8" font-size="10" text-anchor="middle" font-weight="600">Phase 3 · 自主估计</text>
-      <text x="808" y="434" fill="rgba(255,255,255,0.35)" font-size="7.5" text-anchor="middle">样本充足 → 完全信任当前估计</text>
+      <rect x="692" y="510" width="284" height="50" rx="6" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+      <text x="834" y="536" fill="#ba68c8" font-size="12" text-anchor="middle" font-weight="600">Phase 3 · 自主估计</text>
+      <text x="834" y="554" fill="rgba(255,255,255,0.35)" font-size="10" text-anchor="middle">样本充足 → 完全信任当前估计</text>
 
-      <rect x="24" y="444" width="912" height="16" rx="4" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.04)" stroke-width="0.5"/>
-      <text x="480" y="456" fill="rgba(255,255,255,0.38)" font-size="7.5" text-anchor="middle">设计保证: 全客户端 · &lt;1ms/次 · 零数据上传 · 零历史可用 · 双速 EMA O(1) · 置信度自动切换</text>
+      <rect x="24" y="570" width="952" height="22" rx="4" fill="rgba(129,199,132,0.02)" stroke="rgba(129,199,132,0.04)" stroke-width="0.5"/>
+      <text x="500" y="586" fill="rgba(255,255,255,0.38)" font-size="10" text-anchor="middle">设计保证: 全客户端 · &lt;1ms/次 · 零数据上传 · 零历史可用 · 双速 EMA O(1) · 置信度自动切换</text>
     </svg>
   </div>
 </section>
