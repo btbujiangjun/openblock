@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 480" width="100%" height="100%">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#4a9eff"/>
+    </marker>
+    <marker id="arrowDown" viewBox="0 0 10 10" refX="5" refY="9" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M0,0 L10,0 L5,10 Z" fill="rgba(255,255,255,0.4)"/>
+    </marker>
+  </defs>
+
+  <rect width="820" height="480" fill="#060810" rx="8"/>
+  <text x="410" y="26" fill="#ffb74d" font-family="Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" letter-spacing="1">SpawnParamTuner  —  ResNet-MLP, ~325K Parameters</text>
+
+  <!-- ═══ INPUT ═══ -->
+  <rect x="15" y="36" width="790" height="55" rx="8" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.10)" stroke-width="1"/>
+  <text x="35" y="52" fill="rgba(255,255,255,0.35)" font-family="Arial" font-size="10" font-weight="bold">INPUT  —  Context Embedding(32) + θ(36) = 68-dim</text>
+
+  <rect x="30" y="58" width="370" height="24" rx="4" fill="#1a3a5c" stroke="rgba(74,158,255,0.15)" stroke-width="0.8"/>
+  <text x="215" y="74" fill="#7eb8ff" font-family="Courier New" font-size="9" text-anchor="middle">Context Embedding (32-dim): difficulty(4)+gen(4)+bot(4)+PB(8)+life(8)+logPB(4)</text>
+
+  <rect x="420" y="58" width="360" height="24" rx="4" fill="#2a1a0d" stroke="rgba(255,183,77,0.15)" stroke-width="0.8"/>
+  <text x="600" y="74" fill="#ffb74d" font-family="Courier New" font-size="9" text-anchor="middle">θ ∈ [0,1]³⁶: personalization₅+pbTension₄+scoring₈+translation₅+challenge₅+order₂+constructive₂+solution₂+special₃</text>
+
+  <!-- Arrow -->
+  <line x1="410" y1="91" x2="410" y2="107" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" marker-end="url(#arrowDown)"/>
+
+  <!-- Projection -->
+  <rect x="240" y="109" width="340" height="26" rx="4" fill="rgba(186,104,200,0.06)" stroke="rgba(186,104,200,0.15)" stroke-width="1"/>
+  <text x="410" y="126" fill="#ba68c8" font-family="Courier New" font-size="10" text-anchor="middle" font-weight="bold">Linear(68 → 128) + LayerNorm + GELU</text>
+
+  <line x1="410" y1="135" x2="410" y2="151" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" marker-end="url(#arrowDown)"/>
+
+  <!-- ═══ RESBLOCKS ═══ -->
+  <rect x="15" y="153" width="790" height="115" rx="8" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.10)" stroke-width="1"/>
+  <text x="410" y="171" fill="#81c784" font-family="Arial" font-size="11" text-anchor="middle" font-weight="bold">RESIDUAL BLOCKS  —  8× ResBlock (hidden_dim=128)</text>
+
+  <rect x="30" y="178" width="180" height="40" rx="4" fill="#1a3d2a" stroke="#3a7a4a" stroke-width="0.8"/>
+  <text x="120" y="194" fill="#81c784" font-family="Arial" font-size="9" text-anchor="middle" font-weight="bold">ResBlock 1</text>
+  <text x="120" y="210" fill="#4a6a4a" font-size="7" text-anchor="middle">FC→LN→GELU→Drop</text>
+
+  <text x="218" y="200" fill="rgba(255,255,255,0.2)" font-size="10">→</text>
+
+  <rect x="232" y="178" width="180" height="40" rx="4" fill="#1a3d2a" stroke="#3a7a4a" stroke-width="0.8"/>
+  <text x="322" y="194" fill="#81c784" font-family="Arial" font-size="9" text-anchor="middle" font-weight="bold">ResBlock 2</text>
+  <text x="322" y="210" fill="#4a6a4a" font-size="7" text-anchor="middle">→FC→LN→+x→GELU</text>
+
+  <text x="420" y="200" fill="rgba(255,255,255,0.2)" font-size="10">→</text>
+
+  <rect x="434" y="178" width="180" height="40" rx="4" fill="#1a3d2a" stroke="#3a7a4a" stroke-width="0.8"/>
+  <text x="524" y="194" fill="#81c784" font-family="Arial" font-size="9" text-anchor="middle" font-weight="bold">... ResBlock 8</text>
+  <text x="524" y="210" fill="#4a6a4a" font-size="7" text-anchor="middle">×8 stacked</text>
+
+  <text x="622" y="200" fill="rgba(255,255,255,0.2)" font-size="10">→</text>
+
+  <rect x="636" y="178" width="155" height="40" rx="4" fill="#1a2a3d" stroke="#3a5a7a" stroke-width="0.8"/>
+  <text x="713" y="194" fill="#7eb8ff" font-family="Arial" font-size="9" text-anchor="middle" font-weight="bold">LayerNorm(128)</text>
+  <text x="713" y="210" fill="#4a6a8a" font-size="7" text-anchor="middle">Final normalization</text>
+
+  <text x="410" y="242" fill="rgba(129,199,132,0.3)" font-family="Arial" font-size="8" text-anchor="middle">Each ResBlock: Linear(128→128)→LayerNorm→GELU→Dropout(0.1)→Linear(128→128)→LayerNorm→+x→GELU</text>
+  <text x="410" y="258" fill="rgba(129,199,132,0.15)" font-size="7" text-anchor="middle">8 blocks × ~28K params each · Total residual: pre-activation + post-norm · Deep enough for curve fitting, not over-parameterized</text>
+
+  <!-- Arrow to heads -->
+  <line x1="410" y1="268" x2="410" y2="284" stroke="rgba(255,255,255,0.25)" stroke-width="1.5" marker-end="url(#arrowDown)"/>
+
+  <!-- ═══ OUTPUT HEADS ═══ -->
+  <rect x="15" y="286" width="790" height="60" rx="8" fill="rgba(229,115,115,0.03)" stroke="rgba(229,115,115,0.08)" stroke-width="1"/>
+  <text x="410" y="302" fill="#e57373" font-family="Arial" font-size="10" text-anchor="middle" font-weight="bold">OUTPUT HEADS  (7 heads, from shared LayerNorm output)</text>
+
+  <rect x="25" y="310" width="105" height="28" rx="3" fill="#3a1a1a" stroke="rgba(229,115,115,0.12)" stroke-width="0.8"/>
+  <text x="77" y="322" fill="#e08070" font-family="Arial" font-size="8" text-anchor="middle" font-weight="bold">D(r) 20 bins</text>
+  <text x="77" y="334" fill="#8a4a3a" font-size="6" text-anchor="middle">sigmoid</text>
+
+  <rect x="140" y="310" width="105" height="28" rx="3" fill="#3a1a1a" stroke="rgba(229,115,115,0.12)" stroke-width="0.8"/>
+  <text x="192" y="322" fill="#e08070" font-family="Arial" font-size="8" text-anchor="middle" font-weight="bold">E(r) 20 bins</text>
+  <text x="192" y="334" fill="#8a4a3a" font-size="6" text-anchor="middle">sigmoid</text>
+
+  <rect x="255" y="310" width="105" height="28" rx="3" fill="#3a1a1a" stroke="rgba(229,115,115,0.12)" stroke-width="0.8"/>
+  <text x="307" y="322" fill="#e08070" font-family="Arial" font-size="8" text-anchor="middle" font-weight="bold">F(r) 20 bins</text>
+  <text x="307" y="334" fill="#8a4a3a" font-size="6" text-anchor="middle">sigmoid</text>
+
+  <rect x="370" y="310" width="105" height="28" rx="3" fill="#3a1a1a" stroke="rgba(229,115,115,0.12)" stroke-width="0.8"/>
+  <text x="422" y="322" fill="#e08070" font-family="Arial" font-size="8" text-anchor="middle" font-weight="bold">PB break prob</text>
+  <text x="422" y="334" fill="#8a4a3a" font-size="6" text-anchor="middle">sigmoid</text>
+
+  <rect x="485" y="310" width="105" height="28" rx="3" fill="#3a1a1a" stroke="rgba(229,115,115,0.12)" stroke-width="0.8"/>
+  <text x="537" y="322" fill="#e08070" font-family="Arial" font-size="8" text-anchor="middle" font-weight="bold">noMove steps</text>
+  <text x="537" y="334" fill="#8a4a3a" font-size="6" text-anchor="middle">sigmoid</text>
+
+  <rect x="600" y="310" width="90" height="28" rx="3" fill="#3a1a1a" stroke="rgba(229,115,115,0.12)" stroke-width="0.8"/>
+  <text x="645" y="322" fill="#e08070" font-family="Arial" font-size="8" text-anchor="middle" font-weight="bold">log score</text>
+  <text x="645" y="334" fill="#8a4a3a" font-size="6" text-anchor="middle">linear</text>
+
+  <rect x="700" y="310" width="95" height="28" rx="3" fill="#3a1a1a" stroke="rgba(229,115,115,0.12)" stroke-width="0.8"/>
+  <text x="747" y="322" fill="#e08070" font-family="Arial" font-size="8" text-anchor="middle" font-weight="bold">survival</text>
+  <text x="747" y="334" fill="#8a4a3a" font-size="6" text-anchor="middle">sigmoid</text>
+
+  <!-- ═══ BI-LEVEL OPT ═══ -->
+  <rect x="15" y="358" width="790" height="60" rx="8" fill="rgba(255,183,77,0.03)" stroke="rgba(255,183,77,0.08)" stroke-width="1"/>
+  <text x="410" y="376" fill="#ffb74d" font-family="Arial" font-size="11" text-anchor="middle" font-weight="bold">BI-LEVEL OPTIMIZATION</text>
+
+  <rect x="25" y="384" width="370" height="26" rx="4" fill="#2a1a0d" stroke="rgba(255,183,77,0.12)" stroke-width="0.8"/>
+  <text x="210" y="400" fill="#d0a060" font-family="Arial" font-size="9" text-anchor="middle">Inner: min_φ E[L_total(f_φ(c,θ), targets)]  —  learn (c,θ)→D(r)</text>
+
+  <rect x="410" y="384" width="380" height="26" rx="4" fill="#2a1a0d" stroke="rgba(255,183,77,0.12)" stroke-width="0.8"/>
+  <text x="600" y="400" fill="#d0a060" font-family="Arial" font-size="9" text-anchor="middle">Outer: θ*_c = argmin_θ J(f_φ*(c,θ))  —  8 LHS × 300 Adam steps</text>
+
+  <!-- ═══ LOSS + DEPLOY ═══ -->
+  <rect x="15" y="428" width="790" height="45" rx="8" fill="rgba(186,104,200,0.03)" stroke="rgba(186,104,200,0.08)" stroke-width="1"/>
+  <text x="410" y="446" fill="#ba68c8" font-family="Arial" font-size="10" text-anchor="middle" font-weight="bold">15-Term Composite Loss  ·  Deploy: trained policies → policies.json → consumed by SpawnPolicyRules + SpawnPolicyNet</text>
+  <text x="410" y="464" fill="rgba(255,255,255,0.2)" font-size="8" text-anchor="middle">α=5(shape MSE) κ=1(anchor) μ=1(mono) δ=0.5(breaking) ξ=1(endpoint) τ=1(div→0.005) ν=1(deploy) ζ=0.2(aux) ε=0.04(smooth) β=0.15(balance) γ=0.3(surprise~7%) η=1(E-fit) ι=1(F-fit) λ=1(F≤0.30)</text>
+</svg>

@@ -238,128 +238,227 @@ The budget of 200 nodes provides a conservative yet practical bound: if a feasib
 
 ## 3. System Architecture
 
-### 3.1 Four-Pillar Overview
+### 3.1 Four-Pillar Architecture
 
-OpenBlock's architecture is organized around four co-equal pillars that share a single `PlayerProfile` data structure:
+OpenBlock is organized around four co-equal pillars sharing a single player profile database. The architecture diagram below illustrates the complete system design:
 
-| Pillar | Responsibility | Runtime Location | Primary Source Files |
-|--------|---------------|-----------------|---------------------|
-| 🎮 **Game Engine** | Grid state machine, placement validation, line clearing, scoring, canvas rendering | Browser | `grid.js`, `game.js`, `clearScoring.js`, `renderer.js` |
-| 🧠 **Adaptive Spawn AI** | Content generation, difficulty modulation, player state estimation, between-game arc | Browser (primary) / Server (neural) | `adaptiveSpawn.js`, `blockSpawn.js`, `playerProfile.js`, `difficultyRelativity.js` |
-| 🤖 **RL Training** | Self-play agent training, policy/value network optimization, evaluation gate | Python (server) | `rl_pytorch/train.py`, `rl_pytorch/model.py`, `rl_pytorch/simulator.py` |
-| 💰 **Monetization** | Ad timing, IAP offer scheduling, whale segmentation, LTV prediction | Browser + Server | `monetization/index.js`, `personalization.js`, `ltvPredictor.js` |
+![Figure 1: ConvSharedPolicyValueNet Architecture](docs/architecture/assets/fig1-conv-shared-policy-value-net.png)
 
-**Key architectural boundary**: The RL agent operates on a completely separate code path from human players. The agent uses `rl_pytorch/simulator.py`—a numpy-accelerated, Numba-JIT-compiled port of the browser game engine—and its placement decisions are made by the neural policy, not by a human. This separation means that RL improvements do not affect human gameplay until explicitly deployed through the evaluation pipeline, and conversely, spawn algorithm changes for human players do not require RL retraining (though they may benefit from it).
+**Pillar Responsibilities:**
+
+**Pillar Responsibilities:**
+
+| Pillar | Responsibility | Runtime | Key Files |
+|--------|---------------|---------|-----------|
+| 🎮 Game Engine | Grid state machine, placement validation, line clearing, scoring, rendering | Browser | `grid.js`, `game.js`, `clearScoring.js`, `renderer.js` |
+| 🧠 Adaptive Spawn AI | Content generation (9-layer pipeline), difficulty modulation, player state estimation, between-game arc | Browser (primary) / Server (neural) | `adaptiveSpawn.js`, `blockSpawn.js`, `playerProfile.js`, `difficultyRelativity.js` |
+| 🤖 RL Training | Self-play agent training, policy/value network optimization, evaluation gate | Python server | `rl_pytorch/train.py`, `model.py`, `simulator.py` |
+| 💰 Monetization | Ad timing, IAP offers, whale segmentation, LTV prediction | Browser + Server | `monetization/index.js`, `personalization.js` |
+
+**Key architectural boundary**: The RL agent operates on a completely separate code path from human players. The agent uses `rl_pytorch/simulator.py`—a numpy-accelerated, Numba-JIT-compiled port of the browser game engine—and its placement decisions are made by the neural policy, not by a human. RL improvements do not affect human gameplay until explicitly deployed.
 
 ### 3.2 Five-Layer Technical Stack
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│ Layer 5: Presentation & Diagnostics                              │
-│ renderer.js, playerInsightPanel.js, rlPanel.js, monPanel.js,     │
-│ spawnModelPanel.js, hintEngine.js, replayUI.js,                  │
-│ DecisionFlowViz.js, spawn-signal-explorer.html                   │
-├──────────────────────────────────────────────────────────────────┤
-│ Layer 4: Application Orchestration                               │
-│ game.js (main controller, step() → clear() → spawn() loop),      │
-│ main.js (entry, ad/analytics/session bootstrap),                 │
-│ monetization/index.js (MonetizationBus, strategy engine),        │
-│ bot/trainer.js (browser RL), bot/rlPanel.js (training UI)        │
-├──────────────────────────────────────────────────────────────────┤
-│ Layer 3: Domain Services                                         │
-│ ┌───────────────┬────────────────────┬────────────────────────┐ │
-│ │ Player System │ Spawn Engine       │ Monetization Framework │ │
-│ │ profile.js    │ adaptiveSpawn.js   │ MonetizationBus        │ │
-│ │ progression.js│ blockSpawn.js      │ adAdapter/iapAdapter   │ │
-│ │ abilityModel  │ spawnModel.js      │ personalization.js     │ │
-│ │ .js           │ difficulty.js      │ featureFlags.js        │ │
-│ └───────────────┴────────────────────┴────────────────────────┘ │
-├──────────────────────────────────────────────────────────────────┤
-│ Layer 2: Core Game Logic                                         │
-│ grid.js (board state machine, checkLines, canPlace),             │
-│ shapes.js (28-shape catalog loader), gameRules.js (config),      │
-│ clearScoring.js (scoring formula), api.js (REST client),         │
-│ database.js (IndexedDB/localStorage persistence)                 │
-├──────────────────────────────────────────────────────────────────┤
-│ Layer 1: Shared Configuration                                    │
-│ shared/game_rules.json (SSOT parameters), shared/shapes.json,    │
-│ .env (deployment overrides), .claude/settings.json (CI/AI)       │
-└──────────────────────────────────────────────────────────────────┘
-                        ↕ REST API (Flask JSON)
-┌──────────────────────────────────────────────────────────────────┐
-│ Backend Services (Optional, Python 3.10+)                        │
-│ server.py (main Flask app), server_authority.py (auth),          │
-│ server_replay.py (game replay), server_payments.py (IAP verify), │
-│ rl_backend.py (RL training orchestration),                       │
-│ spawn_tuning_v2_backend.py (SpawnParamTuner serving),            │
-│ rl_pytorch/train.py (RL training), rl_pytorch/spawn_model/ (NN)  │
-└──────────────────────────────────────────────────────────────────┘
+Layer 5 ┌──────────────────────────────────────────────────────────────────┐
+Display │ renderer.js  playerInsightPanel.js  rlPanel.js  monPanel.js      │
+        │ spawnModelPanel.js  hintEngine.js  replayUI.js                   │
+        │ DecisionFlowViz.js  spawn-signal-explorer.html                   │
+        ├──────────────────────────────────────────────────────────────────┤
+Layer 4 │ game.js (main controller: step() → clear() → spawn() loop)      │
+App     │ main.js (entry, ad/analytics/session bootstrap)                  │
+Orch.   │ monetization/index.js (MonetizationBus, strategy engine)         │
+        │ bot/trainer.js (browser RL), bot/rlPanel.js (training UI)        │
+        ├──────────────────────────────────────────────────────────────────┤
+Layer 3 │ ┌───────────────┬────────────────────┬────────────────────────┐ │
+Domain  │ │ Player System │ Spawn Engine       │ Monetization Framework │ │
+Services│ │ profile.js    │ adaptiveSpawn.js   │ MonetizationBus        │ │
+        │ │ progression.js│ blockSpawn.js      │ adAdapter/iapAdapter   │ │
+        │ │ abilityModel  │ spawnModel.js      │ personalization.js     │ │
+        │ │ .js           │ difficulty.js      │ featureFlags.js        │ │
+        │ └───────────────┴────────────────────┴────────────────────────┘ │
+        ├──────────────────────────────────────────────────────────────────┤
+Layer 2 │ grid.js (board state machine, checkLines, canPlace)              │
+Core    │ shapes.js (28-shape catalog loader), gameRules.js (config loader)│
+Logic   │ clearScoring.js (scoring formula), api.js (REST client)          │
+        │ database.js (IndexedDB/localStorage persistence)                 │
+        ├──────────────────────────────────────────────────────────────────┤
+        │              ♢ REST API (Flask JSON) ♢                           │
+Backend │ server.py  server_authority.py  server_replay.py  server_pay.py │
+Services│ rl_backend.py  spawn_tuning_v2_backend.py  (Optional)            │
+        ├──────────────────────────────────────────────────────────────────┤
+Layer 1 │ shared/game_rules.json (SSOT: all algorithm parameters)          │
+Config  │ shared/shapes.json (28 polyomino shape definitions)              │
+        │ .env (deployment-specific overrides)                             │
+        └──────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.3 Cross-Platform Architecture
+### 3.3 Dual-Track Spawn Architecture
 
-OpenBlock targets four platforms from a single codebase, with shared game logic and configuration:
+The spawn engine implements a dual-track architecture with automatic fallback:
 
-| Platform | Technology | Feature Set | Rendering |
-|----------|-----------|-------------|-----------|
-| **Web (primary)** | Vite + vanilla JS | Full features | Canvas 2D / WebGL |
-| **WeChat Mini Program** | Adapted build, wx APIs | Excludes RL, monitoring; subset of monetization | Canvas 2D |
-| **iOS/Android** | Capacitor WebView | Full features via embedded WebView | Full |
-| **Cocos Creator** | Cocos 3.x, separate renderer | In development; native performance target | Cocos native |
-
-**Cross-platform contract.** All platforms share `shared/game_rules.json` (configuration), `shared/shapes.json` (shape definitions), and the same feature encoding (`rl_pytorch/features.py` ↔ `web/src/bot/features.js`). A cross-language test suite guarantees equivalence: `tests/test_spawn_step_difficulty.py` and `tests/spawnStepDifficulty.test.js` share fixture `tests/fixtures/spawnStepDifficulty.cases.json` and assert bitwise-identical outputs for the same inputs.
+```
+                    ┌─────────────────────────┐
+   Board + Context  │ buildSpawnModelContext() │
+   + Player Profile │                         │
+                    └────────────┬────────────┘
+                                 │
+              ┌──────────────────┴──────────────────┐
+              ↓                                      ↓
+┌──────────────────────────┐          ┌──────────────────────────┐
+│ Track 1: Rule (默认)     │          │ Track 2: Neural (可选)    │
+│ ──────────────────────── │          │ ──────────────────────── │
+│ SpawnPolicyRules         │          │ SpawnPolicyNet (V3.1)    │
+│ blockSpawn.js            │          │ spawnModel.js            │
+│                          │          │                          │
+│ 9-layer pipeline:        │          │ Transformer Architecture:│
+│  1. Input Assembly       │          │  5 input sources         │
+│  2. Board Perception     │          │    → 13 token sequence   │
+│  3. Score Construction   │          │    → 6-layer Encoder     │
+│  4. Priority Selection   │          │    → 3 AR slot heads     │
+│  5. Weighted Completion  │          │    → 5 auxiliary heads   │
+│  6. Constraint Verify    │          │                          │
+│  7. Injection Optimize   │          │ Latency: 4-8ms (server)  │
+│  8. Output Delivery      │          │ Availability: best-effort│
+│  9. Color Display        │          │ LoRA personalization:    │
+│                          │          │   5.6K params/player     │
+│ 0 params (rule-based)    │          │   ~317K params total     │
+│ Latency: <5ms (browser)  │          │                          │
+│ Availability: 100%        │          │                          │
+└────────────┬─────────────┘          └────────────┬─────────────┘
+             │                                     │
+             └──────────────┬──────────────────────┘
+                            ↓
+             ┌──────────────────────────┐
+             │  Constraint Validation   │
+             │  Gate                    │
+             │  ─────────────────────── │
+             │ ① Shape uniqueness      │
+             │ ② Mobility ≥ min target │
+             │ ③ DFS sequential feas.  │
+             └────────────┬─────────────┘
+                          │
+                ┌─────────┴─────────┐
+                ↓                   ↓
+          Pass → Deliver      Fail → Retry (×22)
+                to Dock              or fallback_simple
+```
 
 ### 3.4 Data Flow and Event Bus
 
-A unified event bus connects game events to all consuming subsystems:
+The event bus connects game events to all consuming subsystems via a publish-subscribe pattern:
 
 ```
-Game Event (placement, clear, gameOver, pause, resume, etc.)
+Game Event (placement, clear, gameOver, pause, resume...)
   │
-  ├→ MonetizationBus.emit(event) ─── ①
-  │   ├→ MonetizationDecisionEngine.evaluate() → ad/show, iap/offer
-  │   └→ MonetizationLogger.record(decision, outcome)
+  ├─→ MonetizationBus.emit(event) ──→ MonetizationDecisionEngine.evaluate()
+  │     └─→ ad/show, iap/offer, MonetizationLogger.record()
   │
-  ├→ PlayerProfile.update(event) ──── ②
-  │   ├→ _computeRawSkill() → skillLevel (EMA)
-  │   ├→ _updateFlowDeviation() → flowState
-  │   ├→ _updateFrustration() → frustrationLevel
-  │   ├→ _updateMomentum() → momentum
-  │   └→ _updateLifecycle() → lifecycleStage
+  ├─→ PlayerProfile.update(event) ──→ _computeRawSkill() → EMA → skillLevel
+  │     ├─→ _updateFlowDeviation()  → flowState ∈ {bored, flow, anxious}
+  │     ├─→ _updateFrustration()    → frustrationLevel ∈ [0, 5]
+  │     ├─→ _updateMomentum()       → momentum ∈ [-1, 1]
+  │     └─→ _updateLifecycle()      → lifecycleStage ∈ {S0..S4}
   │
-  ├→ SessionEval.record(event) ────── ③
-  │   ├→ evaluatePlacement() → placementQuality[5]
-  │   ├→ evaluateRound() → roundQuality, regret components
-  │   └→ sessionEvalRecord.update()
+  ├─→ SessionEval.record(event) ──→ evaluatePlacement() → placementQuality[5]
+  │     ├─→ evaluateRound()        → roundQuality, regret components
+  │     └─→ sessionEvalRecord.update()
   │
-  ├→ SpawnContext.update(event) ───── ④
-  │   ├→ _updateHistory() → recent shape/dock trajectory
-  │   ├→ _recordFeedback() → feedbackBias update
-  │   └→ _updateDiagnostics() → spawn decision trace
+  ├─→ SpawnContext.update(event) ──→ history, feedbackBias, diagnostics
   │
-  └→ state_history INSERT ──────────── ⑤
-      └→ (session_id, step, grid_blob, dock_ids, action, clear_count, score, player_snapshot)
+  └─→ state_history INSERT ──→ (session_id, step, grid, dock, action,
+                                  clear_count, score, player_snapshot)
 ```
 
-This event-driven design enables the monetization framework to observe game state without modifying it (Principle 1: minimal intrusion), allows new consumers to be added without changing the game engine, and provides a complete audit trail for every game event across all subsystems.
+### 3.5 Nine-Layer Generation Pipeline (generateDockShapes)
 
-### 3.5 Configuration-Driven Design
+```
+Input: Board B_t, PlayerProfile π_t, SpawnContext ctx_t, Intent I_t
+                                   │
+  ┌────────────────────────────────┼────────────────────────────────────┐
+  │ Layer 1    INPUT ASSEMBLY      │ Aggregate & normalize inputs         │
+  │            ─────────────────   │ Board + Profile + Context + Intent  │
+  ├────────────────────────────────┼────────────────────────────────────┤
+  │ Layer 2    BOARD PERCEPTION    │ analyzeBoardTopology(grid)          │
+  │            ─────────────────   │ 25 structural features              │
+  │                                │ 3 spatial planning features         │
+  │                                │ 19 color summary features           │
+  ├────────────────────────────────┼────────────────────────────────────┤
+  │ Layer 3    SCORE CONSTRUCTION  │ 17-signal fusion → SCD ∈ [0,1]     │
+  │            ─────────────────   │ 5 difficulty buckets                │
+  │                                │ scd(0.26) + board(0.18) +           │
+  │                                │ flex(0.18) + sol(0.13) +            │
+  │                                │ killer(0.13) + frag(0.12)           │
+  ├────────────────────────────────┼────────────────────────────────────┤
+  │ Layer 4    PRIORITY SELECTION  │ 10-intent priority scheduler        │
+  │            ─────────────────   │ warm_run(115) → maintain(0)         │
+  │                                │ → shapeWeights bias + clearGuarantee│
+  ├────────────────────────────────┼────────────────────────────────────┤
+  │ Layer 5    WEIGHTED COMPLETION │ 14-dim weight chain                 │
+  │            ─────────────────   │ Stage 1: clearSeats (guarantee)     │
+  │                                │ Stage 2: weightedFill (sampling)    │
+  │                                │ C1/C2/C3 constructive pre-scan      │
+  │                                │ PEOG clamp: restrict operators      │
+  ├────────────────────────────────┼────────────────────────────────────┤
+  │ Layer 6    CONSTRAINT VERIFY   │ Gate 1: Shape uniqueness (O(1))     │
+  │            ─────────────────   │ Gate 2: Mobility ≥ minTarget        │
+  │                                │ Gate 3: DFS seq. feas. (200 nodes)  │
+  ├────────────────────────────────┼────────────────────────────────────┤
+  │ Layer 7    INJECTION OPTIMIZE  │ Special event block injection        │
+  │            ─────────────────   │ Flush-clear, icon-bonus, PC         │
+  │                                │ Rate-limited: retry counter guard    │
+  ├────────────────────────────────┼────────────────────────────────────┤
+  │ Layer 8    OUTPUT DELIVERY     │ Final triplet confirmation           │
+  │            ─────────────────   │ Diagnostic metadata attachment       │
+  ├────────────────────────────────┼────────────────────────────────────┤
+  │ Layer 9    COLOR DISPLAY       │ monoNearFullLineColorWeights(grid)   │
+  │            ─────────────────   │ Icon bonus alignment                 │
+  │                                │ Decoupled from shape selection       │
+  └────────────────────────────────┴────────────────────────────────────┘
+                                   ↓
+                          Dock (s_1, s_2, s_3)
+```
 
-`shared/game_rules.json` serves as the single source of truth (SSOT) for all algorithm parameters. The file is organized into semantic sections, each consumed by specific modules:
+### 3.6 Full-System Data Pipeline
 
-| Section | Key Parameters | Consumers |
-|---------|---------------|-----------|
-| `featureEncoding` | `stateScalarDim=65`, `maxGridWidth=8`, `dockSlots=3`, `actionNorm` | `features.js`, `features.py`, `model.py` |
-| `adaptiveSpawn` | 10-tier `profileLevels`, `constructiveSpawn`, `difficultyBucket`, stress weights | `adaptiveSpawn.js`, `blockSpawn.js` |
-| `rlRewardShaping` | Reward weights, auxiliary supervision coefficients, outcome value mix, topology aux dim | `simulator.py`, `train.py`, `model.py` |
-| `playerAbilityModel` | Skill weights, EMA decay rates, flow thresholds, frustration levels | `playerProfile.js`, `abilityModel.js` |
-| `clearScoring` | `single_line=20`, combo `activationCount=3`, icon `bonusLineMult=5`, `perfectClearMult=10` | `clearScoring.js`, `simulator.py` |
-| `rlCurriculum` | `difficultyBucket.enabled`, stages with `untilEpisode`/`maxScd`, `retryCap=6` | `simulator.py`, `train.py` |
-| `conditionToken` | Arc (5) and intent (6) one-hot vocabulary, `samplingProb=0.6` | `features.js`, `features.py`, `train.py` |
+```
+                        ┌──────────────────────┐
+                        │    Player Action      │
+                        │ (block_idx, gx, gy)   │
+                        └──────────┬───────────┘
+                                   │
+              ┌────────────────────┼────────────────────┐
+              ↓                    ↓                    ↓
+    ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+    │ game.js         │  │ clearScoring.js │  │ playerProfile   │
+    │ placeBlock()    │→ │ computeClear()  │  │ .js update()   │
+    │ → grid update   │  │ → score update  │  │ → EMA skill     │
+    └────────┬────────┘  └────────┬────────┘  │ → flow detect   │
+             │                    │           │ → frustration   │
+             ↓                    ↓           └────────┬────────┘
+    ┌─────────────────────────────────────┐            │
+    │     adaptiveSpawn.js                │            │
+    │  ┌─────────────────────────────┐    │            │
+    │  │ resolveAdaptiveStrategy()   │◄───┼────────────┘
+    │  │  · stress Σ from 17 signals │    │
+    │  │  · spawnIntent resolution   │    │
+    │  │  · difficulty target d*     │    │
+    │  └─────────────┬───────────────┘    │
+    │                ↓                     │
+    │  ┌─────────────────────────────┐    │
+    │  │ blockSpawn.js               │    │
+    │  │  generateDockShapes()       │    │
+    │  │    9-LAYER PIPELINE         │    │
+    │  └─────────────┬───────────────┘    │
+    └────────────────┼────────────────────┘
+                     ↓
+         ┌───────────────────────┐
+         │    New Dock (s1,s2,s3) │
+         │    → Player sees       │
+         │    → Next action        │
+         └───────────────────────┘
+```
 
-A project-wide **"no magic numbers" principle** is enforced: any numerical constant appearing in algorithm code must be read from `game_rules.json` or a database table. Code that hardcodes a value is rejected at code review. This ensures that all tuning, A/B experimentation, and difficulty calibration can be performed by modifying a JSON file—without touching code and without requiring a redeployment.
-
----
 
 ## 4. Real-Time Player Profiling
 
@@ -1060,6 +1159,8 @@ CLS output → h_c ∈ R^{B×128}
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+![Figure 2: SpawnPolicyNet V3.1 Architecture](docs/architecture/assets/fig2-spawn-policy-net-v3.png)
+
 **Training:**
 
 Composite loss with 8 terms:
@@ -1097,6 +1198,8 @@ LayerNorm(128)
 │ head_survival:128→64→1  (sigmoid)   Survival probability       │
 └────────────────────────────────────────────────────────────────┘
 ```
+
+![Figure 3: SpawnParamTuner Architecture](docs/architecture/assets/fig3-spawn-param-tuner.png)
 
 **Bi-level optimization:**
 
@@ -1162,241 +1265,152 @@ Full details in §7.3–7.7.
 
 ### 7.1 Problem Formulation
 
-The placement problem is formalized as a finite-horizon MDP $\mathcal{M} = (\mathcal{S}, \mathcal{A}, \mathcal{P}, \mathcal{R}, \gamma, T)$:
+The placement problem is formalized as a finite-horizon Markov Decision Process M = (S, A, P, R, γ, T) where S ⊂ R^{204} (204-dimensional state), A_t is the variable-length set of legal placement actions, P is the deterministic transition (placement → clear → new dock), and the reward is:
 
-- $\mathcal{S} \subset \mathbb{R}^{204}$: the 204-dimensional state feature vector (§7.2).
-- $\mathcal{A}_t$: the set of legal placement actions at step $t$, with $|\mathcal{A}_t| \in [0, 192]$.
-- $\mathcal{P}$: deterministic transition (placement → clear → new dock → next state).
-- $\mathcal{R}$: reward function:
+r_t = Δscore + 0.8·ΔΦ_topology + 0.6·r_eval + 35·1[score ≥ threshold]
 
-$$
-r_t = \Deltascore + 0.8 \cdot \Delta\Phi_{topology} + 0.6 \cdot r_{eval} + 35 \cdot \mathbb{1}[score \geq threshold]
-$$
-
-The potential function $\Phi$ shapes the reward without changing the optimal policy (Ng 1999):
-
-$$
-\Phi(B) = -0.4 \cdot holes - 0.08 \cdot transitions - 0.15 \cdot wells + 0.35 \cdot closeToFull + 0.12 \cdot mobility
-$$
-
-The evaluation feedback term $r_{eval}$ is an instantaneous reward (not a potential difference, so it doesn't create spurious energy):
-
-$$
-r_{eval} = -0.10 \cdot regretClipped + 0.05 \cdot optimality - 0.08 \cdot forcedBad + 0.04 \cdot salvage
-$$
-
-The agent's objective:
-$$
-\pi^* = \operatorname{argmax}_\pi \mathbb{E}_\pi\left[\sum_{t=0}^{T} \gamma^t r_t\right]
-$$
-
-with $\gamma = 0.99$ and termination when no dock block has a legal placement.
+The agent''s objective: π* = argmax_π E_π[Σ γ^t r_t], with γ = 0.99.
 
 ### 7.2 State and Action Feature Encoding
 
-**State vector** $\in \mathbb{R}^{204} = 65  scalars + 64  grid + 75  dock$:
+**State vector** ∈ R^{204} = 65 scalars + 64 grid + 75 dock:
 
-**Scalar segment (65 dimensions):**
-
-| Sub-vector | Dim | Content |
-|-----------|-----|---------|
-| Structural primitives | 25 | fill_ratio, row/col max/min/mean/std, almost_full row/col ratios, unplaced_ratio, hole_ratio (normalized by 16), row_trans (norm by 64), col_trans (norm by 64), wells (norm by 24), close1/n (norm by 8), close2/n (norm by 8), mobility (norm by 192), height_std (raw), contiguous_regions (norm by 16), concave_corners (norm by 32) |
+| Sub-vector | Dimensions | Content |
+|-----------|-----------|---------|
+| Structural primitives | 25 | fill_ratio, row/col max/min/mean/std, almost_full ratios, holes, row/col transitions, wells, close-to-full counts, mobility, height_std, contiguous_regions, concave_corners |
 | Color summary | 19 | 8 color occupancy ratios + 8 single-color-line potentials + 3 dock slot colors |
 | Spawn step difficulty | 4 | scdNorm, comboCellsNorm, comboKillerNorm, comboLongBarNorm |
 | Spatial planning | 3 | regionEntropy, largestRegionRatio, smallRegionCellRatio |
 | Strategy one-hot | 3 | [easy, normal, hard] |
-| Condition tokens | 11 | Arc: [opener, momentum, peak, fatigue, cooldown] + Intent: [relief, engage, pressure, flow, harvest, maintain] |
+| Condition tokens | 11 | Arc(5): opener/momentum/peak/fatigue/cooldown + Intent(6): relief/engage/pressure/flow/harvest/maintain |
 
-**Action feature** $\psi(a) \in \mathbb{R}^{15}$:
-- `nearFullRatio`: proportion of grid cells adjacent to the shape footprint that are near-completion.
-- 8 neighbor features: for each of the 8 adjacent cells (up, down, left, right, 4 corners), a binary indicator of whether placing the shape would fill an empty cell adjacent to an occupied cell (capturing "edge adherence").
-- 6 self-features: shape aspect ratio (w/h), cell count, is_line, is_square, is_large (≥5 cells), category one-hot index.
+**Action feature ψ(a) ∈ R^{15}:** nearFullRatio + 8 neighbor features + 6 self-features (aspect_ratio, cell_count, is_line, is_square, is_large, category_index).
 
 ### 7.3 Network Architecture: ConvSharedPolicyValueNet
 
-The ConvSharedPolicyValueNet (v5, ~188K parameters at width=128, conv_channels=32) uses a shared trunk with specialized encoders for each input modality:
+The ConvSharedPolicyValueNet (~188K parameters, width=128, conv_channels=32) uses a modality-specialized encoder design that separately encodes scalars, grid, and dock before fusing them in a shared residual trunk. The complete architecture is shown below:
 
-**Grid Encoder:**
-$$
-\begin{aligned}
-g_0 &= GELU(Conv2d(B_{embed}, 1 \rightarrow 32, 3\times3, pad=1)) \\
-g_1 &= ResConvBlock(g_0) = g_0 + GELU(Conv2d(GELU(Conv2d(g_0)))) \\
-g_2 &= ResConvBlock(g_1) \\
-g_{pooled} &= \frac{1}{64} \sum_{i,j} g_2[:,:,i,j] \in \mathbb{R}^{32}
-\end{aligned}
-$$
+![Figure 1: ConvSharedPolicyValueNet Architecture](docs/architecture/assets/fig1-conv-shared-policy-value-net.png)
 
-**DockBoard Attention.** Each dock block attends to the CNN grid features before pooling:
+**Parameter Breakdown:****Parameter Breakdown:**
 
-$$
-\begin{aligned}
-Q_k &= W_q \cdot mask_k \in \mathbb{R}^{16} \quad (k = 1,2,3  dock slots) \\
-K &= Conv2d_{1\times1}^{32 \rightarrow 16}(g_2) \in \mathbb{R}^{16 \times 8 \times 8} \\
-V &= Conv2d_{1\times1}^{32 \rightarrow 16}(g_2) \in \mathbb{R}^{16 \times 8 \times 8}
-\end{aligned}
-$$
+| Component | Architecture | Parameters |
+|-----------|-------------|------------|
+| Grid Encoder | Conv2d(1→32) + 2×ResConv(32) | ~5K |
+| Dock Attention | 3× (Q:16 + K:Conv1×1 + V:Conv1×1 + OutProj) | ~3K |
+| Shared Trunk | 3× Linear(128→128) with residual connections | ~50K |
+| Policy Head | ActionProj(15→48) + Linear(176→64) + Linear(64→1) | ~15K |
+| Value Head | Linear(128→64) + Linear(64→1) | ~8K |
+| Auxiliary Heads (7) | 7× (Linear→GELU→Linear), varying dimensions | ~107K |
+| **Total** | — | **~188K** |
 
-For each dock block $k$, the attention output is:
-
-$$
-ctx_k = softmax\left(\frac{Q_k \cdot K_{flattened}}{\sqrt{16}}\right) \cdot V_{flattened}^T \in \mathbb{R}^{16}
-$$
-
-The final dock context is $Linear_{16 \rightarrow 16}(ctx_k)$ for each $k$, flattened to $\mathbb{R}^{48}$.
-
-**Shared Trunk:**
-$$
-\begin{aligned}
-x_0 &= [scalars, g_{pooled}, dockCtx] \in \mathbb{R}^{65+32+48 = 145} \\
-x_1 &= x_0 + GELU(Linear_{145 \rightarrow 128}(x_0)) \\
-x_2 &= x_1 + GELU(Linear_{128 \rightarrow 128}(x_1)) \\
-h(s) &= x_2 + GELU(Linear_{128 \rightarrow 128}(x_2)) \in \mathbb{R}^{128}
-\end{aligned}
-$$
-
-**Output heads:**
-- **Policy**: $h(s) \| GELU(actionProj_{15 \rightarrow 48}(\psi(a))) \rightarrow Linear_{176 \rightarrow 64} \rightarrow GELU \rightarrow Linear_{64 \rightarrow 1} \rightarrow logit(a)$. Logits are masked to legal actions and softmax-normalized.
-- **Value**: $h(s) \rightarrow Linear_{128 \rightarrow 64} \rightarrow GELU \rightarrow Linear_{64 \rightarrow 1} \rightarrow V(s)$.
-
-### 7.4 Training Algorithm
-
-**PPO objective:**
-
-$$
-\mathcal{L}_{policy} = -\mathbb{E}_t\left[\min\left(\rho_t A_t, clip(\rho_t, 1-\varepsilon, 1+\varepsilon) A_t\right)\right]
-$$
-
-where $\rho_t = \pi_{new}(a_t|s_t) / \pi_{old}(a_t|s_t)$ and $\varepsilon = 0.25$.
-
-**GAE advantage estimation:**
-
-$$
-A_t^{GAE(\lambda)} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}, \quad \delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)
-$$
-
-with $\lambda = 0.85$, $\gamma = 0.99$.
-
-**Mixed value target.** The value head learns a hybrid target combining sparse outcome signal (low variance, no credit assignment problem) with dense GAE returns (temporal credit assignment):
-
-$$
-R_t = 0.5 \cdot GAE_t + 0.5 \cdot clip\left(\frac{\log(1 + finalScore)}{\log(1 + winThreshold)}, 0, 3\right)
-$$
-
-The log-normalized outcome target compresses the wide range of possible scores (0–50,000+) into a bounded [0, 3] range, preventing the value loss from being dominated by long-game returns.
-
-**Value loss (double-clipped SmoothL1):**
-
-$$
-\begin{aligned}
-v_{clipped} &= v_{old} + clamp(v_{new} - v_{old}, -0.25, +0.25) \\
-\mathcal{L}_{value} &= \mathbb{E}\left[\max\left(SmoothL1(v_{new}, R_t, \beta=10), SmoothL1(v_{clipped}, R_t, \beta=10)\right)\right]
-\end{aligned}
-$$
-
-where $SmoothL1(x, y, \beta) = \begin{cases} 0.5(x-y)^2 / \beta & |x-y| < \beta \\ |x-y| - 0.5\beta & otherwise \end{cases}$ with $\beta = 10.0$ (Huber loss with larger quadratic region than standard $\beta=1.0$).
-
-**Advantage normalization:**
-
-$$
-A_t^{norm} = clamp_{[-30,30]}\left(\frac{A_t - \mu_A}{\max(\sigma_A, 10^{-4})}\right)
-$$
-
-The $\pm 30$ clamp and $10^{-4}$ minimum standard deviation guard prevent numerical instability from low-variance advantage batches.
-
-**Entropy loss** (negative sign = maximizing entropy):
-
-$$
-\mathcal{L}_{entropy} = -w_e \cdot \frac{1}{|\mathcal{A}|} \sum_{a \in \mathcal{A}} \pi(a|s) \log \pi(a|s)
-$$
-
-with $w_e$ starting at 0.025 and linearly annealing to 0.008 over the first 50,000 episodes.
-
-### 7.5 Auxiliary Supervision Heads
-
-Seven auxiliary heads provide dense, per-step gradient signals independent of sparse Monte Carlo returns:
-
-| Head | Dim | Loss | Target | Coef | Correlation with Score (r) |
-|------|-----|------|--------|------|---------------------------|
-| `board_quality` | 1 | SmoothL1(β=1) | Φ(s) / 30 | 0.5 | +0.011 (p=0.86) |
-| `feasibility` | 1 | BCE(logits) | DFS sequential solvability | 0.3 | −0.172 (p<0.0001) |
-| `survival` | 1 | SmoothL1(β=1) | $T_{remaining} / 30$ | 0.2 | −0.202 (p<0.0001) |
-| `topology_aux` | 10 | SmoothL1(β=1) | Post-placement topology vector | 0.0 | — |
-| `spawn_diff_aux` | 12 | SmoothL1(β=1) | 4-dim SCD + 8-dim placeability | 0.05 | −0.009 (p=0.69) |
-| `hole_aux` | 1 | SmoothL1(β=1) | Unfillable cells / 16 | 0.0 | — |
-| `clear_pred` | 4 | CrossEntropy | Clear category {0,1,2,≥3} | 0.15 | — |
-
-The coefficients `hole_aux=0` and `topology_aux=0` indicate these heads are implemented but disabled in the current configuration; they can be activated by setting their environment variable overrides.
-
-**Feasibility head architecture:**
-$$
-feasLogit = Linear_{128 \rightarrow 64} \rightarrow GELU \rightarrow Linear_{64 \rightarrow 1}(h(s))
-$$
-
-Logits are clamped to $\pm 10$ before BCE computation to prevent numerical explosion ($\sigma(\pm 10) \approx 0/1$ already saturates).
-
-**Spawn diff aux head architecture:**
-$$
-sdPred_{12} = Linear_{128 \rightarrow 64} \rightarrow GELU \rightarrow Linear_{64 \rightarrow 12}(h(s))
-$$
-
-**Total auxiliary loss:**
-
-$$
-\mathcal{L}_{aux} = \sum_{k} w_k \cdot clamp_{[-20,20]}(\mathcal{L}_k)
-$$
-
-The $\pm 20$ hard clamp on auxiliary losses (but not on policy/value losses) prevents occasional numerical explosions from extreme board states (historically observed: `loss_bq` reaching 936,449, `loss_feas` reaching $\pm 7.8 \times 10^5$). These explosions were traced to the auxiliary head outputs diverging to $\pm 10^3--10^5$ on extreme boards, and have been mitigated by per-head prediction clipping (`board_quality` preds clamped to $\pm 10$, `survival` to $\pm 3$, `feasibility` logits to $\pm 10$) in addition to the loss-level clamp.
-
-### 7.6 Exploration and Curriculum
-
-**Temperature-softened policy with Dirichlet exploration:**
-
-$$
-\pi_{sample}(a|s) = 0.92 \cdot softmax(logits / T_t) + 0.08 \cdot Dirichlet(0.28, \dots, 0.28)
-$$
-
-Temperature schedule: $T_t = 1.2$ for the first 2 moves of each episode (encouraging exploration), decaying to $T_t = 0.6$ thereafter (exploiting learned patterns).
-
-**Adaptive entropy target.** An entropy target band ($0.2$ width around a configurable center) uses feedback control: if the batch entropy mean exceeds the target, $w_e$ is reduced by 10% to discourage excess randomness; if entropy falls below, $w_e$ is increased by 10%.
-
-**Difficulty bucket curriculum.** Training episodes are gated by a progressive `maxScd` ceiling:
-
-| Stage | Episodes | maxScd | Allowed Buckets |
-|-------|----------|--------|----------------|
-| 1 | 0–5,000 | 0.3 | Trivial, Easy |
-| 2 | 5,001–15,000 | 0.5 | +Standard |
-| 3 | 15,001–30,000 | 0.7 | +Hard |
-| 4 | 30,000+ | 1.0 | All (full difficulty) |
-
-Docks whose SCD exceeds the current stage's `maxScd` are rejected and the spawn engine retries with a lower difficulty target (up to `retryCap = 6` attempts). This prevents early training from being dominated by impossible board states.
-
-### 7.7 Training Infrastructure
-
-The training system uses a multi-process architecture for maximum throughput:
+### 7.4 Training Pipeline
 
 ```
-Main Process (GPU)
-  ├── Parameter update (Adam, lr=3e-4 → linear warmup → cosine decay)
-  ├── BestGuard (evaluation-based rollback protection)
-  ├── Checkpoint serialization (every N episodes)
-  └── Version counter increment (triggers worker reload)
+                       Self-Play RL Training Loop
+               ═══════════════════════════════════════
 
-Worker Pool (CPU, N workers)
-  ├── Worker 1: load weights(v) → inference_mode → collect K episodes → return trajectories
-  ├── Worker 2: ... (independent, parallel)
-  ├── ...
-  └── Worker N: ...
+    ┌──────────────────┐         ┌──────────────────┐
+    │  MAIN PROCESS    │         │  WORKER POOL     │
+    │  (GPU Training)  │         │  (CPU Inference)  │
+    └────────┬─────────┘         └────────┬─────────┘
+             │                            │
+    ┌────────┴──────────┐    ┌────────────┴──────────────┐
+    │ 1. Broadcast      │    │ 2. Load weights at version│
+    │    weights v_N    │───→│    changed → inference_mode│
+    └───────────────────┘    │    → collect K episodes     │
+                             │    → return trajectories    │
+             ┌───────────────┘              │
+             ↓                              │
+    ┌────────────────────┐                  │
+    │ 3. Compute GAE     │←─────────────────┘
+    │    returns + mix   │
+    │    outcome target  │
+    └────────┬───────────┘
+             ↓
+    ┌────────────────────┐
+    │ 4. PPO Update      │
+    │    · n_epochs=4    │
+    │    · clip_ε=0.25   │
+    │    · batch_shuffle  │
+    │    · 7 aux losses   │
+    └────────┬───────────┘
+             ↓
+    ┌────────────────────┐
+    │ 5. BestGuard eval  │
+    │    · win_rate gate │
+    │    · coverage check│
+    │    · rollback if ↓  │
+    └────────┬───────────┘
+             ↓
+    ┌────────────────────┐         ┌────────────────────┐
+    │ 6. Checkpoint save │    OR   │ Rollback to best   │
+    │    v_N+1 → workers │         │ known checkpoint   │
+    └────────────────────┘         └────────────────────┘
 ```
 
-Key design decisions:
+### 7.5 Training Algorithm Details
 
-- **Worker inference with `torch.inference_mode()`**: Drops autograd tracking, view tracking, and version checking—reducing per-step overhead by ~20% compared to `torch.no_grad()`.
-- **Weight broadcast via tempfile**: Workers reload weights from disk when the version counter increments. This avoids IPC serialization latency (model is ~900KB → ~2ms disk read).
-- **Single-threaded workers**: Each worker forces `torch.set_num_threads(1)` to prevent N workers × M threads CPU oversubscription. The 188K-parameter network performs single-sample inference in <0.5ms; multi-threading offers no benefit and causes cache thrashing.
-- **Batch collection**: 8 episodes per batch (configurable), PPO epochs = 4, mini-batch shuffling.
-- **BestGuard**: Maintains a reference network snapshot and an evaluation gate. Every `eval_gate_every` episodes, the current network plays `eval_gate_games` evaluation games. If win rate drops below `eval_gate_win_ratio`, the model is rolled back to the best-ever checkpoint. This prevents catastrophic forgetting during long training runs. The guard also tracks teacher coverage, score moving average, and spawn difficulty drift.
+**PPO Objective** (n_epochs=4, ε=0.25, ppo_clip=0.2):
+L_policy = −E[min(ρ·A, clip(ρ, 1−ε, 1+ε)·A)]
+where ρ = π_new(a|s) / π_old(a|s).
 
----
+**GAE Advantage** (λ=0.85, γ=0.99):
+A_t^{GAE(λ)} = Σ (γλ)^l·δ_{t+l}, δ_t = r_t + γ·V(s_{t+1}) − V(s_t).
+Advantage normalized: μ=0, σ=1, clamped to ±30.
+
+**Mixed Value Target** (mix=0.5):
+R_t = 0.5·GAE_t + 0.5·clip(log(1+score)/log(1+threshold), 0, 3).
+The log-normalized outcome target compresses scores of 0–50,000+ into [0,3], preventing value loss domination by long-game returns.
+
+**Value Loss** (clipped SmoothL1, β=10.0):
+v_clipped = v_old + clamp(v_new − v_old, −0.25, +0.25).
+L_value = E[max(SmoothL1(v_new, R_t), SmoothL1(v_clipped, R_t))].
+
+**Total Loss:**
+L = L_policy + 0.5·L_value − w_e·H(π) + Σ w_k·L_{aux,k}
+where auxiliary losses are hard-clamped to ±20 and policy/value losses are not clamped.
+
+### 7.6 Auxiliary Supervision Architecture
+
+Seven auxiliary heads provide dense per-step gradient signals independent of sparse Monte Carlo returns:
+
+```
+Auxiliary Supervision Heads (all from shared trunk h(s) or f(h(s), ψ(a)))
+════════════════════════════════════════════════════════════════════════════
+
+  h(s) ∈ R^{128}
+      │
+      ├──→ [128→64→1] → board_quality  (SmoothL1, Φ(s)/30, w=0.5)
+      │
+      ├──→ [128→64→1] → feasibility   (BCE, DFS solvability, w=0.3)
+      │         ┌── Correlation with outcome: r = −0.172 (p < 0.0001)
+      │
+      ├──→ [128→64→1] → survival       (SmoothL1, T_remaining/30, w=0.2)
+      │         ┌── Correlation with outcome: r = −0.202 (p < 0.0001)
+      │
+      ├──→ [128→64→10] → topology_aux  (SmoothL1, post-place topo, w=0.0)
+      │
+      ├──→ [128→64→12] → spawn_diff_aux (SmoothL1, 4 SCD + 8 placeability, w=0.05)
+      │         ┌── v13 upgrade: 4→12 dims, adds per-shape placeability
+      │
+      ├──→ [concat(h(s),GELU(Proj(ψ))) → 176→64→1] → hole_aux (w=0.0)
+      │
+      └──→ [concat(h(s),GELU(Proj(ψ))) → 176→64→4] → clear_pred (CE, w=0.15)
+```
+
+**Key insight from empirical analysis**: The feasibility and survival auxiliary losses show statistically significant negative correlation with both score and win/loss outcomes (p < 0.0001). The board quality loss shows near-zero correlation (p = 0.86). This means: predicting *whether you can keep playing* and *how long you can survive* is far more informative than predicting *how good the board looks*.
+
+**v13 Per-Shape Placeability Extension:** The spawn_diff_aux head was extended from 4 dimensions (original SCD components) to 12 dimensions in v13, adding 8 per-shape placeability features. These quantify, for each of 8 fixed representative shapes (1×4, 4×1, 1×5, 5×1, 2×2, 3×3, T-up, L3-a), the normalized count of legal positions on the current board: placeability_i = clamp(|get_legal_positions(B, shape_i)| / theoretical_max_i, 0, 1). This directly exposes the long-bar bottleneck to the trunk—a signal the original 4-dimensional SCD vector could not express.
+
+### 7.7 Exploration, Curriculum, and Training Infrastructure
+
+**Exploration:** Temperature-softened softmax (T: 1.2→0.6) mixed with Dirichlet noise (α=0.28, ε=0.08). Adaptive entropy target band with feedback control.
+
+**Difficulty Bucket Curriculum:** Progressive SCD ceiling relaxed from 0.3 to 1.0 over 30,000 episodes, preventing early training from being dominated by impossible board states.
+
+**Training Infrastructure:** Multi-process architecture: GPU parameter updates (main process) + N CPU trajectory collectors (workers). Version-counter weight broadcasting via tempfile. BestGuard automatic evaluation gate with rollback protection. Periodic self-restart for long-run stability.
+
 
 ## 8. Neural Spawn Generation: SpawnPolicyNet
 

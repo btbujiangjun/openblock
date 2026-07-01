@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 620" width="100%" height="100%">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#4a9eff"/>
+    </marker>
+    <linearGradient id="gridGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a3a5c"/><stop offset="100%" stop-color="#0d1f33"/>
+    </linearGradient>
+    <linearGradient id="trunkGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2d1f4a"/><stop offset="100%" stop-color="#1a1033"/>
+    </linearGradient>
+    <linearGradient id="attnGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3d2a1a"/><stop offset="100%" stop-color="#2a1a0d"/>
+    </linearGradient>
+    <linearGradient id="headGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a3d2a"/><stop offset="100%" stop-color="#0d261a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="820" height="620" fill="#060810" rx="8"/>
+
+  <!-- Title -->
+  <text x="410" y="28" fill="#7eb8ff" font-family="Arial, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" letter-spacing="1">ConvSharedPolicyValueNet  —  ~188K Parameters</text>
+
+  <!-- ════════════ INPUT LAYER ════════════ -->
+  <rect x="20" y="44" width="780" height="60" rx="8" fill="rgba(74,158,255,0.06)" stroke="rgba(74,158,255,0.15)" stroke-width="1"/>
+  <text x="40" y="62" fill="rgba(255,255,255,0.35)" font-family="Arial" font-size="10" font-weight="bold">INPUT  —  State s ∈ R²⁰⁴</text>
+
+  <rect x="30" y="68" width="200" height="28" rx="4" fill="#1a3a5c" stroke="#3a7abf" stroke-width="1"/>
+  <text x="130" y="80" fill="#7eb8ff" font-family="Arial" font-size="10" text-anchor="middle" font-weight="bold">Scalars (65)</text>
+  <text x="130" y="92" fill="#5a9adf" font-family="Arial" font-size="7" text-anchor="middle">25 struct + 19 color + 4 SCD</text>
+
+  <rect x="250" y="68" width="200" height="28" rx="4" fill="#1a3a5c" stroke="#3a7abf" stroke-width="1"/>
+  <text x="350" y="80" fill="#7eb8ff" font-family="Arial" font-size="10" text-anchor="middle" font-weight="bold">Grid (64)</text>
+  <text x="350" y="92" fill="#5a9adf" font-family="Arial" font-size="7" text-anchor="middle">8×8 flattened occupancy</text>
+
+  <rect x="470" y="68" width="200" height="28" rx="4" fill="#1a3a5c" stroke="#3a7abf" stroke-width="1"/>
+  <text x="570" y="80" fill="#7eb8ff" font-family="Arial" font-size="10" text-anchor="middle" font-weight="bold">Dock Mask (75)</text>
+  <text x="570" y="92" fill="#5a9adf" font-family="Arial" font-size="7" text-anchor="middle">3 slots × 5×5</text>
+
+  <!-- Arrows from input -->
+  <line x1="130" y1="96" x2="130" y2="118" stroke="#4a9eff" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="350" y1="96" x2="350" y2="118" stroke="#4a9eff" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="570" y1="96" x2="570" y2="118" stroke="#4a9eff" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ════════════ GRID ENCODER ════════════ -->
+  <rect x="20" y="120" width="300" height="110" rx="8" fill="rgba(74,158,255,0.04)" stroke="rgba(74,158,255,0.12)" stroke-width="1"/>
+  <text x="170" y="138" fill="#7eb8ff" font-family="Arial" font-size="11" text-anchor="middle" font-weight="bold">GRID ENCODER (CNN)</text>
+
+  <rect x="35" y="145" width="270" height="22" rx="3" fill="#1a3a5c" stroke="#3a7abf" stroke-width="0.8"/>
+  <text x="170" y="160" fill="#5a9adf" font-family="Courier New" font-size="9" text-anchor="middle">Conv2d(1 → 32, 3×3, pad=1) + GELU</text>
+
+  <rect x="35" y="172" width="270" height="22" rx="3" fill="#1a3a5c" stroke="#3a7abf" stroke-width="0.8"/>
+  <text x="170" y="187" fill="#5a9adf" font-family="Courier New" font-size="9" text-anchor="middle">ResConvBlock₁(32)  + GELU</text>
+
+  <rect x="35" y="199" width="270" height="22" rx="3" fill="#1a3a5c" stroke="#3a7abf" stroke-width="0.8"/>
+  <text x="170" y="214" fill="#5a9adf" font-family="Courier New" font-size="9" text-anchor="middle">ResConvBlock₂(32) → 8×8 feature maps</text>
+
+  <!-- ════════════ DOCK ENCODER ════════════ -->
+  <rect x="350" y="120" width="450" height="110" rx="8" fill="rgba(255,183,77,0.04)" stroke="rgba(255,183,77,0.12)" stroke-width="1"/>
+  <text x="575" y="138" fill="#ffb74d" font-family="Arial" font-size="11" text-anchor="middle" font-weight="bold">DOCKBOARD CROSS-ATTENTION</text>
+
+  <rect x="365" y="145" width="200" height="22" rx="3" fill="#2a1a0d" stroke="#8a5a2d" stroke-width="0.8"/>
+  <text x="465" y="160" fill="#d0a060" font-family="Courier New" font-size="9" text-anchor="middle">Q_k = Linear(25 → 16), k=1,2,3</text>
+
+  <rect x="580" y="145" width="200" height="22" rx="3" fill="#2a1a0d" stroke="#8a5a2d" stroke-width="0.8"/>
+  <text x="680" y="160" fill="#d0a060" font-family="Courier New" font-size="9" text-anchor="middle">K,V = Conv2d(1×1, 32 → 16)</text>
+
+  <rect x="365" y="172" width="415" height="22" rx="3" fill="#2a1a0d" stroke="#8a5a2d" stroke-width="0.8"/>
+  <text x="572" y="187" fill="#d0a060" font-family="Courier New" font-size="9" text-anchor="middle">Attn: softmax(Q_k · K / √16) · V^T  →  ctx_k ∈ R¹⁶  →  ctx_1:ctx_2:ctx_3  ∈ R⁴⁸</text>
+
+  <!-- Arrows to trunk -->
+  <line x1="170" y1="230" x2="170" y2="252" stroke="#4a9eff" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="575" y1="230" x2="575" y2="252" stroke="#ffb74d" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="372" y="248" fill="rgba(255,255,255,0.3)" font-family="Courier New" font-size="9" text-anchor="middle">g_pooled ∈ R³²</text>
+  <text x="372" y="260" fill="rgba(255,255,255,0.15)" font-family="Courier New" font-size="8" text-anchor="middle">GlobalAvgPool(8×8 → 1×1)</text>
+
+  <!-- ════════════ SHARED TRUNK ════════════ -->
+  <rect x="20" y="255" width="780" height="90" rx="8" fill="rgba(186,104,200,0.04)" stroke="rgba(186,104,200,0.12)" stroke-width="1"/>
+  <text x="410" y="273" fill="#ba68c8" font-family="Arial" font-size="11" text-anchor="middle" font-weight="bold">SHARED RESIDUAL TRUNK</text>
+
+  <rect x="35" y="282" width="240" height="22" rx="3" fill="#1a1033" stroke="#6a4a8a" stroke-width="0.8"/>
+  <text x="155" y="297" fill="#b090d0" font-family="Courier New" font-size="9" text-anchor="middle">concat[65, 32, 48] = 145</text>
+
+  <rect x="290" y="282" width="240" height="22" rx="3" fill="#1a1033" stroke="#6a4a8a" stroke-width="0.8"/>
+  <text x="410" y="297" fill="#b090d0" font-family="Courier New" font-size="9" text-anchor="middle">Linear(145 → 128) + GELU</text>
+
+  <rect x="545" y="282" width="240" height="22" rx="3" fill="#1a1033" stroke="#6a4a8a" stroke-width="0.8"/>
+  <text x="665" y="297" fill="#b090d0" font-family="Courier New" font-size="9" text-anchor="middle">×3 residual FC blocks</text>
+
+  <rect x="35" y="310" width="750" height="22" rx="3" fill="#1a1033" stroke="#6a4a8a" stroke-width="0.8"/>
+  <text x="410" y="325" fill="#c8a8e0" font-family="Courier New" font-size="9" text-anchor="middle">h(s) ∈ R¹²⁸  (output of 3-layer residual trunk)</text>
+
+  <!-- Arrow from trunk to heads -->
+  <line x1="410" y1="345" x2="410" y2="367" stroke="#ba68c8" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ════════════ OUTPUT HEADS ════════════ -->
+  <rect x="20" y="370" width="780" height="75" rx="8" fill="rgba(129,199,132,0.04)" stroke="rgba(129,199,132,0.12)" stroke-width="1"/>
+  <text x="410" y="388" fill="#81c784" font-family="Arial" font-size="11" text-anchor="middle" font-weight="bold">OUTPUT HEADS</text>
+
+  <!-- Policy -->
+  <rect x="30" y="396" width="180" height="40" rx="4" fill="#1a3d2a" stroke="#3a7a4a" stroke-width="1"/>
+  <text x="120" y="410" fill="#81c784" font-family="Arial" font-size="10" text-anchor="middle" font-weight="bold">Policy π(a|s)</text>
+  <text x="120" y="426" fill="#5aaa6a" font-family="Courier New" font-size="7" text-anchor="middle">h(s) + ψ(a) → 176→64→1</text>
+
+  <!-- Value -->
+  <rect x="230" y="396" width="160" height="40" rx="4" fill="#1a3d2a" stroke="#3a7a4a" stroke-width="1"/>
+  <text x="310" y="410" fill="#81c784" font-family="Arial" font-size="10" text-anchor="middle" font-weight="bold">Value V(s)</text>
+  <text x="310" y="426" fill="#5aaa6a" font-family="Courier New" font-size="7" text-anchor="middle">128→64→1 (GELU)</text>
+
+  <!-- Text showing aux heads -->
+  <text x="420" y="408" fill="#5aaa6a" font-family="Arial" font-size="10" font-weight="bold">7 Auxiliary Heads:</text>
+  <text x="420" y="424" fill="#4a8a5a" font-family="Courier New" font-size="8">board_quality · feasibility · survival · topology</text>
+  <text x="420" y="438" fill="#4a8a5a" font-family="Courier New" font-size="8">spawn_diff (12-dim, v13) · hole · clear_pred</text>
+
+  <!-- ════════════ TRAINING INFO ════════════ -->
+  <rect x="20" y="460" width="780" height="60" rx="8" fill="rgba(229,115,115,0.04)" stroke="rgba(229,115,115,0.12)" stroke-width="1"/>
+  <text x="410" y="478" fill="#e57373" font-family="Arial" font-size="11" text-anchor="middle" font-weight="bold">TRAINING: PPO + GAE (γ=0.99, λ=0.85)  ·  234K+ self-play episodes  ·  Win Rate: 35.6%</text>
+  <text x="30" y="498" fill="#d09080" font-family="Courier New" font-size="9">Algorithm: PPO (ε=0.25, n_epochs=4)  ·  GAE advantage  ·  Mixed value target (0.5·GAE + 0.5·outcome)</text>
+  <text x="30" y="514" fill="#d09080" font-family="Courier New" font-size="9">Curriculum: Difficulty bucket (SCD ceiling 0.3→1.0)  ·  BestGuard auto-rollback  ·  Multi-process worker pool</text>
+
+  <!-- Architecture summary boxes at bottom -->
+  <rect x="25" y="535" width="380" height="60" rx="6" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+  <text x="215" y="552" fill="rgba(255,255,255,0.4)" font-family="Arial" font-size="9" text-anchor="middle" font-weight="bold">Parameter Breakdown</text>
+  <text x="30" y="568" fill="rgba(255,255,255,0.25)" font-family="Courier New" font-size="8">Grid Encoder: ~5K  |  Dock Attn: ~3K  |  Trunk: ~50K</text>
+  <text x="30" y="584" fill="rgba(255,255,255,0.25)" font-family="Courier New" font-size="8">Policy: ~15K  |  Value: ~8K  |  Aux (7 heads): ~107K</text>
+
+  <rect x="415" y="535" width="380" height="60" rx="6" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>
+  <text x="605" y="552" fill="rgba(255,255,255,0.4)" font-family="Arial" font-size="9" text-anchor="middle" font-weight="bold">Key Design Features</text>
+  <text x="420" y="568" fill="rgba(255,255,255,0.25)" font-family="Arial" font-size="8">• Modality-specialized encoders (scalar/CNN/attention)</text>
+  <text x="420" y="584" fill="rgba(255,255,255,0.25)" font-family="Arial" font-size="8">• 7 dense auxiliary supervision signals · v13 per-shape placeability</text>
+</svg>
