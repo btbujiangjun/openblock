@@ -87,12 +87,12 @@ Each shape is defined by a binary matrix of its occupied cells. Shapes have fixe
 **Placement action.** The player selects one dock block and places it at position $(gx, gy)$ on the grid, where $0 \leq gx < 8 - w$, $0 \leq gy < 8 - h$ (with $w, h$ being the shape's bounding box dimensions). The placement is valid if and only if no cell of the placed shape overlaps an occupied grid cell:
 
 $$
-\text{valid}(B, s, gx, gy) \; \Longleftrightarrow \; \forall (i,j) \in \text{cells}(s): B[gy+i][gx+j] = -1
+\mathrm{valid}(B, s, gx, gy) \; \Longleftrightarrow \; \forall (i,j) \in \mathrm{cells}(s): B[gy+i][gx+j] = -1
 $$
 
 **Line clearing.** After placement, the game checks all rows and columns for completion. A row $r$ is cleared if $\forall c: B[r][c] \geq 0$ (all cells occupied). A column $c$ is cleared if $\forall r: B[r][c] \geq 0$. Cleared cells are removed (set to $-1$), and the player earns points.
 
-**Termination.** The game ends when none of the three dock blocks have a legal placement position: $\forall s_k \in D_t: \text{legal\_positions}(B, s_k) = \emptyset$.
+**Termination.** The game ends when none of the three dock blocks have a legal placement position: $\forall s_k \in D_t: \mathrm{legal\_positions}(B, s_k) = \emptyset$.
 
 ### 2.2 The Three-Layer Decision Pipeline
 
@@ -126,8 +126,8 @@ The system addresses three formally distinct sub-problems:
 
 **Problem 1: The Spawn Problem.** Given:
 - Board state $B_t$ (8×8 grid with occupied/empty cells and color assignments)
-- Player profile $\pi_t = (\text{skill}, \text{flow}, \text{frustration}, \text{momentum}, \text{lifecycle}, \text{maturity})$
-- Spawn context $\text{ctx}_t$ (recent history $H_{t-3:t-1}$, difficulty target $d^*$, spawn intent $I$, arc phase)
+- Player profile $\pi_t = (\mathrm{skill}, \mathrm{flow}, \mathrm{frustration}, \mathrm{momentum}, \mathrm{lifecycle}, \mathrm{maturity})$
+- Spawn context $\mathrm{ctx}_t$ (recent history $H_{t-3:t-1}$, difficulty target $d^*$, spawn intent $I$, arc phase)
 
 Find a dock triplet $(s_1, s_2, s_3)$ from the 28-shape catalog $\mathcal{S}$ such that the following constraints and objectives are satisfied:
 
@@ -135,9 +135,9 @@ Find a dock triplet $(s_1, s_2, s_3)$ from the 28-shape catalog $\mathcal{S}$ su
 
 $$
 \begin{aligned}
-&\text{C1 (Unique shapes)}: s_1 \neq s_2 \neq s_3 \\
-&\text{C2 (Mobility)}: \sum_{k=1}^{3} |\text{legal\_positions}(B_t, s_k)| \geq \text{minMobilityTarget} \\
-&\text{C3 (Sequential feasibility)}: \exists \text{ ordering } \sigma \text{ of } \{1,2,3\} \text{ s.t. DFS}(B_t, s_{\sigma(1)}, s_{\sigma(2)}, s_{\sigma(3)}) > 0
+&\mathrm{C1 (Unique shapes)}: s_1 \neq s_2 \neq s_3 \\
+&\mathrm{C2 (Mobility)}: \sum_{k=1}^{3} |\mathrm{legal\_positions}(B_t, s_k)| \geq \mathrm{minMobilityTarget} \\
+&\mathrm{C3 (Sequential feasibility)}: \exists \mathrm{ ordering } \sigma \mathrm{ of } \{1,2,3\} \mathrm{ s.t. DFS}(B_t, s_{\sigma(1)}, s_{\sigma(2)}, s_{\sigma(3)}) > 0
 \end{aligned}
 $$
 
@@ -145,10 +145,10 @@ $$
 
 $$
 \begin{aligned}
-&\text{O1 (Clear potential)}: \max \mathbb{E}[\text{lines cleared}] \\
-&\text{O2 (Difficulty alignment)}: \min |\text{SCD}(s_1,s_2,s_3, B_t) - d^*| \\
-&\text{O3 (Diversity)}: \max H(\text{category}(\{s_1,s_2,s_3\})) \\
-&\text{O4 (Delight)}: P(\text{multi-clear} \lor \text{icon-bonus} \lor \text{perfect-clear}) \cdot w_{\text{delight}}
+&\mathrm{O1 (Clear potential)}: \max \mathbb{E}[\mathrm{lines cleared}] \\
+&\mathrm{O2 (Difficulty alignment)}: \min |\mathrm{SCD}(s_1,s_2,s_3, B_t) - d^*| \\
+&\mathrm{O3 (Diversity)}: \max H(\mathrm{category}(\{s_1,s_2,s_3\})) \\
+&\mathrm{O4 (Delight)}: P(\mathrm{multi-clear} \lor \mathrm{icon-bonus} \lor \mathrm{perfect-clear}) \cdot w_{\mathrm{delight}}
 \end{aligned}
 $$
 
@@ -169,13 +169,13 @@ where:
 The agent's objective is to find a policy $\pi^*(a|s)$ that maximizes expected cumulative discounted reward:
 
 $$
-\pi^* = \arg\max_\pi \mathbb{E}_\pi\left[\sum_{t=0}^{T} \gamma^t r_t\right]
+\pi^* = \operatorname{argmax}_\pi \mathbb{E}_\pi\left[\sum_{t=0}^{T} \gamma^t r_t\right]
 $$
 
 **Problem 3: The Difficulty Modulation Problem.** Maintain each player in their optimal Flow channel—where perceived challenge approximately matches perceived skill:
 
 $$
-F(t) = \left|\frac{\text{boardPressure}(B_t)}{\max(0.05, \text{skill}(\pi_t))} - 1\right| \leq \epsilon_{\text{flow}}
+F(t) = \left|\frac{\mathrm{boardPressure}(B_t)}{\max(0.05, \mathrm{skill}(\pi_t))} - 1\right| \leq \epsilon_{\mathrm{flow}}
 $$
 
 by modulating the spawn step difficulty target $d^* \in [0,1]$ on a per-step basis, with additional modulation from lifecycle stage, session arc phase, momentum, and recent performance trajectory.
@@ -373,27 +373,27 @@ The player profiling system operates under three binding constraints:
 Instantaneous raw skill is computed at each step as a weighted linear combination of five behavioral dimensions, each normalized to $[0,1]$:
 
 $$
-r_t^{\text{skill}} = 0.15 \cdot \tau_{\text{think}} + 0.30 \cdot \tau_{\text{clear}} + 0.20 \cdot \tau_{\text{combo}} + 0.20 \cdot \tau_{\text{miss}} + 0.15 \cdot \tau_{\text{load}}
+r_t^{\mathrm{skill}} = 0.15 \cdot \tau_{\mathrm{think}} + 0.30 \cdot \tau_{\mathrm{clear}} + 0.20 \cdot \tau_{\mathrm{combo}} + 0.20 \cdot \tau_{\mathrm{miss}} + 0.15 \cdot \tau_{\mathrm{load}}
 $$
 
 where:
 
 | Component | Definition | Interpretation |
 |-----------|-----------|----------------|
-| $\tau_{\text{think}}$ | $1 - \min(1, \text{thinkMs} / 2000)$ | Decision speed: faster = higher skill |
-| $\tau_{\text{clear}}$ | $\min(1, \text{clears} / 3)$ | Clear efficiency per placement |
-| $\tau_{\text{combo}}$ | $\min(1, \text{comboCount} / 5)$ | Combo chain maintenance |
-| $\tau_{\text{miss}}$ | $1 - \text{wastedPlacementsRatio}$ | Placement efficiency (fewer "dead" placements) |
-| $\tau_{\text{load}}$ | $1 - \text{cognitiveLoadIndex}$ | Lower cognitive load = higher skill |
+| $\tau_{\mathrm{think}}$ | $1 - \min(1, \mathrm{thinkMs} / 2000)$ | Decision speed: faster = higher skill |
+| $\tau_{\mathrm{clear}}$ | $\min(1, \mathrm{clears} / 3)$ | Clear efficiency per placement |
+| $\tau_{\mathrm{combo}}$ | $\min(1, \mathrm{comboCount} / 5)$ | Combo chain maintenance |
+| $\tau_{\mathrm{miss}}$ | $1 - \mathrm{wastedPlacementsRatio}$ | Placement efficiency (fewer "dead" placements) |
+| $\tau_{\mathrm{load}}$ | $1 - \mathrm{cognitiveLoadIndex}$ | Lower cognitive load = higher skill |
 
 This raw score is smoothed via exponentially-weighted moving average (EMA) with adaptive decay:
 
 $$
-s_t^{\text{skill}} = s_{t-1}^{\text{skill}} + \alpha \cdot (r_t^{\text{skill}} - s_{t-1}^{\text{skill}})
+s_t^{\mathrm{skill}} = s_{t-1}^{\mathrm{skill}} + \alpha \cdot (r_t^{\mathrm{skill}} - s_{t-1}^{\mathrm{skill}})
 $$
 
 $$
-\alpha = \begin{cases} 0.35 & \text{if steps\_this\_game} \leq 5 \\ 0.15 & \text{otherwise} \end{cases}
+\alpha = \begin{cases} 0.35 & \mathrm{if steps\_this\_game} \leq 5 \\ 0.15 & \mathrm{otherwise} \end{cases}
 $$
 
 The dual-rate design provides rapid adaptation for new and returning players (first 5 steps of each game) while maintaining stable tracking for experienced players in sustained play. The 0.15 steady-state rate means the EMA half-life is approximately $\ln(2)/0.15 \approx 4.6$ steps—adaptation is responsive but not jittery.
@@ -401,42 +401,42 @@ The dual-rate design provides rapid adaptation for new and returning players (fi
 **Historical fusion.** To capture longer-term skill trends while remaining responsive to recent performance, a historical fusion layer blends the current smoothed estimate with an exponentially-weighted historical average:
 
 $$
-\text{histSkill} = \frac{\sum_{i=1}^{n-1} 0.85^{n-1-i} \cdot \text{skill}_i}{\sum_{i=1}^{n-1} 0.85^{n-1-i}}
+\mathrm{histSkill} = \frac{\sum_{i=1}^{n-1} 0.85^{n-1-i} \cdot \mathrm{skill}_i}{\sum_{i=1}^{n-1} 0.85^{n-1-i}}
 $$
 
 $$
-\text{skillLevel} = (1 - w_{\text{hist}}) \cdot s_t^{\text{skill}} + w_{\text{hist}} \cdot \text{histSkill}
+\mathrm{skillLevel} = (1 - w_{\mathrm{hist}}) \cdot s_t^{\mathrm{skill}} + w_{\mathrm{hist}} \cdot \mathrm{histSkill}
 $$
 
-where $w_{\text{hist}} = (1 - w_{\text{smooth}}) \cdot \text{confidence}$. The confidence term reflects the reliability of the current session estimate: early sessions with few observations have low confidence and rely more on historical data; mature sessions with consistent behavior have high confidence and override stale history.
+where $w_{\mathrm{hist}} = (1 - w_{\mathrm{smooth}}) \cdot \mathrm{confidence}$. The confidence term reflects the reliability of the current session estimate: early sessions with few observations have low confidence and rely more on historical data; mature sessions with consistent behavior have high confidence and override stale history.
 
 ### 4.3 Flow Detection
 
 Flow state—the optimal experience zone where challenge approximately matches skill—is formalized after Csikszentmihalyi's flow theory:
 
 $$
-F(t) = \left|\frac{\text{boardPressure}(B_t)}{\max(0.05, \text{skillLevel})} - 1\right|
+F(t) = \left|\frac{\mathrm{boardPressure}(B_t)}{\max(0.05, \mathrm{skillLevel})} - 1\right|
 $$
 
 The $0.05$ floor prevents division by zero for brand-new players. Board pressure is a composite of three factors:
 
 $$
-\text{boardPressure} = 0.45 \cdot \text{fillRatio} + 0.35 \cdot \text{clearDeficit} + 0.20 \cdot \text{cogLoad}
+\mathrm{boardPressure} = 0.45 \cdot \mathrm{fillRatio} + 0.35 \cdot \mathrm{clearDeficit} + 0.20 \cdot \mathrm{cogLoad}
 $$
 
 | Component | Channel Weight | Definition |
 |-----------|---------------|------------|
-| fillRatio | 0.45 | Occupancy ratio ($\text{filled} / 64$) |
-| clearDeficit | 0.35 | $1 - \text{clearRate}$, where $\text{clearRate} = \text{clears} / \text{placements}$ |
+| fillRatio | 0.45 | Occupancy ratio ($\mathrm{filled} / 64$) |
+| clearDeficit | 0.35 | $1 - \mathrm{clearRate}$, where $\mathrm{clearRate} = \mathrm{clears} / \mathrm{placements}$ |
 | cogLoad | 0.20 | Normalized cognitive load from board topology complexity |
 
 Flow state classification is performed by a rule tree:
 
 $$
-\text{flowState} = \begin{cases}
-\text{bored} & \text{if } F(t) < 0.9 \\
-\text{flow} & \text{if } 0.9 \leq F(t) \leq 1.3 \\
-\text{anxious} & \text{if } F(t) > 1.3
+\mathrm{flowState} = \begin{cases}
+\mathrm{bored} & \mathrm{if } F(t) < 0.9 \\
+\mathrm{flow} & \mathrm{if } 0.9 \leq F(t) \leq 1.3 \\
+\mathrm{anxious} & \mathrm{if } F(t) > 1.3
 \end{cases}
 $$
 
@@ -447,9 +447,9 @@ The asymmetry in the thresholds ($-0.1$ below vs $+0.3$ above) reflects an inten
 Frustration is tracked via consecutive no-clear steps:
 
 $$
-\text{frustrationLevel}_t = \begin{cases}
-\text{frustrationLevel}_{t-1} + 1 & \text{if no lines cleared at step } t \\
-0 & \text{if lines cleared at step } t
+\mathrm{frustrationLevel}_t = \begin{cases}
+\mathrm{frustrationLevel}_{t-1} + 1 & \mathrm{if no lines cleared at step } t \\
+0 & \mathrm{if lines cleared at step } t
 \end{cases}
 $$
 
@@ -464,7 +464,7 @@ Escalating thresholds trigger progressively stronger interventions:
 **Distress signal.** While frustration captures short-term "stuckness," distress captures cumulative structural damage—the long-term degradation of board quality:
 
 $$
-\text{distress} = 0.4 \cdot \text{holes\_ratio} + 0.3 \cdot \text{transitions\_ratio} + 0.2 \cdot \text{wells\_ratio} + 0.1 \cdot \text{concave\_ratio}
+\mathrm{distress} = 0.4 \cdot \mathrm{holes\_ratio} + 0.3 \cdot \mathrm{transitions\_ratio} + 0.2 \cdot \mathrm{wells\_ratio} + 0.1 \cdot \mathrm{concave\_ratio}
 $$
 
 Each component is normalized by its maximum expected value on an 8×8 grid. The `distress` signal modulates the `feedbackBias` damping mechanism (§6.6): when a player is clearing lines (positive `feedbackBias`) but accumulating structural damage (elevated `distress`), the system reduces the positive bias to prevent difficulty escalation on a structurally compromised board.
@@ -474,11 +474,11 @@ Each component is normalized by its maximum expected value on an 8×8 grid. The 
 Momentum captures the direction and rate of performance change using a sliding window comparison:
 
 $$
-\Delta = \frac{\text{clears}_{\text{recent\_window}}}{\text{placements}_{\text{recent\_window}}} - \frac{\text{clears}_{\text{baseline\_window}}}{\text{placements}_{\text{baseline\_window}}}
+\Delta = \frac{\mathrm{clears}_{\mathrm{recent\_window}}}{\mathrm{placements}_{\mathrm{recent\_window}}} - \frac{\mathrm{clears}_{\mathrm{baseline\_window}}}{\mathrm{placements}_{\mathrm{baseline\_window}}}
 $$
 
 $$
-\text{momentum} = \text{clamp}\left(\frac{\Delta}{0.3}, -1, 1\right)
+\mathrm{momentum} = \mathrm{clamp}\left(\frac{\Delta}{0.3}, -1, 1\right)
 $$
 
 The window sizes are configurable (defaults: recent = 8 placements, baseline = 24 placements). The 0.3 normalization constant maps a typical performance swing (30% change in clear rate) to momentum = ±1.
@@ -486,7 +486,7 @@ The window sizes are configurable (defaults: recent = 8 placements, baseline = 2
 **Run streak.** A between-game streak signal tracks the player's trajectory across multiple games:
 
 $$
-\text{runStreak}_g = \text{runStreak}_{g-1} + \text{sign}(\text{score}_g / \text{PB} - \text{streakThreshold})
+\mathrm{runStreak}_g = \mathrm{runStreak}_{g-1} + \mathrm{sign}(\mathrm{score}_g / \mathrm{PB} - \mathrm{streakThreshold})
 $$
 
 where `streakThreshold` is a configurable ratio (default: 0.6). A positive streak (sustained above-threshold performance) signals the spawn engine to gradually increase difficulty; a negative streak triggers the Warm Run protection system.
@@ -506,7 +506,7 @@ OpenBlock models each player along two orthogonal axes, creating a 5×5 differen
 **Lifecycle stage derivation:**
 
 $$
-\text{lifecycle} = f(\text{daysSinceInstall}, \text{totalSessions}, \text{daysSinceLastActive})
+\mathrm{lifecycle} = f(\mathrm{daysSinceInstall}, \mathrm{totalSessions}, \mathrm{daysSinceLastActive})
 $$
 
 This is a three-input AND gate: all three signals must agree on the stage classification. If signals conflict (e.g., `daysSinceInstall` suggests S0 but `totalSessions` suggests S2), the system defaults to the more conservative (more protective) classification.
@@ -514,7 +514,7 @@ This is a three-input AND gate: all three signals must agree on the stage classi
 **Maturity band derivation:**
 
 $$
-\text{maturity} = g(\text{skillLevel}, \text{historical\_skill\_distribution})
+\mathrm{maturity} = g(\mathrm{skillLevel}, \mathrm{historical\_skill\_distribution})
 $$
 
 Skill scores are compared against the global player distribution, with thresholds at the 90th, 80th, 60th, and 40th percentiles. The maturity band is updated once per session (not per step) to prevent intra-game band flickering.
@@ -634,7 +634,7 @@ The rule-track engine (`generateDockShapes` in `blockSpawn.js`) decomposes the m
 **Fusion of 17 signals** into a composite spawn step difficulty (SCD) score:
 
 $$
-\text{SCD} = \frac{\sum_{j=1}^{17} w_j \cdot s_j}{\sum w_j}
+\mathrm{SCD} = \frac{\sum_{j=1}^{17} w_j \cdot s_j}{\sum w_j}
 $$
 
 The 17 signals are grouped into six categories, each with configurable weights:
@@ -651,12 +651,12 @@ The 17 signals are grouped into six categories, each with configurable weights:
 **Bucket classification:**
 
 $$
-\text{bucket}(SCD) = \begin{cases}
-\text{trivial} & SCD \leq 0.2 \\
-\text{easy} & 0.2 < SCD \leq 0.4 \\
-\text{standard} & 0.4 < SCD \leq 0.6 \\
-\text{hard} & 0.6 < SCD \leq 0.8 \\
-\text{extreme} & SCD > 0.8
+\mathrm{bucket}(SCD) = \begin{cases}
+\mathrm{trivial} & SCD \leq 0.2 \\
+\mathrm{easy} & 0.2 < SCD \leq 0.4 \\
+\mathrm{standard} & 0.4 < SCD \leq 0.6 \\
+\mathrm{hard} & 0.6 < SCD \leq 0.8 \\
+\mathrm{extreme} & SCD > 0.8
 \end{cases}
 $$
 
@@ -754,7 +754,7 @@ Trivial O(1) check. Violation: duplicates in dock.
 
 **Gate 2: Mobility check.**
 $$
-M(B_t, \{s_1, s_2, s_3\}) = \sum_{k=1}^{3} |\text{legal\_positions}(B_t, s_k)| \geq M_{\min}
+M(B_t, \{s_1, s_2, s_3\}) = \sum_{k=1}^{3} |\mathrm{legal\_positions}(B_t, s_k)| \geq M_{\min}
 $$
 
 where $M_{\min}$ is a function of fill ratio: $M_{\min} = 10$ at low fill, linearly decreasing to $M_{\min} = 3$ at fill ≥ 0.75. This prevents the system from delivering a dock where the player has only 1–2 total legal moves, which feels unfair.
@@ -804,7 +804,7 @@ Between individual games, difficulty progression is modulated by the Rate of Ret
 **Humped difficulty curve within a session:**
 
 $$
-d^*(n) = d_{\text{base}} \cdot \left(1 + h \cdot \frac{n}{N} \cdot \left(1 - \frac{n}{N}\right)\right)
+d^*(n) = d_{\mathrm{base}} \cdot \left(1 + h \cdot \frac{n}{N} \cdot \left(1 - \frac{n}{N}\right)\right)
 $$
 
 where $n$ is the current game number in the session, $N$ is the expected session length (estimated from historical data), and $h$ is the hump height (configurable per arc stage: 0.15 for momentum, 0.25 for peak, 0.10 for fatigue).
@@ -819,10 +819,10 @@ At each spawn decision, the SCD computation produces a 4-dimensional feature vec
 
 | Index | Name | Formula | Range |
 |-------|------|---------|-------|
-| 0 | `scdNorm` | $\text{clamp}_{[0,1]}(\text{scd} / \text{scdSaturation})$, where $\text{scd} = \sum \text{cells}(s_k) / (\text{free\_cells} + \varepsilon)$ | [0,1] |
-| 1 | `comboCellsNorm` | $\text{clamp}_{[0,1]}(\sum \text{cells}(s_k) / \text{comboCellsNorm})$, default norm = 15 | [0,1] |
-| 2 | `comboKillerNorm` | $\text{clamp}_{[0,1]}(\text{killer\_count} / \text{dockSlots})$ | [0,1] |
-| 3 | `comboLongBarNorm` | $\text{clamp}_{[0,1]}(\text{long\_bar\_count} / \text{dockSlots})$ | [0,1] |
+| 0 | `scdNorm` | $\mathrm{clamp}_{[0,1]}(\mathrm{scd} / \mathrm{scdSaturation})$, where $\mathrm{scd} = \sum \mathrm{cells}(s_k) / (\mathrm{free\_cells} + \varepsilon)$ | [0,1] |
+| 1 | `comboCellsNorm` | $\mathrm{clamp}_{[0,1]}(\sum \mathrm{cells}(s_k) / \mathrm{comboCellsNorm})$, default norm = 15 | [0,1] |
+| 2 | `comboKillerNorm` | $\mathrm{clamp}_{[0,1]}(\mathrm{killer\_count} / \mathrm{dockSlots})$ | [0,1] |
+| 3 | `comboLongBarNorm` | $\mathrm{clamp}_{[0,1]}(\mathrm{long\_bar\_count} / \mathrm{dockSlots})$ | [0,1] |
 
 **v13 extension: 8 per-shape placeability dimensions:**
 
@@ -837,13 +837,13 @@ At each spawn decision, the SCD computation produces a 4-dimensional feature vec
 | 10 | T-up | 42 | (8−2+1)×(8−3+1) = 7×6 |
 | 11 | L3-a | 49 | (8−2+1)×(8−2+1) = 7×7 |
 
-Each placeability dimension is computed as $\text{clamp}_{[0,1]}(\text{len}(\text{get\_legal\_positions}(B_t, \text{shape})) / \text{norm})$. The eight fixed shapes cover the four long-bar pieces (the primary bottleneck), two square pieces (baseline), and two complex pieces (T and L, the most commonly appearing non-line shapes). Computational cost: ~0.16ms with Numba JIT (8 calls to the vectorized legal position kernel).
+Each placeability dimension is computed as $\mathrm{clamp}_{[0,1]}(\mathrm{len}(\mathrm{get\_legal\_positions}(B_t, \mathrm{shape})) / \mathrm{norm})$. The eight fixed shapes cover the four long-bar pieces (the primary bottleneck), two square pieces (baseline), and two complex pieces (T and L, the most commonly appearing non-line shapes). Computational cost: ~0.16ms with Numba JIT (8 calls to the vectorized legal position kernel).
 
 ### 5.6 Guard Rails and Fallback
 
 Multiple layers of protection guarantee that every delivered dock is playable:
 
-1. **22 retry attempts** ($\text{MAX\_SPAWN\_ATTEMPTS} = 22$): Each retry re-executes the full two-stage construction with a different random seed. The high retry count is feasible because the constraint gate (specifically the DFS check) is the expensive step; the weighted construction is fast (~0.5ms). In practice, over 99.9% of docks pass within 3 attempts; the 22-retry budget is a safety margin for edge-case board states.
+1. **22 retry attempts** ($\mathrm{MAX\_SPAWN\_ATTEMPTS} = 22$): Each retry re-executes the full two-stage construction with a different random seed. The high retry count is feasible because the constraint gate (specifically the DFS check) is the expensive step; the weighted construction is fast (~0.5ms). In practice, over 99.9% of docks pass within 3 attempts; the 22-retry budget is a safety margin for edge-case board states.
 2. **`fallback_simple`**: If all 22 retries fail, a simplified path uniformly randomly samples shapes from the full catalog until a feasible triplet is found. This path has no difficulty targeting or constructive optimization—it is a pure safety net that guarantees a playable dock.
 3. **Warm Run clamping** (`applyWarmRun`): For new (S0), returning (S4), and distressed players, a post-hoc override adjusts the shape weights: `easyWeights` (squares, short lines, small rects) are amplified by 1.5–2.0×, and `hardWeights` (long bars, large rects, J-shapes) are attenuated by 0.3–0.5×. The warm budget decays over the session: `warmBudget_g = warmBudget_{g-1} × 0.85 − warmCost_g`, terminating when budget reaches zero.
 4. **Overload protection**: When fill ratio exceeds 0.70, the difficulty target `d*` is automatically reduced by up to 0.20, proportionally to $(fill - 0.70) / 0.30$. This addresses the long-bar bottleneck directly: at fill ≥0.70, the system recognizes that long bars are becoming unplaceable and reduces difficulty to avoid generating impossible triplets.
@@ -858,23 +858,23 @@ OpenBlock's scoring system uses a quadratic formula that strongly rewards multip
 
 **Base score:**
 $$
-\text{score}_{\text{base}} = 20 \cdot c^2
+\mathrm{score}_{\mathrm{base}} = 20 \cdot c^2
 $$
 
-where $c = \text{rows\_cleared} + \text{columns\_cleared}$, with $0 \leq c \leq 6$ (maximum: 3 rows + 3 columns on an 8×8 grid). The quadratic scaling creates strong non-linearity: a single-line clear (c=1) earns 20 points, while a triple-line clear (c=3) earns 180 points—9× the reward for 3× the effort.
+where $c = \mathrm{rows\_cleared} + \mathrm{columns\_cleared}$, with $0 \leq c \leq 6$ (maximum: 3 rows + 3 columns on an 8×8 grid). The quadratic scaling creates strong non-linearity: a single-line clear (c=1) earns 20 points, while a triple-line clear (c=3) earns 180 points—9× the reward for 3× the effort.
 
 **Icon bonus.** If any cleared row or column consists entirely of blocks sharing the same icon (color), those lines earn a multiplier:
 
 $$
-\text{iconBonus} = 10 \cdot c \cdot (\text{iconBonusLineMult} - 1) \cdot b
+\mathrm{iconBonus} = 10 \cdot c \cdot (\mathrm{iconBonusLineMult} - 1) \cdot b
 $$
 
-where $b$ is the number of icon-matched lines and $\text{iconBonusLineMult} = 5$ by default. This rewards strategic placement toward color homogeneity.
+where $b$ is the number of icon-matched lines and $\mathrm{iconBonusLineMult} = 5$ by default. This rewards strategic placement toward color homogeneity.
 
 **Perfect clear bonus.** If every cell on the board becomes empty after clearing:
 
 $$
-\text{perfectMult} = 10
+\mathrm{perfectMult} = 10
 $$
 
 This high multiplier (10×) creates a compelling risk-reward dynamic: attempting a perfect clear risks wasting placements on suboptimal positions, but succeeding yields an outsized score boost.
@@ -882,15 +882,15 @@ This high multiplier (10×) creates a compelling risk-reward dynamic: attempting
 **Combo multiplier.** Consecutive clear placements increment a combo counter, with a grace window of 3 non-clearing placements before the combo resets:
 
 $$
-m_{\text{combo}} = \min(m_{\text{max}}, 1 + \max(0, \text{comboCount} - \text{activationCount} + 1) \cdot \text{stepBonus})
+m_{\mathrm{combo}} = \min(m_{\mathrm{max}}, 1 + \max(0, \mathrm{comboCount} - \mathrm{activationCount} + 1) \cdot \mathrm{stepBonus})
 $$
 
-with default parameters: $\text{activationCount} = 3$, $\text{stepBonus} = 0.0$, $\text{maxMultiplier} = 1.0$. These neutral defaults mean combo multiplier is effectively disabled but can be activated via configuration to reward sustained clear streaks.
+with default parameters: $\mathrm{activationCount} = 3$, $\mathrm{stepBonus} = 0.0$, $\mathrm{maxMultiplier} = 1.0$. These neutral defaults mean combo multiplier is effectively disabled but can be activated via configuration to reward sustained clear streaks.
 
 **Full score formula:**
 
 $$
-\text{score}_{\text{placement}} = (20c^2 + c \cdot 40 \cdot b) \cdot \begin{cases} 10 & \text{if perfect clear} \\ 1 & \text{otherwise} \end{cases} \cdot m_{\text{combo}}
+\mathrm{score}_{\mathrm{placement}} = (20c^2 + c \cdot 40 \cdot b) \cdot \begin{cases} 10 & \mathrm{if perfect clear} \\ 1 & \mathrm{otherwise} \end{cases} \cdot m_{\mathrm{combo}}
 $$
 
 ### 6.2 Placement Quality Evaluation
@@ -899,32 +899,32 @@ Each placement is evaluated against the theoretical optimum for that board-dock 
 
 | Dimension | Computation | Range |
 |-----------|-----------|-------|
-| **Topology delta** | $\Phi(B_{\text{after}}) - \Phi(B_{\text{before}})$, where $\Phi$ is the board potential function (§7.1) | $[-1, 1]$ |
-| **Mobility delta** | $\frac{M_{\text{after}} - M_{\text{before}}}{\max(M_{\text{before}}, 1)}$ | $[-1, 1]$ |
+| **Topology delta** | $\Phi(B_{\mathrm{after}}) - \Phi(B_{\mathrm{before}})$, where $\Phi$ is the board potential function (§7.1) | $[-1, 1]$ |
+| **Mobility delta** | $\frac{M_{\mathrm{after}} - M_{\mathrm{before}}}{\max(M_{\mathrm{before}}, 1)}$ | $[-1, 1]$ |
 | **Clear potential** | $\min(1, c / 3)$ | $[0, 1]$ |
-| **Near-full proximity** | $\frac{\text{near\_full\_after}}{\text{near\_full\_before} + 1}$ | $[0, 1]$ |
-| **Salvage quality** | $\begin{cases} \min(1, c/3) & M_{\text{before}} \leq 4 \\ 0 & \text{otherwise} \end{cases}$ | $[0, 1]$ |
+| **Near-full proximity** | $\frac{\mathrm{near\_full\_after}}{\mathrm{near\_full\_before} + 1}$ | $[0, 1]$ |
+| **Salvage quality** | $\begin{cases} \min(1, c/3) & M_{\mathrm{before}} \leq 4 \\ 0 & \mathrm{otherwise} \end{cases}$ | $[0, 1]$ |
 
 **Regret computation.** For each placement, the evaluator computes the regret—the gap between the optimal placement's quality and the chosen placement's quality:
 
 $$
-\text{regret} = \min_{\text{optimal } a^* \in \text{legal}} \|Q(a^*) - Q(a_{\text{chosen}})\|
+\mathrm{regret} = \min_{\mathrm{optimal } a^* \in \mathrm{legal}} \|Q(a^*) - Q(a_{\mathrm{chosen}})\|
 $$
 
-where $Q(a)$ is the composite quality score. Regret is normalized by a configurable denominator ($\text{regretNorm} = 8.0$) and clamped to $[0,1]$.
+where $Q(a)$ is the composite quality score. Regret is normalized by a configurable denominator ($\mathrm{regretNorm} = 8.0$) and clamped to $[0,1]$.
 
 **Special classifications:**
 
-- **`forced_bad`**: $\text{holes\_after} - \text{holes\_before} \geq 2$. The dock was structurally adverse—even optimal play couldn't prevent board degradation. High `forced_bad` rate (>15% of rounds) triggers spawn engine relief.
-- **`salvage`**: $M_{\text{before}} \leq 4 \land c \geq 2$. The player achieved a multi-clear despite critically low mobility—skillful play under constraint. High salvage rate indicates the player is performing above the system's expectation of their ability.
+- **`forced_bad`**: $\mathrm{holes\_after} - \mathrm{holes\_before} \geq 2$. The dock was structurally adverse—even optimal play couldn't prevent board degradation. High `forced_bad` rate (>15% of rounds) triggers spawn engine relief.
+- **`salvage`**: $M_{\mathrm{before}} \leq 4 \land c \geq 2$. The player achieved a multi-clear despite critically low mobility—skillful play under constraint. High salvage rate indicates the player is performing above the system's expectation of their ability.
 
 ### 6.3 Round Quality
 
 After a full dock (3 placements or game-over), the round receives a quality classification with three regret components:
 
-1. **Order regret**: Was the placement order optimal? $\text{order\_regret} = Q(\text{optimal\_ordering}) - Q(\text{chosen\_ordering})$.
-2. **Path regret**: Was each individual placement optimal given the chosen order? $\text{path\_regret} = \frac{1}{3}\sum_{i=1}^{3} \text{regret}(\text{step}_i)$.
-3. **Payoff regret**: Did the round achieve the expected clear reward? $\text{payoff\_regret} = \max(0, \mathbb{E}[c] - c_{\text{actual}})$.
+1. **Order regret**: Was the placement order optimal? $\mathrm{order\_regret} = Q(\mathrm{optimal\_ordering}) - Q(\mathrm{chosen\_ordering})$.
+2. **Path regret**: Was each individual placement optimal given the chosen order? $\mathrm{path\_regret} = \frac{1}{3}\sum_{i=1}^{3} \mathrm{regret}(\mathrm{step}_i)$.
+3. **Payoff regret**: Did the round achieve the expected clear reward? $\mathrm{payoff\_regret} = \max(0, \mathbb{E}[c] - c_{\mathrm{actual}})$.
 
 These components aggregate into a `roundQuality` score stored in `sessionEvalRecord`.
 
@@ -940,16 +940,16 @@ player clears FEWER lines than expected → feedbackBias -= 0.02
 The bias is clamped to $[-0.15, 0.15]$ and feeds directly into the stress computation:
 
 $$
-\text{stress} = \sum_{j} w_j \cdot s_j + \text{feedbackBias}
+\mathrm{stress} = \sum_{j} w_j \cdot s_j + \mathrm{feedbackBias}
 $$
 
 **Distress damping.** To prevent the system from increasing difficulty on a player who clears lines but destroys their board structure:
 
 $$
-\text{feedbackBias}_{\text{effective}} = \text{feedbackBias} - \min(0.08, \text{feedbackBias} \cdot 0.5 \cdot \text{distress})
+\mathrm{feedbackBias}_{\mathrm{effective}} = \mathrm{feedbackBias} - \min(0.08, \mathrm{feedbackBias} \cdot 0.5 \cdot \mathrm{distress})
 $$
 
-This only applies when $\text{feedbackBias} > 0$ (the system thinks the player can handle more) AND $\text{distress} > 0$ (but their board is deteriorating). The damping is proportional to both the bias magnitude and the distress level.
+This only applies when $\mathrm{feedbackBias} > 0$ (the system thinks the player can handle more) AND $\mathrm{distress} > 0$ (but their board is deteriorating). The damping is proportional to both the bias magnitude and the distress level.
 
 **Four-layer evaluation → adaptiveSpawn feedback:**
 
@@ -974,31 +974,31 @@ The placement problem is formalized as a finite-horizon MDP $\mathcal{M} = (\mat
 - $\mathcal{R}$: reward function:
 
 $$
-r_t = \Delta\text{score} + 0.8 \cdot \Delta\Phi_{\text{topology}} + 0.6 \cdot r_{\text{eval}} + 35 \cdot \mathbb{1}[\text{score} \geq \text{threshold}]
+r_t = \Delta\mathrm{score} + 0.8 \cdot \Delta\Phi_{\mathrm{topology}} + 0.6 \cdot r_{\mathrm{eval}} + 35 \cdot \mathbb{1}[\mathrm{score} \geq \mathrm{threshold}]
 $$
 
 The potential function $\Phi$ shapes the reward without changing the optimal policy (Ng 1999):
 
 $$
-\Phi(B) = -0.4 \cdot \text{holes} - 0.08 \cdot \text{transitions} - 0.15 \cdot \text{wells} + 0.35 \cdot \text{close\_to\_full} + 0.12 \cdot \text{mobility}
+\Phi(B) = -0.4 \cdot \mathrm{holes} - 0.08 \cdot \mathrm{transitions} - 0.15 \cdot \mathrm{wells} + 0.35 \cdot \mathrm{close\_to\_full} + 0.12 \cdot \mathrm{mobility}
 $$
 
-The evaluation feedback term $r_{\text{eval}}$ is an instantaneous reward (not a potential difference, so it doesn't create spurious energy):
+The evaluation feedback term $r_{\mathrm{eval}}$ is an instantaneous reward (not a potential difference, so it doesn't create spurious energy):
 
 $$
-r_{\text{eval}} = -0.10 \cdot \text{regret\_clipped} + 0.05 \cdot \text{optimality} - 0.08 \cdot \text{forced\_bad} + 0.04 \cdot \text{salvage}
+r_{\mathrm{eval}} = -0.10 \cdot \mathrm{regret\_clipped} + 0.05 \cdot \mathrm{optimality} - 0.08 \cdot \mathrm{forced\_bad} + 0.04 \cdot \mathrm{salvage}
 $$
 
 The agent's objective:
 $$
-\pi^* = \arg\max_\pi \mathbb{E}_\pi\left[\sum_{t=0}^{T} \gamma^t r_t\right]
+\pi^* = \operatorname{argmax}_\pi \mathbb{E}_\pi\left[\sum_{t=0}^{T} \gamma^t r_t\right]
 $$
 
 with $\gamma = 0.99$ and termination when no dock block has a legal placement.
 
 ### 7.2 State and Action Feature Encoding
 
-**State vector** $\in \mathbb{R}^{204} = 65 \text{ scalars} + 64 \text{ grid} + 75 \text{ dock}$:
+**State vector** $\in \mathbb{R}^{204} = 65 \mathrm{ scalars} + 64 \mathrm{ grid} + 75 \mathrm{ dock}$:
 
 **Scalar segment (65 dimensions):**
 
@@ -1023,10 +1023,10 @@ The ConvSharedPolicyValueNet (v5, ~188K parameters at width=128, conv_channels=3
 **Grid Encoder:**
 $$
 \begin{aligned}
-g_0 &= \text{GELU}(\text{Conv2d}(B_{\text{embed}}, 1 \rightarrow 32, 3\times3, \text{pad}=1)) \\
-g_1 &= \text{ResConvBlock}(g_0) = g_0 + \text{GELU}(\text{Conv2d}(\text{GELU}(\text{Conv2d}(g_0)))) \\
-g_2 &= \text{ResConvBlock}(g_1) \\
-g_{\text{pooled}} &= \frac{1}{64} \sum_{i,j} g_2[:,:,i,j] \in \mathbb{R}^{32}
+g_0 &= \mathrm{GELU}(\mathrm{Conv2d}(B_{\mathrm{embed}}, 1 \rightarrow 32, 3\times3, \mathrm{pad}=1)) \\
+g_1 &= \mathrm{ResConvBlock}(g_0) = g_0 + \mathrm{GELU}(\mathrm{Conv2d}(\mathrm{GELU}(\mathrm{Conv2d}(g_0)))) \\
+g_2 &= \mathrm{ResConvBlock}(g_1) \\
+g_{\mathrm{pooled}} &= \frac{1}{64} \sum_{i,j} g_2[:,:,i,j] \in \mathbb{R}^{32}
 \end{aligned}
 $$
 
@@ -1034,48 +1034,48 @@ $$
 
 $$
 \begin{aligned}
-Q_k &= W_q \cdot \text{mask}_k \in \mathbb{R}^{16} \quad (k = 1,2,3 \text{ dock slots}) \\
-K &= \text{Conv2d}_{1\times1}^{32 \rightarrow 16}(g_2) \in \mathbb{R}^{16 \times 8 \times 8} \\
-V &= \text{Conv2d}_{1\times1}^{32 \rightarrow 16}(g_2) \in \mathbb{R}^{16 \times 8 \times 8}
+Q_k &= W_q \cdot \mathrm{mask}_k \in \mathbb{R}^{16} \quad (k = 1,2,3 \mathrm{ dock slots}) \\
+K &= \mathrm{Conv2d}_{1\times1}^{32 \rightarrow 16}(g_2) \in \mathbb{R}^{16 \times 8 \times 8} \\
+V &= \mathrm{Conv2d}_{1\times1}^{32 \rightarrow 16}(g_2) \in \mathbb{R}^{16 \times 8 \times 8}
 \end{aligned}
 $$
 
 For each dock block $k$, the attention output is:
 
 $$
-\text{ctx}_k = \text{softmax}\left(\frac{Q_k \cdot K_{\text{flattened}}}{\sqrt{16}}\right) \cdot V_{\text{flattened}}^T \in \mathbb{R}^{16}
+\mathrm{ctx}_k = \mathrm{softmax}\left(\frac{Q_k \cdot K_{\mathrm{flattened}}}{\sqrt{16}}\right) \cdot V_{\mathrm{flattened}}^T \in \mathbb{R}^{16}
 $$
 
-The final dock context is $\text{Linear}_{16 \rightarrow 16}(\text{ctx}_k)$ for each $k$, flattened to $\mathbb{R}^{48}$.
+The final dock context is $\mathrm{Linear}_{16 \rightarrow 16}(\mathrm{ctx}_k)$ for each $k$, flattened to $\mathbb{R}^{48}$.
 
 **Shared Trunk:**
 $$
 \begin{aligned}
-x_0 &= [\text{scalars}, g_{\text{pooled}}, \text{dock\_ctx}] \in \mathbb{R}^{65+32+48 = 145} \\
-x_1 &= x_0 + \text{GELU}(\text{Linear}_{145 \rightarrow 128}(x_0)) \\
-x_2 &= x_1 + \text{GELU}(\text{Linear}_{128 \rightarrow 128}(x_1)) \\
-h(s) &= x_2 + \text{GELU}(\text{Linear}_{128 \rightarrow 128}(x_2)) \in \mathbb{R}^{128}
+x_0 &= [\mathrm{scalars}, g_{\mathrm{pooled}}, \mathrm{dock\_ctx}] \in \mathbb{R}^{65+32+48 = 145} \\
+x_1 &= x_0 + \mathrm{GELU}(\mathrm{Linear}_{145 \rightarrow 128}(x_0)) \\
+x_2 &= x_1 + \mathrm{GELU}(\mathrm{Linear}_{128 \rightarrow 128}(x_1)) \\
+h(s) &= x_2 + \mathrm{GELU}(\mathrm{Linear}_{128 \rightarrow 128}(x_2)) \in \mathbb{R}^{128}
 \end{aligned}
 $$
 
 **Output heads:**
-- **Policy**: $h(s) \| \text{GELU}(\text{action\_proj}_{15 \rightarrow 48}(\psi(a))) \rightarrow \text{Linear}_{176 \rightarrow 64} \rightarrow \text{GELU} \rightarrow \text{Linear}_{64 \rightarrow 1} \rightarrow \text{logit}(a)$. Logits are masked to legal actions and softmax-normalized.
-- **Value**: $h(s) \rightarrow \text{Linear}_{128 \rightarrow 64} \rightarrow \text{GELU} \rightarrow \text{Linear}_{64 \rightarrow 1} \rightarrow V(s)$.
+- **Policy**: $h(s) \| \mathrm{GELU}(\mathrm{action\_proj}_{15 \rightarrow 48}(\psi(a))) \rightarrow \mathrm{Linear}_{176 \rightarrow 64} \rightarrow \mathrm{GELU} \rightarrow \mathrm{Linear}_{64 \rightarrow 1} \rightarrow \mathrm{logit}(a)$. Logits are masked to legal actions and softmax-normalized.
+- **Value**: $h(s) \rightarrow \mathrm{Linear}_{128 \rightarrow 64} \rightarrow \mathrm{GELU} \rightarrow \mathrm{Linear}_{64 \rightarrow 1} \rightarrow V(s)$.
 
 ### 7.4 Training Algorithm
 
 **PPO objective:**
 
 $$
-\mathcal{L}_{\text{policy}} = -\mathbb{E}_t\left[\min\left(\rho_t A_t, \text{clip}(\rho_t, 1-\varepsilon, 1+\varepsilon) A_t\right)\right]
+\mathcal{L}_{\mathrm{policy}} = -\mathbb{E}_t\left[\min\left(\rho_t A_t, \mathrm{clip}(\rho_t, 1-\varepsilon, 1+\varepsilon) A_t\right)\right]
 $$
 
-where $\rho_t = \pi_{\text{new}}(a_t|s_t) / \pi_{\text{old}}(a_t|s_t)$ and $\varepsilon = 0.25$.
+where $\rho_t = \pi_{\mathrm{new}}(a_t|s_t) / \pi_{\mathrm{old}}(a_t|s_t)$ and $\varepsilon = 0.25$.
 
 **GAE advantage estimation:**
 
 $$
-A_t^{\text{GAE}(\lambda)} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}, \quad \delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)
+A_t^{\mathrm{GAE}(\lambda)} = \sum_{l=0}^{\infty} (\gamma\lambda)^l \delta_{t+l}, \quad \delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)
 $$
 
 with $\lambda = 0.85$, $\gamma = 0.99$.
@@ -1083,7 +1083,7 @@ with $\lambda = 0.85$, $\gamma = 0.99$.
 **Mixed value target.** The value head learns a hybrid target combining sparse outcome signal (low variance, no credit assignment problem) with dense GAE returns (temporal credit assignment):
 
 $$
-R_t = 0.5 \cdot \text{GAE}_t + 0.5 \cdot \text{clip}\left(\frac{\log(1 + \text{final\_score})}{\log(1 + \text{win\_threshold})}, 0, 3\right)
+R_t = 0.5 \cdot \mathrm{GAE}_t + 0.5 \cdot \mathrm{clip}\left(\frac{\log(1 + \mathrm{final\_score})}{\log(1 + \mathrm{win\_threshold})}, 0, 3\right)
 $$
 
 The log-normalized outcome target compresses the wide range of possible scores (0–50,000+) into a bounded [0, 3] range, preventing the value loss from being dominated by long-game returns.
@@ -1092,17 +1092,17 @@ The log-normalized outcome target compresses the wide range of possible scores (
 
 $$
 \begin{aligned}
-v_{\text{clipped}} &= v_{\text{old}} + \text{clamp}(v_{\text{new}} - v_{\text{old}}, -0.25, +0.25) \\
-\mathcal{L}_{\text{value}} &= \mathbb{E}\left[\max\left(\text{SmoothL1}(v_{\text{new}}, R_t, \beta=10), \text{SmoothL1}(v_{\text{clipped}}, R_t, \beta=10)\right)\right]
+v_{\mathrm{clipped}} &= v_{\mathrm{old}} + \mathrm{clamp}(v_{\mathrm{new}} - v_{\mathrm{old}}, -0.25, +0.25) \\
+\mathcal{L}_{\mathrm{value}} &= \mathbb{E}\left[\max\left(\mathrm{SmoothL1}(v_{\mathrm{new}}, R_t, \beta=10), \mathrm{SmoothL1}(v_{\mathrm{clipped}}, R_t, \beta=10)\right)\right]
 \end{aligned}
 $$
 
-where $\text{SmoothL1}(x, y, \beta) = \begin{cases} 0.5(x-y)^2 / \beta & |x-y| < \beta \\ |x-y| - 0.5\beta & \text{otherwise} \end{cases}$ with $\beta = 10.0$ (Huber loss with larger quadratic region than standard $\beta=1.0$).
+where $\mathrm{SmoothL1}(x, y, \beta) = \begin{cases} 0.5(x-y)^2 / \beta & |x-y| < \beta \\ |x-y| - 0.5\beta & \mathrm{otherwise} \end{cases}$ with $\beta = 10.0$ (Huber loss with larger quadratic region than standard $\beta=1.0$).
 
 **Advantage normalization:**
 
 $$
-A_t^{\text{norm}} = \text{clamp}_{[-30,30]}\left(\frac{A_t - \mu_A}{\max(\sigma_A, 10^{-4})}\right)
+A_t^{\mathrm{norm}} = \mathrm{clamp}_{[-30,30]}\left(\frac{A_t - \mu_A}{\max(\sigma_A, 10^{-4})}\right)
 $$
 
 The $\pm 30$ clamp and $10^{-4}$ minimum standard deviation guard prevent numerical instability from low-variance advantage batches.
@@ -1110,7 +1110,7 @@ The $\pm 30$ clamp and $10^{-4}$ minimum standard deviation guard prevent numeri
 **Entropy loss** (negative sign = maximizing entropy):
 
 $$
-\mathcal{L}_{\text{entropy}} = -w_e \cdot \frac{1}{|\mathcal{A}|} \sum_{a \in \mathcal{A}} \pi(a|s) \log \pi(a|s)
+\mathcal{L}_{\mathrm{entropy}} = -w_e \cdot \frac{1}{|\mathcal{A}|} \sum_{a \in \mathcal{A}} \pi(a|s) \log \pi(a|s)
 $$
 
 with $w_e$ starting at 0.025 and linearly annealing to 0.008 over the first 50,000 episodes.
@@ -1123,7 +1123,7 @@ Seven auxiliary heads provide dense, per-step gradient signals independent of sp
 |------|-----|------|--------|------|---------------------------|
 | `board_quality` | 1 | SmoothL1(β=1) | Φ(s) / 30 | 0.5 | +0.011 (p=0.86) |
 | `feasibility` | 1 | BCE(logits) | DFS sequential solvability | 0.3 | −0.172 (p<0.0001) |
-| `survival` | 1 | SmoothL1(β=1) | $T_{\text{remaining}} / 30$ | 0.2 | −0.202 (p<0.0001) |
+| `survival` | 1 | SmoothL1(β=1) | $T_{\mathrm{remaining}} / 30$ | 0.2 | −0.202 (p<0.0001) |
 | `topology_aux` | 10 | SmoothL1(β=1) | Post-placement topology vector | 0.0 | — |
 | `spawn_diff_aux` | 12 | SmoothL1(β=1) | 4-dim SCD + 8-dim placeability | 0.05 | −0.009 (p=0.69) |
 | `hole_aux` | 1 | SmoothL1(β=1) | Unfillable cells / 16 | 0.0 | — |
@@ -1133,30 +1133,30 @@ The coefficients `hole_aux=0` and `topology_aux=0` indicate these heads are impl
 
 **Feasibility head architecture:**
 $$
-\text{feas\_logit} = \text{Linear}_{128 \rightarrow 64} \rightarrow \text{GELU} \rightarrow \text{Linear}_{64 \rightarrow 1}(h(s))
+\mathrm{feas\_logit} = \mathrm{Linear}_{128 \rightarrow 64} \rightarrow \mathrm{GELU} \rightarrow \mathrm{Linear}_{64 \rightarrow 1}(h(s))
 $$
 
 Logits are clamped to $\pm 10$ before BCE computation to prevent numerical explosion ($\sigma(\pm 10) \approx 0/1$ already saturates).
 
 **Spawn diff aux head architecture:**
 $$
-\text{sd\_pred}_{12} = \text{Linear}_{128 \rightarrow 64} \rightarrow \text{GELU} \rightarrow \text{Linear}_{64 \rightarrow 12}(h(s))
+\mathrm{sd\_pred}_{12} = \mathrm{Linear}_{128 \rightarrow 64} \rightarrow \mathrm{GELU} \rightarrow \mathrm{Linear}_{64 \rightarrow 12}(h(s))
 $$
 
 **Total auxiliary loss:**
 
 $$
-\mathcal{L}_{\text{aux}} = \sum_{k} w_k \cdot \text{clamp}_{[-20,20]}(\mathcal{L}_k)
+\mathcal{L}_{\mathrm{aux}} = \sum_{k} w_k \cdot \mathrm{clamp}_{[-20,20]}(\mathcal{L}_k)
 $$
 
-The $\pm 20$ hard clamp on auxiliary losses (but not on policy/value losses) prevents occasional numerical explosions from extreme board states (historically observed: `loss_bq` reaching 936,449, `loss_feas` reaching $\pm 7.8 \times 10^5$). These explosions were traced to the auxiliary head outputs diverging to $\pm 10^3\text{--}10^5$ on extreme boards, and have been mitigated by per-head prediction clipping (`board_quality` preds clamped to $\pm 10$, `survival` to $\pm 3$, `feasibility` logits to $\pm 10$) in addition to the loss-level clamp.
+The $\pm 20$ hard clamp on auxiliary losses (but not on policy/value losses) prevents occasional numerical explosions from extreme board states (historically observed: `loss_bq` reaching 936,449, `loss_feas` reaching $\pm 7.8 \times 10^5$). These explosions were traced to the auxiliary head outputs diverging to $\pm 10^3\mathrm{--}10^5$ on extreme boards, and have been mitigated by per-head prediction clipping (`board_quality` preds clamped to $\pm 10$, `survival` to $\pm 3$, `feasibility` logits to $\pm 10$) in addition to the loss-level clamp.
 
 ### 7.6 Exploration and Curriculum
 
 **Temperature-softened policy with Dirichlet exploration:**
 
 $$
-\pi_{\text{sample}}(a|s) = 0.92 \cdot \text{softmax}(\text{logits} / T_t) + 0.08 \cdot \text{Dirichlet}(0.28, \dots, 0.28)
+\pi_{\mathrm{sample}}(a|s) = 0.92 \cdot \mathrm{softmax}(\mathrm{logits} / T_t) + 0.08 \cdot \mathrm{Dirichlet}(0.28, \dots, 0.28)
 $$
 
 Temperature schedule: $T_t = 1.2$ for the first 2 moves of each episode (encouraging exploration), decaying to $T_t = 0.6$ thereafter (exploiting learned patterns).
@@ -1218,25 +1218,25 @@ SpawnPolicyNet V3.1 (~317K parameters) uses a Transformer encoder with three sep
 
 $$
 \begin{aligned}
-\text{state\_token} &= \text{LayerNorm}(\text{GELU}(\text{Linear}_{88 \rightarrow 128}([B_{\text{flat}}; \pi])))) \in \mathbb{R}^{B \times 1 \times 128} \\
-\text{diff\_token} &= \text{LayerNorm}(\text{GELU}(\text{Linear}_{1 \rightarrow 128}(d)))) \\
-\text{hist\_tokens} &= \text{shape\_embed}_{29 \times 128}[H_{\text{ids}}] + \text{pos\_embed}_{9 \times 128} \in \mathbb{R}^{B \times 9 \times 128} \\
-\text{cls\_token} &= \text{trainable\_param} \in \mathbb{R}^{1 \times 128}
+\mathrm{state\_token} &= \mathrm{LayerNorm}(\mathrm{GELU}(\mathrm{Linear}_{88 \rightarrow 128}([B_{\mathrm{flat}}; \pi])))) \in \mathbb{R}^{B \times 1 \times 128} \\
+\mathrm{diff\_token} &= \mathrm{LayerNorm}(\mathrm{GELU}(\mathrm{Linear}_{1 \rightarrow 128}(d)))) \\
+\mathrm{hist\_tokens} &= \mathrm{shape\_embed}_{29 \times 128}[H_{\mathrm{ids}}] + \mathrm{pos\_embed}_{9 \times 128} \in \mathbb{R}^{B \times 9 \times 128} \\
+\mathrm{cls\_token} &= \mathrm{trainable\_param} \in \mathbb{R}^{1 \times 128}
 \end{aligned}
 $$
 
-**Sequence:** $\text{tokens} = [\text{cls}, \text{state}, \text{diff}, \text{hist}_0, \dots, \text{hist}_8] \in \mathbb{R}^{B \times 12 \times 128}$
+**Sequence:** $\mathrm{tokens} = [\mathrm{cls}, \mathrm{state}, \mathrm{diff}, \mathrm{hist}_0, \dots, \mathrm{hist}_8] \in \mathbb{R}^{B \times 12 \times 128}$
 
-**Encoder:** 6-layer TransformerEncoder ($d_{\text{model}}=128$, $n_{\text{heads}}=4$, $\text{FFN\_dim}=256$, GELU, dropout=0.1, norm_first=True).
+**Encoder:** 6-layer TransformerEncoder ($d_{\mathrm{model}}=128$, $n_{\mathrm{heads}}=4$, $\mathrm{FFN\_dim}=256$, GELU, dropout=0.1, norm_first=True).
 
 **Slot heads (autoregressive):**
 
 $$
 \begin{aligned}
-\text{CLS}_{\text{out}} &= \text{LayerNorm}(\text{encoded}[:, 0, :]) \in \mathbb{R}^{B \times 128} \\
-l_0 &= \text{Linear}_{128 \rightarrow 28}(\text{CLS}_{\text{out}}) \\
-l_1 &= \text{Linear}_{256 \rightarrow 28}(\text{concat}[\text{CLS}_{\text{out}}, \text{emb}(s_1)]) \\
-l_2 &= \text{Linear}_{384 \rightarrow 28}(\text{concat}[\text{CLS}_{\text{out}}, \text{emb}(s_1), \text{emb}(s_2)])
+\mathrm{CLS}_{\mathrm{out}} &= \mathrm{LayerNorm}(\mathrm{encoded}[:, 0, :]) \in \mathbb{R}^{B \times 128} \\
+l_0 &= \mathrm{Linear}_{128 \rightarrow 28}(\mathrm{CLS}_{\mathrm{out}}) \\
+l_1 &= \mathrm{Linear}_{256 \rightarrow 28}(\mathrm{concat}[\mathrm{CLS}_{\mathrm{out}}, \mathrm{emb}(s_1)]) \\
+l_2 &= \mathrm{Linear}_{384 \rightarrow 28}(\mathrm{concat}[\mathrm{CLS}_{\mathrm{out}}, \mathrm{emb}(s_1), \mathrm{emb}(s_2)])
 \end{aligned}
 $$
 
@@ -1249,24 +1249,24 @@ The progressive dimension increase (128→256→384) reflects the growing contex
 | `diversity` | $\mathbb{R}^{B \times 3 \times 7}$ | Cross-entropy | Predict category distribution of each slot |
 | `difficulty` | $\mathbb{R}^{B \times 1}$ | SmoothL1 | Align difficulty prediction with target |
 | `feasibility` | $\mathbb{R}^{B \times 28}$ | BCE (per-shape) | Predict which shapes are placeable |
-| `style` | $\mathbb{R}^{B \times N_{\text{styles}}}$ | Cross-entropy | Style self-supervision |
-| `intent` | $\mathbb{R}^{B \times N_{\text{intents}}}$ | Cross-entropy | Intent self-supervision |
+| `style` | $\mathbb{R}^{B \times N_{\mathrm{styles}}}$ | Cross-entropy | Style self-supervision |
+| `intent` | $\mathbb{R}^{B \times N_{\mathrm{intents}}}$ | Cross-entropy | Intent self-supervision |
 
 ### 8.3 Training
 
 **V3.1 composite loss:**
 
 $$
-\mathcal{L}_{\text{V3.1}} = 1.0\mathcal{L}_{\text{ce-AR}} + 0.3\mathcal{L}_{\text{div}} + 0.5\mathcal{L}_{\text{anti}} + 0.1\mathcal{L}_{\text{diff}} + 0.4\mathcal{L}_{\text{feas}} + 0.2\mathcal{L}_{\text{si}} + 0.15\mathcal{L}_{\text{style}} + 0.10\mathcal{L}_{\text{intent}}
+\mathcal{L}_{\mathrm{V3.1}} = 1.0\mathcal{L}_{\mathrm{ce-AR}} + 0.3\mathcal{L}_{\mathrm{div}} + 0.5\mathcal{L}_{\mathrm{anti}} + 0.1\mathcal{L}_{\mathrm{diff}} + 0.4\mathcal{L}_{\mathrm{feas}} + 0.2\mathcal{L}_{\mathrm{si}} + 0.15\mathcal{L}_{\mathrm{style}} + 0.10\mathcal{L}_{\mathrm{intent}}
 $$
 
 Where:
-- $\mathcal{L}_{\text{ce-AR}}$: $-\frac{1}{3}\sum_{k=1}^{3} \log P(s_k | s_{<k}, \text{ctx})$ (teacher forcing).
-- $\mathcal{L}_{\text{div}}$: Category distribution entropy maximization.
-- $\mathcal{L}_{\text{anti}}$: Penalty on repeated shapes or same-family shapes.
-- $\mathcal{L}_{\text{feas}}$: $-\frac{1}{28}\sum_{j=1}^{28}[y_j \log \sigma(l_j) + (1-y_j)\log(1-\sigma(l_j))]$ (per-shape BCE).
-- $\mathcal{L}_{\text{si}}$: Soft penalty on logits for infeasible shapes: $\frac{1}{|\mathcal{I}|}\sum_{j \in \mathcal{I}} \max(0, l_j - l_{\text{max}})$, where $\mathcal{I}$ is the set of infeasible shapes and $l_{\text{max}}$ is the maximum logit among feasible shapes.
-- $\mathcal{L}_{\text{style}}$, $\mathcal{L}_{\text{intent}}$: Self-supervised cross-entropy on style and intent labels.
+- $\mathcal{L}_{\mathrm{ce-AR}}$: $-\frac{1}{3}\sum_{k=1}^{3} \log P(s_k | s_{<k}, \mathrm{ctx})$ (teacher forcing).
+- $\mathcal{L}_{\mathrm{div}}$: Category distribution entropy maximization.
+- $\mathcal{L}_{\mathrm{anti}}$: Penalty on repeated shapes or same-family shapes.
+- $\mathcal{L}_{\mathrm{feas}}$: $-\frac{1}{28}\sum_{j=1}^{28}[y_j \log \sigma(l_j) + (1-y_j)\log(1-\sigma(l_j))]$ (per-shape BCE).
+- $\mathcal{L}_{\mathrm{si}}$: Soft penalty on logits for infeasible shapes: $\frac{1}{|\mathcal{I}|}\sum_{j \in \mathcal{I}} \max(0, l_j - l_{\mathrm{max}})$, where $\mathcal{I}$ is the set of infeasible shapes and $l_{\mathrm{max}}$ is the maximum logit among feasible shapes.
+- $\mathcal{L}_{\mathrm{style}}$, $\mathcal{L}_{\mathrm{intent}}$: Self-supervised cross-entropy on style and intent labels.
 
 **Data sources:**
 1. **Player replays** (👤): Real dock choices from human gameplay—the gold-standard distribution.
@@ -1277,10 +1277,10 @@ Where:
 ### 8.4 LoRA Personalization
 
 $$
-W_{\text{adapted}} = W_{\text{base}} + \frac{\alpha}{r} \cdot BA
+W_{\mathrm{adapted}} = W_{\mathrm{base}} + \frac{\alpha}{r} \cdot BA
 $$
 
-with $A \in \mathbb{R}^{r \times d_{\text{in}}}$, $B \in \mathbb{R}^{d_{\text{out}} \times r}$, rank $r = 4$, $\alpha = 16$. Injection points: `self_attn.q_proj` + `v_proj` in each encoder layer. Per-player parameters: 5.6K (~1.8% of trunk). Loading latency: ~30ms (one-time on player switch).
+with $A \in \mathbb{R}^{r \times d_{\mathrm{in}}}$, $B \in \mathbb{R}^{d_{\mathrm{out}} \times r}$, rank $r = 4$, $\alpha = 16$. Injection points: `self_attn.q_proj` + `v_proj` in each encoder layer. Per-player parameters: 5.6K (~1.8% of trunk). Loading latency: ~30ms (one-time on player switch).
 
 ### 8.5 Inference and Safety
 
@@ -1298,7 +1298,7 @@ with $A \in \mathbb{R}^{r \times d_{\text{in}}}$, $B \in \mathbb{R}^{d_{\text{ou
 SpawnPolicyRules behavior is governed by a 36-dimensional parameter vector $\theta \in [0,1]^{36}$:
 
 $$
-\theta = [\text{personalization}_5, \text{pbTension}_4, \text{scoring}_8, \text{translation}_5, \text{challenge}_5, \text{order}_2, \text{constructive}_2, \text{solution}_2, \text{special}_3]
+\theta = [\mathrm{personalization}_5, \mathrm{pbTension}_4, \mathrm{scoring}_8, \mathrm{translation}_5, \mathrm{challenge}_5, \mathrm{order}_2, \mathrm{constructive}_2, \mathrm{solution}_2, \mathrm{special}_3]
 $$
 
 For each player context $c$ (representing lifecycle × maturity × arc × PB bin), the goal is to find the optimal parameter vector $\theta^*_c$ that produces the ideal difficulty progression curve $D(r)$.
@@ -1308,7 +1308,7 @@ For each player context $c$ (representing lifecycle × maturity × arc × PB bin
 **Inner level** (learn $f_\phi: (c, \theta) \rightarrow D(r)$):
 
 $$
-\min_\phi \mathbb{E}_{(c,\theta) \sim \mathcal{D}}\left[\mathcal{L}_{\text{total}}(f_\phi(c, \theta), D_{\text{target}})\right]
+\min_\phi \mathbb{E}_{(c,\theta) \sim \mathcal{D}}\left[\mathcal{L}_{\mathrm{total}}(f_\phi(c, \theta), D_{\mathrm{target}})\right]
 $$
 
 **Outer level** (search for $\theta^*_c$):
@@ -1331,7 +1331,7 @@ The monetization framework implements experience-first monetization:
 
 **Whale score:**
 $$
-\text{whale} = 0.4 \cdot \min(1, \text{best\_score}/2000) + 0.3 \cdot \min(1, \text{total\_games}/50) + 0.3 \cdot \min(1, \text{session\_min}/10)
+\mathrm{whale} = 0.4 \cdot \min(1, \mathrm{best\_score}/2000) + 0.3 \cdot \min(1, \mathrm{total\_games}/50) + 0.3 \cdot \min(1, \mathrm{session\_min}/10)
 $$
 
 **Segments**: whale (≥0.60), dolphin ([0.30, 0.60)), minnow (<0.30).
