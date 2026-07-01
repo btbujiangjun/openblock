@@ -965,6 +965,199 @@ This only applies when $feedbackBias > 0$ (the system thinks the player can hand
 
 ---
 
+## 7. Models and Algorithms: Complete Architecture
+
+OpenBlock''s AI system comprises **six distinct models** operating at three architectural layers, each with precisely defined responsibilities and interfaces:
+
+```
+L1 — Spawn Layer (What blocks to show?)
+  ├── SpawnPolicyRules  (Rule engine, always-on, zero parameters)
+  └── SpawnPolicyNet    (Transformer neural model, ~317K params, optional)
+
+L2 — Parameter Layer (What θ for L1?)
+  └── SpawnParamTuner   (ResNet-MLP, ~325K params, offline training)
+
+L3 — Placement Layer (Where to put a given block?)
+  ├── ConvSharedPolicyValueNet  (PyTorch RL, ~188K params, server training)
+  ├── LightPolicyValueNet       (Lightweight MLP, ~28K params, CPU)
+  ├── LightSharedPolicyValueNet (CNN-light shared, ~50K params, CPU)
+  ├── Browser LinearAgent       (Browser REINFORCE, ~28K params, client-side)
+  └── MLX RL                   (Apple Silicon RL, ~28-50K params, Metal-accelerated)
+```
+
+The models are organized along two orthogonal design axes:
+- **L1/L2/L3 separation**: Spawn (L1), parameter tuning (L2), and placement (L3) are independent problems solved by independent models, connected only through shared feature encoding (`game_rules.json`).
+- **Rule vs. Learned separation**: Each layer has a rule-based path (deterministic, always available, explainable) and optional learned paths (data-driven, potentially superior, automatically failsafe through constraint validation gates).
+
+### 7.1 Model Overview and Comparison
+
+| Model | Layer | Algorithm | Parameters | Training Data | Latency | Deployment |
+|-------|-------|-----------|-----------|---------------|---------|------------|
+| **SpawnPolicyRules** | L1 (Spawn) | Multi-signal heuristic + weighted sampling + constructive pre-scan + DFS gate | 0 (rule-based) | None | <5 ms | Browser (always) |
+| **SpawnPolicyNet** | L1 (Spawn) | Transformer encoder + autoregressive slot decoder + multi-task supervision + LoRA | ~317K | Player replays + rule-engine synthetic + self-play | 4-8 ms | Server (optional) |
+| **SpawnParamTuner** | L2 (Params) | ResNet-MLP + bi-level gradient optimization | ~325K | Synthetic (c,θ) pairs + real-game d_curve labels | N/A (offline) | `policies.json` → L1 |
+| **ConvSharedPolicyValueNet** | L3 (Placement) | CNN + DockBoard cross-attention + residual trunk + PPO/GAE + 7 auxiliary heads | ~188K | Self-play rollouts (234K+ episodes) | <5 ms | Python server + browser |
+| **LightPolicyValueNet** | L3 (Placement) | Dual-tower 2-layer MLP | ~28K | Self-play (CPU) | <2 ms | Python CPU |
+| **LightSharedPolicyValueNet** | L3 (Placement) | Single shared MLP + action embedding | ~50K | Self-play (CPU) | <3 ms | Python CPU |
+| **Browser LinearAgent** | L3 (Placement) | Linear softmax policy + value baseline + REINFORCE | ~28K | Browser self-play | <1 ms | Browser (training panel) |
+| **MLX RL** | L3 (Placement) | Lightweight policy-value net (mirrors PyTorch) | ~28-50K | Self-play (MLX-accelerated) | <3 ms | Apple Silicon |
+
+**Key design constraint**: L1 (Spawn) and L3 (Placement) are fully orthogonal. The spawn engine determines *which blocks to show*; the RL agent determines *where to place them*. They share only the board state encoding—never the decision logic.
+
+### 7.2 SpawnPolicyRules: Rule-Based Heuristic Engine
+
+`SpawnPolicyRules` is the default, always-available spawn path. It uses **zero learned parameters**—all weights, thresholds, and profiles are configured in `shared/game_rules.json`. Despite being rule-based, it implements sophisticated algorithmic components:
+
+| Component | Algorithm | Complexity |
+|-----------|-----------|------------|
+| Priority scheduler | 10-intent queue with configurable priority scores | O(1) lookup |
+| Board perception | 17-signal fusion with weighted scoring | O(n^2), n=8 |
+| Weight chain | 14-dim weighted sampling from 28-shape catalog | O(|S|), |S|=28 |
+| Constructive pre-scan | C1 (Completer) + C2 (Setup) + C3 (Order Anchor) | O(|S| × n^2) |
+| Two-stage construction | Stage 1 (clearSeats) + Stage 2 (weightedFill) + PEOG clamp | O(|S| × 3) |
+| Constraint gate | Shape uniqueness (O(1)) → Mobility guard (O(|A|)) → DFS feasibility (200 nodes) | O(nodes × |A|) |
+| Retry loop | 22 attempts with exponential backoff + fallback_simple | O(22 × pipeline) |
+
+The full 9-layer pipeline and detailed algorithmic descriptions are provided in §5.
+
+### 7.3 SpawnPolicyNet: Transformer-Based Neural Spawn
+
+SpawnPolicyNet learns the conditional distribution P(s_1, s_2, s_3 | B, π, H) from real-world data, capturing patterns that hand-tuned weight chains cannot express. It serves as an **optional alternative** to the rule engine, not a replacement: its output passes through the same constraint validation gate as SpawnPolicyRules, and any failure triggers automatic fallback.
+
+**Architecture (V3.1, ~317K parameters):**
+
+```
+Input: 5 heterogeneous sources
+  ├── board (8×8, 64-dim) ⊕ behaviorContext (72-dim) → state_token [B,1,128]
+  ├── target_difficulty (1-dim) → diff_token [B,1,128]
+  ├── playstyle_id (discrete) → style_token [B,1,128] (optional)
+  ├── history (3 rounds × 3 shape IDs) → hist_tokens [B,9,128]
+  └── CLS (learnable) [B,1,128]
+
+Tokens: [CLS, state, diff, style?, hist₀..hist₈] ∈ R^{B×13×128}
+    ↓
+TransformerEncoder ×6 layers
+  Multi-Head Self-Attention: 4 heads, d_model=128, Pre-LN
+  FFN: Linear(128→256)→GELU→Linear(256→128), dropout=0.1
+  Residual + LayerNorm after each sub-layer
+    ↓
+CLS output → h_c ∈ R^{B×128}
+    ↓
+┌─────────────────────────────┬──────────────────────────────────┐
+│ Autoregressive Slot Heads   │ Auxiliary Multi-Task Heads        │
+│                             │                                   │
+│ head₀: h_c → Linear(128→64) │ diversity: h_c → 128→3×7 (CE)    │
+│   → GELU → Linear(64→28)   │ difficulty: h_c → 128→1 (L1)     │
+│ [P(s₁|ctx)]                 │ feasibility: h_c → 128→28 (BCE)  │
+│                             │ style: h_c → 128→5 (CE)          │
+│ head₁: [h_c;emb(s₁)] →     │ intent: h_c → 128→7 (CE)         │
+│   Linear(256→64)→Linear(64→28)                                 │
+│ [P(s₂|s₁,ctx)]              │                                   │
+│                             │                                   │
+│ head₂: [h_c;emb(s₁);emb(s₂)]                                  │
+│   → Linear(384→64)→Linear(64→28)                               │
+│ [P(s₃|s₁,s₂,ctx)]                                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Training:**
+
+Composite loss with 8 terms:
+L = 1.0·L_ceAR + 0.3·L_div + 0.5·L_anti + 0.1·L_diff + 0.4·L_feas + 0.2·L_softInfeas + 0.15·L_style + 0.10·L_intent
+
+Data sources: (1) real player replays, (2) rule-engine synthetic games, (3) self-play rollouts, (4) offline distillation (rule teacher → neural student).
+
+**LoRA Personalization:** W_adapted = W_base + (α/r)·BA, rank r=4, α=16. Injected at self_attn.q_proj + v_proj + dim_feedforward. 5.6K parameters per player (~1.8% of trunk). Loading ∼30ms on player switch.
+
+Full details in §8.
+
+### 7.4 SpawnParamTuner: ResNet-MLP Parameter Optimization
+
+SpawnParamTuner learns to predict the optimal difficulty curve D(r) given a player context c and parameter vector θ ∈ [0,1]^{36}, then uses gradient-based search to find θ*_c for each context.
+
+**Architecture (~325K parameters):**
+
+```
+Input: context_embedding(32) ⊕ θ(36) = 68-dim
+  ↓
+Linear(68→128) → LayerNorm → GELU
+  ↓
+ResBlock ×8: each = [Linear(128→128)→LN→GELU→Dropout(0.1)→Linear(128→128)→LN→+x→GELU]
+  ↓
+LayerNorm(128)
+  ↓
+┌────────────────────────────────────────────────────────────────┐
+│ Output Heads (7 heads, all from shared LayerNorm output)        │
+│ head_curve:   128→64→20 (sigmoid)   D(r): difficulty over score │
+│ head_curve_e: 128→64→20 (sigmoid)   E(r): delight/engagement   │
+│ head_curve_f: 128→64→20 (sigmoid)   F(r): frustration cap      │
+│ head_pb:      128→64→1  (sigmoid)   PB break probability       │
+│ head_noMove:  128→64→1  (sigmoid)   Normalized no-move steps   │
+│ head_score:   128→64→1  (linear)    Predicted log score         │
+│ head_survival:128→64→1  (sigmoid)   Survival probability       │
+└────────────────────────────────────────────────────────────────┘
+```
+
+**Bi-level optimization:**
+
+Inner level (learn f_φ: (c,θ) → D(r)):
+min_φ E_{(c,θ)~D} [ L_total(f_φ(c,θ), targets) ]
+
+with 15-term composite loss including: shape MSE (α=5), anchor hinge (κ=1, 22 key r-points), monotonicity (μ=1), diversity (τ=1→0.005), deploy loss (ν=1), smoothness (ε=0.04), balance (β=0.15), surprise (γ=0.3→~7%).
+
+Outer level (search for θ*_c):
+θ*_c = argmin_{θ∈[0,1]^{36}} J(f_φ*(c,θ))
+
+with 8 LHS restarts, T=300 Adam steps (η=0.05), reprojection to [0,1]^{36}.
+
+Deployment: trained policies → `policies.json` → consumed by both SpawnPolicyRules and SpawnPolicyNet.
+
+### 7.5 ConvSharedPolicyValueNet: Self-Play RL Placement Agent
+
+The primary RL model for learning optimal block placement. Trained via self-play PPO + GAE with seven auxiliary supervision heads.
+
+**Architecture (~188K parameters):**
+
+```
+Grid Encoder:                                 Dock Encoder:
+  [B,1,8,8]                                     dock_mask_k [B,25]
+    → Conv2d(1→32,3×3)→GELU                        → Q_k = Linear(25→16)
+    → ResConvBlock(32)                           grid_feat [B,32,8,8]
+    → ResConvBlock(32)                              → K = Conv2d(1×1,32→16)
+    → [B,32,8,8]  →  AvgPool  →  g [B,32]         → V = Conv2d(1×1,32→16)
+                                                   softmax(Q_k·K/√16)·V^T → ctx_k [B,16]
+                                                dock_ctx = concat(ctx_1,ctx_2,ctx_3) [B,48]
+
+Shared Trunk:
+  concat[scalars(65), g(32), dock_ctx(48)] = [B,145]
+    → x + GELU(Linear(145→128)(x))   (×3 residual FC blocks)
+    → h(s) [B,128]
+
+Heads:
+  Policy: concat[h(s), GELU(ActionProj(15→48)(ψ(a)))] → 176→64→1 → logit → softmax
+  Value:  h(s) → 128→64→1 → V(s)
+  Auxiliary (7 heads, all from h(s) or concat[h(s),ψ(a)]):
+    board_quality(1), feasibility(1), survival(1), topology(10),
+    spawn_diff(12 with v13 placeability), hole(1), clear_pred(4)
+```
+
+**Training: PPO + GAE.** PPO clip ε=0.25, 4 epochs. GAE λ=0.85, γ=0.99. Mixed value target: 50% GAE returns + 50% log-normalized outcome score. Adaptive entropy target with feedback control. Difficulty bucket curriculum: SCD ceiling progressively relaxed from 0.3→1.0 over 30,000 episodes. BestGuard automatic rollback on evaluation regression.
+
+Parameter breakdown: Grid encoder (~5K) + Dock attention (~3K) + Shared trunk (~50K) + Policy head (~15K) + Value head (~8K) + 7 auxiliary heads (~107K).
+
+Full details in §7.3–7.7.
+
+### 7.6 Lightweight RL Variants
+
+**LightPolicyValueNet (~28K parameters).** Dual-tower 2-layer MLP: independent policy and value towers from the same state input. Policy: s→Linear(204→64)→GELU→Linear(64→|A|). Value: s→Linear(204→64)→GELU→Linear(64→1). Suitable for CPU training and resource-constrained environments. Implements `_AuxStubsMixin` for interface compatibility with the full ConvShared architecture.
+
+**LightSharedPolicyValueNet (~50K parameters).** Single shared MLP (204→64→64) with action embedding (15→32). Fused policy head (h(s) ‖ action_embed → logits) and independent value head. Better representational capacity than the dual-tower variant while remaining ~4× smaller than ConvShared.
+
+**Browser LinearAgent (~28K parameters).** Fully client-side RL: linear softmax policy π(a|s) = softmax(W·s) + linear value baseline V(s) = w·s. Trained via REINFORCE (n_epochs=1) in the browser. Strategy-aware via strategy_id conditioning. Supports remote RL workflow (local trajectory collection → server batch PPO update). Training panel provides real-time weight visualization.
+
+**MLX RL (Apple Silicon).** Mirrors LightPolicyValueNet/LightSharedPolicyValueNet architectures using Apple's MLX framework with Metal Performance Shaders acceleration. Enables training on Apple Silicon Macs without CUDA. Shares `features.py` with PyTorch RL for cross-framework feature parity.
+
+
 ## 7. The RL Agent: Self-Play Placement Policy
 
 ### 7.1 Problem Formulation
